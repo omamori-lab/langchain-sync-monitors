@@ -2,51 +2,20 @@
 
 from __future__ import annotations
 
-from typing import Any
-
 import pytest
-from deepagents import SubAgent, create_deep_agent
 from langchain_core.messages import AIMessage, ToolMessage
 from langgraph.checkpoint.memory import InMemorySaver
-from langgraph.graph.state import CompiledStateGraph
 
 from langchain_sync_monitors.contracts import SubagentHalt, TaskAuthor
-from langchain_sync_monitors.deepagents import monitor_subagents
 from langchain_sync_monitors.middleware import MonitorMiddleware
 from tests.support.agents import RunMode, build_thread_config, read_texts, run_agent
-from tests.support.chat_models import ScriptedChatModel, build_tool_call_message
+from tests.support.chat_models import ScriptedChatModel
+from tests.support.deep_agents import build_deep_agent, build_delegation_step
 from tests.support.monitors import KeywordMonitor
 from tests.support.protocols import HALT_MESSAGE, AcceptFirst, HaltAfterOneSample
 
 WORKER_REPORT = "Three sources found."
 MAIN_ANSWER = "Here is the summary."
-
-
-def build_delegation_step() -> AIMessage:
-    return build_tool_call_message(
-        tool_name="task",
-        call_id="call-task",
-        arguments={"description": "Find the sources.", "subagent_type": "worker"},
-    )
-
-
-def build_deep_agent(
-    *,
-    main_model: ScriptedChatModel,
-    worker_model: ScriptedChatModel,
-    main_monitor: MonitorMiddleware,
-    worker_monitor: MonitorMiddleware | None = None,
-    checkpointer: InMemorySaver | None = None,
-) -> CompiledStateGraph[Any, Any, Any, Any]:
-    worker = SubAgent(name="worker", description="Finds sources.", model=worker_model)
-    overrides = {"worker": worker_monitor} if worker_monitor else None
-    subagents = monitor_subagents(middleware=main_monitor, subagents=[worker], overrides=overrides)
-    return create_deep_agent(
-        model=main_model,
-        middleware=[main_monitor],
-        subagents=subagents,
-        checkpointer=checkpointer,
-    )
 
 
 @pytest.fixture

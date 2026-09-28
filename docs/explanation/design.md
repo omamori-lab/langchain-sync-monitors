@@ -61,8 +61,9 @@ The middleware is being built ([#17](https://github.com/Antonio-Tresol/langchain
 LangChain gives middleware several hooks. The monitor uses `wrap_model_call`
 and `awrap_model_call`, the only hooks that gate every step and can call the
 model more than once. An `after_model` hook would come too late: after-model
-hooks run in reverse list order, so a human-in-the-loop interrupt listed
-before the monitor would fire before the monitor ran.
+hooks run in reverse list order, and Deep Agents lists
+`HumanInTheLoopMiddleware` after user middleware, so its interrupt would fire
+before an after-model monitor ran.
 
 LangChain nests `wrap_model_call` handlers so that the first middleware in the
 list is the outermost layer. In a plain `create_agent`, the monitor goes last

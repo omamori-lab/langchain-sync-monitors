@@ -6,10 +6,12 @@ library: what goes wrong, the evidence, and how this library avoids it.
 
 They are notes for maintainers, written in the spirit of a bug report. We read
 LangChain's code for ideas rather than as a standard, and these are the places
-where we chose a different pattern. Every finding was reproduced offline
-against the versions below, with no API keys: request bodies were captured
-with an `httpx.MockTransport`, and agents ran on a scripted fake chat model.
-Line numbers refer to the installed package files. Draft upstream reports for
+where we chose a different pattern. Every bug, and every claim about how a
+smell behaves at run time, was reproduced offline against the versions below,
+with no API keys: request bodies were captured with an `httpx.MockTransport`,
+and agents ran on a scripted fake chat model. The remaining smells are about
+how the code is written, and cite it. Line numbers refer to the installed
+package files. Draft upstream reports for
 the bugs are kept in the repository at `docs/research/upstream-reports.md`;
 none has been filed yet.
 
@@ -291,11 +293,11 @@ class where behaviour varies (`Fallback`).
 ### Human-in-the-loop edits a message in place
 
 `HumanInTheLoopMiddleware.after_model` assigns the revised list to
-`last_ai_msg.tool_calls` on the message object it took from the state, then
-returns that same object as its update
+`last_ai_msg.tool_calls` on the message object it took from the state, rather
+than on a copy, then returns that same object as its update
 (`langchain/agents/middleware/human_in_the_loop.py:517-525`) [@langchain2026].
-The edit is visible to anything else holding the object, whether or not the
-update is committed.
+A hook that edits its input in place is harder to reason about than one that
+returns a new value.
 
 This library's records and decisions are frozen dataclasses, and every message
 the monitor inserts is a new message with a fresh id (`monitor-<uuid4>`), a

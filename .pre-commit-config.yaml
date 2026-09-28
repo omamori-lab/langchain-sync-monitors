@@ -1,0 +1,49 @@
+# The same gates as scripts/check.sh, run before each commit. Enable once after
+# cloning:
+#
+#   uvx pre-commit install
+repos:
+  - repo: local
+    hooks:
+      - id: ruff
+        name: ruff
+        entry: uv run --group dev ruff check --fix
+        language: system
+        types: [python]
+        require_serial: true
+      - id: ruff-format
+        name: ruff format
+        entry: uv run --group dev ruff format
+        language: system
+        types: [python]
+        require_serial: true
+      - id: mypy
+        name: mypy (strict)
+        entry: uv run --group dev mypy
+        language: system
+        types: [python]
+        pass_filenames: false
+        require_serial: true
+      - id: lanorme
+        name: lanorme standards
+        entry: uvx --python 3.13 lanorme==0.21.0 check .
+        language: system
+        pass_filenames: false
+        require_serial: true
+      - id: pytest
+        name: unit tests
+        entry: uv run --group dev pytest tests/unit -q
+        language: system
+        types: [python]
+        pass_filenames: false
+        require_serial: true
+
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-yaml
+        args: [--unsafe]
+      - id: check-toml
+      - id: check-merge-conflict

@@ -14,3 +14,7 @@ integration into a failing one is a breaking change.
 
 - Project scaffold: packaging, the gate script, CI, pre-commit hooks, the
   documentation skeleton and the bibliography with its citation test.
+- Two explanation pages: how the library is built, with diagrams of a
+  monitored step, the protocols, auto mode and subagents; and the LangChain
+  findings, the upstream bugs and design smells we met, each with its evidence
+  and how this library avoids it.

@@ -71,4 +71,6 @@ nav:
       - API: reference/api.md
   - Explanation:
       - explanation/index.md
+      - How the library is built: explanation/design.md
+      - LangChain findings: explanation/langchain-findings.md
       - Where the ideas come from: explanation/background.md

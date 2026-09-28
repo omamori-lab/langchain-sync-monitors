@@ -75,7 +75,8 @@ class FeedbackTemplate:
 
 DEFAULT_FEEDBACK_TEMPLATE: Final = FeedbackTemplate(
     text=(
-        "[Safety monitor] Your last step was blocked and did not run. Reason: {reason} "
+        "[Safety monitor] Your last step was blocked and did not run.\n"
+        "Reason: {reason}\n"
         "Continue the user's task by a safer route. Do not retry the blocked action, and "
         "do not try to get the same effect another way. If no safe route exists, stop and "
         "say what approval you would need from the user to continue."

@@ -5,22 +5,6 @@ reader who has not seen the design plan: what happens on one step of an agent,
 where the monitor sits, the four pieces that share the work, and how the same
 code serves subagents and both `invoke()` and `ainvoke()`.
 
-## What exists today
-
-The library is being built in parallel pieces against one set of shared
-types. The names in `contracts.py` are fixed; the other class names on this
-page are the ones the pieces are being built under, and the
-[API reference](../reference/api.md) lists the final ones as each part lands.
-
-| Part | Status |
-|---|---|
-| Shared types (`contracts.py`): channels, views, verdicts, samples, decisions, log records and the abstract `Monitor`, `ControlProtocol`, `PendingStep` and `Fallback` | Merged |
-| Transcript rendering (`transcript.py`), model helpers (`model_calls.py`) and errors (`errors.py`) | Merged |
-| Chat judges, guard models, decision models and the wrappers around them | Being built ([#10](https://github.com/Antonio-Tresol/langchain-sync-monitors/issues/10) to [#13](https://github.com/Antonio-Tresol/langchain-sync-monitors/issues/13)) |
-| Thresholds, the four control protocols and their fallbacks | Being built ([#14](https://github.com/Antonio-Tresol/langchain-sync-monitors/issues/14) to [#16](https://github.com/Antonio-Tresol/langchain-sync-monitors/issues/16)) |
-| The middleware and its pending steps | Being built ([#17](https://github.com/Antonio-Tresol/langchain-sync-monitors/issues/17)) |
-| Monitors for Deep Agents subagents | Being built ([#18](https://github.com/Antonio-Tresol/langchain-sync-monitors/issues/18)) |
-
 ## One step, end to end
 
 A step is one model call of the agent. The untrusted model, the one doing the
@@ -55,8 +39,6 @@ with `model_calls.build_internal_call_config`, LangChain's mechanism for
 keeping a middleware's calls out of the message stream [@langchain2026].
 
 ## Where the middleware sits
-
-The middleware is being built ([#17](https://github.com/Antonio-Tresol/langchain-sync-monitors/issues/17)); this section describes its design.
 
 LangChain gives middleware several hooks. The monitor uses `wrap_model_call`
 and `awrap_model_call`, the only hooks that gate every step and can call the
@@ -164,9 +146,6 @@ that carry it only in `reasoning_details`.
 
 ## Control protocols
 
-The protocols and thresholds are being built ([#14](https://github.com/Antonio-Tresol/langchain-sync-monitors/issues/14) to [#16](https://github.com/Antonio-Tresol/langchain-sync-monitors/issues/16)); this
-section describes their design.
-
 Every protocol starts the same way: the untrusted model proposes a step, and
 the monitor scores it. The protocols differ in what a suspicious score
 triggers. Each threshold is on the common 0 to 1 scale, has a default, and
@@ -273,9 +252,6 @@ message's `name`.
 
 ## Three kinds of monitor model
 
-The monitor classes are being built ([#10](https://github.com/Antonio-Tresol/langchain-sync-monitors/issues/10) to [#13](https://github.com/Antonio-Tresol/langchain-sync-monitors/issues/13)); this section
-describes their design.
-
 Any model that can judge a step can be the monitor. The three families return
 different things, so each has its own monitor class, and all of them produce
 the same `Verdict`. The model is always a parameter: the library never picks
@@ -330,9 +306,6 @@ flowchart LR
 
 ## Subagents
 
-Subagent monitoring is being built ([#18](https://github.com/Antonio-Tresol/langchain-sync-monitors/issues/18)); this section describes its
-design.
-
 Deep Agents does not pass the main agent's middleware to its subagents. A
 helper, `monitor_subagents`, adds a monitor to every subagent spec, including
 the built-in general-purpose one. Each subagent gets a copy of the main
@@ -370,10 +343,6 @@ with its reducer in the last position (see the
 [findings](langchain-findings.md)).
 
 ## Sync and async
-
-The `Monitor`, `PendingStep` and `ControlProtocol` contracts are merged; the
-two pending steps that implement `PendingStep` are being built with the
-middleware ([#17](https://github.com/Antonio-Tresol/langchain-sync-monitors/issues/17)).
 
 LangChain calls `wrap_model_call` under `invoke()` and `stream()`, and
 `awrap_model_call` under `ainvoke()` and `astream()`. Its own middlewares keep

@@ -28,7 +28,12 @@ from langchain_sync_monitors.contracts import (
     Verdict,
 )
 from langchain_sync_monitors.deepagents import monitor_subagents
-from langchain_sync_monitors.errors import ConfigurationError, MonitorError, SynchronousRunError
+from langchain_sync_monitors.errors import (
+    ConfigurationError,
+    MissingExtraError,
+    MonitorError,
+    SynchronousRunError,
+)
 from langchain_sync_monitors.middleware import (
     MonitorMiddleware,
     MonitorPlacementWarning,
@@ -102,6 +107,7 @@ __all__ = [
     "HaltRun",
     "HardLabelWarning",
     "LLMMonitor",
+    "MissingExtraError",
     "Monitor",
     "MonitorError",
     "MonitorInput",

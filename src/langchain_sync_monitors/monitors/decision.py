@@ -28,7 +28,7 @@ import stamina
 from pydantic import BaseModel, Field, SecretStr, ValidationError
 
 from langchain_sync_monitors.contracts import Monitor, MonitorInput, MonitorView, Verdict
-from langchain_sync_monitors.errors import ConfigurationError, MonitorError
+from langchain_sync_monitors.errors import ConfigurationError, MissingExtraError, MonitorError
 from langchain_sync_monitors.model_calls import build_internal_call_config
 from langchain_sync_monitors.monitors.chat import DEFAULT_MONITOR_VIEW
 from langchain_sync_monitors.transcript import render_proposed_step, render_transcript
@@ -347,7 +347,7 @@ def load_typesafe_module() -> ModuleType:
             "TypeSafeDecisionModel needs the typesafe extra: "
             "pip install 'langchain-sync-monitors[typesafe]'"
         )
-        raise ConfigurationError(message) from error
+        raise MissingExtraError(message) from error
 
 
 class TypeSafeDecisionModel(DecisionModel):

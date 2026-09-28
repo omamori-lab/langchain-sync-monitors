@@ -34,5 +34,10 @@ uv run --group docs mkdocs build --strict --quiet --site-dir "$(mktemp -d)"
 echo "==> build"
 uv build >/dev/null
 
+echo "==> import the built wheel without any extra"
+wheel="$(ls -t dist/langchain_sync_monitors-*.whl | head -n 1)"
+uv run --isolated --no-project --python 3.12 --with "$wheel" \
+  python -c "import langchain_sync_monitors as package; print(len(package.__all__), 'public names')"
+
 echo
 echo "OK: all gates passed."

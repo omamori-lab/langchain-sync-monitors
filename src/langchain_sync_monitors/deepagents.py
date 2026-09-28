@@ -12,7 +12,7 @@ from collections.abc import Mapping, Sequence
 from typing import TYPE_CHECKING, TypeGuard
 
 from langchain_sync_monitors._langchain import AnyAgentMiddleware
-from langchain_sync_monitors.errors import ConfigurationError
+from langchain_sync_monitors.errors import ConfigurationError, MissingExtraError
 from langchain_sync_monitors.middleware import MonitorMiddleware
 
 if TYPE_CHECKING:
@@ -37,7 +37,7 @@ def read_general_purpose_subagent() -> SubAgent:
             GENERAL_PURPOSE_SUBAGENT,
         )
     except ImportError as error:
-        raise ImportError(INSTALL_HINT) from error
+        raise MissingExtraError(INSTALL_HINT) from error
     return GENERAL_PURPOSE_SUBAGENT.copy()
 
 

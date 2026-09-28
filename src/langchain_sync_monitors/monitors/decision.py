@@ -232,8 +232,9 @@ class OpenRouterDecisionModel(DecisionModel):
 
     The key comes from `OPENROUTER_API_KEY` unless `api_key` is given. Pass
     your own `http_client` or `async_http_client` to reuse connections or
-    change transports. Without one, the async path opens a client per request,
-    since a pooled client cannot move between event loops.
+    change transports. Without them, the sync path keeps one client for the
+    model's lifetime, and the async path opens a client per request, since a
+    pooled async client cannot move between event loops.
     """
 
     def __init__(

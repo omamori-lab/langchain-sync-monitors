@@ -22,7 +22,7 @@ echo "==> mypy (strict)"
 uv run --group dev mypy
 
 echo "==> unit tests"
-uv run --group dev pytest tests/unit -q
+uv run --group dev pytest -q
 
 echo "==> lanorme standards"
 # lanorme needs Python 3.13+; it only parses the code, so it checks 3.12 source correctly.

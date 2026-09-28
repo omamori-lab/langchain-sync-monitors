@@ -1873,7 +1873,7 @@ class StepRecord(TypedDict):
 
     <section id="findings">
       <h2>LangChain findings: reported, not copied</h2>
-      <p>Read for ideas, not as a standard. Each item goes into <code>docs/FINDINGS.md</code>. Untyped LangChain surfaces are confined to one boundary module, <code>_langchain.py</code>; everywhere else <code>mypy --strict</code> applies.</p>
+      <p>Read for ideas, not as a standard. Each item goes into <code>docs/explanation/langchain-findings.md</code>. Untyped LangChain surfaces are confined to one boundary module, <code>_langchain.py</code>; everywhere else <code>mypy --strict</code> applies.</p>
       <h3>Bugs</h3>
       <ul class="findings">
         <li><span><span class="pill pill-bug">bug</span> The OpenRouter SDK drops unknown <code>reasoning</code> keys, so <code>{"enabled": False}</code> is sent as <code>{}</code>, which <strong>turns reasoning on</strong>.</span><span class="where">openrouter/components/chatrequest.py:126-140</span></li>
@@ -1921,7 +1921,7 @@ class StepRecord(TypedDict):
           <text x="292" y="199" class="t-small t-mono">middleware.py · deepagents.py · _langchain.py</text>
           <rect class="box" x="275" y="228" width="300" height="54" rx="7"/>
           <text x="292" y="250" class="t-strong">Agent D · documentation</text>
-          <text x="292" y="269" class="t-small t-mono">docs/FINDINGS.md · README with credits</text>
+          <text x="292" y="269" class="t-small t-mono">docs/explanation/langchain-findings.md · README with credits</text>
 
           <rect class="box box-accent" x="640" y="100" width="310" height="100" rx="8"/>
           <text x="795" y="128" text-anchor="middle" class="t-strong t-accent">Phase 2 · me</text>

@@ -1,0 +1,74 @@
+site_name: langchain-sync-monitors
+site_description: Control monitors for LangChain agents and Deep Agents, as middleware.
+repo_url: https://github.com/Antonio-Tresol/langchain-sync-monitors
+repo_name: Antonio-Tresol/langchain-sync-monitors
+edit_uri: edit/main/docs/
+docs_dir: docs
+# Research notes and the design plan are working documents, not user docs.
+exclude_docs: |
+  research/
+  plan.html
+
+theme:
+  name: material
+  features:
+    - navigation.indexes
+    - navigation.top
+    - navigation.tracking
+    - toc.follow
+    - search.suggest
+    - search.highlight
+    - content.code.copy
+  palette:
+    - scheme: default
+      primary: black
+      accent: indigo
+      toggle:
+        icon: material/weather-night
+        name: Switch to dark mode
+    - scheme: slate
+      primary: black
+      accent: indigo
+      toggle:
+        icon: material/weather-sunny
+        name: Switch to light mode
+
+plugins:
+  - search
+  - bibtex:
+      bib_file: docs/references.bib
+  - mkdocstrings:
+      handlers:
+        python:
+          paths: [src]
+          options:
+            show_source: false
+            docstring_style: null
+            members_order: source
+
+markdown_extensions:
+  - admonition
+  - attr_list
+  - footnotes
+  - toc:
+      permalink: true
+  - pymdownx.highlight
+  - pymdownx.inlinehilite
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
+
+nav:
+  - Home: index.md
+  - Tutorials:
+      - tutorials/index.md
+  - How-to guides:
+      - how-to/index.md
+  - Reference:
+      - reference/index.md
+      - API: reference/api.md
+  - Explanation:
+      - explanation/index.md
+      - Where the ideas come from: explanation/background.md

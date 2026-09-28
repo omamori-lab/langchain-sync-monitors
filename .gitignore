@@ -23,3 +23,7 @@ htmlcov/
 .idea/
 .vscode/
 .DS_Store
+
+# Local agent notes and docs builds
+CLAUDE.local.md
+site/

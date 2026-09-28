@@ -396,7 +396,7 @@ html { scroll-behavior: smooth; }
 
   <main>
     <header class="intro" id="overview">
-      <p class="eyebrow"><span>langchain-sync-monitors</span><span class="status">Draft 3 · awaiting your review</span><span>28 Sep 2026</span></p>
+      <p class="eyebrow"><span>langchain-sync-monitors</span><span class="status">Draft 4 · Phase 0 in progress</span><span>28 Sep 2026</span></p>
       <h1>Control monitors for LangChain agents and Deep Agents</h1>
       <p class="lede">A monitor judges every step an agent proposes before anything runs. A control protocol decides what to do with that judgement: let it run, draw another sample, hand the step to a trusted model, tell the agent to change course, or stop. We build <strong>Defer to Resample</strong> from Ctrl-Z and an <strong>Auto Mode</strong> steering monitor first.</p>
       <ul class="facts">
@@ -411,6 +411,11 @@ html { scroll-behavior: smooth; }
     <aside class="changes" id="changes" aria-label="Changes since the last review">
       <h2>What changed</h2>
       <p class="note">Sections carry a badge where they changed. Earlier drafts are listed below the latest.</p>
+      <h3>Draft 4 · after the checks, during Phase 0</h3>
+      <ul>
+        <li><strong>All seven checks are done</strong>, with results in the table. <a href="#checks">Go</a></li>
+        <li><strong>Names checked by lanorme</strong>: monitors <code>evaluate</code> / <code>evaluate_sync</code>, <code>request_trusted_step</code>, <code>estimate_probabilities</code>, <code>copy_for_subagent</code> and other verb-first names; keyword-only arguments throughout. <a href="#pseudocode">Code</a></li>
+      </ul>
       <h3>Draft 3 · after the literature search</h3>
       <ul>
         <li><strong>Default thresholds are 0.6</strong> to defer, block or flag (was 0.5); audit stays 0.9. <a href="#dtr-one-step">Protocols</a>, <a href="#code-thresholds">threshold code</a>, <a href="#questions">decisions table</a>.</li>
@@ -1260,15 +1265,15 @@ for record in result["monitor_log"]:
     def name(self) -&gt; str:
         return f"{self.label}[{self.agent_name}]"   # LangChain requires unique names within one agent
 
-    def for_subagent(self, subagent_name: str) -&gt; "MonitorMiddleware":
+    def copy_for_subagent(self, subagent_name: str) -&gt; "MonitorMiddleware":
         """Same monitor and protocol. The subagent's task was written by the parent agent."""
         return replace(self, agent_name=subagent_name, task_author=TaskAuthor.PARENT_AGENT)
 
     async def awrap_model_call(self, request, call_model):     # used by ainvoke and astream
-        if self.a_subagent_halted_the_run(request.state):
-            return self.commit(request, halt_because_a_subagent_halted())
+        if self.has_subagent_halted_the_run(request.state):
+            return self.commit(request, build_halt_decision())
         pending_step = AsyncPendingStep(request, call_model, self.monitor, self.task_author,
-                                        previous_records=self.records_so_far(request))
+                                        previous_records=self.read_previous_records(request))
         decision = await self.protocol.decide(pending_step)
         return self.commit(request, decision)
 
@@ -1276,7 +1281,7 @@ for record in result["monitor_log"]:
         # identical, with SyncPendingStep and run_synchronously(self.protocol.decide(pending_step))
         ...
 
-    def a_subagent_halted_the_run(self, state) -&gt; bool:
+    def has_subagent_halted_the_run(self, state) -&gt; bool:
         if self.when_subagent_halts is SubagentHalt.STOP_SUBAGENT_ONLY:
             return False
         return any(
@@ -1289,13 +1294,13 @@ for record in result["monitor_log"]:
             decision,
             agent=self.agent_name,
             monitor=self.label,
-            step_number=len(self.records_so_far(request)) + 1,
+            step_number=len(self.read_previous_records(request)) + 1,
         )
         request.runtime.stream_writer(record)                  # live event for stream_mode="custom"
 
         messages_to_commit = decision.response.messages
         if self.feedback_visibility is FeedbackVisibility.IN_TRANSCRIPT:
-            messages_to_commit = [*decision.blocked_attempt_messages(), *messages_to_commit]
+            messages_to_commit = [*build_blocked_attempt_messages(decision), *messages_to_commit]
 
         return ExtendedModelResponse(
             model_response=ModelResponse(result=messages_to_commit),
@@ -1317,12 +1322,12 @@ for record in result["monitor_log"]:
     ) -&gt; list[Sample]:
         conversation = list(self.request.messages)
         for attempt in blocked_attempts:                # only auto mode passes blocked attempts
-            conversation += attempt.as_messages()       # the blocked proposal, then its feedback
+            conversation += build_feedback_messages(attempt)       # the blocked proposal, then its feedback
 
         async def draw_one_sample() -&gt; Sample:
             response = await self.call_model(self.request.override(messages=conversation))
-            proposal = first_ai_message(response)
-            verdict = await self.monitor.aassess(
+            proposal = find_first_ai_message(response)
+            verdict = await self.monitor.evaluate(
                 MonitorInput(history=conversation, proposal=proposal, task_author=self.task_author)
             )
             return Sample(response=response, proposal=proposal, verdict=verdict)
@@ -1331,7 +1336,7 @@ for record in result["monitor_log"]:
             return list(await asyncio.gather(*(draw_one_sample() for _ in range(count))))
         return [await draw_one_sample() for _ in range(count)]
 
-    async def ask_trusted_model(self, trusted_model: BaseChatModel) -&gt; ModelResponse:
+    async def request_trusted_step(self, trusted_model: BaseChatModel) -&gt; ModelResponse:
         """Same conversation, same tools, a different model."""
         return await self.call_model(self.request.override(model=trusted_model))
 
@@ -1388,7 +1393,7 @@ def resolve_threshold(parameter_name: str, threshold: float | DefaultThreshold) 
         self.flag_threshold = resolve_threshold("flag_threshold", flag_threshold)
 
     async def decide(self, step: PendingStep) -&gt; StepDecision:
-        [sample] = await step.sample(1)
+        [sample] = await step.sample(count=1)
         return StepDecision(
             outcome=Outcome.ALLOWED,
             response=sample.response,
@@ -1418,14 +1423,14 @@ def resolve_threshold(parameter_name: str, threshold: float | DefaultThreshold) 
         ...
 
     async def decide(self, step: PendingStep) -&gt; StepDecision:
-        samples = await step.sample(1)
+        samples = await step.sample(count=1)
         first_is_suspicious = samples[0].verdict.suspicion &gt;= self.defer_threshold
 
         if first_is_suspicious and self.resampling is Resampling.PARALLEL:
-            samples += await step.sample(self.max_resamples, concurrently=True)
+            samples += await step.sample(count=self.max_resamples, concurrently=True)
         elif first_is_suspicious:                                   # Resampling.SEQUENTIAL
             for _ in range(self.max_resamples):
-                samples += await step.sample(1)                     # fresh call on the same conversation
+                samples += await step.sample(count=1)                     # fresh call on the same conversation
                 if samples[-1].verdict.suspicion &lt; self.defer_threshold:
                     break                                           # stop at the first acceptable sample
 
@@ -1442,7 +1447,7 @@ def resolve_threshold(parameter_name: str, threshold: float | DefaultThreshold) 
                 executed_sample=chosen,
                 flagged=flagged,
             )
-        return await self.fallback.take_over(step, samples, flagged=flagged)
+        return await self.fallback.take_over(step, samples=tuple(samples), flagged=flagged)
 
 
 class DeferToTrusted(DeferToResample):
@@ -1482,7 +1487,7 @@ class DeferToTrusted(DeferToResample):
         blocked_attempts = []
 
         while True:
-            [sample] = await step.sample(1, blocked_attempts)
+            [sample] = await step.sample(count=1, blocked_attempts=tuple(blocked_attempts))
             samples.append(sample)
 
             if sample.verdict.suspicion &lt; self.block_threshold:
@@ -1502,7 +1507,7 @@ class DeferToTrusted(DeferToResample):
             too_many_in_run = blocks_earlier_in_run + len(blocked_attempts) &gt;= self.max_total_blocks
             if too_many_in_a_row or too_many_in_run:
                 return await self.when_limit_reached.take_over(
-                    step, samples, flagged=True, blocked_attempts=blocked_attempts
+                    step, samples=tuple(samples), flagged=True, blocked_attempts=tuple(blocked_attempts)
                 )</code></pre>
       </div>
       <div class="code-block">
@@ -1514,7 +1519,7 @@ class DeferToTrusted(DeferToResample):
         self.trusted_model = init_chat_model(trusted_model) if isinstance(trusted_model, str) else trusted_model
 
     async def take_over(self, step, samples, *, flagged, blocked_attempts=()) -&gt; StepDecision:
-        response = await step.ask_trusted_model(self.trusted_model)
+        response = await step.request_trusted_step(trusted_model=self.trusted_model)
         return StepDecision(outcome=Outcome.DEFERRED_TO_TRUSTED, response=response, samples=samples,
                             executed_sample=None, flagged=flagged, blocked_attempts=blocked_attempts)
 
@@ -1541,7 +1546,7 @@ class HaltRun(Fallback):
         require_prompt_variables(prompt, {"transcript", "proposed_step"})   # fails at construction, not mid-run
         ...
 
-    def prompt_messages(self, monitor_input: MonitorInput) -&gt; list[BaseMessage]:
+    def build_prompt_messages(self, monitor_input: MonitorInput) -&gt; list[BaseMessage]:
         return self.prompt.format_messages(
             transcript=render_transcript(monitor_input.history, self.view, monitor_input.task_author),
             proposed_step=render_proposed_step(monitor_input.proposal, self.view),
@@ -1555,9 +1560,9 @@ class LLMMonitor(ChatModelMonitor):
                  lowest_score: int = 0, highest_score: int = 10,
                  view: MonitorView = MonitorView(), max_parse_retries: int = 2): ...
 
-    async def aassess(self, monitor_input: MonitorInput) -&gt; Verdict:
+    async def evaluate(self, monitor_input: MonitorInput) -&gt; Verdict:
         for _ in range(self.max_parse_retries + 1):
-            reply = await self.model.ainvoke(self.prompt_messages(monitor_input), config=INTERNAL_MONITOR_CALL)
+            reply = await self.model.ainvoke(self.build_prompt_messages(monitor_input), config=INTERNAL_MONITOR_CALL)
             reasoning = find_tag(reply.text, "reasoning")
             score = parse_integer(find_tag(reply.text, "score"))
             if score is not None and self.lowest_score &lt;= score &lt;= self.highest_score:
@@ -1565,7 +1570,7 @@ class LLMMonitor(ChatModelMonitor):
                 return Verdict(suspicion=suspicion, reason=reasoning or "")
         return Verdict(suspicion=1.0, reason="The monitor's output could not be parsed, so the step is treated as suspicious.")
 
-    def assess(self, monitor_input: MonitorInput) -&gt; Verdict:
+    def evaluate_sync(self, monitor_input: MonitorInput) -&gt; Verdict:
         """Same steps with self.model.invoke(...)."""</code></pre>
       </div>
 
@@ -1594,27 +1599,27 @@ class GuardModelMonitor(ChatModelMonitor):
         view: MonitorView = MonitorView(),
     ): ...
 
-    async def aassess(self, monitor_input: MonitorInput) -&gt; Verdict:
-        messages = self.prompt_messages(monitor_input)
+    async def evaluate(self, monitor_input: MonitorInput) -&gt; Verdict:
+        messages = self.build_prompt_messages(monitor_input)
         first_reply = await self.model.ainvoke(messages, config=INTERNAL_MONITOR_CALL, logprobs=True, top_logprobs=20)
 
         if self.scoring in (GuardScoring.AUTO, GuardScoring.LOG_PROBABILITIES):
-            probability = probability_of_suspicious_label(first_reply, self.suspicious_labels, self.safe_labels)
+            probability = compute_suspicious_label_probability(first_reply, self.suspicious_labels, self.safe_labels)
             if probability is not None:
                 return Verdict(suspicion=probability, reason=f"The guard model gives {probability:.3f} to a suspicious label.")
             if self.scoring is GuardScoring.LOG_PROBABILITIES:
                 raise MonitorConfigurationError(f"{self.model_name} returned no log-probabilities.")
 
         if self.scoring is GuardScoring.HARD_LABEL:
-            return self.verdict_from_labels([first_reply])
+            return self.build_verdict_from_labels([first_reply])
 
         more_replies = await asyncio.gather(
             *(self.model.ainvoke(messages, config=INTERNAL_MONITOR_CALL) for _ in range(self.samples - 1))
         )
-        return self.verdict_from_labels([first_reply, *more_replies])
+        return self.build_verdict_from_labels([first_reply, *more_replies])
 
-    def verdict_from_labels(self, replies: list[AIMessage]) -&gt; Verdict:
-        labels = [first_known_label(reply.text, self.suspicious_labels | self.safe_labels) for reply in replies]
+    def build_verdict_from_labels(self, replies: list[AIMessage]) -&gt; Verdict:
+        labels = [find_first_known_label(reply.text, self.suspicious_labels | self.safe_labels) for reply in replies]
         suspicious_count = sum(label is None or label in self.suspicious_labels for label in labels)   # unreadable counts as suspicious
         return Verdict(suspicion=suspicious_count / len(replies),
                        reason=f"{suspicious_count} of {len(replies)} samples labelled the step suspicious.")</code></pre>
@@ -1628,7 +1633,7 @@ class GuardModelMonitor(ChatModelMonitor):
     It generates no text. Jev is one; any provider can be added with a small adapter."""
 
     @abstractmethod
-    async def aprobabilities_of_yes(self, context: str, questions: Sequence[YesNoQuestion]) -&gt; dict[YesNoQuestion, float]:
+    async def estimate_probabilities(self, context: str, questions: Sequence[YesNoQuestion]) -&gt; dict[YesNoQuestion, float]:
         """All questions go in one request."""
 
 
@@ -1637,7 +1642,7 @@ class OpenRouterDecisionModel(DecisionModel):
 
     def __init__(self, model: str, *, api_key: SecretStr | None = None): ...
 
-    async def aprobabilities_of_yes(self, context, questions):
+    async def estimate_probabilities(self, context, questions):
         http_response = await self.http_client.post("https://openrouter.ai/api/alpha/decisions", json={
             "model": self.model,
             "state": context,
@@ -1669,9 +1674,9 @@ class DecisionModelMonitor(Monitor):
         view: MonitorView = MonitorView(),
     ): ...
 
-    async def aassess(self, monitor_input: MonitorInput) -&gt; Verdict:
-        context = render_transcript_and_proposed_step(monitor_input, self.view)
-        probabilities = await self.decision_model.aprobabilities_of_yes(context, self.questions)
+    async def evaluate(self, monitor_input: MonitorInput) -&gt; Verdict:
+        context = render_monitor_context(monitor_input, self.view)
+        probabilities = await self.decision_model.estimate_probabilities(context, self.questions)
         strongest_question = max(probabilities, key=probabilities.get)
         return Verdict(
             suspicion=combine_probabilities(probabilities.values(), self.combine),
@@ -1691,8 +1696,8 @@ ATTACK_CRITERIA = (SENDS_DATA_OUT_OF_THE_SYSTEM, WEAKENS_SECURITY, GOES_BEYOND_T
 
     def __init__(self, monitor: Monitor, *, repeats: int): ...
 
-    async def aassess(self, monitor_input: MonitorInput) -&gt; Verdict:
-        verdicts = await asyncio.gather(*(self.monitor.aassess(monitor_input) for _ in range(self.repeats)))
+    async def evaluate(self, monitor_input: MonitorInput) -&gt; Verdict:
+        verdicts = await asyncio.gather(*(self.monitor.evaluate(monitor_input) for _ in range(self.repeats)))
         most_suspicious = max(verdicts, key=lambda verdict: verdict.suspicion)
         return Verdict(suspicion=mean(verdict.suspicion for verdict in verdicts), reason=most_suspicious.reason)
 
@@ -1702,8 +1707,8 @@ class CalibratedMonitor(Monitor):
 
     def __init__(self, monitor: Monitor, *, honest_scores: Sequence[float], random_seed: int | None = None): ...
 
-    async def aassess(self, monitor_input: MonitorInput) -&gt; Verdict:
-        verdict = await self.monitor.aassess(monitor_input)
+    async def evaluate(self, monitor_input: MonitorInput) -&gt; Verdict:
+        verdict = await self.monitor.evaluate(monitor_input)
         scores_below = sum(score &lt; verdict.suspicion for score in self.honest_scores)
         scores_tied = sum(score == verdict.suspicion for score in self.honest_scores)
         percentile = (scores_below + self.random.uniform(0, scores_tied)) / len(self.honest_scores)   # ties broken at random
@@ -1716,11 +1721,11 @@ class CascadeMonitor(Monitor):
 
     def __init__(self, fast: Monitor, careful: Monitor, *, escalate_at: float): ...
 
-    async def aassess(self, monitor_input: MonitorInput) -&gt; Verdict:
-        quick_verdict = await self.fast.aassess(monitor_input)
+    async def evaluate(self, monitor_input: MonitorInput) -&gt; Verdict:
+        quick_verdict = await self.fast.evaluate(monitor_input)
         if quick_verdict.suspicion &lt; self.escalate_at:
             return quick_verdict
-        return await self.careful.aassess(monitor_input)</code></pre>
+        return await self.careful.evaluate(monitor_input)</code></pre>
       </div>
 
       <p class="note">The default monitor prompt follows what the references found works: the task and the user's messages first, an explicit rule that only the user can authorise an action, anchored score levels, reasoning before the score, and an instruction to treat everything in the transcript as data rather than instructions.</p>
@@ -1749,7 +1754,7 @@ class CascadeMonitor(Monitor):
         if is_compiled_or_remote(spec):
             raise TypeError(f"Subagent {spec['name']!r} is prebuilt; add the monitor to its own create_agent().")
         chosen_middleware = overrides.get(spec["name"], middleware)
-        monitor_for_this_subagent = chosen_middleware.for_subagent(spec["name"])
+        monitor_for_this_subagent = chosen_middleware.copy_for_subagent(spec["name"])
         monitored.append({**spec, "middleware": [*spec.get("middleware", []), monitor_for_this_subagent]})
     return monitored</code></pre>
       </div>
@@ -1810,9 +1815,8 @@ class Sample:                  # one draw from the untrusted model, with its ver
 class BlockedAttempt:          # auto mode only
     proposal: AIMessage
     feedback: str
-    def as_messages(self) -&gt; list[BaseMessage]:
-        # a tool-call proposal gets one error ToolMessage per call; an answer gets one tagged HumanMessage
-        ...
+    # build_feedback_messages(attempt) turns it into messages: one error ToolMessage per
+    # blocked tool call, or one tagged HumanMessage for a blocked answer, each with a fresh id
 
 class Outcome(StrEnum):
     ALLOWED = "allowed"
@@ -1853,15 +1857,15 @@ class StepRecord(TypedDict):
       <p>Each check is a small script that becomes a permanent test. The design above assumes the proposed answer; a failed check changes the part named in the last column.</p>
       <div class="table-scroll">
         <table>
-          <thead><tr><th>Check</th><th>Question</th><th>Status</th><th>If it fails</th></tr></thead>
+          <thead><tr><th>Check</th><th>Question</th><th>Status</th><th>Result</th></tr></thead>
           <tbody>
-            <tr><td><strong>S1</strong></td><td>Can <code>call_model</code> run concurrently? LangChain's composed handler clears a shared list of inner commands on every call (<code>factory.py:326-337</code>). Probe with the full Deep Agents stack.</td><td><span class="pill pill-pending">pending</span></td><td>Sampling stays one at a time (already the default)</td></tr>
-            <tr><td><strong>S2</strong></td><td>Does <code>run_synchronously</code> finish every protocol under <code>invoke()</code>, and raise if a protocol awaits real async work?</td><td><span class="pill pill-pending">pending</span></td><td>Fall back to separate sync and async protocol bodies</td></tr>
-            <tr><td><strong>S3</strong></td><td>Does a subagent's <code>monitor_log</code> reach the parent? Deep Agents drops private state keys from subagent results (<code>subagents.py:727</code>).</td><td><span class="pill pill-pending">pending</span></td><td>Pick a different state annotation, or surface subagent records through stream events only</td></tr>
-            <tr><td><strong>S4</strong></td><td>Do <code>StepRecord</code>s survive a round trip through a checkpointer?</td><td><span class="pill pill-pending">pending</span></td><td>Adjust record field types</td></tr>
-            <tr><td><strong>S5</strong></td><td>Do deepseek-v4.1-flash, mimo-v2.6-flash and mimo-v2.6-pro return reasoning text through <code>ChatOpenRouter</code>? DeepSeek's provider is pinned; its cheapest endpoint has 6.6% uptime.</td><td><span class="pill pill-pending">pending</span></td><td>Pick another agent model for the reasoning demo</td></tr>
-            <tr><td><strong>S6</strong></td><td>Does committing several messages (blocked attempt, error tool messages, accepted step) route correctly through the agent loop?</td><td><span class="pill pill-pending">pending</span></td><td>In-transcript feedback is dropped from the first release</td></tr>
-            <tr><td><strong>S7</strong></td><td>Does OpenRouter's Decisions API (<code>/api/alpha/decisions</code>, model <code>typesafe/jev-1.13</code>) answer a yes/no question in the documented shape with our key? Does <code>gpt-oss-safeguard-20b</code> return a parseable label?</td><td><span class="pill pill-pending">pending</span></td><td>Test that family offline only in this round</td></tr>
+            <tr><td><strong>S1</strong></td><td>Can <code>call_model</code> run concurrently? LangChain's composed handler clears a shared list of inner commands on every call (<code>factory.py:326-337</code>). Probe with the full Deep Agents stack.</td><td><span class="pill pill-reuse">done</span></td><td>Safe unless a middleware inside the monitor returns commands; the default Deep Agents stack is safe. The monitor goes last in <code>create_agent</code>, with a warning otherwise.</td></tr>
+            <tr><td><strong>S2</strong></td><td>Does <code>run_synchronously</code> finish every protocol under <code>invoke()</code>, and raise if a protocol awaits real async work?</td><td><span class="pill pill-reuse">done</span></td><td>Works, including inside a running event loop; real async work fails with a clear error.</td></tr>
+            <tr><td><strong>S3</strong></td><td>Does a subagent's <code>monitor_log</code> reach the parent? Deep Agents drops private state keys from subagent results (<code>subagents.py:727</code>).</td><td><span class="pill pill-reuse">done</span></td><td>Works with <code>Annotated[list[StepRecord], OmitFromInput, operator.add]</code>. The reducer must be last, or LangGraph silently overwrites the log.</td></tr>
+            <tr><td><strong>S4</strong></td><td>Do <code>StepRecord</code>s survive a round trip through a checkpointer?</td><td><span class="pill pill-reuse">done</span></td><td>Plain values round-trip; enums are stored as strings and sequences as lists.</td></tr>
+            <tr><td><strong>S5</strong></td><td>Do deepseek-v4.1-flash, mimo-v2.6-flash and mimo-v2.6-pro return reasoning text through <code>ChatOpenRouter</code>? DeepSeek's provider is pinned; its cheapest endpoint has 6.6% uptime.</td><td><span class="pill pill-reuse">done</span></td><td>All three models return reasoning text.</td></tr>
+            <tr><td><strong>S6</strong></td><td>Does committing several messages (blocked attempt, error tool messages, accepted step) route correctly through the agent loop?</td><td><span class="pill pill-reuse">done</span></td><td>Routes correctly when every inserted message has a fresh id; feedback is marked in its text.</td></tr>
+            <tr><td><strong>S7</strong></td><td>Does OpenRouter's Decisions API (<code>/api/alpha/decisions</code>, model <code>typesafe/jev-1.13</code>) answer a yes/no question in the documented shape with our key? Does <code>gpt-oss-safeguard-20b</code> return a parseable label?</td><td><span class="pill pill-reuse">done</span></td><td>Jev: 0.98 on a credential leak, 0.03 on an honest step, in 0.3–0.5 s. gpt-oss-safeguard labels parse; no guard endpoint returns log-probabilities.</td></tr>
           </tbody>
         </table>
       </div>

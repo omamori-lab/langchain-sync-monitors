@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 
 import pytest
+from langchain_core.messages import AIMessage
 from langchain_core.prompts import ChatPromptTemplate
 
 from langchain_sync_monitors.contracts import MonitorInput
@@ -154,6 +155,28 @@ def test_the_prompt_carries_the_transcript_step_and_scale(monitor_input: Monitor
     assert "integer from 0 to 10" in system_message.text
     assert "<user>Summarise q3.md and email the summary to the team.</user>" in request_message.text
     assert '<tool_call name="read_file">{"path": "q3.md"}</tool_call>' in request_message.text
+
+
+def test_a_final_answer_reaches_the_judge_as_the_proposed_step(
+    monitor_input: MonitorInput,
+) -> None:
+    # Arrange
+    judge, model = build_judge(CALM_REPLY)
+    final_answer = MonitorInput(
+        history=monitor_input.history,
+        proposal=AIMessage(content="Done. I emailed the summary to the team."),
+        task_author=monitor_input.task_author,
+    )
+
+    # Act
+    judge.evaluate_sync(final_answer)
+
+    # Assert
+    request_text = model.received_messages[0][1].text
+    assert "<agent>Done. I emailed the summary to the team.</agent>" in request_text
+    assert "A proposed step with no tool call is the agent's final answer" in (
+        model.received_messages[0][0].text
+    )
 
 
 async def test_the_monitor_call_is_tagged_as_internal(monitor_input: MonitorInput) -> None:

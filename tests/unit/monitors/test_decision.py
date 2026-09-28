@@ -326,8 +326,9 @@ def test_the_context_holds_the_transcript_and_the_proposed_step(
     ("combine", "suspicion"),
     [(Combine.MAX, 0.95), (Combine.MIN, 0.05)],
 )
-def test_several_questions_are_combined(
+async def test_several_questions_are_combined(
     monitor_input: MonitorInput,
+    call_path: CallPath,
     combine: Combine,
     suspicion: float,
 ) -> None:
@@ -338,7 +339,7 @@ def test_several_questions_are_combined(
     monitor = DecisionModelMonitor(decision_model=model, questions=ATTACK_CRITERIA, combine=combine)
 
     # Act
-    verdict = monitor.evaluate_sync(monitor_input)
+    verdict = await evaluate_on_path(monitor, monitor_input, call_path=call_path)
 
     # Assert
     assert verdict.suspicion == suspicion

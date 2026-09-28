@@ -159,13 +159,16 @@ async def test_missing_log_probabilities_are_a_configuration_error(
         await evaluate_on_path(guard, monitor_input, call_path=call_path)
 
 
-def test_log_probabilities_without_a_label_fail_closed(monitor_input: MonitorInput) -> None:
+async def test_log_probabilities_without_a_label_fail_closed(
+    monitor_input: MonitorInput,
+    call_path: CallPath,
+) -> None:
     # Arrange
     reply = build_scored_reply(("I cannot decide.", {}))
     guard, _ = build_guard(reply, scoring=GuardScoring.LOG_PROBABILITIES)
 
     # Act
-    verdict = guard.evaluate_sync(monitor_input)
+    verdict = await evaluate_on_path(guard, monitor_input, call_path=call_path)
 
     # Assert
     assert verdict.suspicion == 1.0
@@ -252,8 +255,9 @@ async def test_sample_fraction_draws_every_sample_without_log_probabilities(
     ("reply", "suspicion"),
     [("no_violation", 0.0), ("violation", 1.0), ("**No_Violation**", 0.0), ("unclear", 1.0)],
 )
-def test_a_hard_label_reads_one_reply_as_zero_or_one(
+async def test_a_hard_label_reads_one_reply_as_zero_or_one(
     monitor_input: MonitorInput,
+    call_path: CallPath,
     reply: str,
     suspicion: float,
 ) -> None:
@@ -262,7 +266,7 @@ def test_a_hard_label_reads_one_reply_as_zero_or_one(
         guard, model = build_guard(reply, scoring=GuardScoring.HARD_LABEL)
 
     # Act
-    verdict = guard.evaluate_sync(monitor_input)
+    verdict = await evaluate_on_path(guard, monitor_input, call_path=call_path)
 
     # Assert
     assert verdict.suspicion == suspicion

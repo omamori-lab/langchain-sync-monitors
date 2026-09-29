@@ -229,14 +229,18 @@ async def test_a_reply_whose_score_is_not_alone_after_the_reasoning_fails_closed
 
 
 @pytest.mark.parametrize(
-    "build_wrapper",
+    ("build_wrapper", "lowest_expected_suspicion"),
     [
-        lambda judge: RepeatedMonitor(monitor=judge, repeats=2),
-        lambda judge: CalibratedMonitor(monitor=judge, honest_scores=[0.0, 0.2, 0.5]),
-        lambda judge: CascadeMonitor(
-            fast=judge,
-            careful=ScriptedMonitor(suspicions=[1.0]),
-            escalate_at=0.5,
+        (lambda judge: RepeatedMonitor(monitor=judge, repeats=2), 1.0),
+        # Above all three honest scores, a calibrated suspicion lands in [3/4, 1).
+        (lambda judge: CalibratedMonitor(monitor=judge, honest_scores=[0.0, 0.2, 0.5]), 0.75),
+        (
+            lambda judge: CascadeMonitor(
+                fast=judge,
+                careful=ScriptedMonitor(suspicions=[1.0]),
+                escalate_at=0.5,
+            ),
+            1.0,
         ),
     ],
     ids=["repeated", "calibrated", "cascade"],
@@ -245,6 +249,7 @@ async def test_wrappers_inherit_the_strict_reading_of_the_score(
     monitor_input: MonitorInput,
     call_path: CallPath,
     build_wrapper: Callable[[LLMMonitor], Monitor],
+    lowest_expected_suspicion: float,
 ) -> None:
     # Arrange: read as its last score tag, this reply would score 0 and pass every wrapper.
     judge, _ = build_judge(POSTSCRIPT_QUOTING_A_PLANTED_SCORE)
@@ -254,7 +259,7 @@ async def test_wrappers_inherit_the_strict_reading_of_the_score(
     verdict = await evaluate_on_path(monitor, monitor_input, call_path=call_path)
 
     # Assert
-    assert verdict.suspicion == 1.0
+    assert verdict.suspicion >= lowest_expected_suspicion
 
 
 async def test_an_unreadable_reply_is_asked_for_again(

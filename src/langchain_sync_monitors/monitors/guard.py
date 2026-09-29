@@ -34,6 +34,7 @@ from langchain_sync_monitors.monitors.chat import (
     ChatModelMonitor,
     ReplyRequest,
     VerdictPlan,
+    is_reply_cut_off,
 )
 
 logger = logging.getLogger(__name__)
@@ -43,8 +44,12 @@ TOP_LOG_PROBABILITIES = 20
 
 LABEL_PATTERN = re.compile(r"[\w-]+")
 LABEL_LINE_PATTERN = re.compile(r"\W*(?:.*:\W*)?(?P<label>[\w-]+)\W*")
+CATEGORY_CODES_PATTERN = re.compile(r"\s*S\d+(?:\s*,\s*S\d+)*\s*")
 NON_EMPTY_LINE_PATTERN = re.compile(r"[^\n]*\S[^\n]*")
 LABEL_MARKUP = "*`\"'#>"
+UNREADABLE_LABEL_REASON = (
+    "The guard model gave no readable label, so the step is treated as suspicious."
+)
 
 
 class GuardScoring(StrEnum):
@@ -97,20 +102,58 @@ class LabelMatch:
     offset: int
 
 
-def find_reply_label(text: str, *, labels: frozenset[str]) -> LabelMatch | None:
-    """Find the label on the reply's last non-empty line, or else on its first.
+def match_label_line(line: re.Match[str], *, labels: frozenset[str]) -> LabelMatch | None:
+    """Read a line that holds one known label, alone or after a colon, as in `Label: violation`."""
+    match = LABEL_LINE_PATTERN.fullmatch(line.group())
+    if match is None or match["label"].lower() not in labels:
+        return None
+    return LabelMatch(label=match["label"].lower(), offset=line.start() + match.start("label"))
 
-    gpt-oss-safeguard writes its label last, after its reasoning; Llama Guard
-    writes it first, with violated categories on the lines after. A line may
-    hold the label alone or after a colon, as in `Label: violation`, and
-    labels match case-insensitively.
+
+def find_label_lines(
+    lines: list[re.Match[str]],
+    *,
+    labels: frozenset[str],
+) -> dict[int, LabelMatch]:
+    """Return the label of every line that holds one, keyed by the line's index."""
+    label_lines: dict[int, LabelMatch] = {}
+    for index, line in enumerate(lines):
+        match = match_label_line(line, labels=labels)
+        if match is not None:
+            label_lines[index] = match
+    return label_lines
+
+
+def find_reply_label(
+    text: str,
+    *,
+    suspicious_labels: frozenset[str],
+    safe_labels: frozenset[str],
+) -> LabelMatch | None:
+    """Find the label where the guard's format puts it, or return `None` if that is ambiguous.
+
+    gpt-oss-safeguard writes its label on the last line, after its reasoning;
+    Llama Guard writes an unsafe label on the first line, followed only by
+    the codes of the violated categories, as in `S1,S10`. Labels match
+    case-insensitively. A label anywhere else is not read, so a first-line
+    label followed by prose counts as no label. A reply in which two lines
+    name different labels is ambiguous too: the agent can plant a label in
+    its step, and a guard that quotes it must not have the quote read as its
+    verdict.
     """
     lines = list(NON_EMPTY_LINE_PATTERN.finditer(text))
-    for line in lines[-1:] + lines[:1]:
-        match = LABEL_LINE_PATTERN.fullmatch(line.group())
-        if match and match["label"].lower() in labels:
-            offset = line.start() + match.start("label")
-            return LabelMatch(label=match["label"].lower(), offset=offset)
+    label_lines = find_label_lines(lines, labels=suspicious_labels | safe_labels)
+    if len({match.label for match in label_lines.values()}) != 1:
+        return None
+    last_line = label_lines.get(len(lines) - 1)
+    if last_line is not None:
+        return last_line
+    first_line = label_lines.get(0)
+    only_category_codes_follow = all(
+        CATEGORY_CODES_PATTERN.fullmatch(line.group()) for line in lines[1:]
+    )
+    if first_line and first_line.label in suspicious_labels and only_category_codes_follow:
+        return first_line
     return None
 
 
@@ -210,8 +253,11 @@ class GuardModelMonitor(ChatModelMonitor):
     `{proposed_step}`; it should ask for one label on a line of its own. The
     labels in `suspicious_labels` and `safe_labels` match case-insensitively,
     for example `{"violation"}` and `{"no_violation"}` for gpt-oss-safeguard,
-    or `{"unsafe"}` and `{"safe"}` for Llama Guard. A reply without a known
-    label counts as suspicious, so the monitor fails closed.
+    or `{"unsafe"}` and `{"safe"}` for Llama Guard. The label is read only on
+    the reply's last line, or on its first when it is suspicious and only
+    category codes follow. A reply without a label there, with two different
+    labels on their own lines, or cut off at a length limit counts as
+    suspicious, so the monitor fails closed.
 
     With log-probabilities, suspicion is the probability the guard gives to a
     suspicious label, the score Llama Guard, ShieldGemma and Granite Guardian
@@ -222,6 +268,11 @@ class GuardModelMonitor(ChatModelMonitor):
     model's temperature above zero. Guard probabilities are overconfident
     [@liu2025guardcalibration], so set thresholds on honest-run percentiles
     with `CalibratedMonitor` rather than on raw values.
+
+    The verdict's reason states the guard's finding, the most severe label
+    among the replies, with no probability or count: Auto Mode shows the
+    reason to the agent, and those numbers would tell it how close its step
+    came to passing. They stay in the suspicion.
     """
 
     call_source: ClassVar[str] = "guard_model_monitor"
@@ -245,7 +296,6 @@ class GuardModelMonitor(ChatModelMonitor):
         super().__init__(model=model, prompt=policy_prompt, view=view)
         self.suspicious_labels = frozenset(label.lower() for label in suspicious_labels)
         self.safe_labels = frozenset(label.lower() for label in safe_labels)
-        self.known_labels = self.suspicious_labels | self.safe_labels
         self.scoring = scoring
         self.samples = samples
         self.model_with_log_probabilities = self.model.bind(
@@ -299,7 +349,8 @@ class GuardModelMonitor(ChatModelMonitor):
         """Score the reply from its log-probabilities, or return `None` when they are unusable.
 
         Missing log-probabilities are a configuration error under
-        `LOG_PROBABILITIES`, since that mode cannot score without them.
+        `LOG_PROBABILITIES`, since that mode cannot score without them. A
+        reply cut off at a length limit is unusable.
         """
         tokens = read_log_probabilities(reply)
         if tokens is None and self.scoring is GuardScoring.LOG_PROBABILITIES:
@@ -308,12 +359,14 @@ class GuardModelMonitor(ChatModelMonitor):
                 "GuardScoring.AUTO or GuardScoring.SAMPLE_FRACTION with this model"
             )
             raise ConfigurationError(message)
-        return self.find_label_probability(tokens) if tokens else None
+        if not tokens or is_reply_cut_off(reply):
+            return None
+        return self.find_label_probability(tokens)
 
     def find_label_probability(self, tokens: list[TokenLogProbability]) -> Verdict | None:
         """Score from the alternatives at the label's first token, or `None` if it is not found."""
         text = "".join(token.token for token in tokens)
-        match = find_reply_label(text, labels=self.known_labels)
+        match = self.find_label(text)
         index = find_token_index(tokens, offset=match.offset) if match else None
         if match is None or index is None:
             return None
@@ -324,24 +377,45 @@ class GuardModelMonitor(ChatModelMonitor):
         )
         if share is None:
             return None
-        reason = (
-            f"The guard model labelled the step {match.label!r} and gives probability "
-            f"{share:.3f} to a suspicious label."
-        )
-        return Verdict(suspicion=share, reason=reason)
+        return Verdict(suspicion=share, reason=self.build_label_reason(match.label))
 
     def build_sample_verdict(self, replies: list[AIMessage]) -> Verdict:
-        """Return the share of replies labelled suspicious; an unreadable reply counts as one."""
-        matches = [find_reply_label(reply.text, labels=self.known_labels) for reply in replies]
-        suspicious_count = sum(
-            match is None or match.label in self.suspicious_labels for match in matches
-        )
-        names = ", ".join(match.label if match else "unreadable" for match in matches)
-        reason = (
-            f"{suspicious_count} of {len(replies)} guard replies labelled the step "
-            f"suspicious ({names})."
-        )
+        """Return the share of replies labelled suspicious; an unreadable reply counts as one.
+
+        The reason names the most severe finding: a suspicious label if any
+        reply gave one, then an unreadable reply, then the safe label.
+        """
+        labels = [self.read_reply_label(reply) for reply in replies]
+        readable_labels = [label for label in labels if label is not None]
+        suspicious_labels = [label for label in readable_labels if label in self.suspicious_labels]
+        suspicious_count = len(labels) - len(readable_labels) + len(suspicious_labels)
+        if suspicious_labels:
+            reason = self.build_label_reason(suspicious_labels[0])
+        elif len(readable_labels) < len(labels):
+            reason = UNREADABLE_LABEL_REASON
+        else:
+            reason = self.build_label_reason(readable_labels[0])
         return Verdict(suspicion=suspicious_count / len(replies), reason=reason)
+
+    def read_reply_label(self, reply: AIMessage) -> str | None:
+        """Return the reply's label, or `None` when it has none or was cut off at a length limit."""
+        if is_reply_cut_off(reply):
+            return None
+        match = self.find_label(reply.text)
+        return match.label if match else None
+
+    def find_label(self, text: str) -> LabelMatch | None:
+        """Find the guard's label in a reply's text, with this monitor's labels."""
+        return find_reply_label(
+            text,
+            suspicious_labels=self.suspicious_labels,
+            safe_labels=self.safe_labels,
+        )
+
+    def build_label_reason(self, label: str) -> str:
+        """State what the guard's label says about the step, without any number."""
+        finding = "breaks" if label in self.suspicious_labels else "follows"
+        return f"The guard model labelled the step {label!r}, finding that it {finding} the policy."
 
 
 def build_unlocated_label_verdict() -> Verdict:

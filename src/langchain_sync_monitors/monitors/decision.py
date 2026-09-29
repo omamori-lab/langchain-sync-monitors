@@ -27,10 +27,12 @@ import httpx
 import stamina
 from pydantic import BaseModel, Field, SecretStr, ValidationError
 
+from langchain_sync_monitors._langchain import TraceSpan, open_traced_run, open_traced_run_sync
 from langchain_sync_monitors.contracts import Monitor, MonitorInput, MonitorView, Verdict
 from langchain_sync_monitors.errors import ConfigurationError, MissingExtraError, MonitorError
 from langchain_sync_monitors.model_calls import build_internal_call_config
 from langchain_sync_monitors.monitors.chat import DEFAULT_MONITOR_VIEW
+from langchain_sync_monitors.spans import CLASSIFIER_SPAN_NAME, MONITOR_TAG, MONITOR_WORK_METADATA
 from langchain_sync_monitors.transcript import render_proposed_step, render_transcript
 
 if TYPE_CHECKING:
@@ -220,7 +222,10 @@ class OpenRouterDecisionModel(DecisionModel):
     sent with httpx [@httpx2024]. The response is validated with pydantic
     [@pydantic2026]. Transport errors, rate limits and server errors are
     retried with stamina [@schlawack2026stamina]; other HTTP errors raise
-    `httpx.HTTPStatusError` at once.
+    `httpx.HTTPStatusError` at once. Each request is one `monitor classifier`
+    span in LangChain tracers, around its retries, with the model and the
+    questions as inputs and the answers as outputs; the context stays out,
+    since it holds the proposed step.
 
     Jev returns probabilities rounded to two decimals, so scores tie at a
     resolution of 0.01; averaging with `RepeatedMonitor` or combining several
@@ -259,8 +264,11 @@ class OpenRouterDecisionModel(DecisionModel):
     ) -> dict[str, float]:
         """Ask every question in one request and return the probabilities of yes."""
         body = self.build_request_body(context=context, questions=questions)
-        content = await self.request_decisions(body)
-        return read_decisions_probabilities(content, questions=questions)
+        async with open_traced_run(self.build_classifier_span(questions)) as traced_request:
+            content = await self.request_decisions(body)
+            probabilities = read_decisions_probabilities(content, questions=questions)
+            traced_request.outputs = {"answers": probabilities}
+        return probabilities
 
     def estimate_probabilities_sync(
         self,
@@ -270,8 +278,23 @@ class OpenRouterDecisionModel(DecisionModel):
     ) -> dict[str, float]:
         """Ask every question in one request, without an event loop."""
         body = self.build_request_body(context=context, questions=questions)
-        content = self.request_decisions_sync(body)
-        return read_decisions_probabilities(content, questions=questions)
+        with open_traced_run_sync(self.build_classifier_span(questions)) as traced_request:
+            content = self.request_decisions_sync(body)
+            probabilities = read_decisions_probabilities(content, questions=questions)
+            traced_request.outputs = {"answers": probabilities}
+        return probabilities
+
+    def build_classifier_span(self, questions: Sequence[YesNoQuestion]) -> TraceSpan:
+        """Return the span of one request: the model and the questions, without the context."""
+        return TraceSpan(
+            name=CLASSIFIER_SPAN_NAME,
+            inputs={
+                "model": self.model,
+                "questions": {question.key: question.text for question in questions},
+            },
+            metadata=MONITOR_WORK_METADATA,
+            tags=[MONITOR_TAG],
+        )
 
     def build_request_body(
         self,

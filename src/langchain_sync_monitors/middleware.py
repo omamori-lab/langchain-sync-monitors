@@ -49,6 +49,7 @@ from langchain_sync_monitors._langchain import (
     StructuredOutput,
     ToolCallHandler,
     ToolCallResult,
+    TracedRun,
     hide_model_calls_from_message_stream,
     read_monitor_log,
     write_stream_event,
@@ -80,10 +81,14 @@ from langchain_sync_monitors.pending_steps import (
     SyncPendingStep,
     run_synchronously,
 )
-from langchain_sync_monitors.records import (
-    build_sample_record,
-    build_step_record,
-    find_monitor_records,
+from langchain_sync_monitors.records import build_sample_record, find_monitor_records
+from langchain_sync_monitors.spans import (
+    StepIdentity,
+    build_step_span_inputs,
+    open_step_span,
+    open_step_span_sync,
+    trace_decision,
+    trace_decision_sync,
 )
 
 logger = logging.getLogger(__name__)
@@ -161,6 +166,9 @@ class MonitorMiddleware(AgentMiddleware[MonitorState, AgentContext, StructuredOu
     and written to `stream_mode="custom"` as a `MonitorStepFailedEvent`, and
     the exception is raised again.
 
+    In LangChain tracers such as LangSmith and Langfuse, each step is a
+    `monitor step` span, with the spans that `spans` describes nested in it.
+
     The instance holds configuration only. Deep Agents runs parallel subagents
     through shared middleware instances, so every piece of run state lives in
     the graph state.
@@ -210,28 +218,34 @@ class MonitorMiddleware(AgentMiddleware[MonitorState, AgentContext, StructuredOu
         """Decide this step under `invoke()`, driving the protocol without an event loop."""
         records = read_monitor_log(request.state)
         previous_records = find_monitor_records(records, monitor=self.label, agent=self.agent_name)
-        decision = self.find_halt_decision(records)
-        if decision is None:
-            step = SyncPendingStep(
-                request=request,
-                handler=handler,
-                monitor=self.monitor,
-                task_author=self.task_author,
-                previous_records=previous_records,
-                blocks_in_thread=count_blocks_in_thread(request.state, monitor=self.label),
-                new_subagent_blocks=count_new_subagent_blocks(
-                    records, agent=self.agent_name, monitor=self.label
-                ),
-            )
-            try:
-                with hide_model_calls_from_message_stream():
-                    decision = run_synchronously(self.protocol.decide(step))
-            except BaseException as error:
-                self.report_failed_step(request, step=step, error=error)
-                raise
-            finally:
-                step.close()
-        return self.commit(request, decision=decision, previous_records=previous_records)
+        identity = self.build_step_identity(request, step_number=len(previous_records) + 1)
+        with open_step_span_sync(identity) as traced_step:
+            decision = self.find_halt_decision(records)
+            if decision is None:
+                step = SyncPendingStep(
+                    request=request,
+                    handler=handler,
+                    monitor=self.monitor,
+                    task_author=self.task_author,
+                    previous_records=previous_records,
+                    blocks_in_thread=count_blocks_in_thread(request.state, monitor=self.label),
+                    new_subagent_blocks=count_new_subagent_blocks(
+                        records, agent=self.agent_name, monitor=self.label
+                    ),
+                )
+                try:
+                    with hide_model_calls_from_message_stream():
+                        decision = run_synchronously(self.protocol.decide(step))
+                except BaseException as error:
+                    self.report_failed_step(
+                        request, step=step, error=error, traced_step=traced_step
+                    )
+                    raise
+                finally:
+                    step.close()
+            record = identity.build_record(decision)
+            trace_decision_sync(traced_step, record=record)
+            return self.commit(request, decision=decision, record=record)
 
     @override
     async def awrap_model_call(
@@ -242,26 +256,32 @@ class MonitorMiddleware(AgentMiddleware[MonitorState, AgentContext, StructuredOu
         """Decide this step under `ainvoke()`, awaiting the protocol."""
         records = read_monitor_log(request.state)
         previous_records = find_monitor_records(records, monitor=self.label, agent=self.agent_name)
-        decision = self.find_halt_decision(records)
-        if decision is None:
-            step = AsyncPendingStep(
-                request=request,
-                handler=handler,
-                monitor=self.monitor,
-                task_author=self.task_author,
-                previous_records=previous_records,
-                blocks_in_thread=count_blocks_in_thread(request.state, monitor=self.label),
-                new_subagent_blocks=count_new_subagent_blocks(
-                    records, agent=self.agent_name, monitor=self.label
-                ),
-            )
-            try:
-                with hide_model_calls_from_message_stream():
-                    decision = await self.protocol.decide(step)
-            except BaseException as error:
-                self.report_failed_step(request, step=step, error=error)
-                raise
-        return self.commit(request, decision=decision, previous_records=previous_records)
+        identity = self.build_step_identity(request, step_number=len(previous_records) + 1)
+        async with open_step_span(identity) as traced_step:
+            decision = self.find_halt_decision(records)
+            if decision is None:
+                step = AsyncPendingStep(
+                    request=request,
+                    handler=handler,
+                    monitor=self.monitor,
+                    task_author=self.task_author,
+                    previous_records=previous_records,
+                    blocks_in_thread=count_blocks_in_thread(request.state, monitor=self.label),
+                    new_subagent_blocks=count_new_subagent_blocks(
+                        records, agent=self.agent_name, monitor=self.label
+                    ),
+                )
+                try:
+                    with hide_model_calls_from_message_stream():
+                        decision = await self.protocol.decide(step)
+                except BaseException as error:
+                    self.report_failed_step(
+                        request, step=step, error=error, traced_step=traced_step
+                    )
+                    raise
+            record = identity.build_record(decision)
+            await trace_decision(traced_step, record=record)
+            return self.commit(request, decision=decision, record=record)
 
     @override
     def wrap_tool_call(
@@ -331,21 +351,34 @@ class MonitorMiddleware(AgentMiddleware[MonitorState, AgentContext, StructuredOu
             return None
         return build_subagent_halt_decision(subagent_names=[record["agent"] for record in halts])
 
+    def build_step_identity(self, request: AgentModelRequest, *, step_number: int) -> StepIdentity:
+        """Name the step about to be decided, as its record and its spans name it."""
+        return StepIdentity(
+            monitor=self.label,
+            agent=self.agent_name,
+            step_number=step_number,
+            protocol=type(self.protocol).__name__,
+            delegation_id=read_delegation_id(request.state),
+        )
+
     def report_failed_step(
         self,
         request: AgentModelRequest,
         *,
         step: MonitoredStep,
         error: BaseException,
+        traced_step: TracedRun,
     ) -> None:
         """Report the samples judged in a step that raised, before the error propagates.
 
         The step is never committed, so this is the only trace of its samples:
-        a `MonitorStepFailedEvent` on `stream_mode="custom"` and, when the
-        monitor had judged anything, a warning that lists each sample.
+        a `MonitorStepFailedEvent` on `stream_mode="custom"`, the step span's
+        inputs, which name the first sample judged, and, when the monitor had
+        judged anything, a warning that lists each sample.
         """
         step_number = len(step.previous_records) + 1
         samples = [build_sample_record(sample, executed=False) for sample in step.judged_samples]
+        traced_step.inputs_at_end = build_step_span_inputs(step_number=step_number, samples=samples)
         event = MonitorStepFailedEvent(
             type="monitor_step_failed",
             agent=self.agent_name,
@@ -374,21 +407,14 @@ class MonitorMiddleware(AgentMiddleware[MonitorState, AgentContext, StructuredOu
         request: AgentModelRequest,
         *,
         decision: StepDecision,
-        previous_records: tuple[StepRecord, ...],
+        record: StepRecord,
     ) -> ExtendedModelResponse[StructuredOutput]:
-        """Commit the decided messages and append one record of the step to `monitor_log`.
+        """Commit the decided messages and append the step's record to `monitor_log`.
 
         The record is also written to `stream_mode="custom"` as it is committed.
         With `FeedbackVisibility.IN_TRANSCRIPT`, each blocked attempt and its
         feedback come before the step's own messages.
         """
-        record = build_step_record(
-            decision=decision,
-            agent=self.agent_name,
-            monitor=self.label,
-            step_number=len(previous_records) + 1,
-            delegation_id=read_delegation_id(request.state),
-        )
         write_stream_event(request, event=MonitorStepEvent(type="monitor_step", record=record))
         logger.debug(
             "%s committed step %d: %s", self.name, record["step_number"], record["outcome"]

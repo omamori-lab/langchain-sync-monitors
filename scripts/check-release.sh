@@ -52,16 +52,17 @@ if [[ -z "${release_date}" ]]; then
 else
   # The section runs to the next "## [" heading. Link references, which Keep a
   # Changelog puts at the end of the file, and outer blank lines are dropped.
+  # The awk sticks to what gawk, mawk and BSD awk all read the same way.
   notes="$(awk -v heading="## [${version}] - " '
     index($0, heading) == 1 { grab = 1; next }
     grab && /^## \[/ { exit }
-    grab && /^\[[^]]+\]: / { next }
+    grab && /^\[.+\]: http/ { next }
     grab { lines[++count] = $0 }
     END {
       first = 1
-      while (first <= count && lines[first] ~ /^[[:space:]]*$/) first++
+      while (first <= count && lines[first] ~ /^[ \t]*$/) first++
       last = count
-      while (last >= first && lines[last] ~ /^[[:space:]]*$/) last--
+      while (last >= first && lines[last] ~ /^[ \t]*$/) last--
       for (line = first; line <= last; line++) print lines[line]
     }
   ' CHANGELOG.md)"

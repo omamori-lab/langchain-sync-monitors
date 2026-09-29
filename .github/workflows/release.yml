@@ -28,6 +28,11 @@ concurrency:
 env:
   TAG: ${{ github.event.release.tag_name }}
 
+# Run every step under bash -eo pipefail, so a failing command stops the step.
+defaults:
+  run:
+    shell: bash
+
 jobs:
   tag:
     name: Check the release tag
@@ -64,7 +69,9 @@ jobs:
         env:
           VERSION: ${{ steps.version.outputs.version }}
         run: |
-          notes="$(scripts/check-release.sh "${VERSION}")"
+          if ! notes="$(scripts/check-release.sh "${VERSION}")"; then
+            exit 1
+          fi
           {
             echo "## Release notes for ${TAG}, from CHANGELOG.md"
             echo

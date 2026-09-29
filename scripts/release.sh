@@ -10,8 +10,9 @@
 # dated CHANGELOG section exists and the tag vX.Y.Z is new. Then it:
 #   1. sets __version__ and CITATION.cff to X.Y.Z, dated as the CHANGELOG
 #      section, and lets uv refresh uv.lock;
-#   2. runs scripts/check-release.sh and scripts/check.sh on that tree, builds
-#      it and runs twine check --strict on the result;
+#   2. runs scripts/check-release.sh, syncs the environment with every extra,
+#      runs scripts/check.sh on that tree, builds it and runs
+#      twine check --strict on the result;
 #   3. commits "Release X.Y.Z", tags it vX.Y.Z, and pushes main and the tag;
 #   4. creates the GitHub Release, with that CHANGELOG section as its notes.
 #
@@ -77,6 +78,8 @@ echo "release: bumped to ${version}, dated ${release_date}"
 # --- check the bumped tree: release checks, every gate, the built files ----
 notes_file="$(mktemp)"
 scripts/check-release.sh "${version}" >"${notes_file}"
+# The gates expect the environment CONTRIBUTING.md sets up, every extra included.
+uv sync --locked --group dev --group docs --all-extras
 scripts/check.sh
 rm -rf dist
 uv build

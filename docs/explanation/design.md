@@ -683,10 +683,10 @@ The spans are opened from the running node's own callback manager, not
 through `CallbackManager.configure`, so they nest under the model node for
 every handler. Configuring a new manager would, with LangSmith tracing on,
 hang them under the LangSmith-only run in which `create_agent` wraps each
-middleware hook, which can split the trace in Langfuse [@langchain2026;
-@langfuse2026]. For the same reason, code in a monitor that traces itself
-with LangSmith's `traceable` decorator nests under that hook run in
-LangSmith, not under its judgement.
+middleware hook, which can split the trace in Langfuse
+[@langchain2026; @langfuse2026]. For the same reason, code in a monitor that
+traces itself with LangSmith's `traceable` decorator nests under that hook run
+in LangSmith, not under its judgement.
 
 ## The log records
 

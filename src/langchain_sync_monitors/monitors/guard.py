@@ -43,9 +43,18 @@ TOP_LOG_PROBABILITIES = 20
 """How many alternatives to request per token; 20 is the most OpenAI-style APIs return."""
 
 LABEL_PATTERN = re.compile(r"[\w-]+")
-LABEL_LINE_PATTERN = re.compile(r"\W*(?:.*:\W*)?(?P<label>[\w-]+)\W*")
+LABEL_LINE_PATTERN = re.compile(
+    r"\W*+(?:(?P<key>[A-Za-z][A-Za-z ]{0,19}):\W*+)?(?P<label>[\w-]++)\W*+",
+)
+"""A label alone, or after a short key such as `Label:`, with markup such as `**` around it.
+
+The key is at most 20 letters and spaces, so prose that quotes a label after a
+colon is no key. The quantifiers are possessive, so a line that is no label
+line fails in linear time instead of backtracking.
+"""
 CATEGORY_CODES_PATTERN = re.compile(r"\s*S\d+(?:\s*,\s*S\d+)*\s*")
-NON_EMPTY_LINE_PATTERN = re.compile(r"[^\n]*\S[^\n]*")
+NON_EMPTY_LINE_PATTERN = re.compile(r"^[^\n]*\S[^\n]*", flags=re.MULTILINE)
+"""A line holding more than whitespace; anchored to the line's start, so it runs in linear time."""
 LABEL_MARKUP = "*`\"'#>"
 UNREADABLE_LABEL_REASON = (
     "The guard model gave no readable label, so the step is treated as suspicious."
@@ -107,9 +116,15 @@ class LabelMatch:
 
 
 def match_label_line(line: re.Match[str], *, labels: frozenset[str]) -> LabelMatch | None:
-    """Read a line that holds one known label, alone or after a colon, as in `Label: violation`."""
+    """Read a line that holds one known label, alone or after a short key, as in `Label: violation`.
+
+    A key that names a label, as in `violation: no_violation`, makes the line
+    name two labels, so it holds none.
+    """
     match = LABEL_LINE_PATTERN.fullmatch(line.group())
     if match is None or match["label"].lower() not in labels:
+        return None
+    if match["key"] and any(word.lower() in labels for word in match["key"].split()):
         return None
     return LabelMatch(label=match["label"].lower(), offset=line.start() + match.start("label"))
 

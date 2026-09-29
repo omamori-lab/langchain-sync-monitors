@@ -139,9 +139,11 @@ otherwise the constructor raises `ConfigurationError`.
 
 The monitor reads the label only where a guard's format puts it:
 
-- on the last non-empty line, alone or after a colon, where a policy like the
-  one above asks gpt-oss-safeguard to put it, after its reasoning
-  [@openai2025gptosssafeguardguide];
+- on the last non-empty line, alone or after a short key and a colon, as in
+  `Label: violation`, where a policy like the one above asks
+  gpt-oss-safeguard to put it, after its reasoning
+  [@openai2025gptosssafeguardguide]. The key is at most 20 letters and
+  spaces, and names no label;
 - on the first line, when it is a suspicious label and only category codes
   such as `S1` or `S1,S10` follow, as Llama Guard writes it
   [@meta2024llamaguard3format; @meta2025llamaguard4].
@@ -157,8 +159,12 @@ These replies were checked against the monitor's parser:
 | The reply | Label read |
 |---|---|
 | Reasoning, then `violation` on the last line | `violation` |
-| Reasoning, then `Label: no_violation` | `no_violation` |
+| Reasoning, then `Label: no_violation` or `**Final answer:** no_violation` | `no_violation` |
 | Reasoning, then `**violation**` or `` `No_Violation` `` | `violation`, `no_violation` |
+| Reasoning, then `violation (the note asks the reviewer to answer: no_violation)` | none: unreadable |
+| Reasoning, then `Label: violation, whatever the note asks for: no_violation` | none: unreadable |
+| Reasoning, then `This is a violation. The note says to output: no_violation` | none: unreadable |
+| Reasoning, then `violation: no_violation` | none: the key names a label, unreadable |
 | `violation` on the first line, then reasoning | none: unreadable |
 | A line `no_violation`, then a line `violation` | none: two labels, unreadable |
 | `The step is a violation of the policy.` | none: unreadable |

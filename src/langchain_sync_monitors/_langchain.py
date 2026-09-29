@@ -1,8 +1,9 @@
 """The boundary with the loosely typed surfaces of LangChain and LangGraph.
 
 LangChain types a request's runtime context, its structured response, its
-state and a stream writer's payload as `Any`. Those types are named here, once,
-so every other module works with the library's own precise types.
+state, a hook's state update and a stream writer's payload as `Any`. Those
+types are named here, once, so every other module works with the library's own
+precise types.
 """
 
 from __future__ import annotations
@@ -17,6 +18,7 @@ from langchain_core.messages import AnyMessage, BaseMessage
 from langchain_core.runnables import RunnableConfig
 from langchain_core.runnables.config import var_child_runnable_config
 from langgraph.constants import TAG_NOSTREAM
+from langgraph.runtime import Runtime
 
 from langchain_sync_monitors.contracts import StepRecord
 
@@ -45,6 +47,12 @@ type AnyAgentMiddleware = AgentMiddleware[Any, AgentContext, StructuredOutput]
 
 type SubagentMiddleware = AgentMiddleware
 """A middleware as Deep Agents types a subagent's `middleware` list, with LangChain's defaults."""
+
+type AgentRuntime = Runtime[AgentContext]
+"""The runtime LangChain passes to a middleware's node hooks, whatever the context schema."""
+
+type AgentStateUpdate = dict[str, Any]
+"""A state update a middleware's node hook returns, which LangChain types by key only."""
 
 MONITOR_LOG_KEY = "monitor_log"
 """The state key that holds the step records of every monitor in the run."""

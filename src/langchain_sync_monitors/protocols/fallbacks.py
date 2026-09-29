@@ -69,7 +69,9 @@ class DeferToTrustedModel(Fallback):
 class HaltRun(Fallback):
     """End the agent's run with a final message.
 
-    The message has no tool calls, so the agent loop stops after it. A halted
+    The message has no tool calls, and the monitor middleware routes the agent
+    to its end after a halted step, so the run stops there even in an agent
+    that would otherwise loop until it has a structured response. A halted
     step is always flagged, since a person should look at why the run stopped.
     """
 

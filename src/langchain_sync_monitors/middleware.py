@@ -25,6 +25,7 @@ from langchain.agents.middleware.types import (
     ExtendedModelResponse,
     ModelResponse,
     OmitFromInput,
+    hook_config,
 )
 from langchain_core.messages import AIMessage
 from langgraph.types import Command
@@ -33,6 +34,8 @@ from langchain_sync_monitors._langchain import (
     MONITOR_LOG_KEY,
     AgentContext,
     AgentModelRequest,
+    AgentRuntime,
+    AgentStateUpdate,
     AnyAgentMiddleware,
     AsyncModelCallHandler,
     ModelCallHandler,
@@ -137,6 +140,11 @@ def find_new_subagent_halts(
     ]
 
 
+def build_end_run_update() -> AgentStateUpdate:
+    """Return the update with which an `after_model` hook ends the agent's run [@langchain2026]."""
+    return {"jump_to": "end"}
+
+
 @dataclass(frozen=True, kw_only=True, eq=False)
 class MonitorMiddleware(AgentMiddleware[MonitorState, AgentContext, StructuredOutput]):
     """Puts a monitor and a control protocol around every model call of an agent.
@@ -158,6 +166,12 @@ class MonitorMiddleware(AgentMiddleware[MonitorState, AgentContext, StructuredOu
     this agent before its next model call once a subagent was halted. Each
     option must be a member of its enum; a plain string raises
     `ConfigurationError`.
+
+    A halted step ends the run. The middleware's `after_model` hook routes the
+    agent to its end, since the halt message alone does not end an agent that
+    loops until it has a structured response. The hook adds one graph step per
+    model call, which counts towards an explicit `recursion_limit`, and on a
+    halted step it skips the `after_model` hooks that would run after it.
 
     The instance holds configuration only. Deep Agents runs parallel subagents
     through shared middleware instances, so every piece of run state lives in
@@ -242,6 +256,47 @@ class MonitorMiddleware(AgentMiddleware[MonitorState, AgentContext, StructuredOu
             with hide_model_calls_from_message_stream():
                 decision = await self.protocol.decide(step)
         return self.commit(request, decision=decision, previous_records=previous_records)
+
+    @hook_config(can_jump_to=["end"])
+    @override
+    def after_model(self, state: MonitorState, runtime: AgentRuntime) -> AgentStateUpdate | None:
+        """End the run after a step this monitor halted, under `invoke()`."""
+        return build_end_run_update() if self.has_just_halted(state) else None
+
+    @hook_config(can_jump_to=["end"])
+    @override
+    async def aafter_model(
+        self,
+        state: MonitorState,
+        runtime: AgentRuntime,
+    ) -> AgentStateUpdate | None:
+        """End the run after a step this monitor halted, under `ainvoke()`."""
+        return build_end_run_update() if self.has_just_halted(state) else None
+
+    def has_just_halted(self, state: MonitorState) -> bool:
+        """Tell whether the step just committed is this monitor's halt.
+
+        The model node's own `jump_to` would not do: a routing edge reads a
+        fresh copy of the state in which only its own node's writes survive,
+        and `jump_to` is cleared everywhere else [@langgraph2026]. With any
+        `after_model` hook in the agent, the model node has no routing edge of
+        its own, so the hook that follows it has to write `jump_to` itself.
+        The last message must be the halt, a final message with no tool calls,
+        so an older halt record never ends a later turn.
+        """
+        own_records = find_monitor_records(
+            read_monitor_log(state),
+            monitor=self.label,
+            agent=self.agent_name,
+        )
+        messages = state["messages"]
+        last_message = messages[-1] if messages else None
+        return (
+            bool(own_records)
+            and own_records[-1]["outcome"] == "halted"
+            and isinstance(last_message, AIMessage)
+            and not last_message.tool_calls
+        )
 
     def find_halt_decision(self, records: Sequence[StepRecord]) -> StepDecision | None:
         """Return a halt when a subagent halted and this monitor stops the whole run, else None."""

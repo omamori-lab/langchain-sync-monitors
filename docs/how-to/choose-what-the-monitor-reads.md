@@ -70,7 +70,7 @@ flowchart LR
 |---|---|---|
 | `<user>` | `USER` | A message from the user who gave the task. |
 | `<delegator>` | `USER` | Inside a subagent, the task from the parent agent, in place of `<user>`. |
-| `<context_note source="...">` | `USER` | A human message another part of the application wrote and tagged with `lc_source`, such as a summary of earlier messages (`summarization`) or Deep Agents' rubric grader (`rubric_grader`) [@langchain2026; @deepagents2026]. It authorises nothing. |
+| `<context_note source="...">` | `USER` | A human message that did not arrive as a run's input. Either another part of the application tagged it with `lc_source`, such as a summary of earlier messages (`summarization`) or Deep Agents' rubric grader (`rubric_grader`) [@langchain2026; @deepagents2026], or it was written during a run without a tag, and the source is then the tool that wrote it, the message's `name`, or `application`. It authorises nothing. |
 | `<monitor_feedback>` | `USER` | The monitor's feedback on a blocked step. When it answers a blocked tool call, it carries the tool's name. |
 | `<tool_call name="...">` | `TOOL_CALLS` | A tool call, with its arguments as JSON. |
 | `<malformed_tool_call name="...">` | `TOOL_CALLS` | A call whose arguments could not be parsed, with the raw argument text. It never ran. |
@@ -85,13 +85,15 @@ flowchart LR
 
 A few rules hold in every view:
 
-- **The task author.** A human message is `<user>` only when no part of the
-  application tagged it. Inside a subagent the task came from the parent agent,
-  so it is `<delegator>`; `monitor_subagents` sets this, through
-  `TaskAuthor.PARENT_AGENT`, for every subagent it monitors. A tagged message
-  becomes a `<context_note>`, because Deep Agents writes its summary with the
-  agent's own model, and the agent must not be able to speak as the user
-  through it.
+- **The task author.** A human message is `<user>` only when it arrived as the
+  input of a run and no part of the application tagged it. Inside a subagent
+  the task came from the parent agent, so it is `<delegator>`;
+  `monitor_subagents` sets this, through `TaskAuthor.PARENT_AGENT`, for every
+  subagent it monitors. Every other human message becomes a `<context_note>`:
+  Deep Agents writes its summary with the agent's own model, and its
+  `read_file` attaches a video's frames in a human message whose text holds
+  the path the agent chose [@deepagents2026], and the agent must not be able
+  to speak as the user through either.
 - **Whether a call ran.** A `<tool_error>` sits in `TOOL_CALLS`, beside the
   call, and `<monitor_feedback>` sits in `USER`, beside the task. So every view
   that shows a call also shows that it failed or was blocked, even a view
@@ -149,8 +151,11 @@ view = MonitorView(delegation_tools=frozenset({"task", "ask_researcher"}))
 
 ## See what your monitor reads
 
-`render_transcript` and `render_proposed_step` produce exactly the text a
-monitor reads. Run them on your own messages to check a view. This example
+`render_transcript` and `render_proposed_step` produce the text a monitor
+reads. They take every untagged human message as the task author's; inside an
+agent, the middleware first tags each human message that did not arrive as a
+run's input, so give them only the messages a user or the delegating agent
+wrote untagged. Run them on your own messages to check a view. This example
 renders one transcript in the default view and in `Channel.ALL`:
 
 ```python

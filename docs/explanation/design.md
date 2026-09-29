@@ -163,15 +163,30 @@ guard against a forged approval:
 - Inside a subagent the task came from the parent agent, so its messages are
   rendered as `<delegator>` rather than `<user>`, following the `TaskAuthor`
   in the `MonitorInput`.
-- A human message that another part of the application wrote carries an
-  `lc_source` tag: LangChain's and Deep Agents' summaries are tagged
-  `summarization`, and Deep Agents' rubric grader `rubric_grader`
-  [@langchain2026; @deepagents2026]. Such a message is rendered as
-  `<context_note source="...">` in the `USER` channel, and the prompt says a
-  note authorises nothing. Deep Agents writes its summary with the agent's own
-  model, so the untrusted model must not be able to speak as the user through
-  it. Only a human message without the tag is rendered as `<user>` or
-  `<delegator>`.
+- Only the human messages that arrive untagged as a run's input are the task
+  author's, and every other human message is rendered as
+  `<context_note source="...">` in the `USER` channel; the prompt says a note
+  authorises nothing. Some writers tag their messages with `lc_source`:
+  LangChain's and Deep Agents' summaries are tagged `summarization`, and Deep
+  Agents' rubric grader `rubric_grader` [@langchain2026; @deepagents2026].
+  Others do not: Deep Agents' `read_file` attaches a video's frames in a human
+  message whose text holds the path the agent chose, and its Nemotron profile
+  writes named nudges [@deepagents2026]. Deep Agents also writes its summary
+  with the agent's own model, so in both cases the untrusted model must not be
+  able to speak as the user.
+
+  So the monitor records, in the graph state, which human messages were a
+  run's input. A `before_agent` hook records each untagged human message the
+  monitor has not seen before, and every step records the untagged human
+  messages then in the state as seen, so a message written during a run is
+  never taken for the next run's input. Before a monitor judges a step, every
+  untagged human message whose id is not recorded as input is tagged as a note
+  in the monitor's copy of the history, named after its `name`, or else
+  `application`. The monitor also tags the untagged human messages a tool
+  writes through a `Command`, where they are written and with the tool's name
+  as their source, so they stay notes even when the run fails before the next
+  step, and in a history the application stores and replays. Both lists are
+  private state, so a subagent starts with neither and returns neither.
 - The monitor's own feedback carries `lc_source="monitor"` and is rendered as
   `<monitor_feedback>` wherever the task is shown: both the message that
   answers a blocked final answer and the tool message that answers a blocked
@@ -192,12 +207,24 @@ result too, because OpenAI-compatible providers receive it as an ordinary tool
 call and reject a request that leaves it unanswered.
 
 These tags rest on trust in the application's own code. A tool or a middleware
-can set `lc_source="monitor"` on a message it returns, or write a plain
-`HumanMessage` through a `Command`, and the monitor then reads it as its own
-feedback or as the user. Tool and middleware code is trusted here, as it is
-everywhere else in the agent. What the monitor distrusts is the content that
+can set `lc_source="monitor"` on a message it returns, and the monitor then
+reads it as its own feedback. Tool and middleware code is trusted here, as it
+is everywhere else in the agent. What the monitor distrusts is the content that
 code carries, such as a web page or a file, which is escaped and never read as
 a tag.
+
+Telling a run's input from the rest has limits, and each one comes from
+application code, not from what the agent writes. An untagged human message
+that another middleware's `before_agent` hook writes runs before the monitor's
+own hook, so it counts as input. So does one written after the monitor's last
+step of a run, by another middleware's `after_model` or `after_agent` hook or
+by a tool that returns a message as a dictionary rather than a
+`HumanMessage`, when the run ends before a later step sees it. The other way
+round, a human message added to a run that resumes, through
+`Command(update=...)`, is never recorded as input, so it is a note. An
+application that replays a history without a checkpointer keeps only the tags
+that the messages carry, so a middleware's untagged nudge in that history
+counts as input.
 
 When the view keeps only recent entries, every message from the task author is
 kept anyway, in order: the first states the task, and a later one can narrow or
@@ -371,8 +398,8 @@ A routing edge reads a fresh copy of the state that keeps only its own node's
 writes, and the `jump_to` key is cleared everywhere else [@langgraph2026], so
 a `jump_to` from the model node would reach only the model node's own edge,
 which exists only in an agent with no `after_model` hook at all. The hook costs
-one graph step per model call, which counts towards an explicit
-`recursion_limit`.
+one graph step per model call, and the `before_agent` hook that records a run's
+input one per run; both count towards an explicit `recursion_limit`.
 
 A fallback must not escalate to a person by calling LangGraph's `interrupt()`.
 The fallback runs inside the model node, and on resume LangGraph runs the whole

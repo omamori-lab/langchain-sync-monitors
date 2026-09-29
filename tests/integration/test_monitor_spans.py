@@ -64,6 +64,7 @@ LABEL_KEYS = {
 
 EXPECTED_TREE = """\
 LangGraph [chain] ok
+  monitor[main].before_agent [chain] ok
   model [chain] ok
     monitor step [chain] ok tags=['monitor']
       ScriptedChatModel [chat_model] ok

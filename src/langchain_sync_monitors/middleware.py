@@ -17,7 +17,7 @@ that runs failed tool calls again or answers them with an error message.
 
 import logging
 import operator
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, replace
 from typing import Annotated, NotRequired, Self, override
 
@@ -29,10 +29,11 @@ from langchain.agents.middleware.types import (
     ModelResponse,
     OmitFromInput,
     OmitFromOutput,
+    PrivateStateAttr,
     ToolCallRequest,
     hook_config,
 )
-from langchain_core.messages import AIMessage
+from langchain_core.messages import AIMessage, BaseMessage
 from langgraph.types import Command
 
 from langchain_sync_monitors._langchain import (
@@ -90,8 +91,24 @@ from langchain_sync_monitors.spans import (
     trace_decision,
     trace_decision_sync,
 )
+from langchain_sync_monitors.transcript import (
+    find_untagged_human_message_ids,
+    is_untagged_human_message,
+    tag_as_context_note,
+)
 
 logger = logging.getLogger(__name__)
+
+TASK_MESSAGES_KEY = "monitor_task_messages"
+"""The state key that holds the ids of the human messages that arrived as a run's input."""
+
+SEEN_HUMAN_MESSAGES_KEY = "monitor_seen_human_messages"
+"""The state key that holds the ids of every untagged human message the monitor has seen."""
+
+
+def merge_message_ids(recorded: list[str], new: list[str]) -> list[str]:
+    """Add newly recorded message ids to the recorded ones, keeping each id once, in order."""
+    return list(dict.fromkeys([*recorded, *new]))
 
 
 class MonitorState(AgentState):
@@ -108,10 +125,83 @@ class MonitorState(AgentState):
     `OmitFromOutput` keeps it out of the subagent's result, so it never flows
     back into the parent, as Deep Agents does for its own forked-context flag
     [@deepagents2026].
+
+    `monitor_task_messages` holds the ids of the untagged human messages that
+    arrived as a run's input, the only ones a monitor reads as the task
+    author's, and `monitor_seen_human_messages` the ids of every untagged
+    human message the monitor has seen, so a later run can tell its input
+    from a message written during an earlier run. Both are private, so a
+    subagent starts without its parent's and returns none of its own, and
+    stacked monitors merge what they record without repeating an id.
     """
 
     monitor_log: NotRequired[Annotated[list[StepRecord], OmitFromInput, operator.add]]
     monitor_delegation: NotRequired[Annotated[Delegation, OmitFromOutput]]
+    monitor_task_messages: NotRequired[Annotated[list[str], PrivateStateAttr, merge_message_ids]]
+    monitor_seen_human_messages: NotRequired[
+        Annotated[list[str], PrivateStateAttr, merge_message_ids]
+    ]
+
+
+def read_message_ids(state: Mapping[str, object], *, key: str) -> frozenset[str]:
+    """Return the message ids recorded under a state key, or none when the key is missing."""
+    ids = state.get(key)
+    if not isinstance(ids, list):
+        return frozenset()
+    return frozenset(value for value in ids if isinstance(value, str))
+
+
+def find_unseen_human_message_ids(
+    messages: Sequence[BaseMessage],
+    *,
+    seen_ids: frozenset[str],
+) -> list[str]:
+    """Return the ids of the untagged human messages the monitor has not seen before."""
+    return [
+        message_id
+        for message_id in find_untagged_human_message_ids(messages)
+        if message_id not in seen_ids
+    ]
+
+
+def mark_tool_written_notes(result: ToolCallResult, *, tool_name: str) -> ToolCallResult:
+    """Tag the untagged human messages a tool writes through a `Command` as context notes.
+
+    Deep Agents' `read_file` writes the frames of a video as such a message,
+    with the path the agent chose in its text [@deepagents2026]. Tagged where
+    it is written, with the tool's name as its source, the message stays a
+    note in every later run, even one that starts before the monitor has
+    seen it, and in a history the application stores and replays. Messages
+    given as dictionaries or tuples are left as they are.
+    """
+    if not isinstance(result, Command) or not isinstance(result.update, dict):
+        return result
+    messages = result.update.get("messages")
+    if not isinstance(messages, list) or not any(map(is_untagged_human_message, messages)):
+        return result
+    tagged = [
+        tag_as_context_note(message, source=tool_name)
+        if is_untagged_human_message(message)
+        else message
+        for message in messages
+    ]
+    return replace(result, update={**result.update, "messages": tagged})
+
+
+def build_run_input_update(state: MonitorState) -> AgentStateUpdate | None:
+    """Return the update that records a run's input as the task author's messages.
+
+    At the start of a run, an untagged human message the monitor has not seen
+    is the run's input: the monitor saw every earlier one, at the model call
+    that followed it, and recorded it as seen.
+    """
+    new_ids = find_unseen_human_message_ids(
+        state["messages"],
+        seen_ids=read_message_ids(state, key=SEEN_HUMAN_MESSAGES_KEY),
+    )
+    if not new_ids:
+        return None
+    return {TASK_MESSAGES_KEY: new_ids, SEEN_HUMAN_MESSAGES_KEY: new_ids}
 
 
 def build_end_run_update() -> AgentStateUpdate:
@@ -155,11 +245,19 @@ class MonitorMiddleware(AgentMiddleware[MonitorState, AgentContext, StructuredOu
     tool does, receives it, so the subagent's records carry the call's id as
     `delegation_id` and its Auto Mode counts from the thread's total.
 
+    Only the untagged human messages a run receives as its input are read as
+    the task author's. The middleware's `before_agent` hook records them in
+    the graph state, each step records the other human messages it sees, a
+    human message a tool writes is tagged as a context note where it is
+    written, and the monitor reads every human message not recorded as input
+    as a note.
+
     A halted step ends the run. The middleware's `after_model` hook routes the
     agent to its end, since the halt message alone does not end an agent that
     loops until it has a structured response. The hook adds one graph step per
-    model call, which counts towards an explicit `recursion_limit`, and on a
-    halted step it skips the `after_model` hooks that would run after it.
+    model call, and the `before_agent` hook one per run, which count towards an
+    explicit `recursion_limit`; on a halted step the `after_model` hook skips
+    the `after_model` hooks that would run after it.
 
     If a call inside a step raises before the protocol decides, the step is
     not committed. The samples the monitor had judged are logged as a warning
@@ -227,6 +325,7 @@ class MonitorMiddleware(AgentMiddleware[MonitorState, AgentContext, StructuredOu
                     handler=handler,
                     monitor=self.monitor,
                     task_author=self.task_author,
+                    task_message_ids=read_message_ids(request.state, key=TASK_MESSAGES_KEY),
                     previous_records=previous_records,
                     blocks_in_thread=count_blocks_in_thread(request.state, monitor=self.label),
                     new_subagent_blocks=count_new_subagent_blocks(
@@ -265,6 +364,7 @@ class MonitorMiddleware(AgentMiddleware[MonitorState, AgentContext, StructuredOu
                     handler=handler,
                     monitor=self.monitor,
                     task_author=self.task_author,
+                    task_message_ids=read_message_ids(request.state, key=TASK_MESSAGES_KEY),
                     previous_records=previous_records,
                     blocks_in_thread=count_blocks_in_thread(request.state, monitor=self.label),
                     new_subagent_blocks=count_new_subagent_blocks(
@@ -289,8 +389,12 @@ class MonitorMiddleware(AgentMiddleware[MonitorState, AgentContext, StructuredOu
         request: ToolCallRequest,
         handler: ToolCallHandler,
     ) -> ToolCallResult:
-        """Run a tool call under `invoke()`, handing any subagent it starts its delegation."""
-        return handler(add_delegation(request, agent=self.agent_name))
+        """Run a tool call under `invoke()`, handing any subagent it starts its delegation.
+
+        A human message the tool writes is tagged as a context note.
+        """
+        result = handler(add_delegation(request, agent=self.agent_name))
+        return mark_tool_written_notes(result, tool_name=request.tool_call["name"])
 
     @override
     async def awrap_tool_call(
@@ -298,8 +402,26 @@ class MonitorMiddleware(AgentMiddleware[MonitorState, AgentContext, StructuredOu
         request: ToolCallRequest,
         handler: AsyncToolCallHandler,
     ) -> ToolCallResult:
-        """Run a tool call under `ainvoke()`, handing any subagent it starts its delegation."""
-        return await handler(add_delegation(request, agent=self.agent_name))
+        """Run a tool call under `ainvoke()`, handing any subagent it starts its delegation.
+
+        A human message the tool writes is tagged as a context note.
+        """
+        result = await handler(add_delegation(request, agent=self.agent_name))
+        return mark_tool_written_notes(result, tool_name=request.tool_call["name"])
+
+    @override
+    def before_agent(self, state: MonitorState, runtime: AgentRuntime) -> AgentStateUpdate | None:
+        """Record the human messages this run received as its input, under `invoke()`."""
+        return build_run_input_update(state)
+
+    @override
+    async def abefore_agent(
+        self,
+        state: MonitorState,
+        runtime: AgentRuntime,
+    ) -> AgentStateUpdate | None:
+        """Record the human messages this run received as its input, under `ainvoke()`."""
+        return build_run_input_update(state)
 
     @hook_config(can_jump_to=["end"])
     @override
@@ -413,7 +535,9 @@ class MonitorMiddleware(AgentMiddleware[MonitorState, AgentContext, StructuredOu
 
         The record is also written to `stream_mode="custom"` as it is committed.
         With `FeedbackVisibility.IN_TRANSCRIPT`, each blocked attempt and its
-        feedback come before the step's own messages.
+        feedback come before the step's own messages. The untagged human
+        messages in the state that the monitor had not seen are recorded as
+        seen, so the next run does not take them for its input.
         """
         write_stream_event(request, event=MonitorStepEvent(type="monitor_step", record=record))
         logger.debug(
@@ -426,5 +550,11 @@ class MonitorMiddleware(AgentMiddleware[MonitorState, AgentContext, StructuredOu
             result=messages,
             structured_response=decision.response.structured_response,
         )
-        update = {MONITOR_LOG_KEY: [record]}
+        update: AgentStateUpdate = {MONITOR_LOG_KEY: [record]}
+        unseen_ids = find_unseen_human_message_ids(
+            request.state["messages"],
+            seen_ids=read_message_ids(request.state, key=SEEN_HUMAN_MESSAGES_KEY),
+        )
+        if unseen_ids:
+            update[SEEN_HUMAN_MESSAGES_KEY] = unseen_ids
         return ExtendedModelResponse(model_response=response, command=Command(update=update))

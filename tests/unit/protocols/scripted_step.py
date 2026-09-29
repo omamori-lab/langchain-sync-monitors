@@ -46,7 +46,9 @@ class ScriptedPendingStep(PendingStep):
     """A pending step whose samples carry scripted suspicion scores.
 
     Drawing more samples than the test scripted fails the test, so a protocol
-    that oversamples cannot pass unnoticed.
+    that oversamples cannot pass unnoticed. Without `blocks_in_thread`, the
+    thread's blocks are the ones in `previous_records`, as `PendingStep`
+    counts them by default.
     """
 
     def __init__(
@@ -54,10 +56,14 @@ class ScriptedPendingStep(PendingStep):
         *,
         suspicions: Sequence[float],
         previous_records: Sequence[StepRecord] = (),
+        blocks_in_thread: int | None = None,
+        new_subagent_blocks: int = 0,
     ) -> None:
         """Queue the scripted suspicions and start with no recorded calls."""
         self.remaining_suspicions = deque(suspicions)
         self.earlier_records = tuple(previous_records)
+        self.thread_blocks = blocks_in_thread
+        self.subagent_blocks = new_subagent_blocks
         self.sample_calls: list[SampleCall] = []
         self.drawn_samples: list[Sample] = []
         self.trusted_models: list[BaseChatModel] = []
@@ -66,6 +72,18 @@ class ScriptedPendingStep(PendingStep):
     def previous_records(self) -> tuple[StepRecord, ...]:
         """The records the test gave for earlier steps of the run."""
         return self.earlier_records
+
+    @property
+    def blocks_in_thread(self) -> int:
+        """The thread's blocks the test gave, or else the blocks in the earlier records."""
+        if self.thread_blocks is None:
+            return super().blocks_in_thread
+        return self.thread_blocks
+
+    @property
+    def new_subagent_blocks(self) -> int:
+        """The subagent blocks since this agent's last step that the test gave."""
+        return self.subagent_blocks
 
     async def sample(
         self,

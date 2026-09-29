@@ -28,6 +28,8 @@ from langchain.agents.middleware.types import (
     ExtendedModelResponse,
     ModelResponse,
     OmitFromInput,
+    OmitFromOutput,
+    ToolCallRequest,
     hook_config,
 )
 from langchain_core.messages import AIMessage
@@ -41,29 +43,37 @@ from langchain_sync_monitors._langchain import (
     AgentStateUpdate,
     AnyAgentMiddleware,
     AsyncModelCallHandler,
+    AsyncToolCallHandler,
     ModelCallHandler,
     MonitorStepEvent,
     MonitorStepFailedEvent,
     StructuredOutput,
+    ToolCallHandler,
+    ToolCallResult,
     hide_model_calls_from_message_stream,
     read_monitor_log,
     write_stream_event,
 )
 from langchain_sync_monitors.contracts import (
     ControlProtocol,
+    Delegation,
     FeedbackVisibility,
     Monitor,
-    Outcome,
     SampleRecord,
     StepDecision,
     StepRecord,
     SubagentHalt,
     TaskAuthor,
 )
-from langchain_sync_monitors.feedback import (
-    build_blocked_attempt_messages,
-    build_monitor_message_id,
+from langchain_sync_monitors.delegation import (
+    add_delegation,
+    build_subagent_halt_decision,
+    count_blocks_in_thread,
+    count_new_subagent_blocks,
+    find_new_subagent_halts,
+    read_delegation_id,
 )
+from langchain_sync_monitors.feedback import build_blocked_attempt_messages
 from langchain_sync_monitors.options import check_enum_option
 from langchain_sync_monitors.pending_steps import (
     AsyncPendingStep,
@@ -117,9 +127,17 @@ class MonitorState(AgentState):
     from the last metadata position; anywhere else the log silently keeps only
     its last write [@langgraph2026]. `OmitFromInput` keeps the log out of a
     subagent's input, so a subagent never copies its parent's records back.
+
+    `monitor_delegation` holds the `Delegation` a subagent was started with.
+    The monitor adds it to the state each tool call sees, and Deep Agents'
+    `task` tool passes that state on to the subagent it starts.
+    `OmitFromOutput` keeps it out of the subagent's result, so it never flows
+    back into the parent, as Deep Agents does for its own forked-context flag
+    [@deepagents2026].
     """
 
     monitor_log: NotRequired[Annotated[list[StepRecord], OmitFromInput, operator.add]]
+    monitor_delegation: NotRequired[Annotated[Delegation, OmitFromOutput]]
 
 
 class MonitorPlacementWarning(UserWarning):
@@ -130,45 +148,6 @@ class MonitorPlacementWarning(UserWarning):
     runs the whole step again, and the samples judged before the failure never
     reach `monitor_log`.
     """
-
-
-def build_subagent_halt_decision(*, subagent_names: Sequence[str]) -> StepDecision:
-    """Return the decision that ends the run because a subagent was halted."""
-    distinct_names = sorted(set(subagent_names))
-    subject = "subagent" if len(distinct_names) == 1 else "subagents"
-    message = AIMessage(
-        content=(
-            f"[Safety monitor] Stopped: the safety monitor halted the {subject} "
-            f"{', '.join(distinct_names)}, so this agent stops too."
-        ),
-        id=build_monitor_message_id(),
-    )
-    return StepDecision(
-        outcome=Outcome.HALTED,
-        response=ModelResponse(result=[message]),
-        samples=(),
-        executed_sample=None,
-        flagged=True,
-    )
-
-
-def find_new_subagent_halts(
-    records: Sequence[StepRecord],
-    *,
-    agent: str,
-) -> list[StepRecord]:
-    """Return the halts of other agents logged since this agent's last step.
-
-    Only halts this agent has not yet answered count, so a halted run does not
-    stay halted on the next turn of a checkpointed thread.
-    """
-    own_positions = [index for index, record in enumerate(records) if record["agent"] == agent]
-    start = own_positions[-1] + 1 if own_positions else 0
-    return [
-        record
-        for record in records[start:]
-        if record["agent"] != agent and record["outcome"] == "halted"
-    ]
 
 
 def build_end_run_update() -> AgentStateUpdate:
@@ -205,6 +184,12 @@ class MonitorMiddleware(AgentMiddleware[MonitorState, AgentContext, StructuredOu
     this agent before its next model call once a subagent was halted. Each
     option must be a member of its enum; a plain string raises
     `ConfigurationError`.
+
+    Before each tool call, the middleware adds a `Delegation` to the state the
+    tool sees: the call's id and the blocks each monitor has recorded in the
+    thread. A subagent the call starts, as Deep Agents' `task` tool does,
+    receives it, so the subagent's records carry the call's id as
+    `delegation_id` and its Auto Mode counts from the thread's total.
 
     A halted step ends the run. The middleware's `after_model` hook routes the
     agent to its end, since the halt message alone does not end an agent that
@@ -274,6 +259,10 @@ class MonitorMiddleware(AgentMiddleware[MonitorState, AgentContext, StructuredOu
                 monitor=self.monitor,
                 task_author=self.task_author,
                 previous_records=previous_records,
+                blocks_in_thread=count_blocks_in_thread(request.state, monitor=self.label),
+                new_subagent_blocks=count_new_subagent_blocks(
+                    records, agent=self.agent_name, monitor=self.label
+                ),
             )
             try:
                 with hide_model_calls_from_message_stream():
@@ -302,6 +291,10 @@ class MonitorMiddleware(AgentMiddleware[MonitorState, AgentContext, StructuredOu
                 monitor=self.monitor,
                 task_author=self.task_author,
                 previous_records=previous_records,
+                blocks_in_thread=count_blocks_in_thread(request.state, monitor=self.label),
+                new_subagent_blocks=count_new_subagent_blocks(
+                    records, agent=self.agent_name, monitor=self.label
+                ),
             )
             try:
                 with hide_model_calls_from_message_stream():
@@ -310,6 +303,24 @@ class MonitorMiddleware(AgentMiddleware[MonitorState, AgentContext, StructuredOu
                 self.report_failed_step(request, step=step, error=error)
                 raise
         return self.commit(request, decision=decision, previous_records=previous_records)
+
+    @override
+    def wrap_tool_call(
+        self,
+        request: ToolCallRequest,
+        handler: ToolCallHandler,
+    ) -> ToolCallResult:
+        """Run a tool call under `invoke()`, handing any subagent it starts its delegation."""
+        return handler(add_delegation(request))
+
+    @override
+    async def awrap_tool_call(
+        self,
+        request: ToolCallRequest,
+        handler: AsyncToolCallHandler,
+    ) -> ToolCallResult:
+        """Run a tool call under `ainvoke()`, handing any subagent it starts its delegation."""
+        return await handler(add_delegation(request))
 
     @hook_config(can_jump_to=["end"])
     @override
@@ -384,6 +395,9 @@ class MonitorMiddleware(AgentMiddleware[MonitorState, AgentContext, StructuredOu
             error=f"{type(error).__name__}: {error}",
             samples=samples,
         )
+        delegation_id = read_delegation_id(request.state)
+        if delegation_id is not None:
+            event["delegation_id"] = delegation_id
         write_stream_event(request, event=event)
         if samples:
             logger.warning(
@@ -414,6 +428,7 @@ class MonitorMiddleware(AgentMiddleware[MonitorState, AgentContext, StructuredOu
             agent=self.agent_name,
             monitor=self.label,
             step_number=len(previous_records) + 1,
+            delegation_id=read_delegation_id(request.state),
         )
         write_stream_event(request, event=MonitorStepEvent(type="monitor_step", record=record))
         logger.debug(

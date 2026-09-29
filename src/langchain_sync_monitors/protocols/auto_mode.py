@@ -102,12 +102,19 @@ class AutoMode(ControlProtocol):
     blocks across the conversation thread, `when_limit_reached` writes the step
     instead, and the step is flagged. The defaults, three in a row and twenty
     in all, are the limits at which Claude Code stops and escalates within a
-    session [@hughes2026automode]. Earlier blocks are counted from this
-    monitor's records of this agent's earlier steps, which a checkpointed
-    thread keeps across its turns, so the total counts every turn of the
-    thread, not one run, and never resets: once a thread has reached it, the
-    first block of every later step goes to `when_limit_reached`. The protocol
-    keeps no state of its own between steps.
+    session [@hughes2026automode].
+
+    The total counts this monitor's blocks everywhere in the thread: in this
+    agent's earlier steps, which a checkpointed thread keeps across its turns,
+    and in its subagents, nested ones included. A subagent starts from the
+    total recorded before it was started, so delegating again does not reset
+    the budget. When blocks inside subagents since this agent's last step
+    leave the thread at or over the total, this agent's next step goes to
+    `when_limit_reached` without being sampled. Subagents that run in parallel
+    do not see each other's blocks, so together they can pass the total; their
+    parent counts every one of them at its next step. The total never resets:
+    once a thread has reached it, the first block of every later step goes to
+    `when_limit_reached`. The protocol keeps no state of its own between steps.
     """
 
     def __init__(
@@ -137,8 +144,14 @@ class AutoMode(ControlProtocol):
         self.max_total_blocks = max_total_blocks
 
     async def decide(self, step: PendingStep) -> StepDecision:
-        """Sample until a step is acceptable or a block limit is reached."""
-        blocks_earlier_in_run = sum(record["blocked_count"] for record in step.previous_records)
+        """Sample until a step is acceptable or a block limit is reached.
+
+        A step that follows subagent blocks which left the thread at or over
+        its total goes to `when_limit_reached` without being sampled.
+        """
+        if self.is_total_reached_inside_subagents(step):
+            return await self.when_limit_reached.take_over(step, samples=(), flagged=True)
+        blocks_earlier_in_thread = step.blocks_in_thread
         samples: list[Sample] = []
         blocked_attempts: list[BlockedAttempt] = []
         for _ in range(self.max_consecutive_blocks):
@@ -152,7 +165,7 @@ class AutoMode(ControlProtocol):
                 )
             feedback = self.feedback.render(verdict=sample.verdict)
             blocked_attempts.append(BlockedAttempt(proposal=sample.proposal, feedback=feedback))
-            if blocks_earlier_in_run + len(blocked_attempts) >= self.max_total_blocks:
+            if blocks_earlier_in_thread + len(blocked_attempts) >= self.max_total_blocks:
                 break
         return await self.when_limit_reached.take_over(
             step,
@@ -160,6 +173,10 @@ class AutoMode(ControlProtocol):
             flagged=True,
             blocked_attempts=tuple(blocked_attempts),
         )
+
+    def is_total_reached_inside_subagents(self, step: PendingStep) -> bool:
+        """Tell whether blocks inside subagents since this agent's last step reached the total."""
+        return bool(step.new_subagent_blocks) and step.blocks_in_thread >= self.max_total_blocks
 
 
 def build_accepted_decision(

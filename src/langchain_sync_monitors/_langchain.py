@@ -11,16 +11,24 @@ from __future__ import annotations
 import logging
 from collections.abc import Awaitable, Callable, Iterator, Mapping, Sequence
 from contextlib import contextmanager
-from typing import Any, Literal, TypedDict, cast
+from dataclasses import replace
+from typing import Any, Literal, NotRequired, TypedDict, cast
 
-from langchain.agents.middleware.types import AgentMiddleware, ModelRequest, ModelResponse
-from langchain_core.messages import AnyMessage, BaseMessage
+from langchain.agents.middleware.types import (
+    AgentMiddleware,
+    ModelRequest,
+    ModelResponse,
+    ToolCallRequest,
+)
+from langchain.tools import ToolRuntime
+from langchain_core.messages import AnyMessage, BaseMessage, ToolMessage
 from langchain_core.runnables import RunnableConfig
 from langchain_core.runnables.config import var_child_runnable_config
 from langgraph.constants import TAG_NOSTREAM
 from langgraph.runtime import Runtime
+from langgraph.types import Command
 
-from langchain_sync_monitors.contracts import SampleRecord, StepRecord
+from langchain_sync_monitors.contracts import Delegation, SampleRecord, StepRecord
 
 logger = logging.getLogger(__name__)
 
@@ -54,8 +62,20 @@ type AgentRuntime = Runtime[AgentContext]
 type AgentStateUpdate = dict[str, Any]
 """A state update a middleware's node hook returns, which LangChain types by key only."""
 
+type ToolCallResult = ToolMessage | Command[Any]
+"""What a tool call returns to the agent: a tool message, or a command with any update."""
+
+type ToolCallHandler = Callable[[ToolCallRequest], ToolCallResult]
+"""The callback LangChain passes to `wrap_tool_call` to run the rest of the stack."""
+
+type AsyncToolCallHandler = Callable[[ToolCallRequest], Awaitable[ToolCallResult]]
+"""The callback LangChain passes to `awrap_tool_call` to run the rest of the stack."""
+
 MONITOR_LOG_KEY = "monitor_log"
 """The state key that holds the step records of every monitor in the run."""
+
+MONITOR_DELEGATION_KEY = "monitor_delegation"
+"""The state key through which a monitored agent hands a subagent its `Delegation`."""
 
 
 class MonitorStepEvent(TypedDict):
@@ -84,6 +104,7 @@ class MonitorStepFailedEvent(TypedDict):
     step_number: int
     error: str
     samples: list[SampleRecord]
+    delegation_id: NotRequired[str]
 
 
 type MonitorStreamEvent = MonitorStepEvent | MonitorStepFailedEvent
@@ -96,6 +117,41 @@ def read_monitor_log(state: Mapping[str, object]) -> list[StepRecord]:
     if not isinstance(records, list):
         return []
     return cast("list[StepRecord]", records)
+
+
+def read_delegation(state: object) -> Delegation | None:
+    """Return the delegation a subagent was started with, or None in an agent started directly.
+
+    A tool request's state is untyped in LangChain, and may be something other
+    than a mapping, which holds no delegation.
+    """
+    if not isinstance(state, Mapping):
+        return None
+    delegation = state.get(MONITOR_DELEGATION_KEY)
+    if not isinstance(delegation, Mapping):
+        return None
+    return cast("Delegation", delegation)
+
+
+def build_tool_request_with_delegation(
+    request: ToolCallRequest,
+    *,
+    delegation: Delegation,
+) -> ToolCallRequest:
+    """Return a copy of the tool request whose state holds the delegation.
+
+    A tool reads the state from its injected runtime, not from the request, so
+    both are replaced [@langgraph2026]. Deep Agents' `task` tool passes that
+    state, less a few keys, to the subagent it starts, and the subagent's
+    state schema keeps the key out of its output, as Deep Agents does for its
+    own forked-context flag [@deepagents2026]. A request whose state is not a
+    mapping, or that runs outside a graph, is returned unchanged.
+    """
+    runtime = cast("ToolRuntime | None", request.runtime)
+    if not isinstance(request.state, Mapping) or runtime is None:
+        return request
+    state = {**request.state, MONITOR_DELEGATION_KEY: delegation}
+    return replace(request, state=state, runtime=replace(runtime, state=state))
 
 
 def build_request_with_messages(

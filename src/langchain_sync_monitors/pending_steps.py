@@ -187,17 +187,20 @@ class MonitoredStep(PendingStep):
 
     `request` is the step's model request, `monitor` judges each sample, and
     `previous_records` holds this monitor's records for this agent from
-    earlier steps of the thread. `judged_samples` collects every sample the
-    monitor has judged so far, in the order the verdicts arrived, so the
-    middleware can report them if the step fails before it is committed. A
-    pending step lives for one step only, so this is not state shared between
-    runs.
+    earlier steps of the thread. The middleware counts `blocks_in_thread` and
+    `new_subagent_blocks` from the log and from the agent's `Delegation`.
+    `judged_samples` collects every sample the monitor has judged so far, in
+    the order the verdicts arrived, so the middleware can report them if the
+    step fails before it is committed. A pending step lives for one step only,
+    so this is not state shared between runs.
     """
 
     request: AgentModelRequest
     monitor: Monitor
     task_author: TaskAuthor
     previous_records: tuple[StepRecord, ...] = ()
+    blocks_in_thread: int = 0
+    new_subagent_blocks: int = 0
     judged_samples: list[Sample] = field(default_factory=list)
     sampled_attempts: list[tuple[BlockedAttempt, ...]] = field(default_factory=list)
 

@@ -70,8 +70,10 @@ and for the judge: pass a provider string, or a chat model object you built.
 | `flag_threshold` | 0.6, with a warning | A step whose suspicion is at or above this value is flagged. |
 
 `MonitorMiddleware` takes the `monitor` and the `protocol`. Its other options
-name the monitor and matter for subagents; the
-[Deep Agents guide](monitor-deep-agents-subagents.md) covers them.
+name the monitor, set who wrote the task, choose whether blocked attempts stay
+in the conversation (which only Auto Mode uses), and decide what a subagent's
+halt does; the [Deep Agents guide](monitor-deep-agents-subagents.md) covers the
+ones that matter for subagents.
 
 ### Calibrate the threshold
 
@@ -103,8 +105,8 @@ fine-grained, a threshold at the 98th percentile flags about 2% of honest
 steps.
 A single chat judge scores in steps of 0.1, though, so many honest steps share
 a score, and the percentile can fall inside a group of tied scores. The share
-flagged then lands well away from 2% [@kaufman2025basharena;
-@koran2026ensemble]. Two wrappers help: `RepeatedMonitor` averages several
+flagged then lands well away from 2%
+[@kaufman2025basharena; @koran2026ensemble]. Two wrappers help: `RepeatedMonitor` averages several
 calls of the monitor, which spreads the scores out, and `CalibratedMonitor`
 reports each step's suspicion as its rank among honest-run scores, breaking
 ties at random, so that a threshold of 0.98 flags about 2% of honest steps.

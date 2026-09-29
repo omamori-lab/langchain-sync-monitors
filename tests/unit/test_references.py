@@ -22,7 +22,8 @@ BIBLIOGRAPHY_PATH = REPOSITORY_ROOT / "docs" / "references.bib"
 PLANS_PATH = REPOSITORY_ROOT / "docs" / "plans"
 CITING_DIRECTORIES = ("src", "docs")
 CITING_SUFFIXES = frozenset({".py", ".md"})
-CITATION_GROUP_PATTERN = re.compile(r"\[(@[^\]]+)\]")
+CITATION_GROUP_PATTERN = re.compile(r"\[(@[^\]\n]+)\]")
+SPLIT_CITATION_PATTERN = re.compile(r"\[@[^\]\n]*\n")
 CITATION_KEY_PATTERN = re.compile(r"@([A-Za-z0-9_:-]+)")
 
 
@@ -90,3 +91,19 @@ def test_plan_notes_are_read_for_citations() -> None:
     assert any(plans_directory in path.parents for path in citing_paths), (
         "No citation was read from docs/plans/, so the plan notes are not checked."
     )
+
+
+def test_no_citation_group_in_the_docs_is_split_across_lines() -> None:
+    # Arrange: the docs plugin reads a citation group only on one line, and
+    # prints a split group as raw text.
+    docs_pages = [path for path in (REPOSITORY_ROOT / "docs").rglob("*.md") if is_citing_file(path)]
+
+    # Act
+    split = sorted(
+        str(path.relative_to(REPOSITORY_ROOT))
+        for path in docs_pages
+        if SPLIT_CITATION_PATTERN.search(path.read_text(encoding="utf-8"))
+    )
+
+    # Assert
+    assert split == [], f"Citation groups split across lines, which render as raw text: {split}"

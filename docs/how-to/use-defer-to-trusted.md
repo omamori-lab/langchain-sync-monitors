@@ -128,9 +128,9 @@ for record in result["monitor_log"]:
   middleware runs inside it. `check_monitor_placement(middleware=[...])` warns
   about a list that does not.
 - **A failed call leaves no record.** If the agent's model, the monitor or the
-  trusted model raises, nothing is committed and the error propagates, after
-  the judged sample is logged as a warning and written to
-  `stream_mode="custom"` as a `monitor_step_failed` event.
+  trusted model raises, nothing is committed and the error propagates. The
+  step is written to `stream_mode="custom"` as a `monitor_step_failed`
+  event, and any sample judged before the failure is logged as a warning.
 
 ## Related guides
 

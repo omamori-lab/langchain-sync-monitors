@@ -4,7 +4,7 @@
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/assets/diagrams/monitored-step-dark.svg">
-  <img alt="One monitored step. The untrusted model proposes a step, the monitor reads it through its view and scores it from 0 to 1, and the control protocol chooses one of five outcomes: allow, resample, defer to trusted, block with feedback, or halt. Only the committed step reaches the tools, with one record in monitor_log." src="docs/assets/diagrams/monitored-step-light.svg">
+  <img alt="One monitored step. The untrusted model proposes a step, the monitor reads it through its view and scores it from 0 to 1, and the control protocol chooses one of five outcomes: allow, resample, defer to trusted, block and steer, or halt. Only the committed step reaches the tools, with one record in monitor_log." src="docs/assets/diagrams/monitored-step-light.svg">
 </picture>
 
 ## Why this exists
@@ -145,7 +145,9 @@ covers every channel and the limit on recent entries.
 
 Deep Agents does not pass the main agent's middleware to its subagents, so
 `monitor_subagents` gives each one, the general-purpose subagent included, a
-copy of the monitor. With `monitor` and `read_file` from the quick start:
+copy of the monitor. With `monitor` from the quick start, and Deep Agents'
+own file tools rather than the quick start's `read_file`, which would
+replace Deep Agents' tool of the same name:
 
 ```python
 from deepagents import create_deep_agent
@@ -154,7 +156,6 @@ from langchain_sync_monitors import monitor_subagents
 researcher = {"name": "researcher", "description": "Finds and summarises sources."}
 agent = create_deep_agent(
     "openrouter:deepseek/deepseek-v4.1-flash",
-    tools=[read_file],
     middleware=[monitor],
     subagents=monitor_subagents(middleware=monitor, subagents=[researcher]),
 )

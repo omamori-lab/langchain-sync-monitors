@@ -80,9 +80,9 @@
   <text x="456" y="287" text-anchor="middle" class="small">writes the step</text>
 
   <rect class="flag-box" x="544" y="232" width="160" height="66" rx="8"/>
-  <text x="624" y="254" text-anchor="middle" class="pill-title">Block with feedback</text>
-  <text x="624" y="272" text-anchor="middle" class="small">the agent is told why</text>
-  <text x="624" y="287" text-anchor="middle" class="small">and tries again</text>
+  <text x="624" y="254" text-anchor="middle" class="pill-title">Block and steer</text>
+  <text x="624" y="272" text-anchor="middle" class="small">the agent is told why;</text>
+  <text x="624" y="287" text-anchor="middle" class="small">its next try runs</text>
 
   <rect class="halt-box" x="712" y="232" width="160" height="66" rx="8"/>
   <text x="792" y="254" text-anchor="middle" class="pill-title">Halt</text>

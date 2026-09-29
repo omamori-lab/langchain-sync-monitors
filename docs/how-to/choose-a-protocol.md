@@ -62,7 +62,9 @@ the samples are drawn one after another.
   samples of a suspicious step and defers only when every sample looks
   suspicious. Ctrl-Z reports a better trade-off between safety and usefulness
   than deferring at once: an honest step usually passes on a resample, and the
-  extra samples are evidence for an auditor.
+  extra samples are evidence for an auditor. The same resampling gives an
+  injection aimed at the monitor several tries, which makes one that sometimes
+  works more likely to get through [@terekhov2025adaptive].
 - **Auto Mode** follows Claude Code's auto mode [@hughes2026automode]. A
   classifier reviews each action before it runs, a blocked action is answered
   with the reason, and repeated blocks escalate. The limits of three blocks in

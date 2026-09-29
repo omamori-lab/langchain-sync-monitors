@@ -87,7 +87,7 @@ object you built.
 | `fallback` | Required | What writes the step when no sample is acceptable. |
 | `defer_threshold` | 0.6, with a warning | A sample whose suspicion is at or above this value is not acceptable. |
 | `audit_threshold` | 0.9, with a warning | A step is flagged when the lowest suspicion across its samples is at or above this value. `None` turns flagging off. |
-| `max_resamples` | 2 | How many more samples to draw after a suspicious first one. 0 makes the protocol Defer to Trusted; a negative number raises `ConfigurationError`. |
+| `max_resamples` | 2 | How many more samples to draw after a suspicious first one. 0 draws no resample, so with the `DeferToTrustedModel` fallback the protocol behaves as Defer to Trusted; a negative number raises `ConfigurationError`. |
 | `resampling` | `Resampling.SEQUENTIAL` | `SEQUENTIAL` or `PARALLEL`, as below. A plain string raises `ConfigurationError`. |
 
 ### Fallbacks
@@ -158,6 +158,12 @@ for record in result["monitor_log"]:
 
 ## Things to know
 
+- **Resampling helps an injection that sometimes works.** The protocol runs
+  the least suspicious acceptable sample, so an agent that plants text aimed
+  at the monitor gets several tries at fooling it: an injection that passes
+  one sample in five gets through about half the time across three samples
+  [@terekhov2025adaptive]. Keep the monitor's view narrow, and treat a
+  resampled step whose rejected samples scored high as worth an audit.
 - **The least suspicious acceptable sample runs, not the first.** Under
   sequential resampling they are the same, because drawing stops at the first
   acceptable sample. Under parallel resampling, any of the resamples may win.

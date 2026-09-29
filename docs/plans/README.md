@@ -16,3 +16,4 @@ Start a new directory for each new feature rather than editing an old plan.
 | Feature | Status |
 |---|---|
 | [initial-implementation](initial-implementation/) | Built: monitors, protocols, middleware, Deep Agents support |
+| [paraphrasing](paraphrasing/) | Planned: a trusted model rewrites the free text a monitor reads |

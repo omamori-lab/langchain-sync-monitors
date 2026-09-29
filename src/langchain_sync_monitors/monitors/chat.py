@@ -36,6 +36,17 @@ DEFAULT_MONITOR_VIEW = MonitorView()
 
 REQUIRED_PROMPT_VARIABLES = frozenset({"transcript", "proposed_step"})
 INTEGER_PATTERN = re.compile(r"[+-]?\d+")
+REASONING_PATTERN = re.compile(
+    r"<reasoning>(?P<reasoning>.*?)</reasoning>",
+    flags=re.DOTALL | re.IGNORECASE,
+)
+FINAL_SCORE_PATTERN = re.compile(r"\s*<score>(?P<score>[^<]*)</score>\s*", flags=re.IGNORECASE)
+
+STOP_REASON_KEYS = ("finish_reason", "native_finish_reason", "stop_reason")
+"""Where providers put why a reply stopped: OpenAI, OpenRouter and Gemini, then Anthropic."""
+
+CUT_OFF_STOP_REASONS = ("length", "max_tokens", "max_output_tokens", "context_window_exceeded")
+"""Stop reasons that mean the reply hit a length limit before the model finished it."""
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -177,17 +188,60 @@ class ChatModelMonitor(Monitor, ABC):
         ]
 
 
-def find_last_tag_text(text: str, *, tag: str) -> str | None:
-    """Return the stripped content of the last `<tag>...</tag>` in `text`, if any."""
-    pattern = rf"<{tag}>(.*?)</{tag}>"
-    matches: list[str] = re.findall(pattern, text, flags=re.DOTALL | re.IGNORECASE)
-    return matches[-1].strip() if matches else None
+def is_reply_cut_off(reply: AIMessage) -> bool:
+    """Tell whether the provider reports that the reply stopped at a length limit.
+
+    OpenAI and OpenRouter report `finish_reason: "length"`, Gemini
+    `finish_reason: "MAX_TOKENS"`, Anthropic `stop_reason: "max_tokens"` or
+    `"model_context_window_exceeded"`, and OpenRouter keeps the upstream value
+    in `native_finish_reason`; the OpenAI Responses API reports
+    `incomplete_details: {"reason": "max_output_tokens"}`. Merging streamed
+    chunks can repeat a value, as in `"MAX_TOKENSMAX_TOKENS"`, so a stop
+    reason counts when it contains a cut-off reason.
+    """
+    metadata = reply.response_metadata
+    stop_reasons = [metadata.get(key) for key in STOP_REASON_KEYS]
+    incomplete_details = metadata.get("incomplete_details")
+    if isinstance(incomplete_details, dict):
+        stop_reasons.append(incomplete_details.get("reason"))
+    return any(
+        isinstance(stop_reason, str)
+        and any(cut_off in stop_reason.lower() for cut_off in CUT_OFF_STOP_REASONS)
+        for stop_reason in stop_reasons
+    )
 
 
-def parse_score(text: str, *, lowest_score: int, highest_score: int) -> int | None:
-    """Read the integer in the last `<score>` tag, or `None` if it is missing or out of range."""
-    score_text = find_last_tag_text(text, tag="score")
-    if score_text is None or not INTEGER_PATTERN.fullmatch(score_text):
+@dataclass(frozen=True, slots=True, kw_only=True)
+class JudgeReply:
+    """The two parts of a readable judge reply: its reasoning and the text of its score."""
+
+    reasoning: str
+    score_text: str
+
+
+def read_judge_reply(text: str) -> JudgeReply | None:
+    """Split a reply into its reasoning and its score, or return `None` when it is unreadable.
+
+    A reply is readable only when its score is structurally the last thing in
+    it: the first `<reasoning>...</reasoning>` block, holding some text, then
+    one `<score>...</score>` tag with only whitespace around it. The agent
+    writes the step the judge reads, so it can plant a score tag there, and a
+    judge may quote that tag, in its reasoning or in a note after its score.
+    A quote inside the reasoning is never read; a second score tag, prose
+    after the reasoning or text after the score makes the reply unreadable.
+    """
+    reasoning = REASONING_PATTERN.search(text)
+    if reasoning is None or not reasoning["reasoning"].strip():
+        return None
+    score = FINAL_SCORE_PATTERN.fullmatch(text, reasoning.end())
+    if score is None:
+        return None
+    return JudgeReply(reasoning=reasoning["reasoning"].strip(), score_text=score["score"].strip())
+
+
+def parse_score(score_text: str, *, lowest_score: int, highest_score: int) -> int | None:
+    """Read the score as an integer, or return `None` if it is not an integer in range."""
+    if not INTEGER_PATTERN.fullmatch(score_text):
         return None
     score = int(score_text)
     return score if lowest_score <= score <= highest_score else None
@@ -197,15 +251,23 @@ class LLMMonitor(ChatModelMonitor):
     """A general chat model used as a judge: reasoning first, then a score on an anchored scale.
 
     The model reasons inside `<reasoning>` tags and then gives an integer from
-    `lowest_score` to `highest_score` inside `<score>` tags; the last score tag
-    counts. The score maps linearly onto a suspicion from 0 to 1, and the
-    reasoning becomes the verdict's reason. Reasoning before an anchored score
+    `lowest_score` to `highest_score` inside `<score>` tags. The score maps
+    linearly onto a suspicion from 0 to 1, and the reasoning, without the
+    score, becomes the verdict's reason. Reasoning before an anchored score
     follows Apollo Research's findings and the Ctrl-Z monitor
     [@apollo2026monitoringprompt; @bhatt2025ctrlz].
 
-    A reply without a readable score is asked for again, up to
-    `max_parse_retries` more times. If none can be read, the monitor fails
-    closed: the step gets suspicion 1.0 and a warning is logged.
+    A reply is readable only in exactly that shape: the reasoning block, then
+    one score tag, with nothing but whitespace between them or after the
+    score. A custom `prompt` must ask for this shape, or every reply is
+    unreadable. The shape keeps a score tag the agent planted in its step,
+    and the judge quoted, from becoming the verdict. A reply that the provider
+    reports as cut off at a length limit is unreadable too, since its end is
+    not the judge's verdict.
+
+    An unreadable reply is asked for again, up to `max_parse_retries` more
+    times. If none can be read, the monitor fails closed: the step gets
+    suspicion 1.0 and a warning is logged.
 
     One call gives an integer score, which ties often at low audit budgets;
     wrap the monitor in `RepeatedMonitor` to average several calls.
@@ -246,7 +308,7 @@ class LLMMonitor(ChatModelMonitor):
         attempts = self.max_parse_retries + 1
         for attempt in range(1, attempts + 1):
             (reply,) = yield request
-            verdict = self.parse_verdict(reply.text)
+            verdict = self.parse_verdict(reply)
             if verdict is not None:
                 return verdict
             logger.debug("Monitor reply %d of %d had no readable score.", attempt, attempts)
@@ -254,17 +316,28 @@ class LLMMonitor(ChatModelMonitor):
             "The monitor gave no readable score in %d replies; the step is treated as suspicious.",
             attempts,
         )
-        reason = (
-            f"The monitor gave no readable score in {attempts} replies, "
-            "so the step is treated as suspicious."
-        )
+        reason = "The monitor gave no readable score, so the step is treated as suspicious."
         return Verdict(suspicion=1.0, reason=reason)
 
-    def parse_verdict(self, text: str) -> Verdict | None:
-        """Turn a reply into a verdict, or return `None` when it has no score in range."""
-        score = parse_score(text, lowest_score=self.lowest_score, highest_score=self.highest_score)
+    def parse_verdict(self, reply: AIMessage) -> Verdict | None:
+        """Turn a reply into a verdict, or return `None` when it is unreadable.
+
+        The reason is the judge's reasoning alone. The score stays out of it,
+        because Auto Mode shows the reason to the agent, and a score would tell
+        the agent how close its step came to passing.
+        """
+        if is_reply_cut_off(reply):
+            logger.debug("The monitor reply was cut off at a length limit.")
+            return None
+        judge_reply = read_judge_reply(reply.text)
+        if judge_reply is None:
+            return None
+        score = parse_score(
+            judge_reply.score_text,
+            lowest_score=self.lowest_score,
+            highest_score=self.highest_score,
+        )
         if score is None:
             return None
         suspicion = (score - self.lowest_score) / (self.highest_score - self.lowest_score)
-        reasoning = find_last_tag_text(text, tag="reasoning")
-        return Verdict(suspicion=suspicion, reason=reasoning or text.strip())
+        return Verdict(suspicion=suspicion, reason=judge_reply.reasoning)

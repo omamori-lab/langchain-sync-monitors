@@ -180,22 +180,15 @@ class DecisionAnswer(BaseModel):
     noul: float = Field(ge=0.0, le=1.0)
 
 
-class DecisionUsage(BaseModel):
-    """What a Decisions API request consumed."""
-
-    input_tokens: int | None = None
-    output_tokens: int | None = None
-    cost: float | None = None
-
-
 class DecisionsResponse(BaseModel):
-    """A Decisions API response, in the shape confirmed live in September 2026."""
+    """The part of a Decisions API response the library reads: the answers.
 
-    model: str
+    The response also carries `model`, `usage`, `id` and `provider`, as
+    confirmed live in September 2026. They are ignored, not validated, so a
+    change in their shape cannot discard a valid answer.
+    """
+
     answers: dict[str, DecisionAnswer]
-    usage: DecisionUsage | None = None
-    id: str | None = None
-    provider: str | None = None
 
 
 def is_retryable_http_error(error: Exception) -> bool:
@@ -440,7 +433,10 @@ class DecisionModelMonitor(Monitor):
     `combine` merges them; `Combine.MAX` is the default because averaging
     dilutes a single strong hit, while the maximum keeps it (see
     `docs/plans/initial-implementation/research/decision-model-question-format.md`).
-    The reason names the question with the highest probability.
+    The reason names the question with the highest probability of yes, and
+    carries no probability or combined score: Auto Mode shows the reason to
+    the agent, and those numbers would tell it how close its step came to
+    passing. They stay in the suspicion.
     """
 
     def __init__(
@@ -498,8 +494,5 @@ class DecisionModelMonitor(Monitor):
         strongest = max(self.questions, key=lambda question: probabilities[question.key])
         values = [probabilities[question.key] for question in self.questions]
         suspicion = combine_probabilities(values, combine=self.combine)
-        reason = (
-            f"Probability of yes {probabilities[strongest.key]:.2f} to {strongest.key!r}: "
-            f"{strongest.text} Combined with {self.combine}: {suspicion:.2f}."
-        )
+        reason = f"The decision model's strongest concern is {strongest.key!r}: {strongest.text}"
         return Verdict(suspicion=suspicion, reason=reason)

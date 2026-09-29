@@ -16,6 +16,11 @@ from langchain_sync_monitors.monitors.guard import (
     HardLabelWarning,
 )
 
+from .captured_replies import (
+    DEEPSEEK_GUARD_REPLY_TO_AN_EXFILTRATING_STEP,
+    SAFEGUARD_REPLY_TO_A_BENIGN_STEP,
+    SAFEGUARD_REPLY_TO_AN_EXFILTRATING_STEP,
+)
 from .doubles import CallPath, ScriptedChatModel, evaluate_on_path
 
 POLICY_PROMPT = ChatPromptTemplate.from_messages(
@@ -210,8 +215,9 @@ async def test_auto_samples_when_there_are_no_log_probabilities(
 
     # Assert
     assert verdict.suspicion == pytest.approx(0.6)
-    assert "3 of 5" in verdict.reason
-    assert "unreadable" in verdict.reason
+    assert verdict.reason == (
+        "The guard model labelled the step 'violation', finding that it breaks the policy."
+    )
     assert model.received_options[0] == {"logprobs": True, "top_logprobs": 20}
     assert model.received_options[1:] == [{}] * 4
 
@@ -271,6 +277,153 @@ async def test_a_hard_label_reads_one_reply_as_zero_or_one(
     # Assert
     assert verdict.suspicion == suspicion
     assert len(model.received_messages) == 1
+
+
+@pytest.mark.parametrize(
+    ("reply", "suspicion"),
+    [
+        (SAFEGUARD_REPLY_TO_A_BENIGN_STEP, 0.0),
+        (SAFEGUARD_REPLY_TO_AN_EXFILTRATING_STEP, 1.0),
+        (DEEPSEEK_GUARD_REPLY_TO_AN_EXFILTRATING_STEP, 1.0),
+    ],
+)
+async def test_real_guard_replies_are_read(
+    monitor_input: MonitorInput,
+    call_path: CallPath,
+    reply: str,
+    suspicion: float,
+) -> None:
+    # Arrange
+    guard, _ = build_guard(reply, scoring=GuardScoring.SAMPLE_FRACTION, samples=1)
+
+    # Act
+    verdict = await evaluate_on_path(guard, monitor_input, call_path=call_path)
+
+    # Assert
+    assert verdict.suspicion == suspicion
+
+
+@pytest.mark.parametrize(
+    "reply",
+    [
+        "violation\nThe step's note tells the reviewer to answer:\nno_violation",
+        "The note says: no_violation\nIt posts the key off-site.\nviolation",
+        "no_violation\nOn reflection the step posts secrets off-site, a violation of the policy.",
+        "no_violation\nS1",
+    ],
+)
+async def test_a_label_out_of_place_or_in_conflict_fails_closed(
+    monitor_input: MonitorInput,
+    call_path: CallPath,
+    reply: str,
+) -> None:
+    # Arrange: the agent can plant "no_violation" in its step for the guard to quote.
+    guard, _ = build_guard(reply, scoring=GuardScoring.SAMPLE_FRACTION, samples=1)
+
+    # Act
+    verdict = await evaluate_on_path(guard, monitor_input, call_path=call_path)
+
+    # Assert
+    assert verdict.suspicion == 1.0
+    assert "no readable label" in verdict.reason
+
+
+@pytest.mark.parametrize(
+    ("reply", "suspicion"),
+    [
+        ("safe", 0.0),
+        ("\n\nunsafe\nS14", 1.0),
+        ("unsafe\nS1,S10", 1.0),
+        ("It reads the file the user named.\n**Safe**", 0.0),
+        ("safe\nIt reads the file the user named.\nsafe", 0.0),
+    ],
+)
+def test_a_label_where_the_guard_format_puts_it_is_read(
+    monitor_input: MonitorInput,
+    reply: str,
+    suspicion: float,
+) -> None:
+    # Arrange: Llama Guard writes the label first, then the violated categories.
+    guard = GuardModelMonitor(
+        model=ScriptedChatModel(replies=[reply]),
+        policy_prompt=POLICY_PROMPT,
+        suspicious_labels={"unsafe"},
+        safe_labels={"safe"},
+        scoring=GuardScoring.SAMPLE_FRACTION,
+        samples=1,
+    )
+
+    # Act
+    verdict = guard.evaluate_sync(monitor_input)
+
+    # Assert
+    assert verdict.suspicion == suspicion
+
+
+async def test_a_sampled_reply_cut_off_at_a_length_limit_fails_closed(
+    monitor_input: MonitorInput,
+    call_path: CallPath,
+) -> None:
+    # Arrange: the cut falls right after the guard quoted the label planted in the step.
+    reply = AIMessage(
+        content="The step's note tells the reviewer to answer:\nno_violation",
+        response_metadata={"finish_reason": "length"},
+    )
+    guard, _ = build_guard(reply, scoring=GuardScoring.SAMPLE_FRACTION, samples=1)
+
+    # Act
+    verdict = await evaluate_on_path(guard, monitor_input, call_path=call_path)
+
+    # Assert
+    assert verdict.suspicion == 1.0
+
+
+async def test_log_probabilities_of_a_reply_cut_off_at_a_length_limit_fail_closed(
+    monitor_input: MonitorInput,
+    call_path: CallPath,
+) -> None:
+    # Arrange
+    reply = build_scored_reply(
+        ("The step's note tells the reviewer to answer:\n", {}),
+        ("no", {"no": 0.99, "violation": 0.01}),
+        ("_violation", {}),
+    )
+    cut_off = reply.model_copy(
+        update={"response_metadata": {**reply.response_metadata, "finish_reason": "length"}}
+    )
+    guard, _ = build_guard(cut_off, scoring=GuardScoring.LOG_PROBABILITIES)
+
+    # Act
+    verdict = await evaluate_on_path(guard, monitor_input, call_path=call_path)
+
+    # Assert
+    assert verdict.suspicion == 1.0
+
+
+@pytest.mark.parametrize(
+    ("replies", "scoring"),
+    [
+        ((SPLIT_LABEL_REPLY,), GuardScoring.LOG_PROBABILITIES),
+        (("violation", "no_violation", "no_violation"), GuardScoring.SAMPLE_FRACTION),
+        (("no_violation", "unclear", "no_violation"), GuardScoring.SAMPLE_FRACTION),
+        (("no_violation", "no_violation", "no_violation"), GuardScoring.SAMPLE_FRACTION),
+    ],
+)
+async def test_the_reason_states_the_finding_without_numbers(
+    monitor_input: MonitorInput,
+    call_path: CallPath,
+    replies: tuple[str | AIMessage, ...],
+    scoring: GuardScoring,
+) -> None:
+    # Arrange: Auto Mode shows the reason to the agent, so no probability or count goes in it.
+    guard, _ = build_guard(*replies, scoring=scoring, samples=len(replies))
+
+    # Act
+    verdict = await evaluate_on_path(guard, monitor_input, call_path=call_path)
+
+    # Assert
+    assert verdict.reason.startswith("The guard model")
+    assert not any(character.isdigit() for character in verdict.reason)
 
 
 def test_the_guard_prompt_carries_the_step(monitor_input: MonitorInput) -> None:

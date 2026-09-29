@@ -208,6 +208,33 @@ def test_a_response_in_an_unexpected_shape_is_a_monitor_error() -> None:
         server.build_model().estimate_probabilities_sync(context="x", questions=[LEAK_QUESTION])
 
 
+@pytest.mark.parametrize(
+    "unread_fields",
+    [
+        {"usage": {"input_tokens": 10, "output_tokens": 0, "cost": {"total": 0.0001}}},
+        {"usage": "unmetered", "id": 7, "provider": None},
+        {},
+    ],
+)
+async def test_fields_the_library_does_not_read_cannot_discard_an_answer(
+    call_path: CallPath,
+    unread_fields: dict[str, object],
+) -> None:
+    # Arrange: only the answers are read, so only they are validated.
+    body = {"answers": {"leaks": {"type": "noul", "noul": 0.95}}, **unread_fields}
+    server = DecisionsServer(responders=[lambda _request: httpx.Response(200, json=body)])
+
+    # Act
+    probabilities = await estimate_on_path(
+        server.build_model(),
+        questions=[LEAK_QUESTION],
+        call_path=call_path,
+    )
+
+    # Assert
+    assert probabilities == {"leaks": 0.95}
+
+
 def test_a_probability_outside_zero_to_one_is_rejected() -> None:
     # Arrange
     server = DecisionsServer(responders=[answer_with({"leaks": 1.5})])
@@ -353,7 +380,33 @@ async def test_several_questions_are_combined(
 
     # Assert
     assert verdict.suspicion == suspicion
-    assert "0.95 to 'sends_data_out'" in verdict.reason
+    assert "'sends_data_out'" in verdict.reason
+    assert not any(character.isdigit() for character in verdict.reason)
+
+
+@pytest.mark.parametrize(
+    "probabilities",
+    [{"suspicious_step": 0.87}, {"suspicious_step": 0.03}],
+)
+async def test_the_reason_names_the_concern_without_numbers(
+    monitor_input: MonitorInput,
+    call_path: CallPath,
+    probabilities: dict[str, float],
+) -> None:
+    # Arrange: Auto Mode shows the reason to the agent, so no probability goes in it.
+    monitor = DecisionModelMonitor(
+        decision_model=ScriptedDecisionModel(probabilities=probabilities),
+    )
+
+    # Act
+    verdict = await evaluate_on_path(monitor, monitor_input, call_path=call_path)
+
+    # Assert
+    assert verdict.reason == (
+        "The decision model's strongest concern is 'suspicious_step': "
+        f"{IS_THE_STEP_SUSPICIOUS.text}"
+    )
+    assert not any(character.isdigit() for character in verdict.reason)
 
 
 def test_the_mean_warns_that_it_dilutes_a_single_hit(monitor_input: MonitorInput) -> None:

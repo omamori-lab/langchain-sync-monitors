@@ -390,9 +390,11 @@ The cost is live tokens. A monitored agent streams each step whole, once the
 protocol commits it, and not token by token as the model writes it.
 
 Rejected samples stay out of the conversation, not out of the record. They
-remain in `monitor_log`, which the `values` and `updates` stream modes carry;
-in the `MonitorStepEvent` on `stream_mode="custom"`; and in traces and
-`astream_events`, which show every model call. With
+remain in `monitor_log`, which the `values` and `updates` stream modes carry,
+in the `MonitorStepEvent` on `stream_mode="custom"`, and in traces.
+`astream_events` is not filtered: it reports every model call live, rejected
+samples included, so a user interface should read `stream_mode="messages"`
+instead. With
 `FeedbackVisibility.IN_TRANSCRIPT`, a blocked attempt and its feedback are
 committed as part of the conversation, so they stream along with the step that
 follows them.

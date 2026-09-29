@@ -238,6 +238,7 @@ def test_a_rejected_subagent_step_never_streams(run_mode: RunMode) -> None:
     assert read_answers(streamed) == [FINAL_ANSWER, "The worker found the figure."]
 
 
+@pytest.mark.filterwarnings("ignore::langchain_core._api.beta_decorator.LangChainBetaWarning")
 def test_the_v3_event_stream_carries_only_committed_steps() -> None:
     # Arrange
     agent = create_agent(

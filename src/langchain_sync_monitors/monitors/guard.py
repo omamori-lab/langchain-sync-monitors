@@ -18,7 +18,6 @@ import warnings
 from collections.abc import Generator, Iterator
 from collections.abc import Set as AbstractSet
 from contextlib import contextmanager
-from dataclasses import dataclass
 from enum import StrEnum
 from itertools import filterfalse
 from typing import ClassVar, Literal
@@ -37,6 +36,7 @@ from langchain_sync_monitors.monitors.chat import (
     VerdictPlan,
     is_reply_cut_off,
 )
+from langchain_sync_monitors.monitors.guard_labels import LabelMatch, find_reply_label
 from langchain_sync_monitors.options import check_enum_option
 
 logger = logging.getLogger(__name__)
@@ -45,18 +45,6 @@ TOP_LOG_PROBABILITIES = 20
 """How many alternatives to request per token; 20 is the most OpenAI-style APIs return."""
 
 LABEL_PATTERN = re.compile(r"[\w-]+")
-LABEL_LINE_PATTERN = re.compile(
-    r"\W*+(?:(?P<key>[A-Za-z][A-Za-z ]{0,19}):\W*+)?(?P<label>[\w-]++)\W*+",
-)
-"""A label alone, or after a short key such as `Label:`, with markup such as `**` around it.
-
-The key is at most 20 letters and spaces, so prose that quotes a label after a
-colon is no key. The quantifiers are possessive, so a line that is no label
-line fails in linear time instead of backtracking.
-"""
-CATEGORY_CODES_PATTERN = re.compile(r"\s*S\d+(?:\s*,\s*S\d+)*\s*")
-NON_EMPTY_LINE_PATTERN = re.compile(r"^[^\n]*\S[^\n]*", flags=re.MULTILINE)
-"""A line holding more than whitespace; anchored to the line's start, so it runs in linear time."""
 LEADING_MARKUP_PATTERN = re.compile(r"^\W+")
 """Markup a label line may open with, such as `**` or `(`; a token may carry it before a label."""
 UNREADABLE_LABEL_REASON = (
@@ -112,78 +100,6 @@ class ReplyLogProbabilities(BaseModel):
     """
 
     content: list[TokenLogProbability] | None = None
-
-
-@dataclass(frozen=True, slots=True, kw_only=True)
-class LabelMatch:
-    """A known label found in a reply, and the character offset where it starts."""
-
-    label: str
-    offset: int
-
-
-def match_label_line(line: re.Match[str], *, labels: frozenset[str]) -> LabelMatch | None:
-    """Read a line that holds one known label, alone or after a short key, as in `Label: violation`.
-
-    A key that names a label, as in `violation: no_violation`, makes the line
-    name two labels, so it holds none.
-    """
-    match = LABEL_LINE_PATTERN.fullmatch(line.group())
-    if match is None or match["label"].lower() not in labels:
-        return None
-    if match["key"] and any(word.lower() in labels for word in match["key"].split()):
-        return None
-    return LabelMatch(label=match["label"].lower(), offset=line.start() + match.start("label"))
-
-
-def find_label_lines(
-    lines: list[re.Match[str]],
-    *,
-    labels: frozenset[str],
-) -> dict[int, LabelMatch]:
-    """Return the label of every line that holds one, keyed by the line's index."""
-    label_lines: dict[int, LabelMatch] = {}
-    for index, line in enumerate(lines):
-        match = match_label_line(line, labels=labels)
-        if match is not None:
-            label_lines[index] = match
-    return label_lines
-
-
-def find_reply_label(
-    text: str,
-    *,
-    suspicious_labels: frozenset[str],
-    safe_labels: frozenset[str],
-) -> LabelMatch | None:
-    """Find the label where the guard's format puts it, or return `None` if that is ambiguous.
-
-    gpt-oss-safeguard follows the output format its policy asks for
-    [@openai2025gptosssafeguardguide], and a policy like the one in the guard
-    guide asks for the label on the last line, after the reasoning;
-    Llama Guard writes an unsafe label on the first line, followed only by
-    the codes of the violated categories, as in `S1,S10`
-    [@meta2024llamaguard3format; @meta2025llamaguard4]. Labels match
-    case-insensitively. A label anywhere else is not read, so a first-line
-    label followed by prose counts as no label. A reply in which two lines
-    name different labels is ambiguous too: the agent can plant a label in
-    its step, as text aimed at its monitor [@terekhov2025adaptive], and a
-    guard that quotes it must not have the quote read as its verdict.
-    """
-    lines = list(NON_EMPTY_LINE_PATTERN.finditer(text))
-    label_lines = find_label_lines(lines, labels=suspicious_labels | safe_labels)
-    if len({match.label for match in label_lines.values()}) != 1:
-        return None
-    last_line = label_lines.get(len(lines) - 1)
-    if last_line is not None:
-        return last_line
-    first_line = label_lines.get(0)
-    only_category_codes_follow = all(
-        CATEGORY_CODES_PATTERN.fullmatch(line.group()) for line in lines[1:]
-    )
-    if first_line and first_line.label in suspicious_labels and only_category_codes_follow:
-        return first_line
-    return None
 
 
 def read_log_probabilities(reply: AIMessage) -> list[TokenLogProbability] | None:

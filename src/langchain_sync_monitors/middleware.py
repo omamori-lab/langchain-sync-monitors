@@ -38,6 +38,7 @@ from langchain.agents.middleware.types import (
     hook_config,
 )
 from langchain_core.messages import AIMessage
+from langgraph.errors import GraphBubbleUp
 from langgraph.types import Command
 
 from langchain_sync_monitors._langchain import (
@@ -195,7 +196,12 @@ class MonitorMiddleware(AgentMiddleware[MonitorState, AgentContext, StructuredOu
     If a call inside a step raises before the protocol decides, the step is
     not committed. The samples the monitor had judged are logged as a warning
     and written to `stream_mode="custom"` as a `MonitorStepFailedEvent`, and
-    the exception is raised again.
+    the exception is raised again. LangGraph's own control flow, such as the
+    `GraphInterrupt` that `interrupt()` raises, passes through unreported. Yet
+    a monitor, a protocol or a fallback must not call `interrupt()`: on
+    resume LangGraph runs the model node again [@langgraph2026], so the step
+    is sampled and judged afresh, and the person's answer applies to samples
+    they never saw.
 
     In LangChain tracers such as LangSmith and Langfuse, each step is a
     `monitor step` span, with the spans that `spans` describes nested in it.
@@ -288,6 +294,8 @@ class MonitorMiddleware(AgentMiddleware[MonitorState, AgentContext, StructuredOu
                 try:
                     with hide_model_calls_from_message_stream():
                         decision = run_synchronously(self.protocol.decide(step))
+                except GraphBubbleUp:
+                    raise
                 except BaseException as error:
                     self.report_failed_step(
                         request, step=step, error=error, traced_step=traced_step
@@ -327,6 +335,8 @@ class MonitorMiddleware(AgentMiddleware[MonitorState, AgentContext, StructuredOu
                 try:
                     with hide_model_calls_from_message_stream():
                         decision = await self.protocol.decide(step)
+                except GraphBubbleUp:
+                    raise
                 except BaseException as error:
                     self.report_failed_step(
                         request, step=step, error=error, traced_step=traced_step

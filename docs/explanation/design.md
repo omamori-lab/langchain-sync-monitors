@@ -378,12 +378,15 @@ would pass for the task author and lift the halt, so `check_monitor_placement`
 warns about any middleware whose `after_agent` hook can jump to the model,
 other than `RubricMiddleware`, which tags its revision requests.
 
-A fallback must not escalate to a person by calling LangGraph's `interrupt()`.
-The fallback runs inside the model node, and on resume LangGraph runs the whole
-node again [@langgraph2026]: the protocol draws fresh samples, and the person's
-answer applies to whatever the new samples propose, not to the step they
-reviewed. To involve a person, end the step, with `HaltRun` for example, and
-ask outside the model node, as `HumanInTheLoopMiddleware` does for tool calls.
+Nothing inside the model node may escalate to a person by calling LangGraph's
+`interrupt()`: not a monitor, not a protocol and not a fallback. On resume
+LangGraph runs the whole node again [@langgraph2026]: the protocol draws fresh
+samples, the monitor judges them again, and the person's answer applies to
+whatever the new samples propose, not to the step they reviewed. To involve a
+person, end the step, with `HaltRun` for example, and ask outside the model
+node, as `HumanInTheLoopMiddleware` does for tool calls. The middleware lets
+LangGraph's control flow, such as the `GraphInterrupt` that `interrupt()`
+raises, pass without reporting a failed step.
 
 When a call inside a step raises, whether a sample, a monitor call or the
 trusted model's step, the protocol never decides, so nothing is committed and

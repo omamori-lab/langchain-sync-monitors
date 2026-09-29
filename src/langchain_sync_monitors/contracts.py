@@ -232,7 +232,13 @@ class Delegation(TypedDict):
 
 
 class Monitor(ABC):
-    """Scores a proposed step. Implementations differ in the model family they use."""
+    """Scores a proposed step. Implementations differ in the model family they use.
+
+    A monitor runs inside the agent's model node, so it must not ask a person
+    through LangGraph's `interrupt()`: on resume LangGraph runs the node
+    again [@langgraph2026], the step is sampled and judged afresh, and the
+    answer applies to samples the person never saw.
+    """
 
     @abstractmethod
     async def evaluate(self, monitor_input: MonitorInput) -> Verdict:
@@ -294,7 +300,12 @@ class PendingStep(ABC):
 
 
 class ControlProtocol(ABC):
-    """Decides what the agent state receives for each step."""
+    """Decides what the agent state receives for each step.
+
+    Like a monitor, a protocol runs inside the agent's model node and must not
+    call LangGraph's `interrupt()`, since on resume the step is sampled and
+    judged afresh [@langgraph2026].
+    """
 
     @abstractmethod
     async def decide(self, step: PendingStep) -> StepDecision:

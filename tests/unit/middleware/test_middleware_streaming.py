@@ -7,7 +7,6 @@ from typing import Any
 
 import pytest
 from langchain.agents import create_agent
-from langchain.agents.middleware.internal_call_transformer import INTERNAL_CALL_METADATA_KEY
 from langchain_core.language_models.fake_chat_models import GenericFakeChatModel
 from langchain_core.messages import AIMessage
 from langchain_core.runnables import Runnable
@@ -63,7 +62,7 @@ def stream_message_metadata(agent: Runnable[Any, Any], *, mode: RunMode) -> list
     return asyncio.run(collect())
 
 
-def test_monitor_calls_in_the_messages_stream_carry_the_internal_call_tag(
+def test_monitor_calls_never_reach_the_messages_stream(
     run_mode: RunMode,
     judged_middleware: MonitorMiddleware,
 ) -> None:
@@ -75,12 +74,8 @@ def test_monitor_calls_in_the_messages_stream_carry_the_internal_call_tag(
     chunks = stream_message_metadata(agent, mode=run_mode)
 
     # Assert
-    judge_chunks = [metadata for metadata in chunks if metadata.get("lc_source") == JUDGE_SOURCE]
-    agent_chunks = [metadata for metadata in chunks if metadata.get("lc_source") is None]
-    assert judge_chunks
-    assert agent_chunks
-    assert all(INTERNAL_CALL_METADATA_KEY in metadata for metadata in judge_chunks)
-    assert all(INTERNAL_CALL_METADATA_KEY not in metadata for metadata in agent_chunks)
+    assert [metadata.get("lc_source") for metadata in chunks] == [None]
+    assert all(metadata.get("lc_source") != JUDGE_SOURCE for metadata in chunks)
 
 
 @pytest.mark.filterwarnings("ignore::langchain_core._api.beta_decorator.LangChainBetaWarning")

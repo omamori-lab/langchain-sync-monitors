@@ -98,6 +98,35 @@ def stream_custom_events(agent: Runnable[Any, Any], *, mode: RunMode) -> list[An
     return asyncio.run(collect())
 
 
+def stream_messages(
+    agent: Runnable[Any, Any],
+    *,
+    mode: RunMode,
+    subgraphs: bool = False,
+) -> list[BaseMessage]:
+    """Return every message or chunk a `stream_mode="messages"` consumer receives, in order.
+
+    With `subgraphs`, the messages of every subgraph namespace are included.
+    """
+    payload = build_task_input()
+    if mode == "invoke":
+        parts = list(agent.stream(payload, stream_mode="messages", subgraphs=subgraphs))
+    else:
+
+        async def collect() -> list[Any]:
+            return [
+                part
+                async for part in agent.astream(
+                    payload, stream_mode="messages", subgraphs=subgraphs
+                )
+            ]
+
+        parts = asyncio.run(collect())
+    if subgraphs:
+        return [message for _namespace, (message, _metadata) in parts]
+    return [message for message, _metadata in parts]
+
+
 def find_unanswered_tool_calls(messages: Sequence[BaseMessage]) -> list[str]:
     """Return tool call ids with no result before the next AI turn, as providers reject them."""
     unanswered: list[str] = []

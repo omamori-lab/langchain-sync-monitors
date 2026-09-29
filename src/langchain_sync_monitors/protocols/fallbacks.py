@@ -3,6 +3,14 @@
 A control protocol hands the step to a `Fallback` once it has rejected every
 sample, or once Auto Mode reaches its block limits. Fallbacks hold
 configuration only, so one instance can serve parallel runs.
+
+A fallback must not escalate to a person by calling LangGraph's `interrupt()`.
+The fallback runs inside the model node, and on resume LangGraph runs the
+whole node again [@langgraph2026]: the protocol draws fresh samples, and the
+person's answer applies to whatever the new samples propose, not to the step
+they reviewed. To ask a person, end the step instead, for example with
+`HaltRun`, and ask outside the model node, as `HumanInTheLoopMiddleware` does
+for tool calls.
 """
 
 from __future__ import annotations
@@ -69,7 +77,9 @@ class DeferToTrustedModel(Fallback):
 class HaltRun(Fallback):
     """End the agent's run with a final message.
 
-    The message has no tool calls, so the agent loop stops after it. A halted
+    The message has no tool calls, and the monitor middleware routes the agent
+    to its end after a halted step, so the run stops there even in an agent
+    that would otherwise loop until it has a structured response. A halted
     step is always flagged, since a person should look at why the run stopped.
     """
 

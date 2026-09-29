@@ -21,5 +21,13 @@ class MissingExtraError(ConfigurationError, ImportError):
     """
 
 
+class InvalidSuspicionError(MonitorError, ValueError):
+    """A verdict's suspicion is NaN or lies outside [0, 1].
+
+    It is both a `MonitorError` and a `ValueError`, so code that catches
+    either one sees it.
+    """
+
+
 class SynchronousRunError(MonitorError):
     """A control protocol awaited real asynchronous work during a synchronous `invoke()`."""

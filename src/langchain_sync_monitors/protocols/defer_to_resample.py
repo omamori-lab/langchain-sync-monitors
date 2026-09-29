@@ -14,6 +14,7 @@ from langchain_sync_monitors.contracts import (
     StepDecision,
 )
 from langchain_sync_monitors.errors import ConfigurationError
+from langchain_sync_monitors.options import check_enum_option
 from langchain_sync_monitors.protocols.fallbacks import DeferToTrustedModel
 from langchain_sync_monitors.thresholds import (
     DEFAULT_AUDIT_THRESHOLD,
@@ -37,14 +38,23 @@ class DeferToResample(ControlProtocol):
     `Resampling.SEQUENTIAL` draws one sample at a time and stops at the first
     acceptable one, as Ctrl-Z's appendix J words the protocol.
     `Resampling.PARALLEL` draws every resample at once, which lowers latency but
-    always costs `max_resamples` extra calls.
+    always costs `max_resamples` extra calls. `resampling` must be a
+    `Resampling` member; a plain string raises `ConfigurationError`.
+    Resampling needs fresh draws, so a LangChain response cache on the agent's
+    model defeats it, and the pending step emits a `CachedResampleWarning`.
 
     The step is flagged for audit when the lowest suspicion across its samples
     is at or above `audit_threshold`, the statistic Ctrl-Z found to work well
-    (section 3.2, footnote 6). Every sample stays in the step's record as
-    evidence, and an auditor should read the most suspicious one first. The
-    agent never sees the rejected samples. `audit_threshold=None` turns
-    flagging off.
+    (section 3.2, footnote 6). A flag is a mark in `monitor_log` for a person
+    to review after the fact; it never blocks the step, which has already run
+    or been replaced by the time anyone reads it. For that reason an
+    `audit_threshold` below `defer_threshold` is allowed: it flags steps that
+    still ran, a review queue of borderline steps below the deferral line.
+    Every sample stays in the step's record as evidence, and an auditor should
+    read the most suspicious one first. The agent never sees the rejected
+    samples. `audit_threshold=None` turns this flagging off; `HaltRun` still
+    flags every step it halts, so with that fallback a step that reaches it
+    is flagged anyway.
 
     One caveat comes from how LangChain composes middleware. If a middleware
     placed inside the monitor returns commands, only the commands of the last
@@ -72,6 +82,7 @@ class DeferToResample(ControlProtocol):
         if max_resamples < 0:
             message = f"max_resamples must be zero or more, got {max_resamples}"
             raise ConfigurationError(message)
+        check_enum_option(resampling, option_type=Resampling, parameter_name="resampling")
         self.fallback = fallback
         self.defer_threshold = resolve_threshold(
             parameter_name="defer_threshold",
@@ -136,7 +147,9 @@ class DeferToTrusted(DeferToResample):
     This is Defer to Trusted from AI Control [@greenblatt2023aicontrol]: a step
     whose suspicion is at or above `defer_threshold` is written by
     `trusted_model` instead, and a step at or above `audit_threshold` is also
-    flagged. It is Defer to Resample with zero resamples.
+    flagged. It is Defer to Resample with zero resamples. As there, a flag is a
+    mark for review after the fact and never blocks the step, so an
+    `audit_threshold` below `defer_threshold` flags steps that still ran.
     """
 
     def __init__(

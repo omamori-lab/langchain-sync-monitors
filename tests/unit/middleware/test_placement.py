@@ -7,7 +7,11 @@ from collections.abc import Awaitable, Callable
 from typing import Any
 
 import pytest
-from langchain.agents.middleware import HumanInTheLoopMiddleware
+from langchain.agents.middleware import (
+    HumanInTheLoopMiddleware,
+    ModelFallbackMiddleware,
+    ModelRetryMiddleware,
+)
 from langchain.agents.middleware.types import AgentMiddleware, ModelRequest, ModelResponse
 
 from langchain_sync_monitors.middleware import (
@@ -15,6 +19,7 @@ from langchain_sync_monitors.middleware import (
     MonitorPlacementWarning,
     check_monitor_placement,
 )
+from tests.support.chat_models import ScriptedChatModel
 from tests.support.monitors import KeywordMonitor
 from tests.support.protocols import AcceptFirst
 
@@ -103,6 +108,30 @@ def test_only_middleware_after_the_last_monitor_is_checked(
 
     # Assert
     assert misplaced == []
+
+
+@pytest.mark.parametrize(
+    "retrying",
+    [
+        ModelRetryMiddleware(),
+        ModelFallbackMiddleware(ScriptedChatModel(responses=[])),
+    ],
+    ids=["retry", "fallback"],
+)
+def test_a_retrying_middleware_outside_the_monitor_is_named_in_a_warning(
+    monitor_middleware: MonitorMiddleware,
+    retrying: AgentMiddleware[Any, Any, Any],
+) -> None:
+    # Arrange
+    stack = [retrying, CommandingMiddleware(), monitor_middleware]
+
+    # Act
+    with pytest.warns(MonitorPlacementWarning, match="retries failed model calls") as caught:
+        misplaced = check_monitor_placement(middleware=stack)
+
+    # Assert
+    assert misplaced == [retrying.name]
+    assert "monitor_step_failed" in str(caught[0].message)
 
 
 def test_a_stack_without_a_monitor_has_nothing_to_check() -> None:

@@ -6,7 +6,7 @@ joins the two and plugs into `create_agent` or `create_deep_agent`;
 `monitor_subagents` gives every Deep Agents subagent a monitor of its own.
 """
 
-from langchain_sync_monitors._langchain import MonitorStepEvent
+from langchain_sync_monitors._langchain import MonitorStepEvent, MonitorStepFailedEvent
 from langchain_sync_monitors.contracts import (
     BlockedAttempt,
     Channel,
@@ -30,6 +30,7 @@ from langchain_sync_monitors.contracts import (
 from langchain_sync_monitors.deepagents import monitor_subagents
 from langchain_sync_monitors.errors import (
     ConfigurationError,
+    InvalidSuspicionError,
     MissingExtraError,
     MonitorError,
     SynchronousRunError,
@@ -58,6 +59,7 @@ from langchain_sync_monitors.monitors import (
     TypeSafeDecisionModel,
     YesNoQuestion,
 )
+from langchain_sync_monitors.pending_steps import CachedResampleWarning
 from langchain_sync_monitors.prompts import DEFAULT_MONITOR_PROMPT
 from langchain_sync_monitors.protocols import (
     DEFAULT_FEEDBACK_TEMPLATE,
@@ -86,6 +88,7 @@ __all__ = [
     "IS_THE_STEP_SUSPICIOUS",
     "AutoMode",
     "BlockedAttempt",
+    "CachedResampleWarning",
     "CalibratedMonitor",
     "CascadeMonitor",
     "Channel",
@@ -106,6 +109,7 @@ __all__ = [
     "GuardScoring",
     "HaltRun",
     "HardLabelWarning",
+    "InvalidSuspicionError",
     "LLMMonitor",
     "MissingExtraError",
     "Monitor",
@@ -115,6 +119,7 @@ __all__ = [
     "MonitorPlacementWarning",
     "MonitorState",
     "MonitorStepEvent",
+    "MonitorStepFailedEvent",
     "MonitorView",
     "OpenRouterDecisionModel",
     "Outcome",

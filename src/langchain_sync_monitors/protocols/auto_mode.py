@@ -99,11 +99,15 @@ class AutoMode(ControlProtocol):
     otherwise.
 
     After `max_consecutive_blocks` blocks within one step, or `max_total_blocks`
-    blocks across the run, `when_limit_reached` writes the step instead, and the
-    step is flagged. The defaults, three in a row and twenty in all, are the
-    limits at which Claude Code stops and escalates [@hughes2026automode].
-    Blocks earlier in the run are counted from this monitor's earlier records,
-    so the protocol keeps no state of its own between steps.
+    blocks across the conversation thread, `when_limit_reached` writes the step
+    instead, and the step is flagged. The defaults, three in a row and twenty
+    in all, are the limits at which Claude Code stops and escalates within a
+    session [@hughes2026automode]. Earlier blocks are counted from this
+    monitor's records of this agent's earlier steps, which a checkpointed
+    thread keeps across its turns, so the total counts every turn of the
+    thread, not one run, and never resets: once a thread has reached it, the
+    first block of every later step goes to `when_limit_reached`. The protocol
+    keeps no state of its own between steps.
     """
 
     def __init__(

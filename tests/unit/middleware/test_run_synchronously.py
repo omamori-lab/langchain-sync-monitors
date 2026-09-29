@@ -3,7 +3,10 @@
 from __future__ import annotations
 
 import asyncio
+import gc
 import inspect
+import threading
+from collections.abc import Callable, Coroutine
 
 import pytest
 
@@ -86,3 +89,79 @@ def test_other_runtime_errors_propagate_unchanged() -> None:
 
     # Assert
     assert not isinstance(raised.value, SynchronousRunError)
+
+
+async def record_call(calls: list[str]) -> str:
+    calls.append("called")
+    return "called"
+
+
+async def gather_two_calls(calls: list[str]) -> str:
+    await asyncio.gather(record_call(calls), record_call(calls))
+    return "unreachable"
+
+
+async def create_a_task(calls: list[str]) -> str:
+    await asyncio.create_task(record_call(calls))
+    return "unreachable"
+
+
+async def ensure_a_future(calls: list[str]) -> str:
+    await asyncio.ensure_future(record_call(calls))
+    return "unreachable"
+
+
+SCHEDULING_PROTOCOLS = [gather_two_calls, create_a_task, ensure_a_future]
+
+
+def run_in_fresh_thread(work: Callable[[], object]) -> type[BaseException] | None:
+    """Run `work` in a new thread, which has no event loop, and return the type it raised.
+
+    Only the type leaves the thread, so the unawaited coroutines the error's
+    traceback holds can be collected, and warned about, inside the test.
+    """
+    raised: list[type[BaseException]] = []
+
+    def target() -> None:
+        try:
+            work()
+        except BaseException as error:
+            raised.append(type(error))
+
+    thread = threading.Thread(target=target)
+    thread.start()
+    thread.join()
+    return raised[0] if raised else None
+
+
+@pytest.mark.filterwarnings("ignore:coroutine .* was never awaited:RuntimeWarning")
+@pytest.mark.parametrize("schedule", SCHEDULING_PROTOCOLS)
+def test_scheduling_work_where_no_loop_runs_raises_the_library_error(
+    schedule: Callable[[list[str]], Coroutine[object, object, str]],
+) -> None:
+    # Arrange
+    calls: list[str] = []
+
+    # Act
+    raised = run_in_fresh_thread(lambda: run_synchronously(schedule(calls)))
+    gc.collect()
+
+    # Assert
+    assert raised is SynchronousRunError
+    assert calls == []
+
+
+@pytest.mark.parametrize("schedule", SCHEDULING_PROTOCOLS)
+async def test_work_scheduled_inside_a_running_loop_is_cancelled_before_it_runs(
+    schedule: Callable[[list[str]], Coroutine[object, object, str]],
+) -> None:
+    # Arrange
+    calls: list[str] = []
+
+    # Act
+    with pytest.raises(SynchronousRunError):
+        run_synchronously(schedule(calls))
+    await asyncio.sleep(0.05)
+
+    # Assert
+    assert calls == []

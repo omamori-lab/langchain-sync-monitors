@@ -8,6 +8,7 @@ from typing import get_args
 import pytest
 
 from langchain_sync_monitors.contracts import Channel, Outcome, OutcomeName, Verdict
+from langchain_sync_monitors.errors import InvalidSuspicionError, MonitorError
 
 
 @pytest.mark.parametrize("suspicion", [0.0, 0.5, 1.0])
@@ -24,6 +25,17 @@ def test_verdict_rejects_suspicion_outside_the_unit_interval(suspicion: float) -
     # Act / Assert
     with pytest.raises(ValueError, match="between 0 and 1"):
         Verdict(suspicion=suspicion, reason="out of range")
+
+
+@pytest.mark.parametrize("suspicion", [math.nan, 1.5])
+def test_an_invalid_suspicion_is_a_library_error(suspicion: float) -> None:
+    # Act
+    with pytest.raises(MonitorError) as raised:
+        Verdict(suspicion=suspicion, reason="a custom monitor's bad score")
+
+    # Assert
+    assert isinstance(raised.value, InvalidSuspicionError)
+    assert isinstance(raised.value, ValueError)
 
 
 def test_default_view_reads_actions_but_not_reasoning() -> None:

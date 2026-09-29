@@ -22,7 +22,7 @@ from langchain.agents.middleware.types import ModelResponse
 from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import AIMessage, BaseMessage
 
-from langchain_sync_monitors.errors import ConfigurationError
+from langchain_sync_monitors.errors import ConfigurationError, InvalidSuspicionError
 
 
 class Channel(Flag):
@@ -138,10 +138,10 @@ class Verdict:
     reason: str
 
     def __post_init__(self) -> None:
-        """Reject a suspicion outside [0, 1], including NaN."""
+        """Reject a suspicion outside [0, 1], including NaN, with `InvalidSuspicionError`."""
         if math.isnan(self.suspicion) or not 0.0 <= self.suspicion <= 1.0:
             message = f"suspicion must be between 0 and 1, got {self.suspicion!r}"
-            raise ValueError(message)
+            raise InvalidSuspicionError(message)
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)

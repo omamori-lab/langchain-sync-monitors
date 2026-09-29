@@ -1,8 +1,9 @@
 """The boundary with the loosely typed surfaces of LangChain and LangGraph.
 
 LangChain types a request's runtime context, its structured response, its
-state and a stream writer's payload as `Any`. Those types are named here, once,
-so every other module works with the library's own precise types.
+state, a hook's state update and a stream writer's payload as `Any`. Those
+types are named here, once, so every other module works with the library's own
+precise types.
 """
 
 from __future__ import annotations
@@ -17,8 +18,9 @@ from langchain_core.messages import AnyMessage, BaseMessage
 from langchain_core.runnables import RunnableConfig
 from langchain_core.runnables.config import var_child_runnable_config
 from langgraph.constants import TAG_NOSTREAM
+from langgraph.runtime import Runtime
 
-from langchain_sync_monitors.contracts import StepRecord
+from langchain_sync_monitors.contracts import SampleRecord, StepRecord
 
 logger = logging.getLogger(__name__)
 
@@ -46,6 +48,12 @@ type AnyAgentMiddleware = AgentMiddleware[Any, AgentContext, StructuredOutput]
 type SubagentMiddleware = AgentMiddleware
 """A middleware as Deep Agents types a subagent's `middleware` list, with LangChain's defaults."""
 
+type AgentRuntime = Runtime[AgentContext]
+"""The runtime LangChain passes to a middleware's node hooks, whatever the context schema."""
+
+type AgentStateUpdate = dict[str, Any]
+"""A state update a middleware's node hook returns, which LangChain types by key only."""
+
 MONITOR_LOG_KEY = "monitor_log"
 """The state key that holds the step records of every monitor in the run."""
 
@@ -59,6 +67,27 @@ class MonitorStepEvent(TypedDict):
 
     type: Literal["monitor_step"]
     record: StepRecord
+
+
+class MonitorStepFailedEvent(TypedDict):
+    """The event a monitor writes to `stream_mode="custom"` when a step fails uncommitted.
+
+    A call inside the step raised before the protocol decided, so no record
+    reaches `monitor_log`. The event keeps what the monitor had judged by then:
+    `samples` holds each judged sample, none of them executed, and `error`
+    names the exception, which the middleware raises again after the event.
+    """
+
+    type: Literal["monitor_step_failed"]
+    agent: str
+    monitor: str
+    step_number: int
+    error: str
+    samples: list[SampleRecord]
+
+
+type MonitorStreamEvent = MonitorStepEvent | MonitorStepFailedEvent
+"""Every event a monitor writes to `stream_mode="custom"`."""
 
 
 def read_monitor_log(state: Mapping[str, object]) -> list[StepRecord]:
@@ -96,7 +125,7 @@ def append_subagent_middleware(
     return [*existing, cast("SubagentMiddleware", middleware)]
 
 
-def write_stream_event(request: AgentModelRequest, *, event: MonitorStepEvent) -> None:
+def write_stream_event(request: AgentModelRequest, *, event: MonitorStreamEvent) -> None:
     """Write the event to `stream_mode="custom"`, if the request runs inside a graph.
 
     A request built outside a graph has no runtime, and so no writer. A writer

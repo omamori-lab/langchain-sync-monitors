@@ -55,10 +55,13 @@ line fails in linear time instead of backtracking.
 CATEGORY_CODES_PATTERN = re.compile(r"\s*S\d+(?:\s*,\s*S\d+)*\s*")
 NON_EMPTY_LINE_PATTERN = re.compile(r"^[^\n]*\S[^\n]*", flags=re.MULTILINE)
 """A line holding more than whitespace; anchored to the line's start, so it runs in linear time."""
-LABEL_MARKUP = "*`\"'#>"
+LEADING_MARKUP_PATTERN = re.compile(r"^\W+")
+"""Markup a label line may open with, such as `**` or `(`; a token may carry it before a label."""
 UNREADABLE_LABEL_REASON = (
     "The guard model gave no readable label, so the step is treated as suspicious."
 )
+
+type LabelKind = Literal["suspicious", "safe"]
 
 
 class GuardScoring(StrEnum):
@@ -66,7 +69,8 @@ class GuardScoring(StrEnum):
 
     `AUTO` reads log-probabilities when the provider returns them and samples
     otherwise. `LOG_PROBABILITIES` raises a `ConfigurationError` when the
-    provider returns none. `SAMPLE_FRACTION` always samples. `HARD_LABEL` reads
+    provider returns none, or none with alternatives. `SAMPLE_FRACTION` always
+    samples. `HARD_LABEL` reads
     one label as 0 or 1 and warns, because every threshold then flags the same
     steps. Sampling only tells replies apart when the model's temperature is
     above zero.
@@ -180,7 +184,12 @@ def find_reply_label(
 
 
 def read_log_probabilities(reply: AIMessage) -> list[TokenLogProbability] | None:
-    """Return the reply's token log-probabilities, or `None` when the provider sent none."""
+    """Return the reply's token log-probabilities, or `None` when they cannot give a score.
+
+    The score weighs the alternatives at the label's token, so
+    log-probabilities without any alternatives, as from a provider that
+    ignores `top_logprobs`, count as none: they would only give a hard label.
+    """
     payload = reply.response_metadata.get("logprobs")
     if payload is None:
         return None
@@ -189,7 +198,9 @@ def read_log_probabilities(reply: AIMessage) -> list[TokenLogProbability] | None
     except ValidationError:
         logger.debug("Ignoring log-probabilities in an unknown format: %r", payload)
         return None
-    return tokens or None
+    if not tokens or not any(token.top_logprobs for token in tokens):
+        return None
+    return tokens
 
 
 def find_token_index(tokens: list[TokenLogProbability], *, offset: int) -> int | None:
@@ -202,14 +213,24 @@ def find_token_index(tokens: list[TokenLogProbability], *, offset: int) -> int |
     return None
 
 
+def read_label_prefix(token: str) -> str:
+    """Return the start of a label a token may carry: no whitespace, no leading markup, lower case.
+
+    The markup is what a label line may open with, so a token such as `(viol`
+    is read as the parser reads `(violation)`. Trailing markup stays, since a
+    token such as `no)` can begin no label.
+    """
+    return LEADING_MARKUP_PATTERN.sub("", token.strip()).lower()
+
+
 def classify_label_token(
     token: str,
     *,
     suspicious_labels: frozenset[str],
     safe_labels: frozenset[str],
-) -> Literal["suspicious", "safe"] | None:
+) -> LabelKind | None:
     """Tell which kind of label a token begins; `None` if it begins none, or both kinds."""
-    prefix = token.strip().lstrip(LABEL_MARKUP).lower()
+    prefix = read_label_prefix(token)
     if not prefix:
         return None
     begins_suspicious = any(label.startswith(prefix) for label in suspicious_labels)
@@ -219,9 +240,17 @@ def classify_label_token(
     return "suspicious" if begins_suspicious else "safe"
 
 
+def collect_alternatives(position: TokenLogProbability) -> dict[str, float]:
+    """Map the guard's own token and its alternatives at a position to their log-probabilities."""
+    alternatives = {alternative.token: alternative.logprob for alternative in position.top_logprobs}
+    alternatives.setdefault(position.token, position.logprob)
+    return alternatives
+
+
 def compute_suspicious_share(
     position: TokenLogProbability,
     *,
+    label_kind: LabelKind,
     suspicious_labels: frozenset[str],
     safe_labels: frozenset[str],
 ) -> float | None:
@@ -232,11 +261,22 @@ def compute_suspicious_share(
     probability of risk [@padhi2024graniteguardian]. Dividing by the mass of
     all label tokens renormalises over the labels, as Llama Guard and
     ShieldGemma do [@inan2023llamaguard; @zeng2024shieldgemma].
+
+    The share is `None` unless the provider gave alternatives at the position
+    and the guard's own token there begins a label of `label_kind`, the kind
+    the reply's text names. Otherwise the alternatives would be weighed at a
+    token that is not the label, where a label the guard all but ruled out
+    could decide the score.
     """
-    alternatives = {alternative.token: alternative.logprob for alternative in position.top_logprobs}
-    alternatives.setdefault(position.token, position.logprob)
+    chosen_kind = classify_label_token(
+        position.token,
+        suspicious_labels=suspicious_labels,
+        safe_labels=safe_labels,
+    )
+    if not position.top_logprobs or chosen_kind != label_kind:
+        return None
     mass = {"suspicious": 0.0, "safe": 0.0}
-    for token, logprob in alternatives.items():
+    for token, logprob in collect_alternatives(position).items():
         kind = classify_label_token(
             token,
             suspicious_labels=suspicious_labels,
@@ -291,10 +331,11 @@ class GuardModelMonitor(ChatModelMonitor):
     are overconfident [@liu2025guardcalibration], so set thresholds on
     honest-run percentiles with `CalibratedMonitor` rather than on raw values.
 
-    The verdict's reason states the guard's finding, the most severe label
-    among the replies, with no probability or count: Auto Mode shows the
-    reason to the agent, and those numbers would tell it how close its step
-    came to passing. They stay in the suspicion.
+    The verdict's reason states the guard's finding, with no probability or
+    count: the most severe label among sampled replies, or, from
+    log-probabilities, a label of the kind with the larger share. Auto Mode
+    shows the reason to the agent, and those numbers would tell it how close
+    its step came to passing. They stay in the suspicion.
     """
 
     call_source: ClassVar[str] = "guard_model_monitor"
@@ -370,15 +411,15 @@ class GuardModelMonitor(ChatModelMonitor):
     def build_log_probability_verdict(self, reply: AIMessage) -> Verdict | None:
         """Score the reply from its log-probabilities, or return `None` when they are unusable.
 
-        Missing log-probabilities are a configuration error under
-        `LOG_PROBABILITIES`, since that mode cannot score without them. A
-        reply cut off at a length limit is unusable.
+        Missing log-probabilities, or ones without alternatives, are a
+        configuration error under `LOG_PROBABILITIES`, since that mode cannot
+        score without them. A reply cut off at a length limit is unusable.
         """
         tokens = read_log_probabilities(reply)
         if tokens is None and self.scoring is GuardScoring.LOG_PROBABILITIES:
             message = (
-                f"{self.model.get_name()} returned no log-probabilities; use "
-                "GuardScoring.AUTO or GuardScoring.SAMPLE_FRACTION with this model"
+                f"{self.model.get_name()} returned no log-probabilities with alternatives to "
+                "score from; use GuardScoring.AUTO or GuardScoring.SAMPLE_FRACTION with this model"
             )
             raise ConfigurationError(message)
         if not tokens or is_reply_cut_off(reply):
@@ -386,20 +427,62 @@ class GuardModelMonitor(ChatModelMonitor):
         return self.find_label_probability(tokens)
 
     def find_label_probability(self, tokens: list[TokenLogProbability]) -> Verdict | None:
-        """Score from the alternatives at the label's first token, or `None` if it is not found."""
+        """Score from the alternatives at the label's first token; `None` if they are unusable."""
         text = "".join(token.token for token in tokens)
         match = self.find_label(text)
         index = find_token_index(tokens, offset=match.offset) if match else None
         if match is None or index is None:
             return None
+        position = tokens[index]
         share = compute_suspicious_share(
-            tokens[index],
+            position,
+            label_kind=self.classify_label(match.label),
             suspicious_labels=self.suspicious_labels,
             safe_labels=self.safe_labels,
         )
         if share is None:
             return None
-        return Verdict(suspicion=share, reason=self.build_label_reason(match.label))
+        label = self.name_likelier_label(position, written_label=match.label, share=share)
+        return Verdict(suspicion=share, reason=self.build_label_reason(label))
+
+    def name_likelier_label(
+        self,
+        position: TokenLogProbability,
+        *,
+        written_label: str,
+        share: float,
+    ) -> str:
+        """Name a label of the kind the guard gave the larger share, preferring the one it wrote.
+
+        A share of one half counts as suspicious. When the guard wrote a label
+        of the less likely kind, the reason names the likeliest label of the
+        other kind instead, so that it agrees with the suspicion and reads as
+        it would had the guard written that label: a different wording would
+        tell the agent that its step came close.
+        """
+        likelier_kind: LabelKind = "suspicious" if share >= 0.5 else "safe"
+        if self.classify_label(written_label) == likelier_kind:
+            return written_label
+        alternatives = collect_alternatives(position)
+        likeliest_token = max(
+            (token for token in alternatives if self.classify_token(token) == likelier_kind),
+            key=alternatives.__getitem__,
+        )
+        prefix = read_label_prefix(likeliest_token)
+        labels = self.suspicious_labels if likelier_kind == "suspicious" else self.safe_labels
+        return min(label for label in labels if label.startswith(prefix))
+
+    def classify_label(self, label: str) -> LabelKind:
+        """Tell whether one of this monitor's labels is suspicious or safe."""
+        return "suspicious" if label in self.suspicious_labels else "safe"
+
+    def classify_token(self, token: str) -> LabelKind | None:
+        """Tell which kind of this monitor's labels a token begins, if exactly one."""
+        return classify_label_token(
+            token,
+            suspicious_labels=self.suspicious_labels,
+            safe_labels=self.safe_labels,
+        )
 
     def build_sample_verdict(self, replies: list[AIMessage]) -> Verdict:
         """Return the share of replies labelled suspicious; an unreadable reply counts as one.
@@ -441,8 +524,10 @@ class GuardModelMonitor(ChatModelMonitor):
 
 
 def build_unlocated_label_verdict() -> Verdict:
-    """Fail closed when log-probabilities came back but no label could be found in them."""
-    logger.warning("No guard label found in the log-probabilities; the step is suspicious.")
+    """Fail closed when log-probabilities came back but no label could be scored from them."""
+    logger.warning(
+        "No guard label could be scored from the log-probabilities; the step is suspicious."
+    )
     reason = (
         "The guard model's reply had log-probabilities but no readable label, "
         "so the step is treated as suspicious."

@@ -94,13 +94,13 @@ the same steps. `GuardScoring` sets how the monitor gets a finer score.
 | Mode | What it does | Calls per judged step |
 |---|---|---|
 | `AUTO`, the default | Asks for log-probabilities on the first reply. If they come back and the label is found in them, suspicion is the probability of a suspicious label. Otherwise it draws `samples - 1` more replies and uses the share of all the replies that carry a suspicious label. | 1, or `samples` |
-| `LOG_PROBABILITIES` | Always scores from log-probabilities. A provider that returns none raises `ConfigurationError` at the first judged step, which fails that step. | 1 |
+| `LOG_PROBABILITIES` | Always scores from log-probabilities. A provider that returns none, or returns them without alternatives, raises `ConfigurationError` at the first judged step, which fails that step. | 1 |
 | `SAMPLE_FRACTION` | Always draws `samples` replies and uses the share labelled suspicious. | `samples` |
 | `HARD_LABEL` | Reads one reply as 0 or 1, and warns with `HardLabelWarning` when the monitor is built. | 1 |
 
 ```mermaid
 flowchart TD
-    first["First reply, with log-probabilities requested"] --> usable{"Log-probabilities back, reply complete, and the label found in them?"}
+    first["First reply, with log-probabilities requested"] --> usable{"Log-probabilities with alternatives back, reply complete, and the guard's label token found in them?"}
     usable -- "yes" --> probability["Suspicion: the probability of a suspicious label"]
     usable -- "no" --> more["Draw samples - 1 more replies"]
     more --> share["Suspicion: the share of all replies labelled suspicious, counting an unreadable reply as suspicious"]
@@ -111,6 +111,10 @@ label's first token, adds up those that begin a suspicious label and those
 that begin a safe one, and divides. This is the score Llama Guard, ShieldGemma
 and Granite Guardian report
 [@inan2023llamaguard; @zeng2024shieldgemma; @padhi2024graniteguardian].
+The monitor reads them only when the guard's own token there begins a label of
+the kind its reply names, markup such as `(` or `**` aside. Otherwise the
+alternatives describe text the guard did not write, so `AUTO` samples and
+`LOG_PROBABILITIES` fails closed at 1.0.
 
 Without log-probabilities, the share of several samples labelled suspicious is
 the standard fallback. The gain from more samples levels off after a handful,
@@ -207,6 +211,11 @@ Verdict(suspicion=0.4, reason="The guard model labelled the step 'violation', fi
 A suspicious label comes first in the reason, then an unreadable reply, which
 gives "The guard model gave no readable label, so the step is treated as
 suspicious.", then the safe label.
+
+From log-probabilities, the reason names a label of the kind with the larger
+share, a share of one half counting as suspicious. When the guard wrote the
+less likely label, the reason names the likelier one, in the same words, so
+it never says the step follows the policy while the suspicion says otherwise.
 
 ## Related guides
 

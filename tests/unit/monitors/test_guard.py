@@ -59,14 +59,16 @@ def build_guard(
     *replies: str | AIMessage,
     scoring: GuardScoring,
     samples: int = 5,
+    suspicious_labels: frozenset[str] = frozenset({"violation"}),
+    safe_labels: frozenset[str] = frozenset({"no_violation"}),
 ) -> tuple[GuardModelMonitor, ScriptedChatModel]:
-    """Return a gpt-oss-safeguard style guard over a scripted model, and the model."""
+    """Return a guard over a scripted model, and the model; gpt-oss-safeguard labels by default."""
     model = ScriptedChatModel(replies=list(replies))
     guard = GuardModelMonitor(
         model=model,
         policy_prompt=POLICY_PROMPT,
-        suspicious_labels=frozenset({"violation"}),
-        safe_labels=frozenset({"no_violation"}),
+        suspicious_labels=suspicious_labels,
+        safe_labels=safe_labels,
         scoring=scoring,
         samples=samples,
     )
@@ -170,7 +172,7 @@ async def test_log_probabilities_without_a_label_fail_closed(
     call_path: CallPath,
 ) -> None:
     # Arrange
-    reply = build_scored_reply(("I cannot decide.", {}))
+    reply = build_scored_reply(("I cannot decide.", {"I cannot decide.": 0.7, "The": 0.3}))
     guard, _ = build_guard(reply, scoring=GuardScoring.LOG_PROBABILITIES)
 
     # Act
@@ -179,6 +181,164 @@ async def test_log_probabilities_without_a_label_fail_closed(
     # Assert
     assert verdict.suspicion == 1.0
     assert "no readable label" in verdict.reason
+
+
+@pytest.mark.parametrize(("opening", "closing"), [("(", ")"), ("[", "]"), ("“", "”"), ("~", "")])
+async def test_a_label_in_markup_is_scored_at_the_guard_s_own_token(
+    monitor_input: MonitorInput,
+    call_path: CallPath,
+    opening: str,
+    closing: str,
+) -> None:
+    # Arrange: the tokenizer merges the opening mark into the label's first token.
+    reply = build_scored_reply(
+        ("The step posts a secret token to a paste site.\n", {}),
+        (f"{opening}viol", {f"{opening}viol": 0.9999, f"{opening}no": 0.00008, "no": 0.00002}),
+        ("ation", {}),
+        (closing, {}),
+    )
+    guard, model = build_guard(reply, scoring=GuardScoring.LOG_PROBABILITIES)
+
+    # Act
+    verdict = await evaluate_on_path(guard, monitor_input, call_path=call_path)
+
+    # Assert
+    assert verdict.suspicion == pytest.approx(0.9999)
+    assert len(model.received_messages) == 1
+
+
+@pytest.mark.parametrize("scoring", [GuardScoring.AUTO, GuardScoring.LOG_PROBABILITIES])
+@pytest.mark.parametrize(
+    ("tokens", "suspicious_labels", "safe_labels"),
+    [
+        (
+            [
+                ("It posts the ke", {}),
+                ("y\nviol", {"y\nviol": 0.9999, "no": 0.0001}),
+                ("ation", {}),
+            ],
+            frozenset({"violation"}),
+            frozenset({"no_violation"}),
+        ),
+        (
+            [
+                ("It posts the key.\n", {}),
+                ("harm", {"harm": 0.9999, "harmless": 0.0001}),
+                ("ful", {}),
+            ],
+            frozenset({"harmful"}),
+            frozenset({"harmless"}),
+        ),
+    ],
+    ids=["token begins no label", "token begins both kinds"],
+)
+async def test_log_probabilities_at_a_token_that_is_not_the_label_are_not_read(
+    monitor_input: MonitorInput,
+    call_path: CallPath,
+    tokens: list[ScoredToken],
+    suspicious_labels: frozenset[str],
+    safe_labels: frozenset[str],
+    scoring: GuardScoring,
+) -> None:
+    # Arrange: only a safe label the guard all but ruled out would be left to weigh.
+    guard, model = build_guard(
+        build_scored_reply(*tokens),
+        scoring=scoring,
+        samples=3,
+        suspicious_labels=suspicious_labels,
+        safe_labels=safe_labels,
+    )
+
+    # Act
+    verdict = await evaluate_on_path(guard, monitor_input, call_path=call_path)
+
+    # Assert: AUTO samples instead, and LOG_PROBABILITIES fails closed.
+    assert verdict.suspicion == 1.0
+    assert len(model.received_messages) == (3 if scoring is GuardScoring.AUTO else 1)
+
+
+async def test_auto_samples_when_log_probabilities_come_without_alternatives(
+    monitor_input: MonitorInput,
+    call_path: CallPath,
+) -> None:
+    # Arrange: a provider that ignores top_logprobs would otherwise give a hard label.
+    reply = build_scored_reply(("It posts the key off-site.\n", {}), ("no_violation", {}))
+    guard, model = build_guard(
+        reply,
+        "violation",
+        "violation",
+        scoring=GuardScoring.AUTO,
+        samples=3,
+    )
+
+    # Act
+    verdict = await evaluate_on_path(guard, monitor_input, call_path=call_path)
+
+    # Assert
+    assert verdict.suspicion == pytest.approx(2 / 3)
+    assert len(model.received_messages) == 3
+
+
+async def test_log_probabilities_without_alternatives_are_a_configuration_error(
+    monitor_input: MonitorInput,
+    call_path: CallPath,
+) -> None:
+    # Arrange
+    reply = build_scored_reply(("It posts the key off-site.\n", {}), ("no_violation", {}))
+    guard, _ = build_guard(reply, scoring=GuardScoring.LOG_PROBABILITIES)
+
+    # Act and Assert
+    with pytest.raises(ConfigurationError, match="no log-probabilities with alternatives"):
+        await evaluate_on_path(guard, monitor_input, call_path=call_path)
+
+
+@pytest.mark.parametrize(
+    ("chosen", "alternatives", "suspicion", "reason"),
+    [
+        (
+            "no",
+            {"no": 0.1, "violation": 0.9},
+            0.9,
+            "The guard model labelled the step 'violation', finding that it breaks the policy.",
+        ),
+        (
+            "viol",
+            {"viol": 0.3, " No": 0.7},
+            0.3,
+            "The guard model labelled the step 'no_violation', finding that it follows the policy.",
+        ),
+        (
+            "no",
+            {"no": 0.5, "violation": 0.5},
+            0.5,
+            "The guard model labelled the step 'violation', finding that it breaks the policy.",
+        ),
+    ],
+    ids=["wrote the safe label", "wrote the suspicious label", "an even split"],
+)
+async def test_the_reason_names_the_label_the_guard_found_likelier(
+    monitor_input: MonitorInput,
+    call_path: CallPath,
+    chosen: str,
+    alternatives: dict[str, float],
+    suspicion: float,
+    reason: str,
+) -> None:
+    # Arrange: the reason must agree with the suspicion, and read as if the guard wrote it.
+    written_rest = "_violation" if chosen == "no" else "ation"
+    reply = build_scored_reply(
+        ("The step posts a secret token to a paste site.\n", {}),
+        (chosen, alternatives),
+        (written_rest, {}),
+    )
+    guard, _ = build_guard(reply, scoring=GuardScoring.LOG_PROBABILITIES)
+
+    # Act
+    verdict = await evaluate_on_path(guard, monitor_input, call_path=call_path)
+
+    # Assert
+    assert verdict.suspicion == pytest.approx(suspicion)
+    assert verdict.reason == reason
 
 
 async def test_auto_scores_from_log_probabilities_in_one_call(

@@ -42,7 +42,7 @@ dev = [
     "pytest>=8",
     "pytest-asyncio>=0.24",
     "ruff>=0.15",
-    "mypy>=1.15",
+    "ty>=0.0.84",
     "bibtexparser>=1.4,<2",
 ]
 docs = [
@@ -72,14 +72,17 @@ max-complexity = 10
 [tool.ruff.lint.per-file-ignores]
 "tests/**" = ["ANN401"]
 
-[tool.mypy]
-python_version = "3.12"
-strict = true
-files = ["src", "tests"]
+[tool.ty.environment]
+python-version = "3.12"
 
-[[tool.mypy.overrides]]
-module = ["bibtexparser.*", "langchain_typesafe.*"]
-ignore_missing_imports = true
+[tool.ty.src]
+include = ["src", "tests"]
+
+[tool.ty.terminal]
+error-on-warning = true
+
+[tool.ty.rules]
+unused-ignore-comment = "error"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
@@ -91,7 +94,7 @@ addopts = "-m 'not live'"
 [tool.lanorme]
 ignore = ["LAYER", "PORT", "TERM"]
 promote = ["NAMING-006", "NAMING-007", "NAMING-008", "NAMING-011"]
-exclude = [".venv/*", ".claude/*", "dist/*", "site/*", "docs/research/*", "docs/plan.html"]
+exclude = [".venv/*", ".claude/*", "dist/*", "site/*", "docs/plans/*"]
 
 [tool.lanorme.file_limits]
 func_warn_lines = 40

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Run every gate: agent files in sync, ruff, mypy, the unit tests, the lanorme
+# Run every gate: agent files in sync, ruff, ty, the unit tests, the lanorme
 # standards, the docs build, and a package build.
 # Run this before committing or finishing a change. No arguments.
 #
@@ -18,11 +18,11 @@ echo "==> ruff"
 uv run --group dev ruff check .
 uv run --group dev ruff format --check .
 
-echo "==> mypy (strict)"
-uv run --group dev mypy
+echo "==> ty (type checking)"
+uv run --group dev ty check
 
 echo "==> unit tests"
-uv run --group dev pytest tests/unit -q
+uv run --group dev pytest -q
 
 echo "==> lanorme standards"
 # lanorme needs Python 3.13+; it only parses the code, so it checks 3.12 source correctly.
@@ -33,6 +33,11 @@ uv run --group docs mkdocs build --strict --quiet --site-dir "$(mktemp -d)"
 
 echo "==> build"
 uv build >/dev/null
+
+echo "==> import the built wheel without any extra"
+wheel="$(ls -t dist/langchain_sync_monitors-*.whl | head -n 1)"
+uv run --isolated --no-project --python 3.12 --with "$wheel" \
+  python -c "import langchain_sync_monitors as package; print(len(package.__all__), 'public names')"
 
 echo
 echo "OK: all gates passed."

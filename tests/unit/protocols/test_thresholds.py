@@ -1,0 +1,167 @@
+"""Default thresholds warn at the user's constructor call; chosen thresholds stay quiet."""
+
+from __future__ import annotations
+
+import math
+import warnings
+
+import pytest
+from langchain_core.language_models.fake_chat_models import FakeListChatModel
+
+from langchain_sync_monitors.errors import ConfigurationError
+from langchain_sync_monitors.protocols import (
+    AutoMode,
+    DeferToResample,
+    DeferToTrusted,
+    DeferToTrustedModel,
+    TrustedMonitoring,
+)
+from langchain_sync_monitors.thresholds import (
+    DEFAULT_AUDIT_THRESHOLD,
+    DEFAULT_BLOCK_THRESHOLD,
+    DEFAULT_DEFER_THRESHOLD,
+    DEFAULT_FLAG_THRESHOLD,
+    DefaultThreshold,
+    UncalibratedThresholdWarning,
+    resolve_threshold,
+)
+
+
+@pytest.mark.parametrize("value", [0.0, 0.42, 1.0])
+def test_chosen_threshold_is_returned_without_a_warning(value: float) -> None:
+    # Arrange
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+
+        # Act
+        resolved = resolve_threshold(parameter_name="defer_threshold", threshold=value)
+
+    # Assert
+    assert resolved == value
+
+
+def test_default_threshold_is_returned_with_a_calibration_hint() -> None:
+    # Act
+    with pytest.warns(UncalibratedThresholdWarning) as record:
+        resolved = resolve_threshold(
+            parameter_name="block_threshold",
+            threshold=DefaultThreshold(0.6),
+        )
+
+    # Assert
+    assert resolved == 0.6
+    message = str(record[0].message)
+    assert "block_threshold" in message
+    assert "honest" in message
+    assert "percentile" in message
+    assert "CalibratedMonitor" in message
+
+
+@pytest.mark.parametrize("value", [-0.01, 1.01, math.nan])
+def test_chosen_threshold_outside_the_unit_interval_is_rejected(value: float) -> None:
+    # Act / Assert
+    with pytest.raises(ConfigurationError, match="audit_threshold must be between 0 and 1"):
+        resolve_threshold(parameter_name="audit_threshold", threshold=value)
+
+
+def test_default_threshold_outside_the_unit_interval_is_rejected() -> None:
+    # Act / Assert
+    with pytest.raises(ConfigurationError, match="between 0 and 1"):
+        resolve_threshold(parameter_name="flag_threshold", threshold=DefaultThreshold(2.0))
+
+
+def test_defaults_are_the_documented_values() -> None:
+    # Act
+    values = (
+        DEFAULT_DEFER_THRESHOLD.value,
+        DEFAULT_BLOCK_THRESHOLD.value,
+        DEFAULT_FLAG_THRESHOLD.value,
+        DEFAULT_AUDIT_THRESHOLD.value,
+    )
+
+    # Assert
+    assert values == (0.6, 0.6, 0.6, 0.9)
+
+
+def test_trusted_monitoring_warns_once_at_the_constructor_call() -> None:
+    # Act
+    with pytest.warns(UncalibratedThresholdWarning) as record:
+        TrustedMonitoring()
+
+    # Assert
+    assert len(record) == 1
+    assert record[0].filename == __file__
+    assert "flag_threshold" in str(record[0].message)
+
+
+def test_auto_mode_warns_once_at_the_constructor_call() -> None:
+    # Act
+    with pytest.warns(UncalibratedThresholdWarning) as record:
+        AutoMode()
+
+    # Assert
+    assert len(record) == 1
+    assert record[0].filename == __file__
+    assert "block_threshold" in str(record[0].message)
+
+
+def test_defer_to_resample_warns_for_each_default_threshold(
+    defer_to_trusted_model: DeferToTrustedModel,
+) -> None:
+    # Act
+    with pytest.warns(UncalibratedThresholdWarning) as record:
+        DeferToResample(fallback=defer_to_trusted_model)
+
+    # Assert
+    messages = [str(warning.message) for warning in record]
+    assert len(messages) == 2
+    assert messages[0].startswith("defer_threshold")
+    assert messages[1].startswith("audit_threshold")
+    assert {warning.filename for warning in record} == {__file__}
+
+
+def test_turning_auditing_off_leaves_one_warning(
+    defer_to_trusted_model: DeferToTrustedModel,
+) -> None:
+    # Act
+    with pytest.warns(UncalibratedThresholdWarning) as record:
+        DeferToResample(fallback=defer_to_trusted_model, audit_threshold=None)
+
+    # Assert
+    assert [str(warning.message).split()[0] for warning in record] == ["defer_threshold"]
+
+
+def test_defer_to_trusted_warning_skips_the_parent_constructor(
+    trusted_model: FakeListChatModel,
+) -> None:
+    # Act
+    with pytest.warns(UncalibratedThresholdWarning) as record:
+        DeferToTrusted(trusted_model=trusted_model)
+
+    # Assert
+    assert len(record) == 2
+    assert {warning.filename for warning in record} == {__file__}
+
+
+def test_protocols_with_chosen_thresholds_do_not_warn(
+    defer_to_trusted_model: DeferToTrustedModel,
+    trusted_model: FakeListChatModel,
+) -> None:
+    # Arrange
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+
+        # Act
+        protocols = [
+            TrustedMonitoring(flag_threshold=0.7),
+            AutoMode(block_threshold=0.7),
+            DeferToResample(
+                fallback=defer_to_trusted_model,
+                defer_threshold=0.7,
+                audit_threshold=0.95,
+            ),
+            DeferToTrusted(trusted_model=trusted_model, defer_threshold=0.7, audit_threshold=None),
+        ]
+
+    # Assert
+    assert len(protocols) == 4

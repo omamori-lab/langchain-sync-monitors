@@ -4,13 +4,52 @@ Control monitors for LangChain agents (`create_agent`) and Deep Agents (`create_
 
 A monitor judges every step an agent proposes before anything runs. A control protocol decides what to do with that judgement: let the step run, draw another sample, hand the step to a trusted model, tell the agent to change course, or stop. "Sync" means synchronous in the control sense: a step waits for its verdict. The implementation is async-native and also runs under `invoke()`.
 
-**Status:** design approved in draft 3; implementation not started. The work is tracked in this repository's issues.
+**Status:** pre-release (0.1.0.dev0). Monitors, protocols, the middleware and Deep Agents support are built and tested offline, with single live monitor calls checked on OpenRouter; live runs of whole agents are next ([#22](https://github.com/Antonio-Tresol/langchain-sync-monitors/issues/22)). The work is tracked in this repository's issues.
+
+## Quick start
+
+```console
+uv add "langchain-sync-monitors[openrouter,deepagents]"
+```
+
+```python
+from langchain.agents import create_agent
+from langchain_sync_monitors import (
+    DeferToResample,
+    DeferToTrustedModel,
+    LLMMonitor,
+    MonitorMiddleware,
+)
+
+middleware = MonitorMiddleware(
+    monitor=LLMMonitor(model="openrouter:xiaomi/mimo-v2.6-pro"),
+    protocol=DeferToResample(
+        fallback=DeferToTrustedModel(trusted_model="openrouter:xiaomi/mimo-v2.6-flash"),
+        defer_threshold=0.6,
+        audit_threshold=0.9,
+    ),
+)
+agent = create_agent(
+    "openrouter:deepseek/deepseek-v4.1-flash", tools=tools, middleware=[middleware]
+)
+result = agent.invoke({"messages": [{"role": "user", "content": "Summarise q3.md."}]})
+for record in result["monitor_log"]:
+    print(
+        record["step_number"],
+        record["outcome"],
+        [sample["suspicion"] for sample in record["samples"]],
+    )
+```
+
+Put the monitor last in the middleware list. For a Deep Agent, pass the same
+middleware to `create_deep_agent(..., middleware=[middleware], subagents=monitor_subagents(middleware=middleware, subagents=[...]))`
+so every subagent gets a monitor too.
 
 ## Plan
 
-Open [`docs/plan.html`](docs/plan.html) in a browser. It has the architecture diagrams, readable Python pseudocode for every component, the checks to run before building, the LangChain findings, and the decisions taken so far. Supporting research is in [`docs/research/`](docs/research/).
+Each feature has a plan in [`docs/plans/`](docs/plans/), with its supporting research. The first, [`docs/plans/initial-implementation/`](docs/plans/initial-implementation/), holds the design of the whole library: open `plan.html` in a browser for the architecture diagrams, readable Python pseudocode for every component, the checks run before building, and the decisions taken.
 
-## What gets built first
+## What the library provides
 
 | Piece | Choices |
 |---|---|

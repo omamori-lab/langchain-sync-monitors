@@ -5,7 +5,7 @@ change must pass, and how to send a pull request.
 
 ## Where to start
 
-- Read `docs/plan.html` in a browser for the design: the diagrams, the
+- Read `docs/plans/initial-implementation/plan.html` in a browser for the design: the diagrams, the
   pseudocode and the decisions taken so far.
 - Pick an open issue. Issues are grouped into milestones by phase and labelled
   by area (`monitors`, `protocols`, `middleware`, `deepagents`, `docs`).
@@ -43,7 +43,7 @@ One script runs every gate:
 scripts/check.sh
 ```
 
-It checks that `CLAUDE.md` matches `AGENTS.md`, then runs ruff, strict mypy,
+It checks that `CLAUDE.md` matches `AGENTS.md`, then runs ruff, ty (type checking),
 the unit tests, the lanorme standards (naming, complexity, docstrings, prose,
 docs layout), a strict docs build and a package build. The pre-commit hooks and
 CI run the same checks, so a green run locally means a green pull request.

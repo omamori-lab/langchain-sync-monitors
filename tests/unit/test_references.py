@@ -18,7 +18,7 @@ REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 BIBLIOGRAPHY_PATH = REPOSITORY_ROOT / "docs" / "references.bib"
 CITING_DIRECTORIES = ("src", "docs")
 CITING_SUFFIXES = frozenset({".py", ".md"})
-WORKING_NOTE_DIRECTORIES = frozenset({"research"})
+WORKING_NOTE_DIRECTORIES = frozenset({"plans"})
 CITATION_GROUP_PATTERN = re.compile(r"\[(@[^\]]+)\]")
 CITATION_KEY_PATTERN = re.compile(r"@([A-Za-z0-9_:-]+)")
 

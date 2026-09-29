@@ -34,9 +34,11 @@ class TranscriptEntry:
 def extract_reasoning_text(message: AIMessage) -> str:
     """Return the agent's chain of thought from a model reply, or an empty string.
 
-    Reads LangChain's standard reasoning content blocks first. OpenRouter can
-    return reasoning only as `reasoning_details` summaries, which content blocks
-    miss, so those are read as a fallback.
+    Reads LangChain's standard reasoning content blocks first, which already
+    include OpenRouter's documented `reasoning` field. A reply that carries its
+    reasoning only as `reasoning_details` summaries would have no such block;
+    that shape has not been seen from a real provider, but it is read as a
+    fallback because the check costs nothing.
     """
     reasoning_parts = [
         block.get("reasoning", "")

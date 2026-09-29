@@ -16,7 +16,7 @@ Run the gates and make sure they pass:
 scripts/check.sh
 ```
 
-It runs the agent-file sync check, ruff, strict mypy, the unit tests, the
+It runs the agent-file sync check, ruff, ty (Astral's type checker, warnings treated as errors), the unit tests, the
 lanorme standards, a strict docs build and a package build. CI and the
 pre-commit hooks run the same script. Do not finish with a red gate.
 `uv run --group dev ruff check --fix . && uv run --group dev ruff format .`
@@ -30,8 +30,9 @@ a lanorme finding.
 - Core dependencies: `langchain`, `langchain-core`, `langgraph`, `pydantic`,
   `httpx`, `stamina`. Providers sit behind extras: `deepagents`, `openrouter`,
   `typesafe`.
-- The design, with diagrams and pseudocode, is in `docs/plan.html`; research
-  notes behind each decision are in `docs/research/`.
+- Plans live in `docs/plans/<feature>/`, one directory per feature: the plan
+  (diagrams and pseudocode) and the research behind its decisions. The first
+  is `docs/plans/initial-implementation/`. A new feature gets a new directory.
 - Shared interfaces live in `src/langchain_sync_monitors/contracts.py`. Code
   against them; change them only in a dedicated pull request.
 - Errors live in `errors.py` and derive from `MonitorError`. Diagnostics go

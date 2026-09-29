@@ -1,97 +1,233 @@
 name: Release
 
-# Publishes a release when a version tag such as v0.1.0 is pushed. The gates run
-# first; the tag must match the package version; the package goes to PyPI through
-# trusted publishing, so no API token is stored in the repository.
-#
-# Before the first release, register this repository and workflow as a trusted
-# publisher on PyPI, with the environment name "pypi".
+# Publishes a release to PyPI when its GitHub Release is published;
+# scripts/release.sh tags a commit on main and creates that Release. The
+# workflow:
+#   1. checks that the tag is vX.Y.Z, names a commit on main, and agrees with
+#      __version__, CITATION.cff and CHANGELOG.md (scripts/check-release.sh);
+#   2. runs the whole CI workflow on the tagged commit;
+#   3. builds the sdist and the wheel once, checks them with twine, and
+#      installs the wheel into fresh environments, with and without extras;
+#   4. waits for approval in the "pypi" environment, then publishes exactly
+#      those files through PyPI trusted publishing, so no token is stored;
+#   5. attaches the same files to the GitHub Release and deploys the tagged
+#      commit's documentation.
+# CONTRIBUTING.md lists the one-time setup and how to recover from a failure.
 
 on:
-  push:
-    tags: ["v*"]
+  release:
+    types: [published]
 
 permissions:
   contents: read
 
+concurrency:
+  group: release-${{ github.event.release.tag_name }}
+  cancel-in-progress: false
+
+env:
+  TAG: ${{ github.event.release.tag_name }}
+
 jobs:
-  gates:
+  tag:
+    name: Check the release tag
+    # Forks have no PyPI publisher, so the workflow does nothing there.
+    if: github.repository == 'omamori-lab/langchain-sync-monitors'
     runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
     steps:
-      - name: Check out the repository
-        uses: actions/checkout@v6
-
-      - name: Install uv
-        uses: astral-sh/setup-uv@v8.1.0
-        with:
-          python-version: "3.12"
-
-      - name: Install dependencies
-        run: uv sync --group dev --group docs --all-extras
-
-      - name: Run every gate
-        run: scripts/check.sh
-
-  build:
-    needs: gates
-    runs-on: ubuntu-latest
-    steps:
-      - name: Check out the repository
-        uses: actions/checkout@v6
-
-      - name: Install uv
-        uses: astral-sh/setup-uv@v8.1.0
-        with:
-          python-version: "3.12"
-
-      - name: Check that the tag matches the package version
+      - name: Check that the tag is vX.Y.Z
+        id: version
         run: |
-          package_version=$(uv run --no-project python -c "import re, pathlib; print(re.search(r'__version__ = \"([^\"]+)\"', pathlib.Path('src/langchain_sync_monitors/__init__.py').read_text()).group(1))")
-          if [ "v${package_version}" != "${GITHUB_REF_NAME}" ]; then
-            echo "Tag ${GITHUB_REF_NAME} does not match package version ${package_version}."
+          if [[ ! "${TAG}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::The tag ${TAG} is not of the form vX.Y.Z, so nothing is published."
+            exit 1
+          fi
+          echo "version=${TAG#v}" >> "${GITHUB_OUTPUT}"
+
+      - name: Check out the tagged commit, with the history of main
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Check that the tagged commit is on main
+        run: |
+          tagged_commit="$(git rev-parse HEAD)"
+          if ! git merge-base --is-ancestor "${tagged_commit}" origin/main; then
+            echo "::error::The tag ${TAG} names commit ${tagged_commit}, which is not on main. Only a commit on main is released."
             exit 1
           fi
 
-      - name: Build the sdist and the wheel
-        run: uv build
+      - name: Check the tag against the version, CHANGELOG.md and CITATION.cff
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          notes="$(scripts/check-release.sh "${VERSION}")"
+          {
+            echo "## Release notes for ${TAG}, from CHANGELOG.md"
+            echo
+            echo "${notes}"
+          } >> "${GITHUB_STEP_SUMMARY}"
 
-      - name: Keep the built distributions for the next jobs
-        uses: actions/upload-artifact@v4
+  ci:
+    name: CI
+    needs: tag
+    uses: ./.github/workflows/ci.yml
+
+  build:
+    name: Build the distributions
+    needs: tag
+    runs-on: ubuntu-latest
+    env:
+      VERSION: ${{ needs.tag.outputs.version }}
+    steps:
+      - name: Check out the tagged commit
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v10.2.0
+        with:
+          python-version: "3.12"
+
+      - name: Build the sdist, and the wheel from it
+        run: uv build --no-sources
+
+      - name: Check that the files carry the tag's version
+        run: |
+          expected="langchain_sync_monitors-${VERSION}-py3-none-any.whl
+          langchain_sync_monitors-${VERSION}.tar.gz"
+          built="$(find dist -mindepth 1 -printf '%P\n' | LC_ALL=C sort)"
+          if [[ "${built}" != "${expected}" ]]; then
+            echo "::error::dist/ holds ${built//$'\n'/, }, not just the wheel and sdist of ${VERSION}."
+            exit 1
+          fi
+
+      - name: Check the metadata and the rendered README
+        run: uvx --with "readme_renderer[md]" twine check --strict dist/*
+
+      - name: Record the SHA-256 digest of each file
+        run: |
+          {
+            echo "## Built files"
+            echo
+            echo '```'
+            (cd dist && sha256sum -- *)
+            echo '```'
+          } >> "${GITHUB_STEP_SUMMARY}"
+
+      - name: Keep the files for the next jobs
+        uses: actions/upload-artifact@v7
+        with:
+          name: distributions
+          path: dist/
+          if-no-files-found: error
+
+  install:
+    name: Install the wheel (Python ${{ matrix.python-version }}, ${{ matrix.extras }})
+    needs: [tag, build]
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.12", "3.13", "3.14"]
+        extras: ["no extras", "every extra"]
+    env:
+      VERSION: ${{ needs.tag.outputs.version }}
+      EXTRAS: ${{ matrix.extras }}
+    steps:
+      - name: Fetch the built files
+        uses: actions/download-artifact@v8
         with:
           name: distributions
           path: dist/
 
+      - name: Install uv
+        uses: astral-sh/setup-uv@v10.2.0
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install the wheel into a fresh environment and import it
+        run: |
+          wheel="dist/langchain_sync_monitors-${VERSION}-py3-none-any.whl"
+          extra_modules="deepagents langchain_openrouter langchain_typesafe"
+          if [[ "${EXTRAS}" == "every extra" ]]; then
+            requirement="${wheel}[deepagents,openrouter,typesafe]"
+            expect_extras=yes
+          else
+            requirement="${wheel}"
+            expect_extras=no
+          fi
+          # shellcheck disable=SC2086 # the module names are split on purpose
+          uv run --isolated --no-project --with "${requirement}" \
+            python - "${expect_extras}" ${extra_modules} <<'PYTHON'
+          import importlib
+          import importlib.metadata
+          import importlib.util
+          import os
+          import sys
+
+          import langchain_sync_monitors as package
+
+          expected = os.environ["VERSION"]
+          assert package.__version__ == expected, package.__version__
+          assert importlib.metadata.version("langchain-sync-monitors") == expected
+          expect_extras, modules = sys.argv[1] == "yes", sys.argv[2:]
+          for module in modules:
+              if expect_extras:
+                  importlib.import_module(module)
+              else:
+                  assert importlib.util.find_spec(module) is None, f"{module} is installed"
+          print(f"imported {package.__name__} {expected} with {len(package.__all__)} public names")
+          PYTHON
+
   publish:
-    needs: build
+    name: Publish to PyPI
+    needs: [tag, ci, build, install]
     runs-on: ubuntu-latest
     environment:
       name: pypi
-      url: https://pypi.org/p/langchain-sync-monitors
+      url: https://pypi.org/project/langchain-sync-monitors/${{ needs.tag.outputs.version }}/
     permissions:
       id-token: write
     steps:
-      - name: Fetch the built distributions
-        uses: actions/download-artifact@v4
+      - name: Fetch the built files
+        uses: actions/download-artifact@v8
         with:
           name: distributions
           path: dist/
 
-      - name: Publish to PyPI
+      - name: Publish to PyPI through trusted publishing
         uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          print-hash: true
 
-  github-release:
+  attach:
+    name: Attach the files to the GitHub Release
     needs: publish
     runs-on: ubuntu-latest
     permissions:
       contents: write
     steps:
-      - name: Fetch the built distributions
-        uses: actions/download-artifact@v4
+      - name: Fetch the built files
+        uses: actions/download-artifact@v8
         with:
           name: distributions
           path: dist/
 
-      - name: Create the GitHub release
+      - name: Upload them to the GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release create "${GITHUB_REF_NAME}" dist/* --repo "${GITHUB_REPOSITORY}" --title "${GITHUB_REF_NAME}" --notes "See CHANGELOG.md for what changed."
+        run: gh release upload "${TAG}" dist/* --clobber --repo "${GITHUB_REPOSITORY}"
+
+  docs:
+    name: Docs
+    needs: publish
+    uses: ./.github/workflows/docs.yml
+    permissions:
+      contents: read
+      pages: write
+      id-token: write

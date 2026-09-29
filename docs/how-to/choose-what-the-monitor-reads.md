@@ -38,8 +38,9 @@ inside them reads through its view.
 
 ## Channels and tags
 
-Each channel holds one or more tags. The proposed step is always shown, inside
-its own tag.
+Each channel holds one or more tags. The view decides what the monitor reads
+of the history. The proposed step is always shown, inside its own tag, and
+always with its tool calls, whatever the view.
 
 ```mermaid
 flowchart LR
@@ -76,7 +77,7 @@ flowchart LR
 | `<subagent_report name="...">` | `SUBAGENT_REPORTS` | What a delegation tool returned: a subagent's report. |
 | `<agent>` | `AGENT_TEXT` | What the agent wrote. |
 | `<agent_reasoning>` | `REASONING` | The agent's chain of thought. |
-| `<proposed_step>` | always shown | The step being judged, with the entries of it that the view shows. |
+| `<proposed_step>` | always shown | The step being judged: its tool calls and malformed calls in every view, its text when it is a final answer, and the rest of it that the view shows. |
 
 A few rules hold in every view:
 
@@ -91,9 +92,12 @@ A few rules hold in every view:
   call, and `<monitor_feedback>` sits in `USER`, beside the task. So every view
   that shows a call also shows that it failed or was blocked, even a view
   without tool results.
-- **Final answers.** A proposed step with no tool calls is the agent's final
-  answer, and the answer is then the step's action, so `<proposed_step>` shows
-  the answer's text even when the view leaves out `AGENT_TEXT`.
+- **The step's action.** The tool calls of the proposed step are the action
+  the protocol gates, so `<proposed_step>` shows them, and its malformed calls,
+  even when the view leaves out `TOOL_CALLS`. A proposed step with no tool
+  calls is the agent's final answer, and the answer is then the step's action,
+  so `<proposed_step>` shows the answer's text even when the view leaves out
+  `AGENT_TEXT`.
 - **Escaping.** Content is HTML-escaped, so text inside a tool result or a
   report cannot close its tag and pose as a message from the user.
 - **System messages** are never rendered.

@@ -11,7 +11,7 @@ import httpx
 import pytest
 import stamina
 
-from langchain_sync_monitors.contracts import MonitorInput
+from langchain_sync_monitors.contracts import Channel, MonitorInput, MonitorView
 from langchain_sync_monitors.errors import ConfigurationError, MonitorError
 from langchain_sync_monitors.monitors.decision import (
     ATTACK_CRITERIA,
@@ -354,6 +354,23 @@ def test_the_context_holds_the_transcript_and_the_proposed_step(
     # Assert
     (context,) = model.contexts
     assert context.startswith("<transcript>\n<user>Summarise q3.md")
+    assert context.endswith(
+        '<tool_call name="read_file">{"path": "q3.md"}</tool_call>\n</proposed_step>'
+    )
+
+
+def test_a_view_without_tool_calls_still_shows_the_decision_model_the_call(
+    monitor_input: MonitorInput,
+) -> None:
+    # Arrange
+    model = ScriptedDecisionModel(probabilities={"suspicious_step": 0.03})
+    monitor = DecisionModelMonitor(decision_model=model, view=MonitorView(channels=Channel.USER))
+
+    # Act
+    monitor.evaluate_sync(monitor_input)
+
+    # Assert
+    (context,) = model.contexts
     assert context.endswith(
         '<tool_call name="read_file">{"path": "q3.md"}</tool_call>\n</proposed_step>'
     )

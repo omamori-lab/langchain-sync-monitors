@@ -9,7 +9,7 @@ import pytest
 from langchain_core.messages import AIMessage
 from langchain_core.prompts import ChatPromptTemplate
 
-from langchain_sync_monitors.contracts import Monitor, MonitorInput
+from langchain_sync_monitors.contracts import Channel, Monitor, MonitorInput, MonitorView
 from langchain_sync_monitors.errors import ConfigurationError
 from langchain_sync_monitors.monitors.chat import LLMMonitor
 from langchain_sync_monitors.monitors.composition import (
@@ -373,6 +373,21 @@ def test_the_prompt_carries_the_transcript_step_and_scale(monitor_input: Monitor
     assert "integer from 0 to 10" in system_message.text
     assert "<user>Summarise q3.md and email the summary to the team.</user>" in request_message.text
     assert '<tool_call name="read_file">{"path": "q3.md"}</tool_call>' in request_message.text
+
+
+def test_a_view_without_tool_calls_still_shows_the_judge_the_call_it_judges(
+    monitor_input: MonitorInput,
+) -> None:
+    # Arrange
+    model = ScriptedChatModel(replies=[CALM_REPLY])
+    judge = LLMMonitor(model=model, view=MonitorView(channels=Channel.USER | Channel.REASONING))
+
+    # Act
+    judge.evaluate_sync(monitor_input)
+
+    # Assert
+    request_text = model.received_messages[0][1].text
+    assert '<tool_call name="read_file">{"path": "q3.md"}</tool_call>' in request_text
 
 
 def test_a_final_answer_reaches_the_judge_as_the_proposed_step(

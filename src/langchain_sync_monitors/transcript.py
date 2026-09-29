@@ -306,14 +306,18 @@ def render_transcript(
 def render_proposed_step(proposal: AIMessage, *, view: MonitorView) -> str:
     """Render the step the agent proposes, wrapped in a `proposed_step` tag.
 
-    A proposal without tool calls is a final answer, and the answer is then the
-    step's action, so its text is shown even when the view leaves out agent
-    prose. A proposal whose calls are all malformed is a final answer too,
-    because none of them can run; they are shown with it, as evidence of what
-    the agent tried.
+    The view decides what the monitor reads of the history, not of the step it
+    judges: the step's tool calls, malformed ones included, are its action, so
+    they are shown whatever the view. A proposal without tool calls is a final
+    answer, and the answer is then the step's action, so its text is shown
+    even when the view leaves out agent prose. A proposal whose calls are all
+    malformed is a final answer too, because none of them can run; they are
+    shown with it, as evidence of what the agent tried.
     """
     is_final_answer = not proposal.tool_calls
-    channels = view.channels | Channel.AGENT_TEXT if is_final_answer else view.channels
+    channels = view.channels | Channel.TOOL_CALLS
+    if is_final_answer:
+        channels |= Channel.AGENT_TEXT
     parts = [entry.text for entry in build_agent_entries(proposal) if entry.channel in channels]
     return "<proposed_step>\n" + "\n".join(parts) + "\n</proposed_step>"
 

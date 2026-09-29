@@ -106,8 +106,14 @@ SEEN_HUMAN_MESSAGES_KEY = "monitor_seen_human_messages"
 """The state key that holds the ids of every untagged human message the monitor has seen."""
 
 
-def merge_message_ids(recorded: list[str], new: list[str]) -> list[str]:
-    """Add newly recorded message ids to the recorded ones, keeping each id once, in order."""
+def merge_message_ids(  # lanorme: ignore[KWARG-001]
+    recorded: list[str],
+    new: list[str],
+) -> list[str]:
+    """Add newly recorded message ids to the recorded ones, keeping each id once, in order.
+
+    LangGraph calls a reducer with both values by position [@langgraph2026].
+    """
     return list(dict.fromkeys([*recorded, *new]))
 
 
@@ -419,7 +425,7 @@ class MonitorMiddleware(AgentMiddleware[MonitorState, AgentContext, StructuredOu
         return build_run_input_update(state)
 
     @override
-    async def abefore_agent(
+    async def abefore_agent(  # lanorme: ignore[NAMING-011]
         self,
         state: MonitorState,
         runtime: AgentRuntime,

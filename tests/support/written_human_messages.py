@@ -78,5 +78,9 @@ class NudgingMiddleware(AgentMiddleware[Any, Any, Any]):
     def before_model(self, state: Any, runtime: Runtime[Any]) -> dict[str, Any] | None:
         return self.build_nudge(state["messages"])
 
-    async def abefore_model(self, state: Any, runtime: Runtime[Any]) -> dict[str, Any] | None:
+    async def abefore_model(  # lanorme: ignore[NAMING-011]
+        self,
+        state: Any,
+        runtime: Runtime[Any],
+    ) -> dict[str, Any] | None:
         return self.build_nudge(state["messages"])

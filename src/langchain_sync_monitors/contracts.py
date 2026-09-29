@@ -16,7 +16,7 @@ import math
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from enum import Flag, StrEnum, auto
-from typing import Literal, TypedDict
+from typing import Literal, NotRequired, TypedDict
 
 from langchain.agents.middleware.types import ModelResponse
 from langchain_core.language_models import BaseChatModel
@@ -192,7 +192,11 @@ class StepRecord(TypedDict):
     """One step as stored in the agent state's `monitor_log`.
 
     Records pass through checkpointers, so they hold plain values only: the
-    outcome is a string and every sequence is a list.
+    outcome is a string and every sequence is a list. A subagent's step
+    numbers start again with every delegation, so its records also carry
+    `delegation_id`, the id of the tool call that started the subagent, and
+    `(agent, delegation_id, step_number)` names one step. The records of an
+    agent that no monitored agent started have no `delegation_id`.
     """
 
     agent: str
@@ -202,6 +206,20 @@ class StepRecord(TypedDict):
     flagged: bool
     blocked_count: int
     samples: list[SampleRecord]
+    delegation_id: NotRequired[str]
+
+
+class Delegation(TypedDict):
+    """What a monitored agent hands to a subagent that one of its tool calls starts.
+
+    `tool_call_id` is the id of that tool call, which the subagent's records
+    carry as their `delegation_id`. `blocks_before` holds, for each monitor
+    label, the blocks recorded in the conversation thread when the subagent
+    started, so that the subagent's Auto Mode counts from the thread's total.
+    """
+
+    tool_call_id: str
+    blocks_before: dict[str, int]
 
 
 class Monitor(ABC):
@@ -223,6 +241,25 @@ class PendingStep(ABC):
     @abstractmethod
     def previous_records(self) -> tuple[StepRecord, ...]:
         """This monitor's records from earlier steps of the run."""
+
+    @property
+    def blocks_in_thread(self) -> int:
+        """The blocks this monitor recorded in the conversation thread before this step.
+
+        A subagent's copy of a monitor keeps its label, so the count covers
+        this agent's earlier steps, its subagents' steps, nested ones included,
+        and, inside a subagent, the blocks recorded before the subagent
+        started. By default it sums `previous_records` alone.
+        """
+        return sum(record["blocked_count"] for record in self.previous_records)
+
+    @property
+    def new_subagent_blocks(self) -> int:
+        """The blocks this monitor recorded inside subagents since this agent's last step.
+
+        It is 0 by default.
+        """
+        return 0
 
     @abstractmethod
     async def sample(

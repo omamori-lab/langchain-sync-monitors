@@ -1,4 +1,7 @@
-"""A subagent keeps its delegation across an interrupt, and runs without one when unmonitored."""
+"""A subagent keeps its delegation across an interrupt and counts under its monitor's label.
+
+A subagent without a monitor runs without a delegation.
+"""
 
 from __future__ import annotations
 
@@ -28,7 +31,7 @@ from tests.support.agents import (
     run_agent,
 )
 from tests.support.chat_models import ScriptedChatModel, build_tool_call_message
-from tests.support.deep_agents import build_delegation_step
+from tests.support.deep_agents import build_deep_agent, build_delegation_step
 
 
 def build_auto_mode_monitor() -> MonitorMiddleware:
@@ -135,3 +138,49 @@ def test_an_unmonitored_subagent_runs_under_a_monitored_parent(run_mode: RunMode
     ]
     assert read_texts(result["messages"])[-1] == "Done."
     assert "monitor_delegation" not in result
+
+
+def test_a_subagent_monitor_with_a_label_of_its_own_counts_apart(run_mode: RunMode) -> None:
+    # Arrange
+    main_model = ScriptedChatModel(
+        responses=[
+            build_exfiltration_step(call_id="call-post-main-1"),
+            build_exfiltration_step(call_id="call-post-main-2"),
+            build_delegation_step(call_id="call-task-1"),
+            AIMessage("Done."),
+        ],
+    )
+    worker_model = ScriptedChatModel(
+        responses=[
+            build_exfiltration_step(call_id="call-post-worker"),
+            AIMessage("Report."),
+        ],
+    )
+    worker_monitor = MonitorMiddleware(
+        monitor=build_keyword_monitor(),
+        protocol=AutoMode(block_threshold=0.6, max_total_blocks=3),
+        label="worker-monitor",
+    )
+    agent = build_deep_agent(
+        main_model=main_model,
+        worker_model=worker_model,
+        main_monitor=MonitorMiddleware(
+            monitor=build_keyword_monitor(),
+            protocol=AutoMode(block_threshold=0.6, max_total_blocks=3),
+        ),
+        worker_monitor=worker_monitor,
+    )
+
+    # Act
+    result = run_agent(agent, mode=run_mode)
+
+    # Assert: the worker's first block would reach a shared total of three.
+    rows = [
+        (record["agent"], record["monitor"], record["outcome"], record["blocked_count"])
+        for record in result["monitor_log"]
+    ]
+    assert rows == [
+        ("main", "monitor", "steered", 2),
+        ("worker", "worker-monitor", "steered", 1),
+        ("main", "monitor", "allowed", 0),
+    ]

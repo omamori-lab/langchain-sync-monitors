@@ -32,7 +32,9 @@ class Channel(Flag):
     tool output, following Claude Code's auto mode classifier
     [@hughes2026automode]; reasoning is one flag away, since reading it catches
     more misbehaviour [@baker2025monitoring] but can also mislead a monitor
-    [@arnav2025cotredhanded].
+    [@arnav2025cotredhanded]. Whether a call ran is never left out: a tool
+    error travels with the call, and monitor feedback and context notes with
+    the task.
     """
 
     USER = auto()

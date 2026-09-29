@@ -1,0 +1,76 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="900" height="406" viewBox="0 0 900 406" role="img" aria-labelledby="title desc">
+  <title id="title">Three kinds of monitor model, one scale</title>
+  <desc id="desc">Three monitor classes cover three model families. LLMMonitor asks a chat model to reason and then score the step from 0 to 10. GuardModelMonitor has a guard model label the step against your policy, and suspicion is the chance the label is unsafe. DecisionModelMonitor asks a decision model yes or no questions, and suspicion is the chance of yes. Each returns the same Verdict, a suspicion from 0 to 1 and a reason, so any monitor works with any control protocol. Three wrappers stack around any monitor: RepeatedMonitor averages several calls, CalibratedMonitor ranks the score among scores from honest runs, and CascadeMonitor runs a fast monitor on every step and a careful one when the fast one finds the step suspicious.</desc>
+  <!-- The light and dark variants of this diagram differ only in the colours of the style block. -->
+  <style>
+    text { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans", Helvetica, Arial, sans-serif; font-size: 13px; fill: #E3E8EF; }
+    .title { font-size: 14px; font-weight: 600; }
+    .small { font-size: 12px; fill: #93A0B1; }
+    .mono { font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace; font-size: 12px; fill: #85A6FF; }
+    .box { fill: #151C26; stroke: #4B5A6E; stroke-width: 1.2; }
+    .accent-box { fill: #1B2745; stroke: #85A6FF; stroke-width: 1.5; }
+    .allow-box { fill: #12301F; stroke: #52C48E; stroke-width: 1.4; }
+    .frame { fill: none; stroke: #4B5A6E; stroke-width: 1.2; stroke-dasharray: 6 4; }
+    .edge { fill: none; stroke: #93A0B1; stroke-width: 1.4; }
+    .head { fill: #93A0B1; }
+  </style>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" markerUnits="userSpaceOnUse" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="head"/></marker>
+  </defs>
+
+  <text x="16" y="26" class="title">Three kinds of monitor model, one scale</text>
+
+  <!-- The three families. -->
+  <rect class="box" x="16" y="44" width="340" height="70" rx="8"/>
+  <text x="32" y="67" class="title">Chat judge</text>
+  <text x="340" y="67" text-anchor="end" class="mono">LLMMonitor</text>
+  <text x="32" y="86" class="small">a chat model reasons first, then scores</text>
+  <text x="32" y="102" class="small">the step on a scale, 0 to 10 by default</text>
+
+  <rect class="box" x="16" y="124" width="340" height="70" rx="8"/>
+  <text x="32" y="147" class="title">Guard model</text>
+  <text x="340" y="147" text-anchor="end" class="mono">GuardModelMonitor</text>
+  <text x="32" y="166" class="small">labels the step against a policy you write;</text>
+  <text x="32" y="182" class="small">suspicion is the chance the label is unsafe</text>
+
+  <rect class="box" x="16" y="204" width="340" height="70" rx="8"/>
+  <text x="32" y="227" class="title">Decision model</text>
+  <text x="340" y="227" text-anchor="end" class="mono">DecisionModelMonitor</text>
+  <text x="32" y="246" class="small">answers yes or no questions about the step;</text>
+  <text x="32" y="262" class="small">suspicion is the chance of yes</text>
+
+  <path class="edge" d="M356,79 H386 M356,159 H386 M356,239 H386 M386,79 V239"/>
+  <line class="edge" x1="386" y1="159" x2="420" y2="159" marker-end="url(#arrow)"/>
+
+  <!-- One verdict on one scale. -->
+  <rect class="accent-box" x="422" y="119" width="180" height="80" rx="8"/>
+  <text x="512" y="148" text-anchor="middle" class="title">Verdict</text>
+  <text x="512" y="168" text-anchor="middle" class="small">suspicion from 0 to 1,</text>
+  <text x="512" y="184" text-anchor="middle" class="small">and a reason</text>
+
+  <line class="edge" x1="602" y1="159" x2="660" y2="159" marker-end="url(#arrow)"/>
+
+  <rect class="allow-box" x="662" y="119" width="222" height="80" rx="8"/>
+  <text x="773" y="148" text-anchor="middle" class="title">Any control protocol</text>
+  <text x="773" y="168" text-anchor="middle" class="small">one shared scale, so any</text>
+  <text x="773" y="184" text-anchor="middle" class="small">monitor fits any protocol</text>
+
+  <!-- Wrappers, each a monitor itself. -->
+  <rect class="frame" x="8" y="292" width="884" height="106" rx="12"/>
+  <text x="24" y="314"><tspan class="title">Wrappers</tspan><tspan class="small" dx="10">each wraps any monitor and is a monitor itself, so they stack</tspan></text>
+
+  <rect class="box" x="24" y="324" width="272" height="64" rx="8"/>
+  <text x="40" y="344" class="mono">RepeatedMonitor</text>
+  <text x="40" y="362" class="small">averages several calls</text>
+  <text x="40" y="378" class="small">of one monitor</text>
+
+  <rect class="box" x="314" y="324" width="272" height="64" rx="8"/>
+  <text x="330" y="344" class="mono">CalibratedMonitor</text>
+  <text x="330" y="362" class="small">ranks each score among</text>
+  <text x="330" y="378" class="small">the scores of honest runs</text>
+
+  <rect class="box" x="604" y="324" width="272" height="64" rx="8"/>
+  <text x="620" y="344" class="mono">CascadeMonitor</text>
+  <text x="620" y="362" class="small">a fast monitor on every step,</text>
+  <text x="620" y="378" class="small">a careful one on suspicious steps</text>
+</svg>

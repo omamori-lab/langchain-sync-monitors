@@ -195,6 +195,40 @@ def test_auditing_turned_off_never_flags(
     assert decision.flagged is False
 
 
+def test_auditing_turned_off_still_flags_a_halted_step(drive: StepDriver) -> None:
+    # Arrange
+    protocol = DeferToResample(fallback=HaltRun(), defer_threshold=0.6, audit_threshold=None)
+    step = ScriptedPendingStep(suspicions=[1.0, 1.0, 1.0])
+
+    # Act
+    decision = drive(protocol.decide(step))
+
+    # Assert
+    assert decision.outcome is Outcome.HALTED
+    assert decision.flagged is True
+
+
+def test_an_audit_threshold_below_the_defer_threshold_flags_a_step_that_still_runs(
+    defer_to_trusted_model: DeferToTrustedModel,
+    drive: StepDriver,
+) -> None:
+    # Arrange: a flag is a mark for later review, so this is a review queue
+    protocol = DeferToResample(
+        fallback=defer_to_trusted_model,
+        defer_threshold=0.8,
+        audit_threshold=0.5,
+    )
+    step = ScriptedPendingStep(suspicions=[0.7])
+
+    # Act
+    decision = drive(protocol.decide(step))
+
+    # Assert
+    assert decision.outcome is Outcome.ALLOWED
+    assert decision.flagged is True
+    assert decision.executed_sample is step.drawn_samples[0]
+
+
 def test_parallel_resampling_draws_every_resample_at_once(
     parallel: DeferToResample,
     drive: StepDriver,

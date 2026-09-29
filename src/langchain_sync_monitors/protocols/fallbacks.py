@@ -3,6 +3,14 @@
 A control protocol hands the step to a `Fallback` once it has rejected every
 sample, or once Auto Mode reaches its block limits. Fallbacks hold
 configuration only, so one instance can serve parallel runs.
+
+A fallback must not escalate to a person by calling LangGraph's `interrupt()`.
+The fallback runs inside the model node, and on resume LangGraph runs the
+whole node again [@langgraph2026]: the protocol draws fresh samples, and the
+person's answer applies to whatever the new samples propose, not to the step
+they reviewed. To ask a person, end the step instead, for example with
+`HaltRun`, and ask outside the model node, as `HumanInTheLoopMiddleware` does
+for tool calls.
 """
 
 from __future__ import annotations

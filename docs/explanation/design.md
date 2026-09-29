@@ -41,7 +41,9 @@ survive as evidence for an auditor. Nor do they reach the message stream, as
 
 LangChain gives middleware several hooks. The monitor uses `wrap_model_call`
 and `awrap_model_call`, the only hooks that gate every step and can call the
-model more than once. An `after_model` hook would come too late: after-model
+model more than once. Its `after_model` hook judges nothing; it only ends the
+run after a halted step, as [Halts, fallbacks and failed
+steps](#halts-fallbacks-and-failed-steps) explains. An `after_model` hook would come too late: after-model
 hooks run in reverse list order, and Deep Agents lists
 `HumanInTheLoopMiddleware` after user middleware, so its interrupt would fire
 before an after-model monitor ran.
@@ -195,13 +197,20 @@ the monitor scores it. The protocols differ in what a suspicious score
 triggers. Each threshold is on the common 0 to 1 scale, has a default, and
 raises an `UncalibratedThresholdWarning` while the default is in use, because
 a threshold should come from the score distribution of honest runs
-[@bhatt2025ctrlz]. The planned defaults are 0.6 to defer, block or flag, and
-0.9 to audit.
+[@bhatt2025ctrlz]. The defaults are 0.6 to defer, block or flag, and 0.9 to
+audit.
+
+A flag is a mark in `monitor_log` for a person to review after the fact. It
+never blocks a step: by the time anyone reads the log, the step has run or
+been replaced. So Defer to Resample and Defer to Trusted accept an audit
+threshold below the defer threshold, which flags steps that still ran, a
+review queue of borderline steps. `audit_threshold=None` turns their flagging
+off, except that `HaltRun` flags every step it halts.
 
 ### Trusted Monitoring
 
-The step always runs; a score above the flag threshold marks it for audit
-[@greenblatt2023aicontrol].
+The step always runs; a score at or above the flag threshold marks it for
+audit [@greenblatt2023aicontrol].
 
 ```mermaid
 flowchart LR
@@ -231,6 +240,10 @@ two extra samples are drawn, as in the paper. `Resampling.SEQUENTIAL` draws
 them one at a time and stops at the first acceptable one;
 `Resampling.PARALLEL` draws them all at once, for lower latency and more model
 calls. The audit flag uses the lowest score across the samples, as in Ctrl-Z.
+Resampling needs fresh draws. A LangChain response cache, global or on the
+agent's model, answers every resample with the first sample again, so the
+library warns once with a `CachedResampleWarning` when a step is resampled
+under one; build the untrusted model with `cache=False`.
 
 ```mermaid
 flowchart LR
@@ -246,8 +259,11 @@ flowchart LR
 
 A suspicious step is blocked, and the agent is told why, so its next attempt
 can take a safer route [@hughes2026automode]. After three blocks in a row, or
-twenty in one run, the limits Claude Code uses, a fallback takes over: the run
-halts, or the trusted model writes the step.
+twenty in one conversation thread, the limits Claude Code uses within a
+session, a fallback takes over: the run halts, or the trusted model writes the
+step. Both limits count the agent's own records. The total spans every turn of
+a checkpointed thread, not one run, and never resets, so once a thread has
+reached it, the first block of every later step goes to the fallback.
 
 ```mermaid
 flowchart LR
@@ -293,6 +309,38 @@ tool call keeps a matching result. Every message the monitor inserts gets a
 fresh id (`monitor-<uuid4>`), because LangGraph replaces messages that share an
 id, and the feedback is marked in its text, because some providers drop a
 message's `name`.
+
+### Halts, fallbacks and failed steps
+
+A halted step ends the run. The halt message has no tool calls, but that alone
+does not end an agent with structured output and no tools, which returns to
+the model until it has a structured response [@langchain2026]. So the monitor
+also has an `after_model` hook, which judges nothing: after a step this monitor
+halted, it routes the agent to its end. The model node cannot do this itself.
+A routing edge reads a fresh copy of the state that keeps only its own node's
+writes, and the `jump_to` key is cleared everywhere else [@langgraph2026], so
+a `jump_to` from the model node would reach only the model node's own edge,
+which exists only in an agent with no `after_model` hook at all. The hook costs
+one graph step per model call, which counts towards an explicit
+`recursion_limit`.
+
+A fallback must not escalate to a person by calling LangGraph's `interrupt()`.
+The fallback runs inside the model node, and on resume LangGraph runs the whole
+node again [@langgraph2026]: the protocol draws fresh samples, and the person's
+answer applies to whatever the new samples propose, not to the step they
+reviewed. To involve a person, end the step, with `HaltRun` for example, and
+ask outside the model node, as `HumanInTheLoopMiddleware` does for tool calls.
+
+When a call inside a step raises, whether a sample, a monitor call or the
+trusted model's step, the protocol never decides, so nothing is committed and
+the error propagates unchanged. The samples the monitor had already judged
+would then leave no trace, so the middleware logs them at warning level, each
+with its suspicion, reason and proposal, and writes a `MonitorStepFailedEvent`
+(`type="monitor_step_failed"`) to `stream_mode="custom"` before the error
+propagates. A middleware outside the monitor that retries failed model calls,
+such as LangChain's `ModelRetryMiddleware`, runs the whole step again with
+fresh samples, and `monitor_log` then records only the attempt that succeeded;
+`check_monitor_placement` warns about such a list.
 
 ## Three kinds of monitor model
 
@@ -352,9 +400,10 @@ monitor itself, address this and stack around any family:
 
 - `RepeatedMonitor` averages several calls of one monitor, as the control
   papers do [@bhatt2025ctrlz; @tracy2026linuxarena; @koran2026ensemble];
-- `CalibratedMonitor` reports suspicion as the share of honest-run scores
-  below this one, breaking ties at random [@makins2026multiagent], so 0.99
-  means a 1% budget;
+- `CalibratedMonitor` reports suspicion as the step's smoothed conformal rank
+  among honest-run scores, breaking ties at random
+  [@vovk2005algorithmic; @makins2026multiagent], so a threshold of 0.99 flags
+  1% of honest steps;
 - `CascadeMonitor` runs a fast monitor on every step and sends only the steps
   it finds suspicious to a careful one [@hua2025combining], after the two
   stages of Claude Code's auto mode [@hughes2026automode].
@@ -377,7 +426,23 @@ monitor and protocol by default, named after the subagent and marked with
 parent agent's words rather than the user's. An override can give a named
 subagent a different monitor, protocol or view. Compiled and remote subagents
 cannot take injected middleware, so the helper raises an error for them
-instead of leaving them unmonitored.
+instead of leaving them unmonitored. Its message says how to monitor one in its
+own graph: `MonitorMiddleware(..., agent_name="<subagent name>",
+task_author=TaskAuthor.PARENT_AGENT)`. Both settings matter. With the default
+`agent_name="main"`, the subagent's records count as the main agent's own, so
+the parent's monitor never sees the subagent's halt and `STOP_WHOLE_RUN` does
+not fire; with the default task author, the subagent's monitor reads the
+delegated task as the user's authorisation.
+
+Forked subagents, `mode="fork"` in Deep Agents, are not supported yet (issue
+#35), and the helper raises `ConfigurationError` for them. A fork continues the
+parent's conversation and inherits the main agent's middleware, so it runs
+under `monitor[main]`. That monitor reads the fork's task, which the parent
+agent wrote, as the user's words, and records the fork's steps under the main
+agent's name, where they renumber the main agent's steps and hide a halt inside
+the fork from `STOP_WHOLE_RUN`. This happens whenever a monitored agent has a
+fork, with or without the helper, so a monitored agent should delegate only to
+isolated subagents.
 
 ```mermaid
 flowchart TD
@@ -427,9 +492,23 @@ The sync pending step's methods are declared `async` but never wait on
 anything, so under `invoke()` the protocol's coroutine can be finished with a
 single step, without an event loop. If a protocol ever awaited real
 asynchronous work there, the library raises `SynchronousRunError` instead of
-hanging. Under `invoke()`, samples asked for concurrently are drawn one after
-another. Monitors declare both `evaluate` and `evaluate_sync`, so a monitor
-that lacks either cannot be instantiated.
+hanging. That covers a protocol that suspends, and one that starts asyncio work
+where no loop can run it, such as `asyncio.gather` or `asyncio.ensure_future`
+outside a running loop. Inside a running loop, as when `invoke()` is called
+from a notebook, any task the protocol scheduled is cancelled before it
+starts, and once a step is over its pending step refuses to call the model,
+so no work a protocol left behind reaches the model after the error. A
+timeout, `asyncio.timeout` or `asyncio.wait_for`, cannot limit a pending
+step's call under `invoke()`: outside a running loop it raises
+`SynchronousRunError`, and inside one it never fires, because the synchronous
+call blocks the loop. Use `ainvoke()` for protocols that need asyncio.
+
+Under `invoke()`, samples asked for concurrently are drawn one after another.
+Under `ainvoke()` they are drawn in an `asyncio.TaskGroup`, as are the calls
+of `RepeatedMonitor`, so a call that fails cancels the others instead of
+leaving them to spend tokens, and its own error propagates, not wrapped in an
+`ExceptionGroup`. Monitors declare both `evaluate` and `evaluate_sync`, so a
+monitor that lacks either cannot be instantiated.
 
 ## What streams
 

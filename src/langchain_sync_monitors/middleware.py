@@ -56,6 +56,7 @@ from langchain_sync_monitors.feedback import (
     build_blocked_attempt_messages,
     build_monitor_message_id,
 )
+from langchain_sync_monitors.options import check_enum_option
 from langchain_sync_monitors.pending_steps import (
     AsyncPendingStep,
     SyncPendingStep,
@@ -154,7 +155,9 @@ class MonitorMiddleware(AgentMiddleware[MonitorState, AgentContext, StructuredOu
     who wrote the task the monitor reads. `feedback_visibility` decides whether
     blocked attempts and their feedback are committed with the step or only
     shown to the retry. `when_subagent_halts=SubagentHalt.STOP_WHOLE_RUN` halts
-    this agent before its next model call once a subagent was halted.
+    this agent before its next model call once a subagent was halted. Each
+    option must be a member of its enum; a plain string raises
+    `ConfigurationError`.
 
     The instance holds configuration only. Deep Agents runs parallel subagents
     through shared middleware instances, so every piece of run state lives in
@@ -171,6 +174,20 @@ class MonitorMiddleware(AgentMiddleware[MonitorState, AgentContext, StructuredOu
 
     state_schema = MonitorState
     transformers = (InternalCallTransformer,)
+
+    def __post_init__(self) -> None:
+        """Reject an option that is not a member of its enum, such as a plain string."""
+        check_enum_option(self.task_author, option_type=TaskAuthor, parameter_name="task_author")
+        check_enum_option(
+            self.feedback_visibility,
+            option_type=FeedbackVisibility,
+            parameter_name="feedback_visibility",
+        )
+        check_enum_option(
+            self.when_subagent_halts,
+            option_type=SubagentHalt,
+            parameter_name="when_subagent_halts",
+        )
 
     @property
     @override

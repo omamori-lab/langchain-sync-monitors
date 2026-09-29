@@ -14,6 +14,7 @@ from langchain_sync_monitors.contracts import (
     StepDecision,
 )
 from langchain_sync_monitors.errors import ConfigurationError
+from langchain_sync_monitors.options import check_enum_option
 from langchain_sync_monitors.protocols.fallbacks import DeferToTrustedModel
 from langchain_sync_monitors.thresholds import (
     DEFAULT_AUDIT_THRESHOLD,
@@ -37,7 +38,8 @@ class DeferToResample(ControlProtocol):
     `Resampling.SEQUENTIAL` draws one sample at a time and stops at the first
     acceptable one, as Ctrl-Z's appendix J words the protocol.
     `Resampling.PARALLEL` draws every resample at once, which lowers latency but
-    always costs `max_resamples` extra calls.
+    always costs `max_resamples` extra calls. `resampling` must be a
+    `Resampling` member; a plain string raises `ConfigurationError`.
 
     The step is flagged for audit when the lowest suspicion across its samples
     is at or above `audit_threshold`, the statistic Ctrl-Z found to work well
@@ -72,6 +74,7 @@ class DeferToResample(ControlProtocol):
         if max_resamples < 0:
             message = f"max_resamples must be zero or more, got {max_resamples}"
             raise ConfigurationError(message)
+        check_enum_option(resampling, option_type=Resampling, parameter_name="resampling")
         self.fallback = fallback
         self.defer_threshold = resolve_threshold(
             parameter_name="defer_threshold",

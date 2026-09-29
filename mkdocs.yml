@@ -88,6 +88,7 @@ nav:
           - Combine and calibrate monitors: how-to/combine-and-calibrate-monitors.md
           - Choose what the monitor reads: how-to/choose-what-the-monitor-reads.md
           - Read the monitor log: how-to/read-the-monitor-log.md
+          - See the monitor's decisions in LangSmith and Langfuse: how-to/see-decisions-in-langsmith-and-langfuse.md
   - Reference:
       - reference/index.md
       - API: reference/api.md

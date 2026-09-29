@@ -675,7 +675,9 @@ the step span's proposed step; each sample's text stays on the model call
 that drew it. A halt is a decision, and ends its spans as usual. A span ends
 with an error only when the step fails: a model or monitor call that raises,
 a sample cancelled because another one failed, or `SynchronousRunError`.
-With no tracer attached, no span is opened.
+With no callback handler attached, no span is opened. LangGraph attaches one
+of its own for `stream_mode="messages"`, which receives the spans and ignores
+them.
 
 The spans are opened from the running node's own callback manager, not
 through `CallbackManager.configure`, so they nest under the model node for

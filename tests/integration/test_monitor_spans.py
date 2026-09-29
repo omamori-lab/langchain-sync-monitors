@@ -36,7 +36,8 @@ from tests.support.agents import (
     build_read_step,
     run_agent,
 )
-from tests.support.chat_models import ScriptedChatModel
+from tests.support.chat_models import ScriptedChatModel, build_tool_call_message
+from tests.support.flaky_models import FlakyChatModel
 from tests.support.monitors import KeywordMonitor
 from tests.support.tracing import (
     RecordedRun,
@@ -363,6 +364,63 @@ def test_parallel_resamples_each_get_their_own_judgement_under_the_step(
     assert sorted(judgement.outputs["suspicion"] for judgement in judgements) == [0.1, 0.1, 0.9]
     assert tracer.find_unknown_parents() == []
     assert tracer.find_open_runs() == []
+
+
+def build_read_file_step(path: str) -> AIMessage:
+    return build_tool_call_message(
+        tool_name="read_file",
+        call_id=f"call-read-{path}",
+        arguments={"path": path},
+    )
+
+
+def test_judgement_numbers_follow_the_order_parallel_draws_started(run_mode: RunMode) -> None:
+    # Arrange: under ainvoke the n-th model call waits the n-th delay, so the
+    # first resample started finishes last and the judgements start out of order.
+    monitor = KeywordMonitor(
+        suspicion_by_keyword={EXFILTRATION_MARK: 0.9, "one.md": 0.2, "two.md": 0.3, "three.md": 0.4},
+    )
+    model = FlakyChatModel(
+        replies=[
+            build_exfiltration_step(),
+            build_read_file_step("one.md"),
+            build_read_file_step("two.md"),
+            build_read_file_step("three.md"),
+            AIMessage(FINAL_ANSWER),
+        ],
+        delays=[0.0, 0.09, 0.03, 0.06],
+    )
+    protocol = DeferToResample(
+        fallback=HaltRun(message="Stopped."),
+        defer_threshold=0.6,
+        audit_threshold=0.95,
+        resampling=Resampling.PARALLEL,
+        max_resamples=3,
+    )
+    agent = create_agent(
+        model=model,
+        tools=Workspace().build_tools(),
+        middleware=[MonitorMiddleware(monitor=monitor, protocol=protocol)],
+    )
+
+    # Act
+    _, tracer = run_traced_agent(agent, mode=run_mode)
+
+    # Assert
+    step = tracer.find_runs(STEP)[0]
+    judgements = step.find_children(JUDGEMENT)
+    reasons_by_number = {
+        judgement.inputs["sample_number"]: judgement.outputs["reason"] for judgement in judgements
+    }
+    assert sorted(reasons_by_number) == [1, 2, 3, 4]
+    assert [reasons_by_number[number] for number in sorted(reasons_by_number)] == [
+        sample["reason"] for sample in step.outputs["samples"]
+    ]
+    assert [sample["reason"] for sample in step.outputs["samples"]] == [
+        f"mentions {keyword}" for keyword in (EXFILTRATION_MARK, "one.md", "two.md", "three.md")
+    ]
+    finish_order = [judgement.inputs["sample_number"] for judgement in judgements]
+    assert finish_order == ([1, 3, 4, 2] if run_mode == "ainvoke" else [1, 2, 3, 4])
 
 
 @pytest.fixture

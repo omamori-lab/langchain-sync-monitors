@@ -11,9 +11,10 @@ from __future__ import annotations
 
 import asyncio
 import functools
+import itertools
 import threading
 import warnings
-from collections.abc import Coroutine, Sequence
+from collections.abc import Coroutine, Iterator, Sequence
 from dataclasses import dataclass, field
 from typing import override
 
@@ -28,6 +29,8 @@ from langchain_sync_monitors._langchain import (
     AsyncModelCallHandler,
     ModelCallHandler,
     build_request_with_messages,
+    open_traced_run,
+    open_traced_run_sync,
 )
 from langchain_sync_monitors.concurrency import run_concurrently
 from langchain_sync_monitors.contracts import (
@@ -41,6 +44,7 @@ from langchain_sync_monitors.contracts import (
 )
 from langchain_sync_monitors.errors import MonitorError, SynchronousRunError
 from langchain_sync_monitors.feedback import build_feedback_messages
+from langchain_sync_monitors.spans import build_judgement_span, build_verdict_outputs
 from langchain_sync_monitors.thresholds import LIBRARY_DIRECTORY
 
 SYNCHRONOUS_RUN_MESSAGE = (
@@ -191,8 +195,9 @@ class MonitoredStep(PendingStep):
     `new_subagent_blocks` from the log and from the agent's `Delegation`.
     `judged_samples` collects every sample the monitor has judged so far, in
     the order the verdicts arrived, so the middleware can report them if the
-    step fails before it is committed. A pending step lives for one step only,
-    so this is not state shared between runs.
+    step fails before it is committed. `sample_numbers` numbers the samples
+    in the order their draws start, for the judgement spans. A pending step
+    lives for one step only, so this is not state shared between runs.
     """
 
     request: AgentModelRequest
@@ -203,6 +208,7 @@ class MonitoredStep(PendingStep):
     new_subagent_blocks: int = 0
     judged_samples: list[Sample] = field(default_factory=list)
     sampled_attempts: list[tuple[BlockedAttempt, ...]] = field(default_factory=list)
+    sample_numbers: Iterator[int] = field(default_factory=lambda: itertools.count(1))
 
     def build_conversation(
         self,
@@ -280,11 +286,19 @@ class AsyncPendingStep(MonitoredStep):
         return tuple([await self.draw_sample(conversation) for _ in range(count)])
 
     async def draw_sample(self, conversation: tuple[BaseMessage, ...]) -> Sample:
-        """Call the untrusted model once on the conversation and judge its proposal."""
+        """Call the untrusted model once on the conversation and judge its proposal.
+
+        The sample's number is taken before the first await, so samples drawn
+        at once are numbered in the order their draws were started.
+        """
+        sample_number = next(self.sample_numbers)
         response = await self.handler(self.build_sample_request(conversation))
         proposal = find_proposal(response)
         monitor_input = self.build_monitor_input(conversation=conversation, proposal=proposal)
-        verdict = await self.monitor.evaluate(monitor_input)
+        judgement_span = build_judgement_span(sample_number=sample_number, monitor=self.monitor)
+        async with open_traced_run(judgement_span) as traced_judgement:
+            verdict = await self.monitor.evaluate(monitor_input)
+            traced_judgement.outputs = build_verdict_outputs(verdict)
         return self.keep_judged_sample(
             Sample(response=response, proposal=proposal, verdict=verdict),
         )
@@ -339,10 +353,14 @@ class SyncPendingStep(MonitoredStep):
 
     def draw_sample(self, conversation: tuple[BaseMessage, ...]) -> Sample:
         """Call the untrusted model once on the conversation and judge its proposal."""
+        sample_number = next(self.sample_numbers)
         response = self.handler(self.build_sample_request(conversation))
         proposal = find_proposal(response)
         monitor_input = self.build_monitor_input(conversation=conversation, proposal=proposal)
-        verdict = self.monitor.evaluate_sync(monitor_input)
+        judgement_span = build_judgement_span(sample_number=sample_number, monitor=self.monitor)
+        with open_traced_run_sync(judgement_span) as traced_judgement:
+            verdict = self.monitor.evaluate_sync(monitor_input)
+            traced_judgement.outputs = build_verdict_outputs(verdict)
         return self.keep_judged_sample(
             Sample(response=response, proposal=proposal, verdict=verdict),
         )

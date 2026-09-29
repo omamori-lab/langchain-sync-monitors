@@ -107,7 +107,8 @@ jobs:
         run: |
           expected="langchain_sync_monitors-${VERSION}-py3-none-any.whl
           langchain_sync_monitors-${VERSION}.tar.gz"
-          built="$(find dist -mindepth 1 -printf '%P\n' | LC_ALL=C sort)"
+          # uv also writes dist/.gitignore; the hidden file is not a distribution.
+          built="$(find dist -mindepth 1 ! -name '.*' -printf '%P\n' | LC_ALL=C sort)"
           if [[ "${built}" != "${expected}" ]]; then
             echo "::error::dist/ holds ${built//$'\n'/, }, not just the wheel and sdist of ${VERSION}."
             exit 1

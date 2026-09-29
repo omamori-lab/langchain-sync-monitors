@@ -247,6 +247,13 @@ agent's model, answers every resample with the first sample again, so the
 library warns once with a `CachedResampleWarning` when a step is resampled
 under one; build the untrusted model with `cache=False`.
 
+Running the least suspicious sample has a cost against prompt injection. An
+agent can write text aimed at the monitor into its step, and an injection that
+fools the monitor only some of the time gets another try with every sample, so
+resampling turns it into a best-of-n attack [@terekhov2025adaptive]. An
+injection that passes one sample in five gets through about half the time
+across three samples.
+
 ```mermaid
 flowchart LR
     first["Draw one sample"] --> check{"Suspicion at or above the defer threshold?"}

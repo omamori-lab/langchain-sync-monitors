@@ -57,6 +57,13 @@ class DeferToResample(ControlProtocol):
     flags every step it halts, so with that fallback a step that reaches it
     is flagged anyway.
 
+    Running the least suspicious sample has a cost against prompt injection.
+    An agent can write text aimed at the monitor into its step, and an
+    injection that fools the monitor only some of the time gets another try
+    with every sample, so resampling turns it into a best-of-n attack
+    [@terekhov2025adaptive] (sections 4.2 and 6). An injection that passes one
+    sample in five gets through about half the time across three samples.
+
     One caveat comes from how LangChain composes middleware. If a middleware
     placed inside the monitor returns commands, only the commands of the last
     model call survive. The state then stays consistent only when the last

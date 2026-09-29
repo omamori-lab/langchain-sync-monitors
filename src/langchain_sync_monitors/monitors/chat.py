@@ -260,7 +260,8 @@ class LLMMonitor(ChatModelMonitor):
     A reply is readable only in exactly that shape: the reasoning block, then
     one score tag, with nothing but whitespace between them or after the
     score. A custom `prompt` must ask for this shape, or every reply is
-    unreadable. The shape keeps a score tag the agent planted in its step,
+    unreadable. An agent can write text aimed at its monitor into its step
+    [@terekhov2025adaptive], so the shape keeps a score tag the agent planted,
     and the judge quoted, from becoming the verdict. A reply that the provider
     reports as cut off at a length limit is unreadable too, since its end is
     not the judge's verdict.

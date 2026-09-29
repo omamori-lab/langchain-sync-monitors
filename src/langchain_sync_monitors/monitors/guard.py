@@ -89,7 +89,11 @@ class TokenLogProbability(BaseModel):
 
 
 class ReplyLogProbabilities(BaseModel):
-    """The OpenAI-style `logprobs` entry of a reply's `response_metadata`."""
+    """The OpenAI-style `logprobs` entry of a reply's `response_metadata`.
+
+    pydantic validates it [@pydantic2026], because the provider's payload is
+    external data whose shape can change.
+    """
 
     content: list[TokenLogProbability] | None = None
 
@@ -132,14 +136,17 @@ def find_reply_label(
 ) -> LabelMatch | None:
     """Find the label where the guard's format puts it, or return `None` if that is ambiguous.
 
-    gpt-oss-safeguard writes its label on the last line, after its reasoning;
+    gpt-oss-safeguard follows the output format its policy asks for
+    [@openai2025gptosssafeguardguide], and a policy like the one in the guard
+    guide asks for the label on the last line, after the reasoning;
     Llama Guard writes an unsafe label on the first line, followed only by
-    the codes of the violated categories, as in `S1,S10`. Labels match
+    the codes of the violated categories, as in `S1,S10`
+    [@meta2024llamaguard3format; @meta2025llamaguard4]. Labels match
     case-insensitively. A label anywhere else is not read, so a first-line
     label followed by prose counts as no label. A reply in which two lines
     name different labels is ambiguous too: the agent can plant a label in
-    its step, and a guard that quotes it must not have the quote read as its
-    verdict.
+    its step, as text aimed at its monitor [@terekhov2025adaptive], and a
+    guard that quotes it must not have the quote read as its verdict.
     """
     lines = list(NON_EMPTY_LINE_PATTERN.finditer(text))
     label_lines = find_label_lines(lines, labels=suspicious_labels | safe_labels)
@@ -264,10 +271,10 @@ class GuardModelMonitor(ChatModelMonitor):
     report [@inan2023llamaguard; @zeng2024shieldgemma; @padhi2024graniteguardian].
     Without them, suspicion is the share of `samples` replies labelled
     suspicious; the gain from more samples levels off around 5 to 10
-    [@xiong2024uncertainty; @lyu2025sampleconsistency]. Sampling needs the
-    model's temperature above zero. Guard probabilities are overconfident
-    [@liu2025guardcalibration], so set thresholds on honest-run percentiles
-    with `CalibratedMonitor` rather than on raw values.
+    [@xiong2024uncertainty; @lyu2025sampleconsistency; @tian2023justask].
+    Sampling needs the model's temperature above zero. Guard probabilities
+    are overconfident [@liu2025guardcalibration], so set thresholds on
+    honest-run percentiles with `CalibratedMonitor` rather than on raw values.
 
     The verdict's reason states the guard's finding, the most severe label
     among the replies, with no probability or count: Auto Mode shows the

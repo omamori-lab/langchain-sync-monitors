@@ -1,0 +1,111 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="900" height="452" viewBox="0 24 900 452" role="img" aria-labelledby="title desc">
+  <title id="title">One monitored step</title>
+  <desc id="desc">The untrusted model proposes a step. The monitor reads it through its view and scores its suspicion from 0 to 1. The control protocol chooses one of five outcomes: allow it, resample it, defer to the trusted model, block it with feedback so the agent tries again, or halt. All of this happens inside the middleware, before anything runs. Only the committed step reaches the tools, and one record joins monitor_log. Tool results come back, and the next model call is a new step.</desc>
+  <!-- The light and dark variants of this diagram differ only in the colours of the style block. -->
+  <style>
+    text { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans", Helvetica, Arial, sans-serif; font-size: 13px; fill: #17202B; }
+    .title { font-size: 14px; font-weight: 600; }
+    .pill-title { font-size: 13px; font-weight: 600; }
+    .small { font-size: 12px; fill: #5C6778; }
+    .mono { font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace; font-size: 12px; }
+    .accent-text { fill: #2450C4; }
+    .box { fill: #FFFFFF; stroke: #9AA6B5; stroke-width: 1.2; }
+    .accent-box { fill: #E5ECFB; stroke: #2450C4; stroke-width: 1.5; }
+    .allow-box { fill: #E2F3EA; stroke: #1A7C52; stroke-width: 1.4; }
+    .resample-box { fill: #E5ECFB; stroke: #2450C4; stroke-width: 1.4; }
+    .trusted-box { fill: #ECE8FA; stroke: #5A48B3; stroke-width: 1.4; }
+    .flag-box { fill: #FAF0D9; stroke: #9C6400; stroke-width: 1.4; }
+    .halt-box { fill: #FBE9E1; stroke: #B53F18; stroke-width: 1.4; }
+    .frame { fill: none; stroke: #9AA6B5; stroke-width: 1.2; stroke-dasharray: 6 4; }
+    .edge { fill: none; stroke: #5C6778; stroke-width: 1.4; }
+    .loop { fill: none; stroke: #2450C4; stroke-width: 1.4; stroke-dasharray: 5 4; }
+    .line { stroke: #B53F18; stroke-width: 1.6; stroke-dasharray: 3 4; }
+    .head { fill: #5C6778; }
+    .accent-head { fill: #2450C4; }
+  </style>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" markerUnits="userSpaceOnUse" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="head"/></marker>
+    <marker id="accent-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" markerUnits="userSpaceOnUse" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="accent-head"/></marker>
+  </defs>
+
+  <!-- The middleware wraps the model call: everything inside the frame is a proposal. -->
+  <rect class="frame" x="12" y="40" width="876" height="286" rx="14"/>
+  <text x="30" y="66"><tspan class="title accent-text">MonitorMiddleware</tspan><tspan class="small" dx="10">wraps every model call of the agent</tspan></text>
+
+  <!-- Propose, judge, decide. -->
+  <rect class="box" x="40" y="116" width="210" height="80" rx="8"/>
+  <text x="145" y="146" text-anchor="middle" class="title">Untrusted model</text>
+  <text x="145" y="166" text-anchor="middle" class="small">proposes one step:</text>
+  <text x="145" y="182" text-anchor="middle" class="small">tool calls and text</text>
+
+  <rect class="accent-box" x="345" y="116" width="210" height="80" rx="8"/>
+  <text x="450" y="146" text-anchor="middle" class="title">Monitor</text>
+  <text x="450" y="166" text-anchor="middle" class="small">reads it through its view</text>
+  <text x="450" y="182" text-anchor="middle" class="small">and scores it from 0 to 1</text>
+
+  <rect class="accent-box" x="650" y="116" width="210" height="80" rx="8"/>
+  <text x="755" y="146" text-anchor="middle" class="title">Control protocol</text>
+  <text x="755" y="166" text-anchor="middle" class="small">turns the score into</text>
+  <text x="755" y="182" text-anchor="middle" class="small">one of five outcomes</text>
+
+  <line class="edge" x1="250" y1="156" x2="343" y2="156" marker-end="url(#arrow)"/>
+  <text x="297" y="148" text-anchor="middle" class="small">proposal</text>
+  <line class="edge" x1="555" y1="156" x2="648" y2="156" marker-end="url(#arrow)"/>
+  <text x="602" y="148" text-anchor="middle" class="small">verdict</text>
+
+  <path class="loop" d="M755,116 V100 H145 V114" marker-end="url(#accent-arrow)"/>
+  <text x="450" y="92" text-anchor="middle" class="small accent-text">draw another sample: a resample, or a retry after feedback</text>
+
+  <!-- The five outcomes. -->
+  <path class="edge" d="M755,196 V214 M120,214 H792"/>
+  <line class="edge" x1="120" y1="214" x2="120" y2="230" marker-end="url(#arrow)"/>
+  <line class="edge" x1="288" y1="214" x2="288" y2="230" marker-end="url(#arrow)"/>
+  <line class="edge" x1="456" y1="214" x2="456" y2="230" marker-end="url(#arrow)"/>
+  <line class="edge" x1="624" y1="214" x2="624" y2="230" marker-end="url(#arrow)"/>
+  <line class="edge" x1="792" y1="214" x2="792" y2="230" marker-end="url(#arrow)"/>
+
+  <rect class="allow-box" x="40" y="232" width="160" height="66" rx="8"/>
+  <text x="120" y="254" text-anchor="middle" class="pill-title">Allow</text>
+  <text x="120" y="272" text-anchor="middle" class="small">the proposed step</text>
+  <text x="120" y="287" text-anchor="middle" class="small">runs as it is</text>
+
+  <rect class="resample-box" x="208" y="232" width="160" height="66" rx="8"/>
+  <text x="288" y="254" text-anchor="middle" class="pill-title">Resample</text>
+  <text x="288" y="272" text-anchor="middle" class="small">a fresh sample of</text>
+  <text x="288" y="287" text-anchor="middle" class="small">the step runs</text>
+
+  <rect class="trusted-box" x="376" y="232" width="160" height="66" rx="8"/>
+  <text x="456" y="254" text-anchor="middle" class="pill-title">Defer to trusted</text>
+  <text x="456" y="272" text-anchor="middle" class="small">the trusted model</text>
+  <text x="456" y="287" text-anchor="middle" class="small">writes the step</text>
+
+  <rect class="flag-box" x="544" y="232" width="160" height="66" rx="8"/>
+  <text x="624" y="254" text-anchor="middle" class="pill-title">Block and steer</text>
+  <text x="624" y="272" text-anchor="middle" class="small">the agent is told why;</text>
+  <text x="624" y="287" text-anchor="middle" class="small">its next try runs</text>
+
+  <rect class="halt-box" x="712" y="232" width="160" height="66" rx="8"/>
+  <text x="792" y="254" text-anchor="middle" class="pill-title">Halt</text>
+  <text x="792" y="272" text-anchor="middle" class="small">the run stops, and</text>
+  <text x="792" y="287" text-anchor="middle" class="small">the step is flagged</text>
+
+  <!-- Nothing crosses this line until the protocol has decided. -->
+  <path class="edge" d="M120,298 V312 M288,298 V312 M456,298 V312 M624,298 V312 M120,312 H624"/>
+  <line class="edge" x1="372" y1="312" x2="372" y2="356" marker-end="url(#arrow)"/>
+  <line class="edge" x1="792" y1="298" x2="792" y2="356" marker-end="url(#arrow)"/>
+
+  <line class="line" x1="12" y1="340" x2="888" y2="340"/>
+  <text x="617" y="358" text-anchor="middle" class="small">nothing runs above this line</text>
+
+  <rect class="box" x="222" y="358" width="300" height="60" rx="8"/>
+  <text x="372" y="382" text-anchor="middle" class="title">Tools run the committed step</text>
+  <text x="372" y="402" text-anchor="middle"><tspan class="small">and one record joins </tspan><tspan class="mono">monitor_log</tspan></text>
+
+  <rect class="halt-box" x="712" y="358" width="160" height="60" rx="8"/>
+  <text x="792" y="382" text-anchor="middle" class="title">Run ends</text>
+  <text x="792" y="402" text-anchor="middle" class="small">no tool runs</text>
+
+  <!-- The next model call is a new step. -->
+  <path class="edge" d="M372,418 V446 H24 V156 H38" marker-end="url(#arrow)"/>
+  <text x="40" y="464" class="small">tool results come back, and the next model call is a new step</text>
+</svg>

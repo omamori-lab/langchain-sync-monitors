@@ -36,6 +36,9 @@ plugins:
   - search
   - bibtex:
       bib_file: docs/references.bib
+      # Only bracketed [@key] citations, so a bare @word, such as a decorator in a
+      # code example, is never read as a citation key.
+      enable_inline_citations: false
   - mkdocstrings:
       handlers:
         python:
@@ -59,12 +62,32 @@ markdown_extensions:
           class: mermaid
           format: !!python/name:pymdownx.superfences.fence_code_format
 
+# Report a link to a missing anchor as a warning, so --strict fails on it. A line
+# that Markdown mistakes for a footnote definition shows up this way.
+validation:
+  anchors: warn
+
 nav:
   - Home: index.md
   - Tutorials:
       - tutorials/index.md
+      - Monitor your first agent: tutorials/first-monitored-agent.md
   - How-to guides:
       - how-to/index.md
+      - Protocols:
+          - Choose a protocol: how-to/choose-a-protocol.md
+          - Use Trusted Monitoring: how-to/use-trusted-monitoring.md
+          - Use Defer to Trusted: how-to/use-defer-to-trusted.md
+          - Use Defer to Resample: how-to/use-defer-to-resample.md
+          - Use Auto Mode: how-to/use-auto-mode.md
+          - Monitor Deep Agents subagents: how-to/monitor-deep-agents-subagents.md
+      - Monitors:
+          - Use a chat judge: how-to/use-a-chat-judge.md
+          - Use a guard model: how-to/use-a-guard-model.md
+          - Use a decision model: how-to/use-a-decision-model.md
+          - Combine and calibrate monitors: how-to/combine-and-calibrate-monitors.md
+          - Choose what the monitor reads: how-to/choose-what-the-monitor-reads.md
+          - Read the monitor log: how-to/read-the-monitor-log.md
   - Reference:
       - reference/index.md
       - API: reference/api.md

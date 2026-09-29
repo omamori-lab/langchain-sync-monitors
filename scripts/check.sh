@@ -30,7 +30,7 @@ echo "==> lanorme standards"
 uvx --python 3.13 lanorme==0.21.0 check .
 
 echo "==> docs build"
-uv run --group docs mkdocs build --strict --quiet --site-dir "$(mktemp -d)"
+uv run --group docs mkdocs build --strict --site-dir "$(mktemp -d)"
 
 echo "==> build"
 uv build >/dev/null

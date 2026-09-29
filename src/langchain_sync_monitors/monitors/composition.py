@@ -64,11 +64,23 @@ class RepeatedMonitor(Monitor):
         return build_mean_verdict(verdicts)
 
 
+MEAN_DECIMAL_PLACES = 12
+"""Decimal places a mean suspicion is rounded to, so equal means compare equal.
+
+Scores such as 0.1, 0.0, 0.2 and 0.0, 0.0, 0.3 have the same mean, but their
+float averages differ in the last bits. Unrounded, `CalibratedMonitor` would
+order such steps by rounding error instead of breaking the tie at random.
+"""
+
+
 def build_mean_verdict(verdicts: Sequence[Verdict]) -> Verdict:
     """Average the suspicions and keep the reason of the most suspicious verdict."""
     most_suspicious = max(verdicts, key=lambda verdict: verdict.suspicion)
     mean_suspicion = statistics.fmean(verdict.suspicion for verdict in verdicts)
-    return Verdict(suspicion=mean_suspicion, reason=most_suspicious.reason)
+    return Verdict(
+        suspicion=round(mean_suspicion, MEAN_DECIMAL_PLACES),
+        reason=most_suspicious.reason,
+    )
 
 
 def render_tie_break_key(monitor_input: MonitorInput) -> str:

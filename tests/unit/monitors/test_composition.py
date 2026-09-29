@@ -62,6 +62,21 @@ def test_repeated_monitor_averages_sequential_calls(
     assert three_calls.calls == 3
 
 
+def test_equal_means_compare_equal_so_calibration_breaks_their_tie_at_random(
+    monitor_input: MonitorInput,
+) -> None:
+    # Arrange: both steps average to 0.1, but their float sums differ in the last bits.
+    first = RepeatedMonitor(monitor=ScriptedMonitor(suspicions=[0.1, 0.0, 0.2]), repeats=3)
+    second = RepeatedMonitor(monitor=ScriptedMonitor(suspicions=[0.0, 0.0, 0.3]), repeats=3)
+
+    # Act
+    first_mean = first.evaluate_sync(monitor_input).suspicion
+    second_mean = second.evaluate_sync(monitor_input).suspicion
+
+    # Assert
+    assert first_mean == second_mean
+
+
 def test_repeated_monitor_keeps_the_most_suspicious_reason(
     three_calls: ScriptedMonitor,
     monitor_input: MonitorInput,

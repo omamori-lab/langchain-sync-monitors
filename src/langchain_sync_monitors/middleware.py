@@ -7,7 +7,9 @@ state receives, and one `StepRecord` per step is appended to `monitor_log`.
 In a `create_agent` middleware list the monitor goes last. LangChain nests
 `wrap_model_call` handlers with the first middleware outermost, and a
 middleware inside the monitor that returns state updates would have them
-merged across every sample the protocol draws [@langchain2026].
+taken from a sample the protocol may not commit: LangChain keeps the updates of
+the last inner call, and mixes them when samples are drawn concurrently
+[@langchain2026].
 `check_monitor_placement` warns about such a list, and about a middleware
 outside the monitor that retries failed model calls.
 """
@@ -501,8 +503,8 @@ def check_monitor_placement(*, middleware: Sequence[AnyAgentMiddleware]) -> list
     ]
     for name in misplaced_inside:
         warnings.warn(
-            f"{name} wraps model calls inside a monitor, so any state update it returns "
-            "is merged across every sample the monitor draws. Put the monitor last.",
+            f"{name} wraps model calls inside a monitor, so a state update it returns "
+            "may come from a sample the protocol does not commit. Put the monitor last.",
             MonitorPlacementWarning,
             stacklevel=2,
         )

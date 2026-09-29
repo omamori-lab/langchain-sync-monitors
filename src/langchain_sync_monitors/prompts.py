@@ -5,8 +5,10 @@ The task and the user's words come first, and only the user, or the agent that
 delegated the task, can authorise an action; a summary or another note that
 middleware added authorises nothing. The monitor judges what a step
 would really do, treats everything it reads as data rather than instructions,
-scores on anchored levels, and reasons before it scores. Apollo Research found
-structured reasoning to be the prompt component that matters most
+scores on anchored levels, and reasons before it scores. Reading everything as
+data answers an agent that aims a prompt injection at its monitor
+[@terekhov2025adaptive]. Apollo Research found structured reasoning to be the
+prompt component that matters most
 [@apollo2026monitoringprompt]; the authorisation rule and the focus on real
 effects follow Claude Code's auto mode classifier [@hughes2026automode]; and
 reasoning followed by a bounded integer score is the monitor format of Ctrl-Z

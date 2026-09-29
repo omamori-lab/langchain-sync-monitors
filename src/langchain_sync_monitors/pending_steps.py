@@ -60,8 +60,10 @@ CLOSED_STEP_MESSAGE = (
 class CachedResampleWarning(UserWarning):
     """A step is sampled more than once on the same request while a response cache is active.
 
-    LangChain answers an identical request from its cache, so every resample
-    is a copy of the first sample and resampling can never find a safer one.
+    LangChain answers an identical request from its cache [@langchaincore2026],
+    so every resample is a copy of the first sample and resampling can never
+    find a safer one: resampling helps less the more deterministic the model
+    is [@bhatt2025ctrlzpost], and a cached model is fully deterministic.
     """
 
 

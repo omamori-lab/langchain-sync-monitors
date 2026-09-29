@@ -85,7 +85,7 @@ builds this agent step by step.
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/assets/diagrams/protocols-dark.svg">
-  <img alt="The four control protocols. Trusted Monitoring lets a suspicious step run and flags it for review. Defer to Trusted has the trusted model write the step instead. Defer to Resample draws up to 2 fresh samples and runs the least suspicious one that passes, or has the trusted model write the step. Auto Mode blocks the step and tells the agent why; the agent tries again, and after 3 blocks in a row or 20 in the thread the run halts." src="docs/assets/diagrams/protocols-light.svg">
+  <img alt="The four control protocols. Trusted Monitoring lets a suspicious step run and flags it for review. Defer to Trusted has the trusted model write the step instead. Defer to Resample draws up to 2 fresh samples and runs the least suspicious one that passes, or has the trusted model write the step. Auto Mode blocks the step and tells the agent why; the agent tries again, and after 3 blocks in a row or 20 in the thread, subagents' blocks included, the run halts." src="docs/assets/diagrams/protocols-light.svg">
 </picture>
 
 | Protocol | Pick it when | Guide |

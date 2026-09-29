@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="900" height="444" viewBox="0 0 900 444" role="img" aria-labelledby="title desc">
   <title id="title">The four control protocols</title>
-  <desc id="desc">What each protocol does with a step the monitor finds suspicious. Trusted Monitoring lets the step run and flags it for a person to review. Defer to Trusted has the trusted model write the step instead. Defer to Resample draws up to two fresh samples; if one passes, the least suspicious runs, and if none passes, the trusted model writes the step. Auto Mode blocks the step and tells the agent why; the agent tries again and an attempt that passes runs; after three blocks in a row, or twenty in the thread, the run halts.</desc>
+  <desc id="desc">What each protocol does with a step the monitor finds suspicious. Trusted Monitoring lets the step run and flags it for a person to review. Defer to Trusted has the trusted model write the step instead. Defer to Resample draws up to two fresh samples; if one passes, the least suspicious runs, and if none passes, the trusted model writes the step. Auto Mode blocks the step and tells the agent why; the agent tries again and an attempt that passes runs; after three blocks in a row, or twenty in the thread, subagents' blocks included, the run halts.</desc>
   <!-- The light and dark variants of this diagram differ only in the colours of the style block. -->
   <style>
     text { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans", Helvetica, Arial, sans-serif; font-size: 13px; fill: #E3E8EF; }
@@ -75,5 +75,5 @@
   <rect class="allow-chip" x="520" y="352" width="340" height="34" rx="17"/>
   <text x="690" y="373" text-anchor="middle">the agent tries again; one that passes runs</text>
   <rect class="halt-chip" x="520" y="390" width="340" height="34" rx="17"/>
-  <text x="690" y="411" text-anchor="middle">3 blocks in a row, or 20 in the thread: halt</text>
+  <text x="690" y="411" text-anchor="middle">3 blocks in a row, or 20 with subagents: halt</text>
 </svg>

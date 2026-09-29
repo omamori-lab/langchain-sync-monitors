@@ -276,14 +276,22 @@ Things to know when you read it:
 
 - **Step numbers restart for each delegated task.** A subagent starts every
   task with an empty log, so two delegations to the analyst both begin at
-  step 1. Each delegation's records arrive together, when its task returns,
-  so they stay next to one another in the parent's log.
+  step 1. Each of a subagent's records carries `delegation_id`, the id of the
+  `task` call that started it, so `agent`, `delegation_id` and `step_number`
+  together name one step, and you can match the records to the `task` call
+  and its result in the parent's messages. Each delegation's records arrive
+  together, when its task returns, so they stay next to one another in the
+  parent's log.
 - **The parent's halt has no samples.** When `STOP_WHOLE_RUN` stops the
   parent, its record has the outcome `halted`, is flagged, and holds no
   samples, because the parent's model was never called.
-- **Each monitor counts only its own agent's records.** Auto Mode's block
-  limits count this agent's blocks, so a subagent's blocks do not count
-  towards the parent's `max_total_blocks`.
+- **Auto Mode's total counts the whole thread.** `max_total_blocks` counts
+  the blocks of every agent in the thread under the same monitor label,
+  subagents and nested subagents included, and a subagent starts from the
+  thread's count, so delegating again does not reset it. The blocks of a
+  subagent whose run raised are missing unless the run is resumed; see
+  [Use Auto Mode](use-auto-mode.md#thresholds-and-limits).
+  `max_consecutive_blocks` still counts one step of one agent.
 - **The parent's monitor reads subagent reports.** The default view shows the
   parent's monitor each subagent's final report as `<subagent_report>`, and
   it judges the `task` call itself before the subagent starts.

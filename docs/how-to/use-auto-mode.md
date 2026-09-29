@@ -95,7 +95,7 @@ what the total block limit counts; see
 |---|---|---|
 | `block_threshold` | 0.6, with a warning | An attempt whose suspicion is at or above this value is blocked. |
 | `max_consecutive_blocks` | 3 | When the blocks within one step reach this number, `when_limit_reached` writes the step. |
-| `max_total_blocks` | 20 | When this agent's blocks across the thread reach this number, `when_limit_reached` writes the step. |
+| `max_total_blocks` | 20 | When this monitor's blocks across the thread, subagents' included, reach this number, `when_limit_reached` writes the step. |
 | `when_limit_reached` | `HaltRun()` | The fallback that writes the step once a limit is reached. |
 | `feedback` | `DEFAULT_FEEDBACK_TEMPLATE` | The message the agent receives when a step is blocked. |
 
@@ -124,19 +124,33 @@ The two limits count different things:
   soon as an attempt is accepted. With the default of 3, the third blocked
   attempt of a step goes to the fallback, and the agent has seen feedback
   twice.
-- `max_total_blocks` counts every block this agent has had in the
-  conversation thread, read from its earlier records in `monitor_log`. With a
-  checkpointer, the log is kept across turns, so the total spans every turn of
-  the thread and never resets. Once a thread has reached it, the first block
-  of every later step goes straight to the fallback; steps that are not
-  blocked still run. Without a checkpointer, each run starts with an empty
-  log, so the total counts one run. To start counting afresh, start a new
-  thread.
+- `max_total_blocks` counts every block this monitor has recorded in the
+  conversation thread, read from `monitor_log`, which holds the agent's own
+  records and those of the subagents it started. With a checkpointer, the log
+  is kept across turns, so the total spans every turn of the thread and never
+  resets. Once a thread has reached it, the first block of every later step
+  goes straight to the fallback; steps that are not blocked still run.
+  Without a checkpointer, each run starts with an empty log, so the total
+  counts one run. To start counting afresh, start a new thread.
 
-Both limits count this agent's own records. In a Deep Agent, a subagent's
-blocks count towards the subagent's limits and not the parent's, and each
-delegated task starts with an empty log, so a subagent's total counts the
-blocks of one delegation.
+In a Deep Agent, the total covers the subagents too. A subagent starts each
+delegated task with an empty log, but its monitor receives the blocks the
+thread has recorded so far, so it reaches the total where the thread does,
+and delegating again does not reset it. When blocks inside subagents take the
+thread to the total, the parent's next step goes to the fallback without
+being sampled. The count is kept per monitor `label`: `monitor_subagents`
+gives each subagent a copy of the parent's monitor with the same label, and
+an override with a label of its own counts apart. Subagents that run in
+parallel do not see each other's blocks, so together they can pass the total;
+the parent counts every one of them at its next step.
+
+The total misses the blocks inside a subagent whose run raises, because a
+subagent's records reach its parent only when its task returns. Resuming the
+failed run with `None` as input keeps them. Continuing the thread with new
+input does not, and neither does a `ToolRetryMiddleware` or
+`ToolErrorMiddleware` that answers the failed task or runs it again: a retry
+starts the subagent from the same count. `check_monitor_placement` warns
+about such middleware.
 
 ### When a limit is reached
 

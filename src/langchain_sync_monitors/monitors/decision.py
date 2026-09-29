@@ -16,7 +16,7 @@ import os
 import statistics
 import warnings
 from abc import ABC, abstractmethod
-from collections.abc import Mapping, Sequence
+from collections.abc import Iterable, Mapping, Sequence
 from contextlib import AbstractAsyncContextManager, nullcontext
 from dataclasses import dataclass
 from enum import StrEnum
@@ -470,15 +470,20 @@ class DecisionModelMonitor(Monitor):
         self,
         *,
         decision_model: DecisionModel,
-        questions: Sequence[YesNoQuestion] = (IS_THE_STEP_SUSPICIOUS,),
+        questions: Iterable[YesNoQuestion] = (IS_THE_STEP_SUSPICIOUS,),
         combine: Combine = Combine.MAX,
         view: MonitorView = DEFAULT_MONITOR_VIEW,
     ) -> None:
-        """Build the monitor; question keys must be unique, and `Combine.MEAN` warns."""
+        """Build the monitor; question keys must be unique, and `Combine.MEAN` warns.
+
+        `questions` may be any iterable, a generator included; it is read once
+        into a tuple, so checking it cannot consume the questions.
+        """
         check_enum_option(combine, option_type=Combine, parameter_name="combine")
-        keys = [question.key for question in questions]
+        question_tuple = tuple(questions)
+        keys = [question.key for question in question_tuple]
         if not keys or len(set(keys)) != len(keys):
-            message = f"questions must be a non-empty list with unique keys, got {keys}"
+            message = f"questions must be non-empty, with unique keys, got {keys}"
             raise ConfigurationError(message)
         if combine is Combine.MEAN:
             message = (
@@ -487,7 +492,7 @@ class DecisionModelMonitor(Monitor):
             )
             warnings.warn(message, UserWarning, stacklevel=2)
         self.decision_model = decision_model
-        self.questions = tuple(questions)
+        self.questions = question_tuple
         self.combine = combine
         self.view = view
 

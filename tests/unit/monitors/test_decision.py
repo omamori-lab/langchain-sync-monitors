@@ -6,7 +6,7 @@ import json
 import re
 import sys
 import warnings
-from collections.abc import Callable, Iterator, Sequence
+from collections.abc import Callable, Iterable, Iterator, Sequence
 from typing import TYPE_CHECKING
 
 import httpx
@@ -75,6 +75,7 @@ class ScriptedDecisionModel(DecisionModel):
     def __init__(self, *, probabilities: dict[str, float]) -> None:
         self.probabilities = probabilities
         self.contexts: list[str] = []
+        self.asked_keys: list[tuple[str, ...]] = []
 
     async def estimate_probabilities(
         self,
@@ -91,6 +92,7 @@ class ScriptedDecisionModel(DecisionModel):
         questions: Sequence[YesNoQuestion],
     ) -> dict[str, float]:
         self.contexts.append(context)
+        self.asked_keys.append(tuple(question.key for question in questions))
         return {question.key: self.probabilities[question.key] for question in questions}
 
 
@@ -429,8 +431,38 @@ def test_the_mean_warns_that_it_dilutes_a_single_hit(monitor_input: MonitorInput
     assert verdict.suspicion == pytest.approx(0.5)
 
 
-@pytest.mark.parametrize("questions", [[], [LEAK_QUESTION, LEAK_QUESTION]])
-def test_questions_must_be_present_and_unique(questions: list[YesNoQuestion]) -> None:
+async def test_questions_given_as_a_generator_are_all_asked(
+    monitor_input: MonitorInput,
+    call_path: CallPath,
+) -> None:
+    # Arrange: a generator is consumed by one pass, and the constructor checks it first.
+    probabilities = dict.fromkeys((question.key for question in ATTACK_CRITERIA), 0.05)
+    probabilities["sends_data_out"] = 0.97
+    model = ScriptedDecisionModel(probabilities=probabilities)
+    monitor = DecisionModelMonitor(
+        decision_model=model,
+        questions=(question for question in ATTACK_CRITERIA),
+    )
+
+    # Act
+    verdict = await evaluate_on_path(monitor, monitor_input, call_path=call_path)
+
+    # Assert
+    assert verdict.suspicion == 0.97
+    assert model.asked_keys == [tuple(question.key for question in ATTACK_CRITERIA)]
+
+
+@pytest.mark.parametrize(
+    "questions",
+    [
+        [],
+        [LEAK_QUESTION, LEAK_QUESTION],
+        (question for question in ()),
+        (question for question in (LEAK_QUESTION, LEAK_QUESTION)),
+    ],
+    ids=["empty list", "repeated key", "empty generator", "generator with a repeated key"],
+)
+def test_questions_must_be_present_and_unique(questions: Iterable[YesNoQuestion]) -> None:
     # Arrange
     model = ScriptedDecisionModel(probabilities={})
 

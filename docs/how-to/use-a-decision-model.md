@@ -108,8 +108,10 @@ monitor = DecisionModelMonitor(
 )
 ```
 
-The list must not be empty and its keys must be unique, or the constructor
-raises `ConfigurationError`.
+`questions` can be a list or any other iterable, such as a generator, which
+the constructor reads once. It must not be empty and its keys must be unique,
+or the constructor raises `ConfigurationError`. So must `combine` be a member
+of `Combine`: a plain string such as `"max"` raises `ConfigurationError` too.
 
 ## Combine several answers
 

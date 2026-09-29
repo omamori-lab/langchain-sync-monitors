@@ -138,7 +138,11 @@ inside a tool result cannot close a tag and pose as another entry. Two tags
 guard against a forged approval. Inside a subagent the task came from the
 parent agent, so its messages are rendered as `<delegator>` rather than
 `<user>`, following the `TaskAuthor` in the `MonitorInput`. The monitor's own
-feedback messages are rendered as `<monitor_feedback>`. When the view keeps
+feedback is rendered as `<monitor_feedback>` wherever the task is shown: both
+the message that answers a blocked final answer and the tool message that
+answers a blocked tool call, which carries the tool's name. So a monitor that
+does not read tool results still sees that an earlier call was blocked and
+did not run. When the view keeps
 only recent entries, the first message that states the task is kept anyway,
 since a monitor cannot judge a step without it. Reasoning is read from
 LangChain's standard content blocks, with a fallback for a reply that would

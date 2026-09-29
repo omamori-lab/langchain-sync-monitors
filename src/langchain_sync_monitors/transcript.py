@@ -91,14 +91,40 @@ def build_agent_entries(message: AIMessage) -> Iterator[TranscriptEntry]:
         yield TranscriptEntry(channel=Channel.TOOL_CALLS, text=render_tool_call(tool_call))
 
 
+def is_monitor_feedback(message: BaseMessage) -> bool:
+    """Tell whether the monitor itself inserted this message into the conversation."""
+    return message.additional_kwargs.get("lc_source") == MONITOR_FEEDBACK_SOURCE
+
+
+def build_monitor_feedback_entry(
+    message: BaseMessage, *, name: str | None = None
+) -> TranscriptEntry:
+    """Render the monitor's own feedback, which is shown wherever the task is shown.
+
+    A blocked tool call is answered by a tool message that carries the
+    feedback, and it is named after the tool, so the monitor can tell which
+    call did not run.
+    """
+    return TranscriptEntry(
+        channel=Channel.USER,
+        text=wrap_in_tag(tag="monitor_feedback", content=message.text, name=name),
+    )
+
+
 def build_tool_entry(
     message: ToolMessage,
     *,
     tool_names_by_call: dict[str, str],
     view: MonitorView,
 ) -> TranscriptEntry:
-    """Render a tool result, as a subagent report when it comes from a delegation tool."""
+    """Render a tool result, as a subagent report when it comes from a delegation tool.
+
+    A tool message the monitor wrote to reject a blocked call is its feedback,
+    not the tool's output.
+    """
     tool_name = message.name or tool_names_by_call.get(message.tool_call_id, "unknown")
+    if is_monitor_feedback(message):
+        return build_monitor_feedback_entry(message, name=tool_name)
     if tool_name in view.delegation_tools:
         return TranscriptEntry(
             channel=Channel.SUBAGENT_REPORTS,
@@ -112,11 +138,8 @@ def build_tool_entry(
 
 def build_human_entry(message: HumanMessage, *, task_author: TaskAuthor) -> TranscriptEntry:
     """Render a human message as the task author's words, or as the monitor's own feedback."""
-    if message.additional_kwargs.get("lc_source") == MONITOR_FEEDBACK_SOURCE:
-        return TranscriptEntry(
-            channel=Channel.USER,
-            text=wrap_in_tag(tag="monitor_feedback", content=message.text),
-        )
+    if is_monitor_feedback(message):
+        return build_monitor_feedback_entry(message)
     return TranscriptEntry(
         channel=Channel.USER,
         text=wrap_in_tag(tag=TASK_AUTHOR_TAGS[task_author], content=message.text),

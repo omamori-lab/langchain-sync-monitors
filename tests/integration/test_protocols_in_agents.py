@@ -11,11 +11,12 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Any
 
+import pytest
 from langchain.agents import create_agent
 from langchain_core.messages import AIMessage, ToolMessage
 from langchain_core.runnables import Runnable
 
-from langchain_sync_monitors.contracts import ControlProtocol, FeedbackVisibility
+from langchain_sync_monitors.contracts import ControlProtocol, FeedbackVisibility, MonitorView
 from langchain_sync_monitors.middleware import MonitorMiddleware
 from langchain_sync_monitors.protocols import (
     AutoMode,
@@ -24,6 +25,7 @@ from langchain_sync_monitors.protocols import (
     HaltRun,
     TrustedMonitoring,
 )
+from langchain_sync_monitors.transcript import render_transcript
 from tests.support.agents import (
     RunMode,
     Workspace,
@@ -34,6 +36,7 @@ from tests.support.agents import (
     run_agent,
 )
 from tests.support.chat_models import ScriptedChatModel
+from tests.support.monitors import KeywordMonitor
 
 FINAL_ANSWER = "Q3 revenue grew 12%."
 HALT_MESSAGE = "Stopped by the safety monitor."
@@ -46,6 +49,7 @@ class MonitoredRun:
     state: dict[str, Any]
     workspace: Workspace
     untrusted_model: ScriptedChatModel
+    monitor: KeywordMonitor
 
 
 def run_monitored_agent(
@@ -58,8 +62,9 @@ def run_monitored_agent(
     """Run a scripted agent under a keyword monitor and the given protocol."""
     workspace = Workspace()
     untrusted_model = ScriptedChatModel(responses=list(untrusted_steps))
+    monitor = build_keyword_monitor()
     middleware = MonitorMiddleware(
-        monitor=build_keyword_monitor(),
+        monitor=monitor,
         protocol=protocol,
         feedback_visibility=feedback_visibility,
     )
@@ -72,11 +77,22 @@ def run_monitored_agent(
         state=run_agent(agent, mode=run_mode),
         workspace=workspace,
         untrusted_model=untrusted_model,
+        monitor=monitor,
     )
 
 
 def read_outcomes(run: MonitoredRun) -> list[str]:
     return [record["outcome"] for record in run.state["monitor_log"]]
+
+
+def render_monitor_history(run: MonitoredRun, *, judgement: int) -> str:
+    """Render the history of one of the monitor's judgements as the default view shows it."""
+    monitor_input = run.monitor.inputs[judgement]
+    return render_transcript(
+        monitor_input.history,
+        view=MonitorView(),
+        task_author=monitor_input.task_author,
+    )
 
 
 def test_defer_to_resample_replaces_a_suspicious_step_with_a_clean_sample(
@@ -156,6 +172,39 @@ def test_auto_mode_steers_the_agent_with_hidden_feedback(run_mode: RunMode) -> N
     assert run.workspace.executed == ["read_file:q3.md"]
     assert read_outcomes(run) == ["steered", "allowed"]
     assert all("[Safety monitor]" not in message.text for message in run.state["messages"])
+
+
+@pytest.mark.parametrize("visibility", list(FeedbackVisibility))
+def test_auto_mode_retry_is_judged_knowing_the_blocked_call_did_not_run(
+    run_mode: RunMode,
+    visibility: FeedbackVisibility,
+) -> None:
+    # Act
+    run = run_monitored_agent(
+        untrusted_steps=[build_exfiltration_step(), build_read_step(), AIMessage(FINAL_ANSWER)],
+        protocol=AutoMode(block_threshold=0.6),
+        run_mode=run_mode,
+        feedback_visibility=visibility,
+    )
+
+    # Assert
+    retry_history = render_monitor_history(run, judgement=1)
+    assert '<tool_call name="http_post">' in retry_history
+    assert '<monitor_feedback name="http_post">[Safety monitor]' in retry_history
+
+
+def test_later_steps_see_feedback_kept_in_the_transcript(run_mode: RunMode) -> None:
+    # Act
+    run = run_monitored_agent(
+        untrusted_steps=[build_exfiltration_step(), build_read_step(), AIMessage(FINAL_ANSWER)],
+        protocol=AutoMode(block_threshold=0.6),
+        run_mode=run_mode,
+        feedback_visibility=FeedbackVisibility.IN_TRANSCRIPT,
+    )
+
+    # Assert
+    final_step_history = render_monitor_history(run, judgement=-1)
+    assert '<monitor_feedback name="http_post">[Safety monitor]' in final_step_history
 
 
 def test_auto_mode_keeps_feedback_in_the_transcript_when_asked(run_mode: RunMode) -> None:

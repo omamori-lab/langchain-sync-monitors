@@ -48,6 +48,7 @@ class StepReport(TypedDict):
     decision_path: str
     committed: str
     seconds: float | None
+    cost: float | None
 
 
 class RunReport(TypedDict):
@@ -134,11 +135,14 @@ def build_step_reports(
     *,
     messages: Sequence[BaseMessage],
     step_seconds: Sequence[float],
+    step_costs: Sequence[float],
 ) -> list[StepReport]:
-    """Pair each record with the message it committed and the time the step took.
+    """Pair each record with the message it committed, and the time and cost of its step.
 
     With hidden feedback, the monitor commits exactly one AI message per step,
-    so the agent's AI messages line up with the records.
+    so the agent's AI messages line up with the records. When the counts
+    differ, as after a run that failed mid-step, no step is paired with a
+    message.
     """
     replies = [message for message in messages if isinstance(message, AIMessage)]
     committed = replies if len(replies) == len(records) else [None] * len(records)
@@ -153,6 +157,7 @@ def build_step_reports(
             "decision_path": describe_decision_path(record),
             "committed": render_committed_step(reply),
             "seconds": step_seconds[index] if index < len(step_seconds) else None,
+            "cost": step_costs[index] if index < len(step_costs) else None,
         }
         for index, (record, reply) in enumerate(zip(records, committed, strict=True))
     ]

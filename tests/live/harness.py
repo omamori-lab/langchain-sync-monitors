@@ -154,26 +154,40 @@ class DecisionsClients:
 
 @dataclass
 class StreamOutcome:
-    """What streaming one run produced: the last state, step times, failures and any error."""
+    """What streaming one run produced: the last state, step times and costs, and any error.
 
+    A step's time and cost run from the previous step's commit to its own, so
+    they cover every sample, monitor call and trusted call of the step.
+    """
+
+    ledger: CostLedger
     started: float = field(default_factory=time.perf_counter)
     last_step_at: float | None = None
+    last_step_total: float = 0.0
     state: dict[str, Any] = field(default_factory=dict)
     step_seconds: list[float] = field(default_factory=list)
+    step_costs: list[float] = field(default_factory=list)
     failed_steps: list[MonitorStepFailedEvent] = field(default_factory=list)
     error: str | None = None
     seconds: float = 0.0
 
-    def receive(self, stream_mode: str, chunk: Any) -> None:
-        """Keep the latest state, and time each committed step as its event arrives."""
+    def receive(self, stream_mode: str, *, chunk: Any) -> None:
+        """Keep the latest state, and time and cost each committed step as its event arrives."""
         if stream_mode == "values":
             self.state = chunk
         elif chunk.get("type") == "monitor_step":
-            now = time.perf_counter()
-            self.step_seconds.append(now - (self.last_step_at or self.started))
-            self.last_step_at = now
+            self.close_step()
         elif chunk.get("type") == "monitor_step_failed":
             self.failed_steps.append(chunk)
+
+    def close_step(self) -> None:
+        """Record the time and the cost of the step just committed."""
+        now = time.perf_counter()
+        self.step_seconds.append(now - (self.last_step_at or self.started))
+        self.last_step_at = now
+        total = self.ledger.read_total()
+        self.step_costs.append(total - self.last_step_total)
+        self.last_step_total = total
 
     def finish(self, error: BaseException | None = None) -> None:
         """Stop the clock, and keep the error that ended the run, if any."""
@@ -312,16 +326,16 @@ def build_run_config() -> RunnableConfig:
     return RunnableConfig(recursion_limit=RECURSION_LIMIT)
 
 
-def stream_run(agent: Runnable[Any, Any]) -> StreamOutcome:
+def stream_run(agent: Runnable[Any, Any], *, ledger: CostLedger) -> StreamOutcome:
     """Run the agent under `invoke()`'s path, `stream()`, keeping states and step events."""
-    outcome = StreamOutcome()
+    outcome = StreamOutcome(ledger=ledger)
     try:
         for stream_mode, chunk in agent.stream(
             build_task_input(),
             build_run_config(),
             stream_mode=["values", "custom"],
         ):
-            outcome.receive(stream_mode, chunk)
+            outcome.receive(stream_mode, chunk=chunk)
     except Exception as error:  # a failed run is recorded in its report, not raised
         outcome.finish(error)
     else:
@@ -329,16 +343,16 @@ def stream_run(agent: Runnable[Any, Any]) -> StreamOutcome:
     return outcome
 
 
-async def astream_run(agent: Runnable[Any, Any]) -> StreamOutcome:
+async def astream_run(agent: Runnable[Any, Any], *, ledger: CostLedger) -> StreamOutcome:
     """Run the agent under `ainvoke()`'s path, `astream()`, keeping states and step events."""
-    outcome = StreamOutcome()
+    outcome = StreamOutcome(ledger=ledger)
     try:
         async for stream_mode, chunk in agent.astream(
             build_task_input(),
             build_run_config(),
             stream_mode=["values", "custom"],
         ):
-            outcome.receive(stream_mode, chunk)
+            outcome.receive(stream_mode, chunk=chunk)
     except Exception as error:  # a failed run is recorded in its report, not raised
         outcome.finish(error)
     else:
@@ -359,6 +373,7 @@ def build_run_report(
         outcome.state.get("monitor_log", []),
         messages=messages,
         step_seconds=outcome.step_seconds,
+        step_costs=outcome.step_costs,
     )
     return {
         "run_id": configuration.run_id,
@@ -399,7 +414,7 @@ def run_live_agent_sync(configuration: RunConfiguration, *, budget: float) -> Ru
             sandbox=sandbox,
             decisions_clients=DecisionsClients(http_client=http_client),
         )
-        outcome = stream_run(agent)
+        outcome = stream_run(agent, ledger=ledger)
     return build_run_report(configuration, sandbox=sandbox, outcome=outcome, ledger=ledger)
 
 
@@ -419,7 +434,7 @@ async def run_live_agent_async(configuration: RunConfiguration, *, budget: float
                 sandbox=sandbox,
                 decisions_clients=decisions_clients,
             )
-            outcome = await astream_run(agent)
+            outcome = await astream_run(agent, ledger=ledger)
     return build_run_report(configuration, sandbox=sandbox, outcome=outcome, ledger=ledger)
 
 

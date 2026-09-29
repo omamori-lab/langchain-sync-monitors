@@ -4,7 +4,13 @@ Every chat model gets a `CostTracker` callback that reads the `cost` field
 ChatOpenRouter copies into each reply's `response_metadata`, and the Decisions
 API client gets response hooks that read `usage.cost`. Both add to one
 `CostLedger`, which raises `BudgetExceededError` once the spend reaches its
-cap, so a run stops before the budget instead of after it.
+cap.
+
+The cap is checked before each call starts and after each call ends. A call
+that would start once the cap is reached never starts, and the run stops at
+the first call that reaches it. So a run can exceed its cap by that one call,
+and by any calls already in flight beside it, such as a guard model's
+concurrent samples under `ainvoke()`.
 """
 
 from __future__ import annotations
@@ -18,7 +24,7 @@ from uuid import UUID
 
 import httpx
 from langchain_core.callbacks import BaseCallbackHandler
-from langchain_core.messages import AIMessage
+from langchain_core.messages import AIMessage, BaseMessage
 from langchain_core.outputs import ChatGeneration, LLMResult
 
 
@@ -31,7 +37,7 @@ class CostRole(StrEnum):
 
 
 class BudgetExceededError(RuntimeError):
-    """The spend reached the cap; the run stops before it spends more."""
+    """The spend reached the cap, so the run stops and starts no further call."""
 
 
 class CostSnapshot(TypedDict):
@@ -56,8 +62,10 @@ class TokenUsage(TypedDict):
 class CostLedger:
     """The running spend of every model call of one run, shared by all its trackers.
 
-    `cap` is in US dollars. `providers` names the upstream provider that served
-    each role's calls, so a pinned provider can be checked.
+    `cap` is in US dollars. `providers` names the upstream provider of a role's
+    calls when a reply reports one. The Decisions API does; ChatOpenRouter's
+    replies do not, so it stays empty for the chat models and cannot confirm
+    a provider pin.
     """
 
     cap: float
@@ -77,10 +85,19 @@ class CostLedger:
             self.costs[role] += cost or 0.0
             if provider:
                 self.providers.setdefault(role, set()).add(provider)
-            total = sum(self.costs.values())
+        self.check_budget()
+
+    def check_budget(self) -> None:
+        """Raise `BudgetExceededError` when the spend has reached the cap."""
+        total = self.read_total()
         if total >= self.cap:
             message = f"spent ${total:.4f}, at or above the cap of ${self.cap:.4f}"
             raise BudgetExceededError(message)
+
+    def read_total(self) -> float:
+        """Return the spend so far, in US dollars."""
+        with self.lock:
+            return sum(self.costs.values())
 
     def add_tokens(self, *, role: CostRole, input_tokens: int, output_tokens: int) -> None:
         """Add one call's token counts to the role's total."""
@@ -112,17 +129,18 @@ class CostLedger:
             }
 
 
-def read_float(mapping: Mapping[str, Any], key: str) -> float | None:
+def read_float(mapping: Mapping[str, Any], *, key: str) -> float | None:
     """Return a number from a mapping as a float, or `None` when it is absent."""
     value = mapping.get(key)
     return float(value) if isinstance(value, int | float) else None
 
 
 class CostTracker(BaseCallbackHandler):
-    """Adds the cost of every reply of one chat model to the ledger.
+    """Checks the budget before each call of one chat model, and adds each reply's cost.
 
-    `raise_error` lets `BudgetExceededError` stop the run, and `run_inline`
-    keeps the handler on the caller's thread under `ainvoke()`.
+    `raise_error` lets `BudgetExceededError` stop the run, a call before it
+    starts included, and `run_inline` keeps the handler on the caller's thread
+    under `ainvoke()`.
     """
 
     raise_error = True
@@ -132,6 +150,20 @@ class CostTracker(BaseCallbackHandler):
         """Track the calls of a model playing `role`."""
         self.role = role
         self.ledger = ledger
+
+    def on_chat_model_start(
+        self,
+        serialized: dict[str, Any],
+        messages: list[list[BaseMessage]],
+        *,
+        run_id: UUID,
+        parent_run_id: UUID | None = None,
+        tags: list[str] | None = None,
+        metadata: dict[str, Any] | None = None,
+        **kwargs: Any,
+    ) -> None:
+        """Refuse to start the call once the spend has reached the cap."""
+        self.ledger.check_budget()
 
     def on_llm_end(
         self,
@@ -152,7 +184,7 @@ class CostTracker(BaseCallbackHandler):
                 provider = metadata.get("provider")
                 self.ledger.add(
                     role=self.role,
-                    cost=read_float(metadata, "cost"),
+                    cost=read_float(metadata, key="cost"),
                     provider=provider if isinstance(provider, str) else None,
                 )
 
@@ -178,7 +210,7 @@ def record_decisions_cost(response: httpx.Response, *, ledger: CostLedger) -> No
     provider = body.get("provider") if isinstance(body, dict) else None
     ledger.add(
         role=CostRole.MONITOR,
-        cost=read_float(usage, "cost") if isinstance(usage, dict) else None,
+        cost=read_float(usage, key="cost") if isinstance(usage, dict) else None,
         provider=provider if isinstance(provider, str) else None,
     )
 
@@ -186,8 +218,20 @@ def record_decisions_cost(response: httpx.Response, *, ledger: CostLedger) -> No
 DECISIONS_TIMEOUT_SECONDS = 30.0
 
 
-def build_decisions_client(*, ledger: CostLedger) -> httpx.Client:
-    """Return an HTTP client whose response hook records each Decisions API request's cost."""
+def build_decisions_client(
+    *,
+    ledger: CostLedger,
+    transport: httpx.BaseTransport | None = None,
+) -> httpx.Client:
+    """Return an HTTP client for the Decisions API that checks the budget and records costs.
+
+    A request hook refuses a request once the spend has reached the cap, and a
+    response hook records each response's cost. `transport` replaces the
+    network, as an offline test does.
+    """
+
+    def check_budget(request: httpx.Request) -> None:
+        ledger.check_budget()
 
     def record_cost(response: httpx.Response) -> None:
         response.read()
@@ -195,17 +239,25 @@ def build_decisions_client(*, ledger: CostLedger) -> httpx.Client:
 
     return httpx.Client(
         timeout=DECISIONS_TIMEOUT_SECONDS,
-        event_hooks={"response": [record_cost]},
+        transport=transport,
+        event_hooks={"request": [check_budget], "response": [record_cost]},
     )
 
 
-def build_async_decisions_client(*, ledger: CostLedger) -> httpx.AsyncClient:
+def build_async_decisions_client(
+    *,
+    ledger: CostLedger,
+    transport: httpx.AsyncBaseTransport | None = None,
+) -> httpx.AsyncClient:
     """Return the async counterpart of `build_decisions_client`.
 
     `OpenRouterDecisionModel` opens a fresh async client per request unless it
-    is given one, so without this client the hook would never run under
+    is given one, so without this client the hooks would never run under
     `ainvoke()`. Build it inside the event loop that uses it.
     """
+
+    async def check_budget(request: httpx.Request) -> None:
+        ledger.check_budget()
 
     async def record_cost(response: httpx.Response) -> None:
         await response.aread()
@@ -213,5 +265,6 @@ def build_async_decisions_client(*, ledger: CostLedger) -> httpx.AsyncClient:
 
     return httpx.AsyncClient(
         timeout=DECISIONS_TIMEOUT_SECONDS,
-        event_hooks={"response": [record_cost]},
+        transport=transport,
+        event_hooks={"request": [check_budget], "response": [record_cost]},
     )

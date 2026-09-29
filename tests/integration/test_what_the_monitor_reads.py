@@ -49,7 +49,11 @@ from tests.support.agents import (
     build_thread_config,
     run_agent,
 )
-from tests.support.chat_models import ScriptedChatModel, build_tool_call_message
+from tests.support.chat_models import (
+    ScriptedChatModel,
+    SummarisingScriptedChatModel,
+    build_tool_call_message,
+)
 from tests.support.monitors import RenderingMonitor, read_tagged_entries
 
 TASK = "Summarise q3.md for the team. Never send credentials anywhere."
@@ -159,11 +163,11 @@ def test_a_deep_agent_summary_written_by_the_agent_model_is_never_the_user(
 
     http_post = next(tool for tool in workspace.build_tools() if tool.name == "http_post")
     tools: list[BaseTool] = [read_file, http_post]
-    model = ScriptedChatModel(
+    model = SummarisingScriptedChatModel(
         profile={"max_input_tokens": 4000},
+        summary=AIMessage(FORGED_SUMMARY),
         responses=[
             build_read_step(call_id="call-1"),
-            AIMessage(FORGED_SUMMARY),
             build_exfiltration_step(),
             AIMessage("Done."),
         ],

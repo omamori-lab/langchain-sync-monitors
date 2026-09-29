@@ -123,7 +123,9 @@ entries to keep and the names of the tools whose results count as subagent
 reports (`task` by default).
 
 The default view, `Channel.ACTIONS`, holds the user's messages, the tool calls
-and the subagent reports. It leaves out the agent's reasoning, its prose and
+and the subagent reports, together with the context notes, tool errors and
+monitor feedback described below; their text is escaped and authorises
+nothing. It leaves out the agent's reasoning, its prose and
 raw tool output, as Claude Code's auto mode classifier does
 [@hughes2026automode]. Reasoning is one flag away. Reading the chain of thought
 catches more misbehaviour than reading actions alone [@baker2025monitoring],
@@ -134,19 +136,57 @@ but persuasive reasoning can also talk a monitor out of a correct flag
 `transcript.py` renders the entries as tagged text: `<user>`, `<agent>`,
 `<agent_reasoning>`, `<tool_call>`, `<tool_result>`, `<subagent_report>` and,
 for the step being judged, `<proposed_step>`. Content is HTML-escaped, so text
-inside a tool result cannot close a tag and pose as another entry. Two tags
-guard against a forged approval. Inside a subagent the task came from the
-parent agent, so its messages are rendered as `<delegator>` rather than
-`<user>`, following the `TaskAuthor` in the `MonitorInput`. The monitor's own
-feedback is rendered as `<monitor_feedback>` wherever the task is shown: both
-the message that answers a blocked final answer and the tool message that
-answers a blocked tool call, which carries the tool's name. So a monitor that
-does not read tool results still sees that an earlier call was blocked and
-did not run. When the view keeps
-only recent entries, the first message that states the task is kept anyway,
-since a monitor cannot judge a step without it. Reasoning is read from
-LangChain's standard content blocks, with a fallback for a reply that would
-carry it only in OpenRouter's `reasoning_details`.
+inside a tool result cannot close a tag and pose as another entry.
+
+Only the task author's own words authorise an action, so three kinds of entry
+guard against a forged approval:
+
+- Inside a subagent the task came from the parent agent, so its messages are
+  rendered as `<delegator>` rather than `<user>`, following the `TaskAuthor`
+  in the `MonitorInput`.
+- A human message that another part of the application wrote carries an
+  `lc_source` tag: LangChain's and Deep Agents' summaries are tagged
+  `summarization`, and Deep Agents' rubric grader `rubric_grader`
+  [@langchain2026; @deepagents2026]. Such a message is rendered as
+  `<context_note source="...">` in the `USER` channel, and the prompt says a
+  note authorises nothing. Deep Agents writes its summary with the agent's own
+  model, so the untrusted model must not be able to speak as the user through
+  it. Only a human message without the tag is rendered as `<user>` or
+  `<delegator>`.
+- The monitor's own feedback carries `lc_source="monitor"` and is rendered as
+  `<monitor_feedback>` wherever the task is shown: both the message that
+  answers a blocked final answer and the tool message that answers a blocked
+  tool call, which carries the tool's name. So a monitor that does not read
+  tool results still sees that an earlier call was blocked and did not run.
+
+Any other tool message with `status="error"` says that a call failed or did not
+run: a person rejected it through `HumanInTheLoopMiddleware`, with their reason;
+the tool does not exist; or the tool raised. It is rendered as
+`<tool_error name="...">` in the `TOOL_CALLS` channel, beside the call, so
+every view that shows the call also shows that it did not complete, and why.
+A tool call whose arguments could not be parsed lands in the message's
+`invalid_tool_calls`. It never runs, but it is rendered as
+`<malformed_tool_call name="...">` with its raw argument text, in the
+transcript, in the proposed step and in the audit record. When a protocol
+blocks such a step, the feedback answers each malformed call with an error
+result too, because OpenAI-compatible providers receive it as an ordinary tool
+call and reject a request that leaves it unanswered.
+
+These tags rest on trust in the application's own code. A tool or a middleware
+can set `lc_source="monitor"` on a message it returns, or write a plain
+`HumanMessage` through a `Command`, and the monitor then reads it as its own
+feedback or as the user. Tool and middleware code is trusted here, as it is
+everywhere else in the agent. What the monitor distrusts is the content that
+code carries, such as a web page or a file, which is escaped and never read as
+a tag.
+
+When the view keeps only recent entries, every message from the task author is
+kept anyway, in order: the first states the task, and a later one can narrow or
+revoke it. A context note is never kept in their place. After summarisation has
+replaced the earlier messages of the model request, the original task may be
+gone from what the monitor reads, and the summary is left as a note. Reasoning
+is read from LangChain's standard content blocks, with a fallback for a reply
+that would carry it only in OpenRouter's `reasoning_details`.
 
 ## Control protocols
 

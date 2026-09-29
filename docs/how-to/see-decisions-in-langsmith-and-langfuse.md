@@ -69,7 +69,7 @@ Every monitor span of a step carries flat metadata keys that name the step:
 | `monitor_delegation_id` | The id of the `task` call that started the subagent | Every monitor span inside a subagent |
 | `monitor_outcome`, `monitor_flagged` | The decision | `monitor decision` |
 | `monitor_max_suspicion` | The highest suspicion among the step's samples | `monitor decision`, when the step judged a sample |
-| `ls_agent_type`, set to `middleware` | Keeps the span out of LangSmith's trajectory view | `monitor judgement`, `monitor classifier` and `monitor decision` |
+| `ls_agent_type`, set to `middleware` | Keeps the span out of LangSmith's trajectory view at the top level; inside a Deep Agents subagent, LangSmith's tracer rewrites it to `subagent`, so the span may show there | `monitor judgement`, `monitor classifier` and `monitor decision` |
 
 The model calls the library's monitors make carry `ls_message_view_exclude`,
 which keeps them out of LangSmith's view of the agent's conversation

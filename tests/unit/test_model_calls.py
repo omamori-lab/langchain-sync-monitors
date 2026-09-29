@@ -26,3 +26,12 @@ def test_internal_call_config_names_its_source() -> None:
     metadata = config.get("metadata", {})
     assert metadata["lc_source"] == "monitor"
     assert len(metadata) > 1
+
+
+def test_internal_call_config_keeps_the_call_out_of_langsmith_message_view() -> None:
+    # Act
+    config = build_internal_call_config(source="monitor")
+
+    # Assert
+    assert config.get("metadata", {})["ls_message_view_exclude"] is True
+    assert "tags" not in config

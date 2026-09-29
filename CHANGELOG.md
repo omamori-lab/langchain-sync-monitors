@@ -32,6 +32,19 @@ The first release. Everything below is new.
   re-raises the error.
 - A halted step ends the run, including agents with structured output and no
   tools.
+- Named spans for each monitored step in any LangChain tracer, LangSmith and
+  Langfuse among them: a `monitor step` span holds the step's samples, a
+  `monitor judgement` span each verdict, a `monitor classifier` span each
+  Decisions API request, and a `monitor decision` span is tagged with the
+  outcome, and with `monitor:flagged` when the step is flagged, so one filter
+  finds every halted or flagged step. Every span carries flat `monitor_`
+  metadata naming the step, with the delegation id inside a subagent that a
+  monitored agent started. The spans add no tag or metadata to the LangChain
+  runs inside them, model calls included, though LangSmith copies their
+  metadata into its own `traceable` runs inside them. They leave every stream
+  except `astream_events` and `astream_log` unchanged, and are not opened when
+  no callback handler is attached; the monitors' own model calls stay out of
+  LangSmith's Trajectory view.
 
 **Control protocols**
 

@@ -45,11 +45,26 @@ def is_package_installed(name: str) -> bool:
     return importlib.util.find_spec(name) is not None
 
 
+MESSAGE_VIEW_EXCLUDE_KEY = "ls_message_view_exclude"
+"""The metadata key that keeps one run out of LangSmith's Trajectory view.
+
+LangSmith checks it by presence, and documents it for classification calls,
+safety filters and routing or guardrail decisions [@langsmith2026trajectory].
+"""
+
+
 def build_internal_call_config(*, source: str) -> RunnableConfig:
     """Tag a model call the library makes itself, such as a monitor's call.
 
     The tag keeps the call out of the agent's message stream, the mechanism
     LangChain's ``InternalCallTransformer`` provides for middleware
-    [@langchain2026]. ``source`` names the caller in traces.
+    [@langchain2026], and out of LangSmith's Trajectory view
+    [@langsmith2026trajectory]. ``source`` names the caller in traces.
     """
-    return RunnableConfig(metadata={"lc_source": source, **internal_call_metadata()})
+    return RunnableConfig(
+        metadata={
+            "lc_source": source,
+            MESSAGE_VIEW_EXCLUDE_KEY: True,
+            **internal_call_metadata(),
+        },
+    )

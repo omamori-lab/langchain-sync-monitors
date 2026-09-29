@@ -104,7 +104,8 @@ packages = ["src/langchain_sync_monitors"]
 [tool.hatch.build.targets.sdist]
 # An explicit list, because hatchling ships every file .gitignore does not
 # exclude, tracked or not. The docs travel with the tests that check their
-# citations; the plans are working notes and stay in the repository.
+# citations; the plans are working notes and stay in the repository, as do the
+# GitHub templates, the agent files and the release scripts.
 include = [
     "/src",
     "/tests",
@@ -112,6 +113,7 @@ include = [
     "/README.md",
     "/LICENSE",
     "/CHANGELOG.md",
+    "/CITATION.cff",
     "/pyproject.toml",
 ]
 exclude = ["/docs/plans"]

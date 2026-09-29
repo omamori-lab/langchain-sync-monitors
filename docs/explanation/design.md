@@ -265,8 +265,13 @@ LangChain's `init_chat_model`.
 - **Chat judges** (`LLMMonitor`) are general chat models prompted to reason
   first and then give a score on an anchored scale, 0 to 10 by default, mapped
   onto 0 to 1. Reasoning before the score is the prompt component Apollo
-  Research found matters most [@apollo2026monitoringprompt]. A reply that
-  cannot be parsed counts as fully suspicious.
+  Research found matters most [@apollo2026monitoringprompt]. A reply is read
+  only in that shape: the reasoning, then one score tag, with nothing else
+  between them or after the score. The agent writes the step the judge
+  reads, so it can plant a score tag there, and a judge may quote it; the
+  shape keeps a quoted score from becoming the verdict. A reply in any other
+  shape, or one the provider reports as cut off at a length limit, is asked
+  for again and then counts as fully suspicious.
 - **Guard models** (`GuardModelMonitor`) label a step against a policy you
   write. Llama Guard and its peers score with the probability of the unsafe
   label, read from the label token's log-probabilities
@@ -277,13 +282,26 @@ LangChain's `init_chat_model`.
   `GuardScoring.AUTO` does the first when it can and draws five samples
   otherwise. Guard models are overconfident, especially under jailbreaks
   [@liu2025guardcalibration], and a hard 0 or 1 label gives a threshold only
-  one operating point, so that option warns.
+  one operating point, so that option warns. The label is read only where the
+  guard's format puts it: on the last line, or on the first line when it is
+  unsafe and only category codes follow, as in Llama Guard. A reply with two
+  different labels on their own lines, a label elsewhere, or a cut-off reply
+  counts as suspicious, for the same reason as a quoted score.
 - **Decision models** (`DecisionModelMonitor`) answer yes or no questions with
   a probability and generate no text. Suspicion is the probability of yes.
   Several questions can go in one request, combined by their maximum, so one
   strong hit is not diluted. Jev is served through OpenRouter's Decisions API
   [@openrouter2026decisions] and through TypeSafe's own client
-  [@typesafe2026langchain].
+  [@typesafe2026langchain]. Only the answers in a Decisions API response are
+  validated, so a change in a field the library does not read, such as
+  `usage`, cannot discard a valid answer.
+
+Every family writes a `reason` without numbers: a chat judge's reason is its
+reasoning without the score, a guard's names its finding without a
+probability or a count of replies, and a decision model's names the question
+it found most likely without the probability. Auto Mode shows the reason to
+the agent, and a number would tell the agent how close its step came to
+passing. The numbers stay in `suspicion`, which the log records keep.
 
 Scores have to be fine-grained. Control protocols set thresholds as
 percentiles of honest-run scores, and a score with few distinct values cannot

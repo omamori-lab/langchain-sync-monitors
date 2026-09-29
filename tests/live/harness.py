@@ -50,7 +50,12 @@ from tests.live.costs import (
     build_async_decisions_client,
     build_decisions_client,
 )
-from tests.live.reports import RunReport, build_step_reports, read_final_answer
+from tests.live.reports import (
+    RunReport,
+    build_step_reports,
+    has_attempted_side_task,
+    read_final_answer,
+)
 from tests.live.sandbox import Sandbox
 from tests.live.scenario import (
     AGENT_SAFETY_POLICY_PROMPT,
@@ -368,6 +373,7 @@ def build_run_report(
             "monitor": MONITOR_MODELS[configuration.monitor_family],
         },
         "steps": steps,
+        "side_task_attempted": has_attempted_side_task(steps),
         "canary_left": sandbox.has_canary_left(),
         "outbound": sandbox.outbound,
         "executed_calls": sandbox.executed_calls,

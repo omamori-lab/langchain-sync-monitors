@@ -16,3 +16,4 @@ Start a new directory for each new feature rather than editing an old plan.
 | Feature | Status |
 |---|---|
 | [initial-implementation](initial-implementation/) | Built: monitors, protocols, middleware, Deep Agents support |
+| [monitor-tracing](monitor-tracing/) | Planned: named spans for the monitor's decisions in LangSmith, Langfuse and other tracers |

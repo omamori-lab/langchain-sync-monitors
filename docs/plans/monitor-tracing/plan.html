@@ -1,0 +1,705 @@
+<title>Monitor Tracing Plan</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;1,400&family=Source+Serif+4:opsz,wght@8..60,600;8..60,700&display=swap">
+<style>
+:root {
+  --bg: #F3F5F8;
+  --surface: #FFFFFF;
+  --surface-2: #EDF1F6;
+  --ink: #17202B;
+  --ink-2: #394556;
+  --muted: #5C6778;
+  --rule: #D6DDE6;
+  --rule-strong: #9AA6B5;
+  --accent: #2450C4;
+  --accent-wash: #E5ECFB;
+  --allow: #1A7C52;
+  --allow-wash: #E2F3EA;
+  --block: #B53F18;
+  --block-wash: #FBE9E1;
+  --trusted: #5A48B3;
+  --trusted-wash: #ECE8FA;
+  --flag: #9C6400;
+  --flag-wash: #FAF0D9;
+  --code-bg: #EEF2F7;
+  --code-keyword: #2450C4;
+  --code-string: #1A7C52;
+  --code-comment: #6A7584;
+  --code-number: #B53F18;
+  --code-meta: #5A48B3;
+  --font-display: "Source Serif 4", Georgia, "Times New Roman", serif;
+  --font-ui: "IBM Plex Sans", -apple-system, "Segoe UI", Roboto, sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --bg: #0E1319;
+    --surface: #151C26;
+    --surface-2: #1A2330;
+    --ink: #E3E8EF;
+    --ink-2: #C0CAD7;
+    --muted: #93A0B1;
+    --rule: #283343;
+    --rule-strong: #4B5A6E;
+    --accent: #85A6FF;
+    --accent-wash: #1B2745;
+    --allow: #52C48E;
+    --allow-wash: #12301F;
+    --block: #F08D62;
+    --block-wash: #3A1E13;
+    --trusted: #AB9DFF;
+    --trusted-wash: #251F46;
+    --flag: #E4B24E;
+    --flag-wash: #33280F;
+    --code-bg: #111822;
+    --code-keyword: #85A6FF;
+    --code-string: #7FD3A8;
+    --code-comment: #7D8A9B;
+    --code-number: #F0A07C;
+    --code-meta: #BCB0FF;
+  }
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #0E1319;
+  --surface: #151C26;
+  --surface-2: #1A2330;
+  --ink: #E3E8EF;
+  --ink-2: #C0CAD7;
+  --muted: #93A0B1;
+  --rule: #283343;
+  --rule-strong: #4B5A6E;
+  --accent: #85A6FF;
+  --accent-wash: #1B2745;
+  --allow: #52C48E;
+  --allow-wash: #12301F;
+  --block: #F08D62;
+  --block-wash: #3A1E13;
+  --trusted: #AB9DFF;
+  --trusted-wash: #251F46;
+  --flag: #E4B24E;
+  --flag-wash: #33280F;
+  --code-bg: #111822;
+  --code-keyword: #85A6FF;
+  --code-string: #7FD3A8;
+  --code-comment: #7D8A9B;
+  --code-number: #F0A07C;
+  --code-meta: #BCB0FF;
+}
+
+* { box-sizing: border-box; }
+body {
+  background: var(--bg);
+  color: var(--ink);
+  font-family: var(--font-ui);
+  font-size: 15.5px;
+  line-height: 1.6;
+  padding-inline: 16px;
+  padding-block: 0 64px;
+}
+.layout {
+  max-width: 1240px;
+  margin: 0 auto;
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 32px;
+}
+@media (min-width: 1180px) {
+  .layout { grid-template-columns: 200px minmax(0, 1fr); }
+}
+nav.toc {
+  display: none;
+}
+@media (min-width: 1180px) {
+  nav.toc {
+    display: block;
+    position: sticky;
+    top: calc(env(safe-area-inset-top, 0px) + 24px);
+    align-self: start;
+    padding-top: 40px;
+  }
+}
+nav.toc p {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--muted);
+  margin: 0 0 10px;
+}
+nav.toc ol { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; }
+nav.toc a {
+  display: block;
+  color: var(--ink-2);
+  text-decoration: none;
+  font-size: 13px;
+  padding: 3px 10px;
+  border-left: 2px solid var(--rule);
+}
+nav.toc a:hover, nav.toc a:focus-visible { color: var(--accent); border-left-color: var(--accent); outline: none; }
+
+main { min-width: 0; }
+header.intro {
+  padding-block: 40px 8px;
+  border-bottom: 1px solid var(--rule);
+  margin-bottom: 8px;
+}
+.eyebrow {
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.09em;
+  color: var(--muted);
+  margin: 0 0 8px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 14px;
+  align-items: center;
+}
+.status {
+  display: inline-block;
+  padding: 2px 9px;
+  border-radius: 999px;
+  background: var(--flag-wash);
+  color: var(--flag);
+  font-weight: 600;
+  letter-spacing: 0.04em;
+}
+h1, h2, h3 { font-family: var(--font-display); text-wrap: balance; color: var(--ink); }
+h1 { font-size: clamp(30px, 4.4vw, 44px); line-height: 1.1; margin: 0 0 14px; font-weight: 700; }
+h2 { font-size: 26px; line-height: 1.2; margin: 0 0 10px; font-weight: 700; }
+h3 { font-size: 19px; line-height: 1.3; margin: 28px 0 8px; font-weight: 600; }
+p { margin: 0 0 12px; max-width: 70ch; }
+.lede { font-size: 17.5px; color: var(--ink-2); max-width: 66ch; }
+code, .mono { font-family: var(--font-mono); font-size: 0.9em; }
+p code, li code, td code {
+  background: var(--code-bg);
+  padding: 1px 5px;
+  border-radius: 4px;
+}
+a { color: var(--accent); }
+section {
+  padding-block: 40px 8px;
+  border-bottom: 1px solid var(--rule);
+}
+section:last-of-type { border-bottom: none; }
+
+.facts {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+  gap: 12px;
+  margin: 22px 0 28px;
+  padding: 0;
+  list-style: none;
+}
+.facts li {
+  background: var(--surface);
+  border: 1px solid var(--rule);
+  border-radius: 8px;
+  padding: 12px 14px;
+  font-size: 14px;
+  color: var(--ink-2);
+}
+.facts strong { display: block; color: var(--ink); font-size: 14.5px; margin-bottom: 2px; }
+
+figure {
+  margin: 20px 0 8px;
+  background: var(--surface);
+  border: 1px solid var(--rule);
+  border-radius: 10px;
+  padding: 18px 18px 14px;
+}
+.figure-scroll { overflow-x: auto; }
+.figure-scroll svg { min-width: 720px; }
+figcaption {
+  font-size: 13.5px;
+  color: var(--muted);
+  margin-top: 12px;
+  max-width: 80ch;
+}
+figcaption strong { color: var(--ink-2); }
+
+/* Diagram styling: every mark takes its colour from the theme tokens */
+.dg { display: block; width: 100%; height: auto; color: var(--ink); font-family: var(--font-ui); }
+.dg text { fill: currentColor; font-size: 12px; }
+.dg .t-strong { font-weight: 600; font-size: 13px; }
+.dg .t-small { font-size: 11px; fill: var(--muted); }
+.dg .t-mono { font-family: var(--font-mono); font-size: 11.5px; }
+.dg .t-head { font-size: 11px; font-weight: 600; letter-spacing: 0.06em; fill: var(--muted); }
+.dg .t-accent { fill: var(--accent); }
+.dg .t-block { fill: var(--block); }
+.dg .t-allow { fill: var(--allow); }
+.dg .t-trusted { fill: var(--trusted); }
+.dg .box { fill: var(--surface); stroke: var(--rule-strong); stroke-width: 1.2; }
+.dg .box-accent { fill: var(--accent-wash); stroke: var(--accent); stroke-width: 1.5; }
+.dg .box-allow { fill: var(--allow-wash); stroke: var(--allow); stroke-width: 1.4; }
+.dg .box-block { fill: var(--block-wash); stroke: var(--block); stroke-width: 1.4; }
+.dg .box-trusted { fill: var(--trusted-wash); stroke: var(--trusted); stroke-width: 1.4; }
+.dg .box-flag { fill: var(--flag-wash); stroke: var(--flag); stroke-width: 1.4; }
+.dg .frame { fill: none; stroke: var(--rule-strong); stroke-width: 1.2; stroke-dasharray: 6 4; }
+.dg .panel { fill: var(--surface-2); stroke: var(--rule); stroke-width: 1; }
+.dg .layer { fill: var(--surface); stroke: var(--rule-strong); stroke-width: 1; }
+.dg .layer-alt { fill: var(--surface-2); stroke: var(--rule-strong); stroke-width: 1; }
+.dg .edge { fill: none; stroke: var(--ink-2); stroke-width: 1.4; }
+.dg .edge-accent { fill: none; stroke: var(--accent); stroke-width: 1.6; }
+.dg .edge-block { fill: none; stroke: var(--block); stroke-width: 1.4; }
+.dg .edge-trusted { fill: none; stroke: var(--trusted); stroke-width: 1.4; }
+.dg .dashed { stroke-dasharray: 5 4; }
+.dg .ah { fill: var(--ink-2); }
+.dg .ah-accent { fill: var(--accent); }
+.dg .ah-block { fill: var(--block); }
+.dg .ah-trusted { fill: var(--trusted); }
+.dg .lane { stroke: var(--rule-strong); stroke-width: 1; stroke-dasharray: 3 4; }
+.dg .hairline { stroke: var(--rule); stroke-width: 1; }
+.dg .row-alt { fill: var(--surface-2); }
+.dg .row-proposal { fill: var(--block-wash); }
+.dg .check { fill: none; stroke: var(--allow); stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round; }
+.dg .cross { fill: none; stroke: var(--rule-strong); stroke-width: 1.8; stroke-linecap: round; }
+.dg .region-allow { fill: var(--allow-wash); }
+.dg .region-block { fill: var(--block-wash); }
+.dg .threshold { stroke: var(--ink-2); stroke-width: 1.3; stroke-dasharray: 4 3; }
+.dg .dot-block { fill: var(--block); }
+.dg .dot-allow { fill: var(--allow); }
+.dg .axis { stroke: var(--ink-2); stroke-width: 1.4; }
+
+/* Tables */
+.table-scroll { overflow-x: auto; margin: 18px 0 8px; border: 1px solid var(--rule); border-radius: 10px; background: var(--surface); }
+table { border-collapse: collapse; width: 100%; font-size: 14px; min-width: 680px; }
+th, td { text-align: left; vertical-align: top; padding: 10px 14px; border-bottom: 1px solid var(--rule); }
+th { font-size: 11.5px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); font-weight: 600; background: var(--surface-2); }
+tr:last-child td { border-bottom: none; }
+.pill {
+  display: inline-block;
+  font-size: 11.5px;
+  font-weight: 600;
+  padding: 1px 8px;
+  border-radius: 999px;
+  white-space: nowrap;
+}
+.pill-build { background: var(--accent-wash); color: var(--accent); }
+.pill-reuse { background: var(--allow-wash); color: var(--allow); }
+.pill-reference { background: var(--surface-2); color: var(--muted); border: 1px solid var(--rule); }
+.pill-pending { background: var(--flag-wash); color: var(--flag); }
+.pill-bug { background: var(--block-wash); color: var(--block); }
+.pill-smell { background: var(--trusted-wash); color: var(--trusted); }
+.pill-new { background: var(--accent); color: var(--surface); }
+.pill-changed { background: var(--accent-wash); color: var(--accent); border: 1px solid var(--accent); }
+.pill-new-2 { background: var(--surface-2); color: var(--ink-2); border: 1px solid var(--rule-strong); }
+h2 .pill, h3 .pill { font-family: var(--font-ui); vertical-align: middle; margin-left: 6px; }
+.changes {
+  margin: 8px 0 30px;
+  background: var(--surface);
+  border: 1px solid var(--accent);
+  border-radius: 10px;
+  padding: 18px 20px 8px;
+}
+.changes h2 { font-size: 21px; margin-bottom: 4px; }
+.changes h3 { font-size: 15px; font-family: var(--font-ui); text-transform: uppercase; letter-spacing: 0.07em; color: var(--muted); margin: 16px 0 6px; }
+.changes ul { padding-left: 20px; margin: 0 0 10px; max-width: 90ch; }
+.changes li { margin-bottom: 5px; font-size: 14.5px; }
+
+/* Code */
+.code-block { margin: 14px 0 22px; }
+.code-title {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--muted);
+  background: var(--surface-2);
+  border: 1px solid var(--rule);
+  border-bottom: none;
+  border-radius: 8px 8px 0 0;
+  padding: 7px 14px;
+}
+pre {
+  margin: 0;
+  background: var(--code-bg);
+  border: 1px solid var(--rule);
+  border-radius: 0 0 8px 8px;
+  padding: 16px 18px;
+  overflow-x: auto;
+  font-size: 13px;
+  line-height: 1.55;
+}
+pre code { font-family: var(--font-mono); font-size: 13px; background: none; padding: 0; color: var(--ink); }
+.hljs-keyword, .hljs-built_in, .hljs-literal { color: var(--code-keyword); }
+.hljs-string { color: var(--code-string); }
+.hljs-comment, .hljs-doctag { color: var(--code-comment); font-style: italic; }
+.hljs-number { color: var(--code-number); }
+.hljs-meta { color: var(--code-meta); }
+.hljs-title { color: var(--ink); font-weight: 600; }
+.hljs-params { color: var(--ink-2); }
+.hljs-subst { color: var(--ink); }
+
+/* Lists and cards */
+ul.plain { padding-left: 20px; margin: 8px 0 14px; max-width: 76ch; }
+ul.plain li { margin-bottom: 6px; }
+.findings { display: grid; gap: 10px; margin: 16px 0; padding: 0; list-style: none; }
+.findings li {
+  background: var(--surface);
+  border: 1px solid var(--rule);
+  border-radius: 8px;
+  padding: 11px 14px;
+  font-size: 14px;
+  display: grid;
+  gap: 4px;
+}
+.findings .where { font-family: var(--font-mono); font-size: 12px; color: var(--muted); word-break: break-word; }
+.questions { display: grid; gap: 14px; margin: 18px 0; padding: 0; list-style: none; }
+.questions > li {
+  background: var(--surface);
+  border: 1px solid var(--rule);
+  border-radius: 10px;
+  padding: 16px 18px;
+}
+.questions h3 { margin: 0 0 8px; font-size: 17px; }
+.choices { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 10px; margin-top: 10px; }
+.choice {
+  border: 1px solid var(--rule);
+  border-radius: 8px;
+  padding: 10px 12px;
+  font-size: 14px;
+  background: var(--surface-2);
+}
+.choice.proposed { border-color: var(--accent); background: var(--accent-wash); }
+.choice .tag { font-size: 11px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); display: block; margin-bottom: 3px; }
+.choice.proposed .tag { color: var(--accent); }
+.refs { padding-left: 20px; font-size: 14px; max-width: 90ch; }
+.refs li { margin-bottom: 8px; }
+.note { font-size: 13.5px; color: var(--muted); }
+@media (prefers-reduced-motion: reduce) { * { scroll-behavior: auto !important; } }
+html { scroll-behavior: smooth; }
+</style>
+
+<div class="layout">
+  <nav class="toc" aria-label="Sections">
+    <p>On this page</p>
+    <ol>
+      <li><a href="#overview">Overview</a></li>
+      <li><a href="#today">Today and after</a></li>
+      <li><a href="#spans">The spans</a></li>
+      <li><a href="#filter">Finding steps</a></li>
+      <li><a href="#how">How it works</a></li>
+      <li><a href="#pseudocode">Pseudocode</a></li>
+      <li><a href="#streams">Streams and cost</a></li>
+      <li><a href="#build">Build plan</a></li>
+      <li><a href="#questions">Decisions</a></li>
+      <li><a href="#part2">Part 2: scores</a></li>
+    </ol>
+  </nav>
+
+  <main>
+    <header class="intro" id="overview">
+      <p class="eyebrow"><span>langchain-sync-monitors</span><span class="status">Plan for review · part 1 for 0.1.0</span><span>29 Sep 2026</span></p>
+      <h1>The monitor's decisions in LangSmith and Langfuse</h1>
+      <p class="lede">Everything the monitor does already reaches a trace, but as raw model calls and a state update buried in a node's output. This plan gives each monitored step its own named spans, so a trace shows what was judged, how suspicious it was, and what the protocol did.</p>
+      <ul class="facts">
+        <li><strong>Any LangChain tracer</strong>LangSmith, Langfuse and anything else built on LangChain callbacks. No new dependency, no vendor code in part 1.</li>
+        <li><strong>Filterable</strong>Find every halted or flagged step with one filter, in both tools, without part 2.</li>
+        <li><strong>Streams unchanged</strong>The message, update and custom streams stay byte for byte the same; only <code>astream_events</code> gains the spans.</li>
+        <li><strong>Microseconds</strong>5 to 8 µs per span with no tracer attached, 30 to 45 µs with one. Nothing to turn off.</li>
+      </ul>
+      <p class="note">Built on two research notes in <code>docs/plans/monitor-tracing/research/</code>: LangChain's callback internals, with a prototype run under <code>invoke</code> and <code>ainvoke</code>, and how LangSmith and Langfuse record and show runs, probed against the real SDKs offline.</p>
+    </header>
+
+    <section id="today">
+      <h2>Today and after</h2>
+      <figure>
+        <div class="figure-scroll">
+        <svg class="dg" viewBox="0 0 1060 380" role="img" aria-label="Left, today: under the model node sit four unlabelled model calls, two agent samples and two judge calls, and the verdict hides in the node's state update. Right, after: under the model node sits a monitor step span, holding each sample and a monitor judgement span per sample, then a monitor decision span tagged with the outcome.">
+          <text x="20" y="30" class="t-head">TODAY</text>
+          <rect class="panel" x="20" y="44" width="470" height="320" rx="10"/>
+          <text x="40" y="74" class="t-mono">model</text><text x="200" y="74" class="t-small">LangGraph node</text>
+          <line class="lane" x1="52" y1="84" x2="52" y2="250"/>
+          <text x="70" y="108" class="t-mono">ChatModel</text><text x="200" y="108" class="t-small">sample 1: http_post to attacker</text>
+          <text x="70" y="140" class="t-mono">ChatModel</text><text x="200" y="140" class="t-small">judge: "&lt;reasoning&gt;…&lt;score&gt;9"</text>
+          <text x="70" y="172" class="t-mono">ChatModel</text><text x="200" y="172" class="t-small">sample 2: read_file</text>
+          <text x="70" y="204" class="t-mono">ChatModel</text><text x="200" y="204" class="t-small">judge: "&lt;reasoning&gt;…&lt;score&gt;1"</text>
+          <text x="70" y="244" class="t-small">Which ran? Why? Look inside the node's</text>
+          <text x="70" y="262" class="t-small">state update, in monitor_log.</text>
+          <rect class="box-block" x="40" y="290" width="430" height="56" rx="8"/>
+          <text x="56" y="314" class="t-strong t-block">Not visible at all</text>
+          <text x="56" y="334" class="t-small">a decision model called over plain HTTP (the Decisions API)</text>
+
+          <text x="560" y="30" class="t-head">AFTER</text>
+          <rect class="panel" x="560" y="44" width="480" height="320" rx="10"/>
+          <text x="580" y="74" class="t-mono">model</text><text x="760" y="74" class="t-small">LangGraph node</text>
+          <line class="lane" x1="592" y1="84" x2="592" y2="330"/>
+          <rect class="box-accent" x="604" y="88" width="420" height="30" rx="6"/>
+          <text x="616" y="108" class="t-mono t-accent">monitor step</text><text x="760" y="108" class="t-small">outcome resampled · flagged · 2 samples</text>
+          <line class="lane" x1="628" y1="122" x2="628" y2="300"/>
+          <text x="642" y="142" class="t-mono">ChatModel</text><text x="780" y="142" class="t-small">sample 1</text>
+          <rect class="box-trusted" x="636" y="152" width="388" height="28" rx="6"/>
+          <text x="648" y="171" class="t-mono t-trusted">monitor judgement</text><text x="800" y="171" class="t-small">suspicion 0.9, reason</text>
+          <text x="642" y="200" class="t-mono">ChatModel</text><text x="780" y="200" class="t-small">sample 2</text>
+          <rect class="box-trusted" x="636" y="210" width="388" height="28" rx="6"/>
+          <text x="648" y="229" class="t-mono t-trusted">monitor judgement</text><text x="800" y="229" class="t-small">suspicion 0.1, reason</text>
+          <rect class="box-flag" x="636" y="248" width="388" height="28" rx="6"/>
+          <text x="648" y="267" class="t-mono">monitor decision</text><text x="800" y="267" class="t-small">tags monitor:resampled, monitor:flagged</text>
+          <text x="604" y="318" class="t-small">A decision model over HTTP gets a</text>
+          <text x="604" y="336" class="t-small">monitor classifier span inside its judgement.</text>
+        </svg>
+        </div>
+        <figcaption><strong>The raw calls stay where they are.</strong> The spans wrap them, so the agent's samples and the judge's calls nest under the step that caused them.</figcaption>
+      </figure>
+    </section>
+
+    <section id="spans">
+      <h2>The spans</h2>
+      <p>Names are fixed and few, so both tools can filter and count by name. Everything that varies goes in metadata, which both show next to the span. Every metadata key is flat and starts with <code>monitor_</code>, so it never collides with LangGraph's or LangSmith's own keys.</p>
+      <div class="table-scroll">
+        <table>
+          <thead><tr><th>Span</th><th>When</th><th>Inputs</th><th>Outputs</th><th>Tags</th></tr></thead>
+          <tbody>
+            <tr><td><code>monitor step</code></td><td>Opens before the first sample, closes when the step is committed</td><td>The step number and the proposed step, set when it closes</td><td>Outcome, flagged, blocked count, highest suspicion, and each sample's suspicion, reason and whether it ran</td><td><code>monitor</code></td></tr>
+            <tr><td><code>monitor judgement</code></td><td>Around each verdict</td><td>The sample's number and the view the monitor reads through</td><td>Suspicion and reason</td><td><code>monitor</code></td></tr>
+            <tr><td><code>monitor classifier</code></td><td>Around a Decisions API call, outside its retries</td><td>The questions</td><td>The answer probabilities</td><td><code>monitor</code></td></tr>
+            <tr><td><code>monitor decision</code></td><td>Opened and closed right after the protocol decides</td><td>None</td><td>Outcome, flagged, highest suspicion</td><td><code>monitor</code>, <code>monitor:&lt;outcome&gt;</code>, <code>monitor:flagged</code></td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="table-scroll">
+        <table>
+          <thead><tr><th>Metadata key</th><th>Holds</th><th>On</th></tr></thead>
+          <tbody>
+            <tr><td><code>monitor_name</code>, <code>monitor_agent</code>, <code>monitor_step_number</code>, <code>monitor_protocol</code></td><td>Which monitor, agent, step and protocol</td><td>Every span</td></tr>
+            <tr><td><code>monitor_step_id</code></td><td>The step span's run id, which we generate. Langfuse does not store LangChain run ids, so this is how part 2 finds a step again</td><td>Every span</td></tr>
+            <tr><td><code>monitor_delegation_id</code></td><td>Which delegation a subagent step belongs to</td><td>Every span, once #50 is merged</td></tr>
+            <tr><td><code>monitor_outcome</code>, <code>monitor_flagged</code>, <code>monitor_max_suspicion</code></td><td>The decision, for filtering</td><td>Decision span</td></tr>
+            <tr><td><code>ls_agent_type: "middleware"</code></td><td>Keeps the spans out of LangSmith's trajectory view</td><td>Judgement, classifier and decision spans</td></tr>
+            <tr><td><code>ls_message_view_exclude</code></td><td>Keeps the judge's calls out of the agent's conversation view</td><td>The judge's model calls</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p class="note">Why fixed names: a name like <code>monitor[main] step 3</code> would make every span unique, which breaks filtering by name in both tools, and any name containing "agent" makes Langfuse type the span as an agent. Why a separate decision span: a span's tags cannot change after it starts, and the step span has to start before the samples nest under it. A halt is a decision, not an error, so it never marks a span red; only a monitor that fails does.</p>
+    </section>
+
+    <section id="filter">
+      <h2>Finding steps</h2>
+      <p>With the decision span, a user finds the steps they care about without any extra code.</p>
+      <div class="table-scroll">
+        <table>
+          <thead><tr><th>To find</th><th>LangSmith</th><th>Langfuse</th></tr></thead>
+          <tbody>
+            <tr><td>Every halted step</td><td><code>and(eq(name, "monitor decision"), has(tags, "monitor:halted"))</code></td><td>Name <code>monitor decision</code>, metadata <code>monitor_outcome</code> = <code>halted</code></td></tr>
+            <tr><td>Traces with a flagged step</td><td><code>tree_filter='has(tags, "monitor:flagged")'</code> with <code>is_root=True</code></td><td>Metadata <code>monitor_flagged</code> = <code>true</code> on <code>monitor decision</code></td></tr>
+            <tr><td>Everything except the monitor</td><td>Exclude the <code>monitor</code> tag</td><td>Exclude the names starting <code>monitor</code></td></tr>
+            <tr><td>Steps above a suspicion</td><td colspan="2">Needs part 2: scores and feedback are numeric in both tools, while metadata numbers are strings in Langfuse</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section id="how">
+      <h2>How it works</h2>
+      <p>The spans are opened by hand through the callback manager of the node that is running, the same one the agent's model calls use. Model calls made inside a span become its children, because the span's child manager goes on the config those calls inherit. It is the same mechanism the no-stream block from PR #40 already uses.</p>
+      <figure>
+        <div class="figure-scroll">
+        <svg class="dg" viewBox="0 0 1000 250" role="img" aria-label="Inside wrap_model_call: open the monitor step span from the node's callback manager; inside it, the no-stream block runs the protocol; each draw opens a monitor judgement span; after the decision, a monitor decision span opens and closes; the step span closes with the record's outputs. If nothing listens, every span is skipped.">
+          <defs>
+            <marker id="h-ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" markerUnits="userSpaceOnUse" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="ah"/></marker>
+          </defs>
+          <rect class="box" x="20" y="96" width="150" height="58" rx="8"/>
+          <text x="36" y="120" class="t-strong">wrap_model_call</text>
+          <text x="36" y="139" class="t-small">the node's callbacks</text>
+
+          <rect class="box-accent" x="210" y="30" width="620" height="190" rx="12"/>
+          <text x="228" y="54" class="t-strong t-accent">monitor step span</text>
+          <text x="400" y="54" class="t-small">opened before the no-stream block, so the span itself streams nowhere</text>
+
+          <rect class="frame" x="230" y="70" width="400" height="136" rx="10"/>
+          <text x="246" y="92" class="t-small">no-stream block, as today</text>
+          <rect class="box" x="246" y="104" width="112" height="40" rx="6"/>
+          <text x="258" y="129" class="t-small">agent sample</text>
+          <rect class="box-trusted" x="372" y="104" width="120" height="40" rx="6"/>
+          <text x="384" y="129" class="t-small t-trusted">judgement span</text>
+          <rect class="box" x="506" y="104" width="112" height="40" rx="6"/>
+          <text x="518" y="129" class="t-small">protocol decides</text>
+          <text x="246" y="176" class="t-small">repeats per sample; parallel samples nest correctly</text>
+
+          <rect class="box-flag" x="650" y="104" width="160" height="40" rx="6"/>
+          <text x="662" y="129" class="t-small">decision span, tagged</text>
+          <text x="650" y="176" class="t-small">then the step span closes</text>
+          <text x="650" y="192" class="t-small">with the record's outputs</text>
+
+          <rect class="box-allow" x="850" y="96" width="130" height="58" rx="8"/>
+          <text x="866" y="120" class="t-strong t-allow">commit</text>
+          <text x="866" y="139" class="t-small">monitor_log, as today</text>
+
+          <path class="edge" d="M170,125 L208,125" marker-end="url(#h-ah)"/>
+          <path class="edge" d="M618,124 L648,124" marker-end="url(#h-ah)"/>
+          <path class="edge" d="M830,125 L848,125" marker-end="url(#h-ah)"/>
+        </svg>
+        </div>
+        <figcaption><strong>If no tracer is attached, nothing is opened.</strong> The helper returns at once when the callback manager has no handlers. Spans close on every path: a judge that raises, a sibling sample cancelled by the task group, and <code>SynchronousRunError</code> under <code>invoke()</code> were all checked in the prototype.</figcaption>
+      </figure>
+    </section>
+
+    <section id="pseudocode">
+      <h2>Pseudocode</h2>
+      <div class="code-block">
+        <div class="code-title">_langchain.py · the only module that touches callback managers</div>
+<pre><code class="language-python">@dataclass
+class TracedRun:
+    """What a traced block reports before its span closes."""
+
+    outputs: dict[str, TraceValue] = field(default_factory=dict)
+    inputs_at_end: dict[str, TraceValue] | None = None
+
+
+@asynccontextmanager
+async def open_traced_run(*, name: str, inputs, metadata, tags) -> AsyncIterator[TracedRun]:
+    """Open a span under the running node; model calls inside the block become its children."""
+    config = ensure_config()
+    callback_manager = read_node_callback_manager(config)   # the node's own, so Langfuse keeps one trace
+    if not callback_manager.handlers:
+        yield TracedRun()                                    # nothing listens: no span at all
+        return
+    callback_manager.add_metadata(metadata, inherit=False)
+    callback_manager.add_tags(tags, inherit=False)
+    run_manager = await callback_manager.on_chain_start(None, inputs, name=name, run_id=uuid4())
+    token = var_child_runnable_config.set(patch_config(config, callbacks=run_manager.get_child()))
+    traced_run = TracedRun()
+    try:
+        yield traced_run
+    except BaseException as error:                           # cancellation included
+        await run_manager.on_chain_error(error, inputs=traced_run.inputs_at_end)
+        raise
+    else:
+        await run_manager.on_chain_end(traced_run.outputs, inputs=traced_run.inputs_at_end)
+    finally:
+        var_child_runnable_config.reset(token)
+
+# open_traced_run_sync: the same without awaits, for invoke()</code></pre>
+      </div>
+      <div class="code-block">
+        <div class="code-title">middleware.py · the step and decision spans</div>
+<pre><code class="language-python">async def awrap_model_call(self, request, handler):
+    step_metadata = self.build_span_metadata(request, step_number=step_number)
+    async with open_traced_run(name="monitor step", inputs={}, metadata=step_metadata, tags=["monitor"]) as step_span:
+        step = AsyncPendingStep(..., span_metadata=step_metadata)
+        with hide_model_calls_from_message_stream():
+            decision = await self.protocol.decide(step)      # judgement spans open inside draw_sample
+        record = self.build_step_record(decision, step_number=step_number)
+        async with open_traced_run(
+            name="monitor decision",
+            inputs={},
+            metadata={**step_metadata, **build_decision_metadata(record)},
+            tags=["monitor", f"monitor:{record['outcome']}", *(["monitor:flagged"] if record["flagged"] else [])],
+        ) as decision_span:
+            decision_span.outputs = build_decision_outputs(record)
+        step_span.outputs = build_step_outputs(record)
+        step_span.inputs_at_end = build_step_inputs(record)
+        return self.commit(request, record=record, decision=decision)</code></pre>
+      </div>
+      <div class="code-block">
+        <div class="code-title">pending_steps.py and monitors/decision.py · judgement and classifier spans</div>
+<pre><code class="language-python">async def draw_sample(self, conversation):
+    sample_number = next(self.sample_numbers)                # taken before the first await
+    response = await self.handler(self.build_sample_request(conversation))
+    proposal = find_proposal(response)
+    async with open_traced_run(
+        name="monitor judgement",
+        inputs={"sample_number": sample_number, "view": describe_view(self.monitor)},
+        metadata={**self.span_metadata, "ls_agent_type": "middleware"},
+        tags=["monitor"],
+    ) as judgement_span:
+        verdict = await self.monitor.evaluate(self.build_monitor_input(conversation=conversation, proposal=proposal))
+        judgement_span.outputs = {"suspicion": verdict.suspicion, "reason": verdict.reason}
+    return self.keep_judged_sample(Sample(response=response, proposal=proposal, verdict=verdict))
+
+
+# OpenRouterDecisionModel.estimate_probabilities: one classifier span per logical call, retries inside
+async with open_traced_run(name="monitor classifier", inputs={"questions": ...}, metadata=..., tags=["monitor"]) as span:
+    probabilities = read_decisions_probabilities(await self.request_decisions(body), questions=questions)
+    span.outputs = {"answers": probabilities}</code></pre>
+      </div>
+    </section>
+
+    <section id="streams">
+      <h2>Streams and cost</h2>
+      <div class="table-scroll">
+        <table>
+          <thead><tr><th>Surface</th><th>Changes?</th><th>Why</th></tr></thead>
+          <tbody>
+            <tr><td><code>stream_mode="messages"</code></td><td><span class="pill pill-reuse">No</span></td><td>It only picks up chain runs named like a graph node, and span names never are. Compared byte for byte in the prototype, under both drivers.</td></tr>
+            <tr><td><code>"updates"</code>, <code>"custom"</code>, v3 <code>run.messages</code></td><td><span class="pill pill-reuse">No</span></td><td>Compared byte for byte.</td></tr>
+            <tr><td><code>astream_events</code></td><td><span class="pill pill-pending">Gains the spans</span></td><td>It reports every run. Users can drop them with <code>exclude_tags=["monitor"]</code>. The design page's "What streams" section gets one sentence.</td></tr>
+            <tr><td>Time</td><td><span class="pill pill-reuse">Microseconds</span></td><td>5 to 8 µs per span with no tracer, 30 to 45 µs with one. A model call takes hundreds of milliseconds.</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p class="note">No on/off switch in 0.1.0: with no tracer attached nothing is opened. Tying the spans to <code>LANGSMITH_TRACING</code> would silently drop them for Langfuse users.</p>
+    </section>
+
+    <section id="build">
+      <h2>Build plan</h2>
+      <p>One pull request, after #50 so steps can carry their delegation id. No new dependency.</p>
+      <div class="table-scroll">
+        <table>
+          <thead><tr><th>Part</th><th>Changes</th></tr></thead>
+          <tbody>
+            <tr><td>Helper</td><td><code>open_traced_run</code> and <code>open_traced_run_sync</code> in <code>_langchain.py</code>, with typed span values</td></tr>
+            <tr><td>Spans</td><td>Step and decision spans in <code>middleware.py</code>; judgement spans in <code>pending_steps.py</code>; classifier span in <code>monitors/decision.py</code>; <code>ls_message_view_exclude</code> added to the judge's call config in <code>model_calls.py</code></td></tr>
+            <tr><td>Tests</td><td>A recording callback handler passed through <code>config={"callbacks": [...]}</code>, under <code>invoke</code> and <code>ainvoke</code>: the span tree and parents, inputs, outputs, tags and metadata for each protocol; parallel samples; a judge that raises; a cancelled sibling; a Deep Agents subagent; no spans with no handler; the three streams unchanged</td></tr>
+            <tr><td>Docs</td><td>A how-to, "See the monitor's decisions in LangSmith and Langfuse", with the filters above; one sentence in design.md's "What streams"; a changelog entry</td></tr>
+            <tr><td>Live check</td><td>Once the key is renewed: one real trace in LangSmith and in Langfuse to confirm the display, the trajectory view and the filters</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p class="note">The research found two upstream problems that affect traces today, with or without these spans. They go to #27 for triage, not into the repository.</p>
+    </section>
+
+    <section id="questions">
+      <h2>Decisions</h2>
+      <ol class="questions">
+        <li>
+          <h3>1. Span names</h3>
+          <div class="choices">
+            <div class="choice proposed"><span class="tag">Recommended</span>Fixed names (<code>monitor step</code>, <code>monitor judgement</code>, <code>monitor classifier</code>, <code>monitor decision</code>), with agent and step in metadata. Filtering by name works in both tools.</div>
+            <div class="choice"><span class="tag">Alternative</span>Descriptive names such as <code>monitor[main] step 3</code>. Easier to read in a tree, harder to filter, and an agent name containing "agent" confuses Langfuse.</div>
+          </div>
+        </li>
+        <li>
+          <h3>2. Outcome tags</h3>
+          <div class="choices">
+            <div class="choice proposed"><span class="tag">Recommended</span>A short <code>monitor decision</code> span tagged with the outcome, so halted and flagged steps are filterable without part 2.</div>
+            <div class="choice"><span class="tag">Alternative</span>Keep the outcome only in the step span's outputs, one span fewer, and leave filtering to part 2.</div>
+          </div>
+        </li>
+        <li>
+          <h3>3. The Decisions API call</h3>
+          <div class="choices">
+            <div class="choice proposed"><span class="tag">Recommended</span>A plain span, like the others. It never looks like the agent's own tool or model call in <code>astream_events</code>.</div>
+            <div class="choice"><span class="tag">Alternative</span>A model-call span, as the TypeSafe classifier does, so Langfuse shows it as a generation with the model name.</div>
+          </div>
+        </li>
+        <li>
+          <h3>4. Proposal text in the spans</h3>
+          <div class="choices">
+            <div class="choice proposed"><span class="tag">Recommended</span>The step span carries the proposed step, so it reads on its own; each sample's text stays on its model call, as today. Both tools can mask inputs for users who need it.</div>
+            <div class="choice"><span class="tag">Alternative</span>No proposal text in any monitor span, for smaller traces.</div>
+          </div>
+        </li>
+      </ol>
+    </section>
+
+    <section id="part2">
+      <h2>Part 2: scores, after 0.1.0</h2>
+      <p>Scores make suspicion numeric and chartable. The research recommends a core listener interface with no vendor imports, and one extra per tool.</p>
+      <div class="table-scroll">
+        <table>
+          <thead><tr><th>Tool</th><th>How</th><th>Watch out for</th></tr></thead>
+          <tbody>
+            <tr><td>LangSmith, <code>[langsmith]</code></td><td>Feedback on the step span, written in process through the user's own client: <code>monitor_suspicion</code>, <code>monitor_outcome</code>, <code>monitor_flagged</code>, with the reason as comment</td><td>Its client extends a trace's retention by default, which moves every monitored trace to paid storage; the exporter turns that off unless you opt in</td></tr>
+            <tr><td>Langfuse, <code>[langfuse]</code></td><td>Scores written after the run: find each step by <code>monitor_step_id</code> through the observations API, then attach the score to that exact observation</td><td>No public API maps a LangChain run to a Langfuse observation while the run is going, so writing scores during the run can land on another request's trace</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+  </main>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+<script>
+  if (window.hljs) { window.hljs.highlightAll(); }
+</script>

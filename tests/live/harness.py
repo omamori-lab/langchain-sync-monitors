@@ -381,6 +381,7 @@ def build_run_report(
         "flagged_steps": [step["step_number"] for step in steps if step["flagged"]],
         "failed_steps": outcome.failed_steps,
         "cost": ledger.take_snapshot(),
+        "tokens": ledger.list_tokens(),
         "providers": ledger.list_providers(),
         "seconds": outcome.seconds,
         "error": outcome.error,

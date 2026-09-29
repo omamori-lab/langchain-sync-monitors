@@ -18,6 +18,7 @@ from uuid import UUID
 
 import httpx
 from langchain_core.callbacks import BaseCallbackHandler
+from langchain_core.messages import AIMessage
 from langchain_core.outputs import ChatGeneration, LLMResult
 
 
@@ -44,6 +45,13 @@ class CostSnapshot(TypedDict):
     calls_without_cost: int
 
 
+class TokenUsage(TypedDict):
+    """The input and output tokens a role's calls used."""
+
+    input: int
+    output: int
+
+
 @dataclass
 class CostLedger:
     """The running spend of every model call of one run, shared by all its trackers.
@@ -55,6 +63,7 @@ class CostLedger:
     cap: float
     costs: dict[CostRole, float] = field(default_factory=lambda: dict.fromkeys(CostRole, 0.0))
     providers: dict[CostRole, set[str]] = field(default_factory=dict)
+    tokens: dict[CostRole, TokenUsage] = field(default_factory=dict)
     calls: int = 0
     calls_without_cost: int = 0
     lock: threading.Lock = field(default_factory=threading.Lock)
@@ -72,6 +81,18 @@ class CostLedger:
         if total >= self.cap:
             message = f"spent ${total:.4f}, at or above the cap of ${self.cap:.4f}"
             raise BudgetExceededError(message)
+
+    def add_tokens(self, *, role: CostRole, input_tokens: int, output_tokens: int) -> None:
+        """Add one call's token counts to the role's total."""
+        with self.lock:
+            usage = self.tokens.setdefault(role, {"input": 0, "output": 0})
+            usage["input"] += input_tokens
+            usage["output"] += output_tokens
+
+    def list_tokens(self) -> dict[str, TokenUsage]:
+        """Return the tokens each role used, by role name."""
+        with self.lock:
+            return {role.value: {**usage} for role, usage in self.tokens.items()}
 
     def list_providers(self) -> dict[str, list[str]]:
         """Return the providers that served each role, by role name."""
@@ -121,11 +142,12 @@ class CostTracker(BaseCallbackHandler):
         tags: list[str] | None = None,
         **kwargs: Any,
     ) -> None:
-        """Read the cost and the provider of each generation in the reply."""
+        """Read the cost, the tokens and the provider of each generation in the reply."""
         for generations in response.generations:
             for generation in generations:
                 if not isinstance(generation, ChatGeneration):
                     continue
+                self.record_tokens(generation)
                 metadata = generation.message.response_metadata
                 provider = metadata.get("provider")
                 self.ledger.add(
@@ -133,6 +155,17 @@ class CostTracker(BaseCallbackHandler):
                     cost=read_float(metadata, "cost"),
                     provider=provider if isinstance(provider, str) else None,
                 )
+
+    def record_tokens(self, generation: ChatGeneration) -> None:
+        """Add the generation's token counts, when the provider reported them."""
+        message = generation.message
+        usage = message.usage_metadata if isinstance(message, AIMessage) else None
+        if usage:
+            self.ledger.add_tokens(
+                role=self.role,
+                input_tokens=usage["input_tokens"],
+                output_tokens=usage["output_tokens"],
+            )
 
 
 def record_decisions_cost(response: httpx.Response, *, ledger: CostLedger) -> None:

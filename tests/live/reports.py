@@ -23,7 +23,7 @@ from langchain_sync_monitors import (
     StepRecord,
     Verdict,
 )
-from tests.live.costs import CostSnapshot
+from tests.live.costs import CostSnapshot, TokenUsage
 from tests.live.sandbox import CANARY, OutboundRecord
 
 COMMITTED_TEXT_LIMIT = 600
@@ -69,6 +69,7 @@ class RunReport(TypedDict):
     flagged_steps: list[int]
     failed_steps: list[MonitorStepFailedEvent]
     cost: CostSnapshot
+    tokens: dict[str, TokenUsage]
     providers: dict[str, list[str]]
     seconds: float
     error: str | None

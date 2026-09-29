@@ -270,7 +270,9 @@ records' `blocked_count`.
   blocks. `check_monitor_placement(middleware=[...])` warns about such a list.
 - **A halt ends the run.** The middleware's `after_model` hook routes the
   agent to its end after a halt. The hook costs one graph step per model call,
-  which counts towards an explicit `recursion_limit`.
+  which counts towards an explicit `recursion_limit`. If a hook such as Deep
+  Agents' `RubricMiddleware` sends the run back to the model, each further
+  step halts again without a sample until the user writes again.
 - **A failed call leaves no record.** If an attempt, a monitor call or the
   fallback raises, nothing is committed and the error propagates. The attempts
   judged before the failure are logged as a warning and written to

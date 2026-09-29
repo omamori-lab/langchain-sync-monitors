@@ -4,8 +4,9 @@ In a `create_agent` middleware list the monitor goes last. LangChain nests
 `wrap_model_call` handlers with the first middleware outermost, so a
 middleware after the monitor runs inside it, once per sample the protocol
 draws, and one before it wraps the whole monitored step [@langchain2026].
-Tool calls are wrapped in the same order. `check_monitor_placement` names the
-middleware in a list that undermines what the monitor records.
+Tool calls are wrapped in the same order, and `after_agent` hooks run at the
+end of the run wherever they sit. `check_monitor_placement` names the
+middleware in a list that undermines what the monitor records or a halt.
 """
 
 import warnings
@@ -58,6 +59,14 @@ and a subagent whose run raises returns no records to its parent. Subclasses
 count too.
 """
 
+TAGGING_RETURN_MIDDLEWARE = frozenset({"RubricMiddleware"})
+"""Classes whose `after_agent` hook sends a run back to the model with a tagged human message.
+
+Deep Agents' `RubricMiddleware` tags its revision request with an
+`lc_source` [@deepagents2026], so it never lifts a halt. Only the exact class
+counts: a subclass may add messages of its own.
+"""
+
 
 class MonitorPlacementWarning(UserWarning):
     """A middleware placed around or inside a monitor undermines what the monitor records.
@@ -67,7 +76,9 @@ class MonitorPlacementWarning(UserWarning):
     runs the whole step again, and the samples judged before the failure never
     reach `monitor_log`. Anywhere in the list, a middleware that runs failed
     tool calls again or answers them lets a subagent's run fail without its
-    blocks reaching Auto Mode's thread total.
+    blocks reaching Auto Mode's thread total, and a middleware that sends a
+    finished run back to the model with an untagged human message lifts a
+    halt.
     """
 
 
@@ -108,6 +119,28 @@ def is_tool_failure_handling_middleware(middleware: AnyAgentMiddleware) -> bool:
     return is_handling and is_tool_call_wrapper(middleware)
 
 
+def can_send_run_back_to_model(middleware: AnyAgentMiddleware) -> bool:
+    """Tell whether a middleware's `after_agent` hook can jump back to the model.
+
+    The jump targets are read as `create_agent` reads them: from the sync hook
+    when the class overrides it with targets, else from the async one
+    [@langchain2026].
+    """
+    middleware_class = type(middleware)
+    for hook_name in ("after_agent", "aafter_agent"):
+        hook: object = getattr(middleware_class, hook_name)
+        targets: object = getattr(hook, "__can_jump_to__", None)
+        if hook is not getattr(AgentMiddleware, hook_name) and isinstance(targets, list):
+            return "model" in targets
+    return False
+
+
+def may_lift_halt(middleware: AnyAgentMiddleware) -> bool:
+    """Tell whether a middleware can send a run back to the model, not known to tag its messages."""
+    is_tagging = type(middleware).__name__ in TAGGING_RETURN_MIDDLEWARE
+    return can_send_run_back_to_model(middleware) and not is_tagging
+
+
 def find_last_monitor_position(middleware: Sequence[AnyAgentMiddleware]) -> int | None:
     """Return the position of the last monitor in the list, or None when there is none."""
     monitor_positions = [
@@ -145,6 +178,19 @@ def find_middleware_handling_tool_failures(
     return [item for item in middleware if is_tool_failure_handling_middleware(item)]
 
 
+def find_middleware_lifting_halts(
+    middleware: Sequence[AnyAgentMiddleware],
+) -> Sequence[AnyAgentMiddleware]:
+    """Return the middleware that may lift a halt, in a list with a monitor.
+
+    `after_agent` hooks run at the end of the run wherever the middleware
+    sits, so its place relative to the monitor does not matter.
+    """
+    if find_last_monitor_position(middleware) is None:
+        return ()
+    return [item for item in middleware if may_lift_halt(item)]
+
+
 def warn_about_placement(names: Sequence[str], *, reason: str) -> None:
     """Warn once for each named middleware, giving the reason its placement matters."""
     for name in names:
@@ -154,7 +200,7 @@ def warn_about_placement(names: Sequence[str], *, reason: str) -> None:
 def check_monitor_placement(*, middleware: Sequence[AnyAgentMiddleware]) -> list[str]:
     """Warn about each middleware placed where it undermines the last monitor.
 
-    Pass the list given to `create_agent`. Three placements are warned about:
+    Pass the list given to `create_agent`. Four placements are warned about:
 
     - inside the monitor, a middleware that wraps model calls and is not known
       to only rewrite the request. It can return commands, which LangChain
@@ -170,7 +216,14 @@ def check_monitor_placement(*, middleware: Sequence[AnyAgentMiddleware]) -> list
       result of the call that started it, so when the subagent's run raises,
       its blocks never reach Auto Mode's thread total, the run goes on, and a
       retry starts the subagent again from the same count. The check cannot
-      tell whether the agent starts subagents, so it warns either way.
+      tell whether the agent starts subagents, so it warns either way;
+    - anywhere in a list with a monitor, a middleware whose `after_agent`
+      hook can send a finished run back to the model, other than Deep Agents'
+      `RubricMiddleware`, which tags its messages. After a halt the monitor
+      halts every further step until the task author writes again, and it
+      takes a human message without an `lc_source` tag for the task
+      author's, so such a message from the hook lifts the halt. The check
+      cannot see which messages a hook adds, so it warns either way.
 
     Returns the names of the middleware it warned about.
     """
@@ -187,6 +240,7 @@ def check_monitor_placement(*, middleware: Sequence[AnyAgentMiddleware]) -> list
     handling_tool_failures = [
         item.name for item in find_middleware_handling_tool_failures(middleware)
     ]
+    lifting_halts = [item.name for item in find_middleware_lifting_halts(middleware)]
     warn_about_placement(
         misplaced_inside,
         reason="wraps model calls inside a monitor, so a state update it returns may come "
@@ -207,4 +261,12 @@ def check_monitor_placement(*, middleware: Sequence[AnyAgentMiddleware]) -> list
         "never count towards Auto Mode's total, and a retry starts it again from the "
         "same count.",
     )
-    return misplaced_inside + retrying_outside + handling_tool_failures
+    warn_about_placement(
+        lifting_halts,
+        reason="can send a finished run back to the model from its after_agent hook. After "
+        "a halt, the monitor halts every further step until the task author writes again, "
+        "and it takes a human message without an lc_source tag for the task author's, so "
+        "such a message from this middleware lifts the halt and the agent goes on. Tag "
+        "every human message it adds with an lc_source.",
+    )
+    return misplaced_inside + retrying_outside + handling_tool_failures + lifting_halts

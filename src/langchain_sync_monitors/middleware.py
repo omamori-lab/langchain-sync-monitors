@@ -11,8 +11,9 @@ taken from a sample the protocol may not commit: LangChain keeps the updates of
 the last inner call, and mixes them when samples are drawn concurrently
 [@langchain2026].
 `check_monitor_placement` warns about such a list, about a middleware
-outside the monitor that retries failed model calls, and about a middleware
-that runs failed tool calls again or answers them with an error message.
+outside the monitor that retries failed model calls, about a middleware
+that runs failed tool calls again or answers them with an error message, and
+about a middleware that can lift a halt.
 """
 
 import logging
@@ -74,6 +75,7 @@ from langchain_sync_monitors.delegation import (
     read_delegation_id,
 )
 from langchain_sync_monitors.feedback import build_blocked_attempt_messages
+from langchain_sync_monitors.halts import build_standing_halt_decision, is_halt_standing
 from langchain_sync_monitors.options import check_enum_option
 from langchain_sync_monitors.pending_steps import (
     AsyncPendingStep,
@@ -161,6 +163,17 @@ class MonitorMiddleware(AgentMiddleware[MonitorState, AgentContext, StructuredOu
     model call, which counts towards an explicit `recursion_limit`, and on a
     halted step it skips the `after_model` hooks that would run after it.
 
+    A halt stands until the task author writes again. An `after_agent` hook
+    can send a finished run back to the model, as Deep Agents'
+    `RubricMiddleware` does when it grades the task unmet [@deepagents2026].
+    While this monitor's last step is a halt and no human message without an
+    `lc_source` tag has followed it, each further step halts again without a
+    sample: the untrusted model is not called, and the step's record, flagged,
+    holds no samples. A new message from the user starts afresh.
+    `check_monitor_placement` warns about a middleware whose `after_agent`
+    hook can send the run back to the model and is not known to tag the human
+    messages it adds.
+
     If a call inside a step raises before the protocol decides, the step is
     not committed. The samples the monitor had judged are logged as a warning
     and written to `stream_mode="custom"` as a `MonitorStepFailedEvent`, and
@@ -220,7 +233,7 @@ class MonitorMiddleware(AgentMiddleware[MonitorState, AgentContext, StructuredOu
         previous_records = find_monitor_records(records, monitor=self.label, agent=self.agent_name)
         identity = self.build_step_identity(request, step_number=len(previous_records) + 1)
         with open_step_span_sync(identity) as traced_step:
-            decision = self.find_halt_decision(records)
+            decision = self.find_halt_decision(request, previous_records=previous_records)
             if decision is None:
                 step = SyncPendingStep(
                     request=request,
@@ -258,7 +271,7 @@ class MonitorMiddleware(AgentMiddleware[MonitorState, AgentContext, StructuredOu
         previous_records = find_monitor_records(records, monitor=self.label, agent=self.agent_name)
         identity = self.build_step_identity(request, step_number=len(previous_records) + 1)
         async with open_step_span(identity) as traced_step:
-            decision = self.find_halt_decision(records)
+            decision = self.find_halt_decision(request, previous_records=previous_records)
             if decision is None:
                 step = AsyncPendingStep(
                     request=request,
@@ -342,11 +355,22 @@ class MonitorMiddleware(AgentMiddleware[MonitorState, AgentContext, StructuredOu
             and not last_message.tool_calls
         )
 
-    def find_halt_decision(self, records: Sequence[StepRecord]) -> StepDecision | None:
-        """Return a halt when a subagent halted and this monitor stops the whole run, else None."""
+    def find_halt_decision(
+        self,
+        request: AgentModelRequest,
+        *,
+        previous_records: Sequence[StepRecord],
+    ) -> StepDecision | None:
+        """Return the halt this step gets without a sample, or None when the protocol decides it.
+
+        The step halts again while this monitor's own halt stands, and halts
+        when a subagent halted and this monitor stops the whole run.
+        """
+        if is_halt_standing(previous_records, messages=request.state["messages"]):
+            return build_standing_halt_decision()
         if self.when_subagent_halts is SubagentHalt.STOP_SUBAGENT_ONLY:
             return None
-        halts = find_new_subagent_halts(records, agent=self.agent_name)
+        halts = find_new_subagent_halts(read_monitor_log(request.state), agent=self.agent_name)
         if not halts:
             return None
         return build_subagent_halt_decision(subagent_names=[record["agent"] for record in halts])

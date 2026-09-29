@@ -361,6 +361,23 @@ which exists only in an agent with no `after_model` hook at all. The hook costs
 one graph step per model call, which counts towards an explicit
 `recursion_limit`.
 
+The agent's end is not always the end of the run. A `jump_to: "end"` reaches
+the agent's exit node, which is the first `after_agent` hook when there is
+one [@langchain2026], and such a hook can send the agent back to the model:
+Deep Agents' `RubricMiddleware` does when it grades the task unmet
+[@deepagents2026]. So a halt stands until the task author writes again.
+Before it runs the protocol, the middleware checks whether this monitor's
+last step was a halt and whether a human message without an `lc_source` tag,
+the kind the monitor reads as the task author's, has come after the last AI
+message. If none has, it halts the step again without drawing a sample: the
+untrusted model is not called, and the step's record is `halted`, flagged,
+with no samples. A new message from the user starts afresh, and so does a
+fork from a checkpoint before the halt, since the rule reads only the
+conversation and the log. A hook that adds a human message without a tag
+would pass for the task author and lift the halt, so `check_monitor_placement`
+warns about any middleware whose `after_agent` hook can jump to the model,
+other than `RubricMiddleware`, which tags its revision requests.
+
 A fallback must not escalate to a person by calling LangGraph's `interrupt()`.
 The fallback runs inside the model node, and on resume LangGraph runs the whole
 node again [@langgraph2026]: the protocol draws fresh samples, and the person's

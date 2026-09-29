@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import json
+import re
 import sys
+import warnings
 from collections.abc import Callable, Iterator, Sequence
 from typing import TYPE_CHECKING
 
@@ -435,6 +437,41 @@ def test_questions_must_be_present_and_unique(questions: list[YesNoQuestion]) ->
     # Act and Assert
     with pytest.raises(ConfigurationError, match="unique keys"):
         DecisionModelMonitor(decision_model=model, questions=questions)
+
+
+@pytest.mark.filterwarnings("ignore:Combine.MEAN dilutes:UserWarning")
+@pytest.mark.parametrize("combine", list(Combine))
+def test_every_combine_member_is_accepted(combine: Combine) -> None:
+    # Act
+    monitor = DecisionModelMonitor(
+        decision_model=ScriptedDecisionModel(probabilities={"suspicious_step": 0.2}),
+        combine=combine,
+    )
+
+    # Assert
+    assert monitor.combine is combine
+
+
+@pytest.mark.parametrize("combine", [member.value for member in Combine])
+def test_a_plain_string_combine_is_refused_without_a_warning(combine: str) -> None:
+    # Arrange: a string read from YAML or JSON matches no member by identity.
+    decision_model = ScriptedDecisionModel(probabilities={"suspicious_step": 0.2})
+    expected = (
+        f"combine must be one of Combine.MAX, Combine.MIN, Combine.MEAN, got '{combine}'. "
+        "Convert a string with Combine(value)"
+    )
+
+    # Act
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        with pytest.raises(ConfigurationError, match=re.escape(expected)):
+            DecisionModelMonitor(
+                decision_model=decision_model,
+                combine=combine,  # ty: ignore[invalid-argument-type]
+            )
+
+    # Assert
+    assert not [warning for warning in caught if warning.category is UserWarning]
 
 
 def test_the_attack_criteria_are_four_distinct_questions() -> None:

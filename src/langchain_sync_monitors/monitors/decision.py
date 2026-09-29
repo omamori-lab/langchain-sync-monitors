@@ -32,6 +32,7 @@ from langchain_sync_monitors.contracts import Monitor, MonitorInput, MonitorView
 from langchain_sync_monitors.errors import ConfigurationError, MissingExtraError, MonitorError
 from langchain_sync_monitors.model_calls import build_internal_call_config
 from langchain_sync_monitors.monitors.chat import DEFAULT_MONITOR_VIEW
+from langchain_sync_monitors.options import check_enum_option
 from langchain_sync_monitors.spans import CLASSIFIER_SPAN_NAME, MONITOR_TAG, MONITOR_WORK_METADATA
 from langchain_sync_monitors.transcript import render_proposed_step, render_transcript
 
@@ -474,6 +475,7 @@ class DecisionModelMonitor(Monitor):
         view: MonitorView = DEFAULT_MONITOR_VIEW,
     ) -> None:
         """Build the monitor; question keys must be unique, and `Combine.MEAN` warns."""
+        check_enum_option(combine, option_type=Combine, parameter_name="combine")
         keys = [question.key for question in questions]
         if not keys or len(set(keys)) != len(keys):
             message = f"questions must be a non-empty list with unique keys, got {keys}"

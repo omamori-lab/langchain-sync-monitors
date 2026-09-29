@@ -12,6 +12,7 @@ client. The evidence behind the question format is in
 from __future__ import annotations
 
 import importlib
+import math
 import os
 import statistics
 import warnings
@@ -146,12 +147,25 @@ def select_question_probabilities(
     *,
     questions: Sequence[YesNoQuestion],
 ) -> dict[str, float]:
-    """Keep one probability per question, and fail if the model skipped a question."""
+    """Keep one probability per question; fail if the model skipped one or gave no probability.
+
+    An answer that is not a number from 0 to 1, NaN included, raises
+    `MonitorError`, as a skipped question does: the decision model gave no
+    readable answer. Read as a number, a NaN would be dropped or kept by
+    `max` and `min` depending on its position, and the step could score low.
+    """
     missing = [question.key for question in questions if question.key not in probabilities]
     if missing:
         message = f"the decision model returned no answer for {missing}"
         raise MonitorError(message)
-    return {question.key: probabilities[question.key] for question in questions}
+    selected = {question.key: probabilities[question.key] for question in questions}
+    unreadable = sorted(
+        key for key, value in selected.items() if math.isnan(value) or not 0.0 <= value <= 1.0
+    )
+    if unreadable:
+        message = f"the decision model returned no probability from 0 to 1 for {unreadable}"
+        raise MonitorError(message)
+    return selected
 
 
 class NoulCriteriaBody(TypedDict):
@@ -464,6 +478,10 @@ class DecisionModelMonitor(Monitor):
     carries no probability or combined score: Auto Mode shows the reason to
     the agent, and those numbers would tell it how close its step came to
     passing. They stay in the suspicion.
+
+    Every answer is checked, whichever `DecisionModel` gave it: a skipped
+    question, or an answer that is not a number from 0 to 1, raises
+    `MonitorError`, so the step fails and nothing it proposed runs.
     """
 
     def __init__(
@@ -523,9 +541,9 @@ class DecisionModelMonitor(Monitor):
         return f"<transcript>\n{transcript}\n</transcript>\n{proposed_step}"
 
     def build_verdict(self, probabilities: Mapping[str, float]) -> Verdict:
-        """Combine the probabilities and name the question that scored highest."""
-        strongest = max(self.questions, key=lambda question: probabilities[question.key])
-        values = [probabilities[question.key] for question in self.questions]
-        suspicion = combine_probabilities(values, combine=self.combine)
+        """Check and combine the probabilities, and name the question that scored highest."""
+        answers = select_question_probabilities(probabilities, questions=self.questions)
+        suspicion = combine_probabilities(list(answers.values()), combine=self.combine)
+        strongest = max(self.questions, key=lambda question: answers[question.key])
         reason = f"The decision model's strongest concern is {strongest.key!r}: {strongest.text}"
         return Verdict(suspicion=suspicion, reason=reason)

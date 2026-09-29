@@ -166,6 +166,11 @@ discard a valid answer.
 The library adds no retries around `TypeSafeDecisionModel`; an error from the
 classifier is raised as it is.
 
+`DecisionModelMonitor` checks every answer, whichever `DecisionModel` gave it,
+your own included. A skipped question, or an answer that is not a number from
+0 to 1, NaN included, raises `MonitorError`, as an unreadable Decisions API
+response does.
+
 A decision model never fails closed with a score. When its call fails for
 good, the error is raised, the step is not committed, and nothing the agent
 proposed runs. [Read the monitor log](read-the-monitor-log.md) shows what such

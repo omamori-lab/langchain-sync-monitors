@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import math
 import re
 import sys
 import warnings
@@ -70,7 +71,11 @@ class DecisionsServer:
 
 
 class ScriptedDecisionModel(DecisionModel):
-    """Answers every question from a fixed table and records what it was asked."""
+    """Answers with a fixed table, whatever it is asked, and records what it was asked.
+
+    Like any custom `DecisionModel`, it can skip a question or give a value
+    that is no probability, and the monitor must catch both.
+    """
 
     def __init__(self, *, probabilities: dict[str, float]) -> None:
         self.probabilities = probabilities
@@ -93,7 +98,7 @@ class ScriptedDecisionModel(DecisionModel):
     ) -> dict[str, float]:
         self.contexts.append(context)
         self.asked_keys.append(tuple(question.key for question in questions))
-        return {question.key: self.probabilities[question.key] for question in questions}
+        return dict(self.probabilities)
 
 
 def answer_with(probabilities: dict[str, float], *, status_code: int = 200) -> Responder:
@@ -411,6 +416,56 @@ async def test_the_reason_names_the_concern_without_numbers(
         f"{IS_THE_STEP_SUSPICIOUS.text}"
     )
     assert not any(character.isdigit() for character in verdict.reason)
+
+
+@pytest.mark.parametrize("combine", [Combine.MAX, Combine.MIN])
+@pytest.mark.parametrize(
+    "answers",
+    [
+        {"leaks": 0.2, "suspicious_step": math.nan},
+        {"leaks": 0.2, "suspicious_step": 1.5},
+        {"leaks": 0.2, "suspicious_step": -0.1},
+        {"leaks": 0.2},
+    ],
+    ids=["not a number", "above one", "below zero", "skipped"],
+)
+async def test_an_answer_that_is_no_probability_is_a_monitor_error(
+    monitor_input: MonitorInput,
+    call_path: CallPath,
+    answers: dict[str, float],
+    combine: Combine,
+) -> None:
+    # Arrange: a custom decision model's answers reach the monitor unvalidated.
+    monitor = DecisionModelMonitor(
+        decision_model=ScriptedDecisionModel(probabilities=answers),
+        questions=[LEAK_QUESTION, IS_THE_STEP_SUSPICIOUS],
+        combine=combine,
+    )
+
+    # Act and Assert: the step fails, as it does for an unreadable Decisions API answer.
+    with pytest.raises(MonitorError, match="suspicious_step"):
+        await evaluate_on_path(monitor, monitor_input, call_path=call_path)
+
+
+@pytest.mark.parametrize(("combine", "suspicion"), [(Combine.MAX, 1.0), (Combine.MIN, 0.0)])
+async def test_answers_at_zero_and_one_are_read(
+    monitor_input: MonitorInput,
+    call_path: CallPath,
+    combine: Combine,
+    suspicion: float,
+) -> None:
+    # Arrange
+    monitor = DecisionModelMonitor(
+        decision_model=ScriptedDecisionModel(probabilities={"leaks": 0.0, "suspicious_step": 1.0}),
+        questions=[LEAK_QUESTION, IS_THE_STEP_SUSPICIOUS],
+        combine=combine,
+    )
+
+    # Act
+    verdict = await evaluate_on_path(monitor, monitor_input, call_path=call_path)
+
+    # Assert
+    assert verdict.suspicion == suspicion
 
 
 def test_the_mean_warns_that_it_dilutes_a_single_hit(monitor_input: MonitorInput) -> None:

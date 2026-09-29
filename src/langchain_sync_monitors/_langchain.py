@@ -20,7 +20,7 @@ from langchain_core.runnables.config import var_child_runnable_config
 from langgraph.constants import TAG_NOSTREAM
 from langgraph.runtime import Runtime
 
-from langchain_sync_monitors.contracts import StepRecord
+from langchain_sync_monitors.contracts import SampleRecord, StepRecord
 
 logger = logging.getLogger(__name__)
 
@@ -69,6 +69,27 @@ class MonitorStepEvent(TypedDict):
     record: StepRecord
 
 
+class MonitorStepFailedEvent(TypedDict):
+    """The event a monitor writes to `stream_mode="custom"` when a step fails uncommitted.
+
+    A call inside the step raised before the protocol decided, so no record
+    reaches `monitor_log`. The event keeps what the monitor had judged by then:
+    `samples` holds each judged sample, none of them executed, and `error`
+    names the exception, which the middleware raises again after the event.
+    """
+
+    type: Literal["monitor_step_failed"]
+    agent: str
+    monitor: str
+    step_number: int
+    error: str
+    samples: list[SampleRecord]
+
+
+type MonitorStreamEvent = MonitorStepEvent | MonitorStepFailedEvent
+"""Every event a monitor writes to `stream_mode="custom"`."""
+
+
 def read_monitor_log(state: Mapping[str, object]) -> list[StepRecord]:
     """Return the step records in an agent state, or an empty list when there are none."""
     records = state.get(MONITOR_LOG_KEY)
@@ -104,7 +125,7 @@ def append_subagent_middleware(
     return [*existing, cast("SubagentMiddleware", middleware)]
 
 
-def write_stream_event(request: AgentModelRequest, *, event: MonitorStepEvent) -> None:
+def write_stream_event(request: AgentModelRequest, *, event: MonitorStreamEvent) -> None:
     """Write the event to `stream_mode="custom"`, if the request runs inside a graph.
 
     A request built outside a graph has no runtime, and so no writer. A writer

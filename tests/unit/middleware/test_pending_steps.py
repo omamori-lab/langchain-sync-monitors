@@ -18,6 +18,7 @@ from langchain_sync_monitors.pending_steps import (
     run_synchronously,
 )
 from tests.support.chat_models import ScriptedChatModel
+from tests.support.flaky_models import FlakyChatModel
 from tests.support.monitors import KeywordMonitor
 
 TASK = HumanMessage("Summarise the report.", id="task")
@@ -269,3 +270,49 @@ def test_previous_records_are_the_ones_given(monitor: KeywordMonitor) -> None:
 
     # Assert
     assert step.previous_records == (record,)
+
+
+async def test_a_failed_concurrent_draw_cancels_the_others_and_raises_its_own_error(
+    monitor: KeywordMonitor,
+) -> None:
+    # Arrange
+    model = FlakyChatModel(
+        replies=[RuntimeError("429 rate limited"), AIMessage("slow"), AIMessage("slow")],
+        delays=[0.0, 0.2, 0.2],
+    )
+    step = AsyncPendingStep(
+        request=ModelRequest(model=model, messages=[TASK], state={"messages": [TASK]}),
+        handler=RecordingHandler().run_async,
+        monitor=monitor,
+        task_author=TaskAuthor.USER,
+    )
+
+    # Act
+    with pytest.raises(RuntimeError, match="429 rate limited"):
+        await step.sample(count=3, concurrently=True)
+    await asyncio.sleep(0.3)
+
+    # Assert
+    assert model.started_calls == 3
+    assert model.finished_calls == 0
+    assert step.judged_samples == []
+
+
+async def test_each_judged_sample_is_kept_on_the_step(
+    untrusted_model: ScriptedChatModel,
+    monitor: KeywordMonitor,
+) -> None:
+    # Arrange
+    step = AsyncPendingStep(
+        request=build_request(untrusted_model),
+        handler=RecordingHandler().run_async,
+        monitor=monitor,
+        task_author=TaskAuthor.USER,
+    )
+
+    # Act
+    first = await step.sample(count=1)
+    second = await step.sample(count=2)
+
+    # Assert
+    assert step.judged_samples == [*first, *second]

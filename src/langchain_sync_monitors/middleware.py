@@ -8,7 +8,8 @@ In a `create_agent` middleware list the monitor goes last. LangChain nests
 `wrap_model_call` handlers with the first middleware outermost, and a
 middleware inside the monitor that returns state updates would have them
 merged across every sample the protocol draws [@langchain2026].
-`check_monitor_placement` warns about such a list.
+`check_monitor_placement` warns about such a list, and about a middleware
+outside the monitor that retries failed model calls.
 """
 
 import logging
@@ -40,6 +41,7 @@ from langchain_sync_monitors._langchain import (
     AsyncModelCallHandler,
     ModelCallHandler,
     MonitorStepEvent,
+    MonitorStepFailedEvent,
     StructuredOutput,
     hide_model_calls_from_message_stream,
     read_monitor_log,
@@ -50,6 +52,7 @@ from langchain_sync_monitors.contracts import (
     FeedbackVisibility,
     Monitor,
     Outcome,
+    SampleRecord,
     StepDecision,
     StepRecord,
     SubagentHalt,
@@ -62,10 +65,15 @@ from langchain_sync_monitors.feedback import (
 from langchain_sync_monitors.options import check_enum_option
 from langchain_sync_monitors.pending_steps import (
     AsyncPendingStep,
+    MonitoredStep,
     SyncPendingStep,
     run_synchronously,
 )
-from langchain_sync_monitors.records import build_step_record, find_monitor_records
+from langchain_sync_monitors.records import (
+    build_sample_record,
+    build_step_record,
+    find_monitor_records,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -84,6 +92,21 @@ REQUEST_ONLY_MIDDLEWARE = frozenset(
 Deep Agents places these after user middleware [@deepagents2026].
 """
 
+RETRYING_MIDDLEWARE = frozenset(
+    {
+        "ModelFallbackMiddleware",
+        "ModelRetryMiddleware",
+        "_DeepAgentsSummarizationMiddleware",
+    },
+)
+"""Classes that call the rest of the stack again when a model call raises.
+
+LangChain's retry and fallback middleware retry on an exception, and Deep
+Agents' summarisation retries after a context overflow
+[@langchain2026; @deepagents2026]. Outside a monitor, each retry runs the
+whole monitored step again.
+"""
+
 
 class MonitorState(AgentState):
     """The agent state with the log of every monitored step.
@@ -98,7 +121,13 @@ class MonitorState(AgentState):
 
 
 class MonitorPlacementWarning(UserWarning):
-    """A middleware inside a monitor can return state updates for samples the monitor rejects."""
+    """A middleware placed around or inside a monitor undermines what the monitor records.
+
+    Inside a monitor, a middleware can return state updates for samples the
+    monitor rejects. Outside it, a middleware that retries failed model calls
+    runs the whole step again, and the samples judged before the failure never
+    reach `monitor_log`.
+    """
 
 
 def build_subagent_halt_decision(*, subagent_names: Sequence[str]) -> StepDecision:
@@ -145,6 +174,14 @@ def build_end_run_update() -> AgentStateUpdate:
     return {"jump_to": "end"}
 
 
+def render_judged_samples(samples: Sequence[SampleRecord]) -> str:
+    """Render judged samples for a log line: each one's suspicion, reason and proposal."""
+    return "\n".join(
+        f"- suspicion {sample['suspicion']:.3f}, reason: {sample['reason']}\n{sample['proposal']}"
+        for sample in samples
+    )
+
+
 @dataclass(frozen=True, kw_only=True, eq=False)
 class MonitorMiddleware(AgentMiddleware[MonitorState, AgentContext, StructuredOutput]):
     """Puts a monitor and a control protocol around every model call of an agent.
@@ -172,6 +209,11 @@ class MonitorMiddleware(AgentMiddleware[MonitorState, AgentContext, StructuredOu
     loops until it has a structured response. The hook adds one graph step per
     model call, which counts towards an explicit `recursion_limit`, and on a
     halted step it skips the `after_model` hooks that would run after it.
+
+    If a call inside a step raises before the protocol decides, the step is
+    not committed. The samples the monitor had judged are logged as a warning
+    and written to `stream_mode="custom"` as a `MonitorStepFailedEvent`, and
+    the exception is raised again.
 
     The instance holds configuration only. Deep Agents runs parallel subagents
     through shared middleware instances, so every piece of run state lives in
@@ -231,8 +273,12 @@ class MonitorMiddleware(AgentMiddleware[MonitorState, AgentContext, StructuredOu
                 task_author=self.task_author,
                 previous_records=previous_records,
             )
-            with hide_model_calls_from_message_stream():
-                decision = run_synchronously(self.protocol.decide(step))
+            try:
+                with hide_model_calls_from_message_stream():
+                    decision = run_synchronously(self.protocol.decide(step))
+            except BaseException as error:
+                self.report_failed_step(request, step=step, error=error)
+                raise
         return self.commit(request, decision=decision, previous_records=previous_records)
 
     @override
@@ -253,8 +299,12 @@ class MonitorMiddleware(AgentMiddleware[MonitorState, AgentContext, StructuredOu
                 task_author=self.task_author,
                 previous_records=previous_records,
             )
-            with hide_model_calls_from_message_stream():
-                decision = await self.protocol.decide(step)
+            try:
+                with hide_model_calls_from_message_stream():
+                    decision = await self.protocol.decide(step)
+            except BaseException as error:
+                self.report_failed_step(request, step=step, error=error)
+                raise
         return self.commit(request, decision=decision, previous_records=previous_records)
 
     @hook_config(can_jump_to=["end"])
@@ -307,6 +357,41 @@ class MonitorMiddleware(AgentMiddleware[MonitorState, AgentContext, StructuredOu
             return None
         return build_subagent_halt_decision(subagent_names=[record["agent"] for record in halts])
 
+    def report_failed_step(
+        self,
+        request: AgentModelRequest,
+        *,
+        step: MonitoredStep,
+        error: BaseException,
+    ) -> None:
+        """Report the samples judged in a step that raised, before the error propagates.
+
+        The step is never committed, so this is the only trace of its samples:
+        a `MonitorStepFailedEvent` on `stream_mode="custom"` and, when the
+        monitor had judged anything, a warning that lists each sample.
+        """
+        step_number = len(step.previous_records) + 1
+        samples = [build_sample_record(sample, executed=False) for sample in step.judged_samples]
+        event = MonitorStepFailedEvent(
+            type="monitor_step_failed",
+            agent=self.agent_name,
+            monitor=self.label,
+            step_number=step_number,
+            error=f"{type(error).__name__}: {error}",
+            samples=samples,
+        )
+        write_stream_event(request, event=event)
+        if samples:
+            logger.warning(
+                "%s: step %d failed with %s before it was committed, so the %d sample(s) the "
+                "monitor judged are not in monitor_log:\n%s",
+                self.name,
+                step_number,
+                event["error"],
+                len(samples),
+                render_judged_samples(samples),
+            )
+
     def commit(
         self,
         request: AgentModelRequest,
@@ -356,37 +441,76 @@ def is_unsafe_inside_monitor(middleware: AnyAgentMiddleware) -> bool:
     return is_model_call_wrapper(middleware) and not is_request_only
 
 
+def is_retrying_middleware(middleware: AnyAgentMiddleware) -> bool:
+    """Tell whether a middleware wraps model calls and is known to retry them when they raise."""
+    is_retrying = type(middleware).__name__ in RETRYING_MIDDLEWARE
+    return is_retrying and is_model_call_wrapper(middleware)
+
+
+def find_last_monitor_position(middleware: Sequence[AnyAgentMiddleware]) -> int | None:
+    """Return the position of the last monitor in the list, or None when there is none."""
+    monitor_positions = [
+        index for index, item in enumerate(middleware) if isinstance(item, MonitorMiddleware)
+    ]
+    return monitor_positions[-1] if monitor_positions else None
+
+
 def find_middleware_inside_monitor(
     middleware: Sequence[AnyAgentMiddleware],
 ) -> Sequence[AnyAgentMiddleware]:
     """Return the middleware after the last monitor, which LangChain nests inside it."""
-    monitor_positions = [
-        index for index, item in enumerate(middleware) if isinstance(item, MonitorMiddleware)
-    ]
-    if not monitor_positions:
-        return ()
-    return middleware[monitor_positions[-1] + 1 :]
+    position = find_last_monitor_position(middleware)
+    return () if position is None else middleware[position + 1 :]
+
+
+def find_middleware_outside_monitor(
+    middleware: Sequence[AnyAgentMiddleware],
+) -> Sequence[AnyAgentMiddleware]:
+    """Return the middleware before the last monitor, which LangChain wraps around it."""
+    position = find_last_monitor_position(middleware)
+    return () if position is None else middleware[:position]
 
 
 def check_monitor_placement(*, middleware: Sequence[AnyAgentMiddleware]) -> list[str]:
-    """Warn about each middleware inside the last monitor that may return state updates.
+    """Warn about each middleware placed where it undermines the last monitor.
 
-    Pass the list given to `create_agent`. Only a middleware that wraps model
-    calls runs inside the monitor, and a known request-only one is safe there.
-    Any other can return commands, which LangChain collects per call of the
-    monitor's handler, so they would pile up from every sample the protocol
-    draws [@langchain2026]. Returns the names of the middleware it warned about.
+    Pass the list given to `create_agent`. Two placements are warned about:
+
+    - inside the monitor, a middleware that wraps model calls and is not known
+      to only rewrite the request. It can return commands, which LangChain
+      collects per call of the monitor's handler, so they would pile up from
+      every sample the protocol draws [@langchain2026];
+    - outside the monitor, a middleware known to retry failed model calls,
+      such as `ModelRetryMiddleware`. A retry runs the whole step again with
+      fresh samples, and the samples judged before the failure reach only a
+      warning log line and a `MonitorStepFailedEvent`, never `monitor_log`.
+
+    Returns the names of the middleware it warned about.
     """
-    misplaced = [
+    misplaced_inside = [
         item.name
         for item in find_middleware_inside_monitor(middleware)
         if is_unsafe_inside_monitor(item)
     ]
-    for name in misplaced:
+    retrying_outside = [
+        item.name
+        for item in find_middleware_outside_monitor(middleware)
+        if is_retrying_middleware(item)
+    ]
+    for name in misplaced_inside:
         warnings.warn(
             f"{name} wraps model calls inside a monitor, so any state update it returns "
             "is merged across every sample the monitor draws. Put the monitor last.",
             MonitorPlacementWarning,
             stacklevel=2,
         )
-    return misplaced
+    for name in retrying_outside:
+        warnings.warn(
+            f"{name} retries failed model calls from outside a monitor, so a step that fails "
+            "runs again from the start with fresh samples. The samples the monitor judged "
+            "before the failure never reach monitor_log; only a warning log line and a "
+            "monitor_step_failed event on stream_mode='custom' keep them.",
+            MonitorPlacementWarning,
+            stacklevel=2,
+        )
+    return misplaced_inside + retrying_outside

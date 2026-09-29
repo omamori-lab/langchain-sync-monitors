@@ -9,9 +9,8 @@ call the synchronous model and monitor without awaiting anything, so
 
 from __future__ import annotations
 
-import asyncio
 from collections.abc import Coroutine, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import override
 
 from langchain_core.language_models import BaseChatModel
@@ -24,6 +23,7 @@ from langchain_sync_monitors._langchain import (
     ModelCallHandler,
     build_request_with_messages,
 )
+from langchain_sync_monitors.concurrency import run_concurrently
 from langchain_sync_monitors.contracts import (
     BlockedAttempt,
     Monitor,
@@ -99,13 +99,18 @@ class MonitoredStep(PendingStep):
 
     `request` is the step's model request, `monitor` judges each sample, and
     `previous_records` holds this monitor's records for this agent from
-    earlier steps of the run.
+    earlier steps of the thread. `judged_samples` collects every sample the
+    monitor has judged so far, in the order the verdicts arrived, so the
+    middleware can report them if the step fails before it is committed. A
+    pending step lives for one step only, so this is not state shared between
+    runs.
     """
 
     request: AgentModelRequest
     monitor: Monitor
     task_author: TaskAuthor
     previous_records: tuple[StepRecord, ...] = ()
+    judged_samples: list[Sample] = field(default_factory=list)
 
     def build_conversation(
         self,
@@ -131,6 +136,11 @@ class MonitoredStep(PendingStep):
         """Return what the monitor judges: the conversation the sample saw and its proposal."""
         return MonitorInput(history=conversation, proposal=proposal, task_author=self.task_author)
 
+    def keep_judged_sample(self, sample: Sample) -> Sample:
+        """Remember a judged sample as evidence, and return it."""
+        self.judged_samples.append(sample)
+        return sample
+
 
 @dataclass(frozen=True, kw_only=True, eq=False)
 class AsyncPendingStep(MonitoredStep):
@@ -151,12 +161,13 @@ class AsyncPendingStep(MonitoredStep):
     ) -> tuple[Sample, ...]:
         """Draw `count` samples through the rest of the stack and have the monitor judge each.
 
-        With `concurrently`, the samples are drawn at once with `asyncio.gather`.
+        With `concurrently`, the samples are drawn at once in a task group, so
+        one failed draw cancels the others.
         """
         conversation = self.build_conversation(blocked_attempts)
         if concurrently:
             draws = (self.draw_sample(conversation) for _ in range(count))
-            return tuple(await asyncio.gather(*draws))
+            return tuple(await run_concurrently(draws))
         return tuple([await self.draw_sample(conversation) for _ in range(count)])
 
     async def draw_sample(self, conversation: tuple[BaseMessage, ...]) -> Sample:
@@ -165,7 +176,9 @@ class AsyncPendingStep(MonitoredStep):
         proposal = find_proposal(response)
         monitor_input = self.build_monitor_input(conversation=conversation, proposal=proposal)
         verdict = await self.monitor.evaluate(monitor_input)
-        return Sample(response=response, proposal=proposal, verdict=verdict)
+        return self.keep_judged_sample(
+            Sample(response=response, proposal=proposal, verdict=verdict),
+        )
 
     @override
     async def request_trusted_step(self, *, trusted_model: BaseChatModel) -> AgentModelResponse:
@@ -206,7 +219,9 @@ class SyncPendingStep(MonitoredStep):
         proposal = find_proposal(response)
         monitor_input = self.build_monitor_input(conversation=conversation, proposal=proposal)
         verdict = self.monitor.evaluate_sync(monitor_input)
-        return Sample(response=response, proposal=proposal, verdict=verdict)
+        return self.keep_judged_sample(
+            Sample(response=response, proposal=proposal, verdict=verdict),
+        )
 
     @override
     async def request_trusted_step(self, *, trusted_model: BaseChatModel) -> AgentModelResponse:

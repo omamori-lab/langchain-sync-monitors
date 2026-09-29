@@ -95,3 +95,4 @@ nav:
       - explanation/index.md
       - How the library is built: explanation/design.md
       - Where the ideas come from: explanation/background.md
+      - Live runs of a monitored agent: explanation/live-runs.md

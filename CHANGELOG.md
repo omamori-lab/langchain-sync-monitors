@@ -95,7 +95,8 @@ The first release. Everything below is new.
   or without an API key; how-to guides for choosing and using each protocol,
   each monitor family, wrapping and calibrating monitors, choosing what the
   monitor reads, reading the monitor log and monitoring Deep Agents
-  subagents; and explanation pages on how the library is built and where
-  its ideas come from.
+  subagents; and explanation pages on how the library is built, where its
+  ideas come from, and how a monitored agent fared in live runs against real
+  models, with the harness that reproduces them.
 - A complete bibliography: every paper, post and code base the library draws
   on, cited where it is used, with a test that keeps the two in step.

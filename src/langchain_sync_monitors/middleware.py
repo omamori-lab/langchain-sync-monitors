@@ -62,6 +62,7 @@ from langchain_sync_monitors._langchain import (
 from langchain_sync_monitors.contracts import (
     ControlProtocol,
     Delegation,
+    Fallback,
     FeedbackVisibility,
     Monitor,
     SampleRecord,
@@ -81,7 +82,7 @@ from langchain_sync_monitors.delegation import (
 from langchain_sync_monitors.errors import ProviderToolWarning
 from langchain_sync_monitors.feedback import build_blocked_attempt_messages
 from langchain_sync_monitors.halts import build_standing_halt_decision, is_halt_standing
-from langchain_sync_monitors.options import check_enum_option
+from langchain_sync_monitors.options import check_enum_option, check_instance_option
 from langchain_sync_monitors.pending_steps import (
     AsyncPendingStep,
     MonitoredStep,
@@ -164,7 +165,9 @@ class MonitorMiddleware(AgentMiddleware[MonitorState, AgentContext, StructuredOu
     shown to the retry. `when_subagent_halts=SubagentHalt.STOP_WHOLE_RUN` halts
     this agent before its next model call once a subagent was halted. Each
     option must be a member of its enum; a plain string raises
-    `ConfigurationError`.
+    `ConfigurationError`, as do a `monitor` that is not a `Monitor` and a
+    `protocol` that is not a `ControlProtocol`, such as the fallback
+    `DeferToTrustedModel` in place of the protocol `DeferToTrusted`.
 
     Before each tool call, the middleware adds a `Delegation` to the state the
     tool sees: the call's id, `agent_name` and the blocks each monitor has
@@ -220,7 +223,21 @@ class MonitorMiddleware(AgentMiddleware[MonitorState, AgentContext, StructuredOu
     transformers = (InternalCallTransformer,)
 
     def __post_init__(self) -> None:
-        """Reject an option that is not a member of its enum, such as a plain string."""
+        """Reject an option of the wrong type, such as a plain string where an enum belongs."""
+        check_instance_option(self.monitor, option_type=Monitor, parameter_name="monitor")
+        protocol_hint = "Use a protocol such as AutoMode, DeferToResample or DeferToTrusted."
+        if isinstance(self.protocol, Fallback):
+            protocol_hint = (
+                f"{type(self.protocol).__name__} is a fallback, which writes a step once a "
+                "protocol rejects its samples. To defer suspicious steps to the trusted model, "
+                "use DeferToTrusted(trusted_model=...)."
+            )
+        check_instance_option(
+            self.protocol,
+            option_type=ControlProtocol,
+            parameter_name="protocol",
+            hint=protocol_hint,
+        )
         check_enum_option(self.task_author, option_type=TaskAuthor, parameter_name="task_author")
         check_enum_option(
             self.feedback_visibility,

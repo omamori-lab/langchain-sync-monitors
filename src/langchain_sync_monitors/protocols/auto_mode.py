@@ -17,7 +17,8 @@ from langchain_sync_monitors.contracts import (
     Verdict,
 )
 from langchain_sync_monitors.errors import ConfigurationError
-from langchain_sync_monitors.protocols.fallbacks import HaltRun
+from langchain_sync_monitors.options import check_count_option, check_instance_option
+from langchain_sync_monitors.protocols.fallbacks import HaltRun, check_fallback_option
 from langchain_sync_monitors.thresholds import (
     DEFAULT_BLOCK_THRESHOLD,
     DefaultThreshold,
@@ -60,7 +61,8 @@ class FeedbackTemplate:
     text: str
 
     def __post_init__(self) -> None:
-        """Reject a template without `{reason}` or with any other format field."""
+        """Reject a text that is not a string, lacks `{reason}` or has any other format field."""
+        check_instance_option(self.text, option_type=str, parameter_name="text")
         fields = read_format_fields(self.text)
         if REASON_FIELD not in fields or any(field != REASON_FIELD for field in fields):
             message = (
@@ -125,6 +127,10 @@ class AutoMode(ControlProtocol):
     with an error message or runs it again; a retry starts the subagent again
     from the same count. `check_monitor_placement` warns about such
     middleware.
+
+    Each option is checked when the protocol is built: `feedback` must be a
+    `FeedbackTemplate`, `when_limit_reached` a `Fallback`, and each limit an
+    `int` of at least 1; anything else raises `ConfigurationError`.
     """
 
     def __init__(
@@ -137,13 +143,17 @@ class AutoMode(ControlProtocol):
         max_total_blocks: int = 20,
     ) -> None:
         """Keep the configuration, warning when the block threshold is the default."""
-        for parameter_name, limit in (
-            ("max_consecutive_blocks", max_consecutive_blocks),
-            ("max_total_blocks", max_total_blocks),
-        ):
-            if limit < 1:
-                message = f"{parameter_name} must be at least 1, got {limit}"
-                raise ConfigurationError(message)
+        check_instance_option(
+            feedback,
+            option_type=FeedbackTemplate,
+            parameter_name="feedback",
+            hint="Wrap the text in FeedbackTemplate(text=...).",
+        )
+        check_fallback_option(when_limit_reached, parameter_name="when_limit_reached")
+        check_count_option(
+            max_consecutive_blocks, parameter_name="max_consecutive_blocks", minimum=1
+        )
+        check_count_option(max_total_blocks, parameter_name="max_total_blocks", minimum=1)
         self.feedback = feedback
         self.when_limit_reached = when_limit_reached
         self.block_threshold = resolve_threshold(

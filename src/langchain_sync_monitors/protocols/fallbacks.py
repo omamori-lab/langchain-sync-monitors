@@ -25,6 +25,7 @@ from langchain_core.messages import AIMessage
 
 from langchain_sync_monitors.contracts import (
     BlockedAttempt,
+    ControlProtocol,
     Fallback,
     Outcome,
     PendingStep,
@@ -32,12 +33,29 @@ from langchain_sync_monitors.contracts import (
     StepDecision,
 )
 from langchain_sync_monitors.model_calls import resolve_chat_model
+from langchain_sync_monitors.options import check_instance_option
 
 DEFAULT_HALT_MESSAGE: Final = (
     "[Safety monitor] This run was stopped because the agent's proposed steps looked "
     "unsafe. The rejected steps are recorded in monitor_log for review."
 )
 """The final message `HaltRun` writes when it is given no message of its own."""
+
+
+def check_fallback_option(value: object, *, parameter_name: str) -> None:
+    """Raise `ConfigurationError` unless `value` is a `Fallback`, naming a protocol mix-up.
+
+    `DeferToTrusted` is a protocol and `DeferToTrustedModel` its fallback, and
+    both take `trusted_model`, so the two are easy to swap. A protocol given
+    here would fail only when the fallback is first needed.
+    """
+    hint = "Use HaltRun() or DeferToTrustedModel(trusted_model=...)."
+    if isinstance(value, ControlProtocol):
+        hint = (
+            f"{type(value).__name__} is a control protocol, which decides whole steps. To "
+            "have the trusted model write the step, use DeferToTrustedModel(trusted_model=...)."
+        )
+    check_instance_option(value, option_type=Fallback, parameter_name=parameter_name, hint=hint)
 
 
 class DeferToTrustedModel(Fallback):
@@ -89,6 +107,10 @@ class HaltRun(Fallback):
     """
 
     message: str = DEFAULT_HALT_MESSAGE
+
+    def __post_init__(self) -> None:
+        """Reject a message that is not a string, which could not be the final message."""
+        check_instance_option(self.message, option_type=str, parameter_name="message")
 
     async def take_over(
         self,

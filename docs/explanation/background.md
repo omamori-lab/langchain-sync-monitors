@@ -21,8 +21,8 @@ rejected samples become evidence for auditing.
 The Auto Mode protocol follows Claude Code's auto mode [@hughes2026automode]: a
 classifier reviews each action before it runs, a blocked action is answered
 with the reason so the agent can find a safer path, and repeated blocks
-escalate. Its limits of three blocks in a row and twenty in a run are the ones
-Claude Code uses.
+escalate. Its limits of three blocks in a row and twenty in a session are the
+ones Claude Code uses; here a session is a conversation thread.
 
 ## Thresholds and scores
 

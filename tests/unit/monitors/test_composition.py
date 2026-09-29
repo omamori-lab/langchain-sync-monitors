@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+import dataclasses
+
 import pytest
+from langchain_core.messages import AIMessage
 
 from langchain_sync_monitors.contracts import MonitorInput
 from langchain_sync_monitors.errors import ConfigurationError
@@ -13,6 +16,10 @@ from langchain_sync_monitors.monitors.composition import (
 )
 
 from .doubles import ScriptedMonitor
+
+
+def build_step_with_text(monitor_input: MonitorInput, *, text: str) -> MonitorInput:
+    return dataclasses.replace(monitor_input, proposal=AIMessage(content=text))
 
 
 @pytest.fixture
@@ -66,8 +73,7 @@ def test_repeated_monitor_keeps_the_most_suspicious_reason(
     verdict = repeated.evaluate_sync(monitor_input)
 
     # Assert
-    assert "call 2 scored 0.7" in verdict.reason
-    assert "over 3 calls" in verdict.reason
+    assert verdict.reason == "call 2 scored 0.7"
 
 
 def test_one_repeat_returns_the_single_score(monitor_input: MonitorInput) -> None:
@@ -87,7 +93,7 @@ def test_zero_repeats_is_rejected() -> None:
         RepeatedMonitor(monitor=ScriptedMonitor(suspicions=[0.0]), repeats=0)
 
 
-def test_a_tied_score_lands_inside_the_tie(
+def test_a_tied_score_lands_inside_its_slot_and_the_tie(
     honest_scores: list[float],
     monitor_input: MonitorInput,
 ) -> None:
@@ -97,12 +103,13 @@ def test_a_tied_score_lands_inside_the_tie(
         honest_scores=honest_scores,
         random_seed=7,
     )
+    steps = [build_step_with_text(monitor_input, text=f"step {index}") for index in range(50)]
 
     # Act
-    percentiles = [calibrated.evaluate_sync(monitor_input).suspicion for _ in range(50)]
+    percentiles = [calibrated.evaluate_sync(step).suspicion for step in steps]
 
-    # Assert
-    assert all(0.25 <= percentile <= 0.75 for percentile in percentiles)
+    # Assert: one honest score below, two tied, so slots 1 to 3 of 5
+    assert all(1 / 5 <= percentile < 4 / 5 for percentile in percentiles)
     assert len(set(percentiles)) > 1
 
 
@@ -129,27 +136,29 @@ async def test_the_same_seed_breaks_ties_the_same_way(
 
 
 @pytest.mark.parametrize(
-    ("raw_suspicion", "expected_percentile"),
-    [(0.0, 0.0), (0.25, 0.75), (0.3 + 1e-9, 1.0), (1.0, 1.0)],
+    ("raw_suspicion", "honest_scores_below"),
+    [(0.0, 0), (0.25, 3), (0.3 + 1e-9, 4), (1.0, 4)],
 )
-def test_untied_scores_map_to_the_share_of_honest_scores_below(
+def test_an_untied_score_lands_in_its_own_rank_slot(
     honest_scores: list[float],
     monitor_input: MonitorInput,
     raw_suspicion: float,
-    expected_percentile: float,
+    honest_scores_below: int,
 ) -> None:
     # Arrange
     calibrated = CalibratedMonitor(
         monitor=ScriptedMonitor(suspicions=[raw_suspicion]),
         honest_scores=honest_scores,
     )
+    slot_count = len(honest_scores) + 1
 
     # Act
     verdict = calibrated.evaluate_sync(monitor_input)
 
     # Assert
-    assert verdict.suspicion == pytest.approx(expected_percentile)
-    assert "percentile of honest runs" in verdict.reason
+    assert honest_scores_below / slot_count <= verdict.suspicion
+    assert verdict.suspicion < (honest_scores_below + 1) / slot_count
+    assert verdict.reason == f"call 1 scored {raw_suspicion}"
 
 
 @pytest.mark.parametrize("honest", [[], [0.2, float("nan")], [1.5]])
@@ -191,7 +200,7 @@ async def test_a_fast_verdict_at_the_threshold_escalates(monitor_input: MonitorI
     # Assert
     assert verdict.suspicion == 0.1
     assert careful.calls == 1
-    assert "fast monitor scored 0.30" in verdict.reason
+    assert verdict.reason == "call 1 scored 0.1"
 
 
 def test_the_sync_cascade_escalates_the_same_way(monitor_input: MonitorInput) -> None:

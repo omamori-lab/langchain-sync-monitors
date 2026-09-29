@@ -52,7 +52,8 @@ list is the outermost layer. In a plain `create_agent`, the monitor goes last
 in the list, directly around the model. That position matters: middleware
 listed after the monitor becomes a layer inside it, and when the monitor draws
 several samples, LangChain's composed handler keeps only the commands of the
-last inner call, whichever sample the protocol commits [@langchain2026].
+last inner call, by design and as its documentation states, whichever sample
+the protocol commits [@langchain2026].
 
 Deep Agents builds its own stack around the user's middleware. With
 deepagents 0.7.19 [@deepagents2026] and `interrupt_on` set, the list, from
@@ -141,8 +142,8 @@ parent agent, so its messages are rendered as `<delegator>` rather than
 feedback messages are rendered as `<monitor_feedback>`. When the view keeps
 only recent entries, the first message that states the task is kept anyway,
 since a monitor cannot judge a step without it. Reasoning is read from
-LangChain's standard content blocks, with a fallback for OpenRouter replies
-that carry it only in `reasoning_details`.
+LangChain's standard content blocks, with a fallback for a reply that would
+carry it only in OpenRouter's `reasoning_details`.
 
 ## Control protocols
 

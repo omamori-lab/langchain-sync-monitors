@@ -686,7 +686,12 @@ hang them under the LangSmith-only run in which `create_agent` wraps each
 middleware hook, which can split the trace in Langfuse
 [@langchain2026; @langfuse2026]. For the same reason, code in a monitor that
 traces itself with LangSmith's `traceable` decorator nests under that hook run
-in LangSmith, not under its judgement.
+in LangSmith, not under its judgement. A tool call runs inside the monitor's
+`wrap_tool_call` hook, where the monitor opens no span, so with LangSmith and
+another handler attached together the tool's run still names that hook's
+LangSmith-only run as its parent, which the other handler never saw.
+[See the monitor's decisions in LangSmith and Langfuse](../how-to/see-decisions-in-langsmith-and-langfuse.md)
+shows how to attach either tool and find the halted and flagged steps.
 
 ## The log records
 

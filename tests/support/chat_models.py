@@ -79,6 +79,25 @@ class ScriptedChatModel(BaseChatModel):
         return self._build_next_result(messages)
 
 
+class SummarisingScriptedChatModel(ScriptedChatModel):
+    """A scripted agent model that also writes the summaries Deep Agents asks it for.
+
+    Deep Agents summarises the history with the agent's own model, in a
+    request of one message, while every agent step carries the system prompt.
+    How often it summarises depends on the Deep Agents version, so a summary
+    request always gets `summary` and never uses up a scripted step.
+    """
+
+    summary: AIMessage
+
+    def _take_next_response(self, messages: list[BaseMessage]) -> AIMessage:
+        if len(messages) != 1:
+            return super()._take_next_response(messages)
+        with self._lock:
+            self.calls.append(list(messages))
+        return self.summary.model_copy(deep=True)
+
+
 class StreamingScriptedChatModel(ScriptedChatModel):
     """A scripted model that streams each reply as providers do.
 

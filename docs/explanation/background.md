@@ -46,12 +46,12 @@ that integer scores tie at low false-positive rates and that averaging a few
 monitor calls restores resolution; Koran et al. [@koran2026ensemble] measure
 how much. `CalibratedMonitor` reports a step's smoothed conformal rank among
 honest scores [@vovk2005algorithmic], and breaking the remaining ties at random
-follows Makins and Angelini [@makins2026multiagent]. Combining monitors under a
+follows Makins et al. [@makins2026multiagent]. Combining monitors under a
 cost budget, and the cascade of a cheap monitor in front of a careful one, draw
 on Hua et al. [@hua2025combining].
 
-A monitor's prompt follows Apollo Research's ablations
-[@apollo2026monitoringprompt]: reasoning before the score matters most, an
+A monitor's prompt follows Apollo Research's ablations [@apollo2026monitoringprompt]:
+reasoning before the score matters most, an
 anchored scale calibrates the level, and the task and user messages come
 first.
 
@@ -153,7 +153,9 @@ pattern [@cannon2016sansio].
 
 The repository layout, documentation structure and quality gate follow LaNorme
 [@lanorme2026], which also checks the code and prose. uv [@uv2025] manages the
-environment and builds the package with hatchling [@hatchling2026]. Ruff
+environment and builds the package with hatchling [@hatchling2026], whose
+hatch-fancy-pypi-readme plugin [@hatchfancypypireadme2025] turns the README's
+relative links into absolute ones for PyPI. Ruff
 [@ruff2026] lints and formats the code, and ty [@ty2026] checks its types. The
 tests run on pytest [@krekel2004pytest] with pytest-asyncio
 [@pytestasyncio2026], and the citation test reads this bibliography with

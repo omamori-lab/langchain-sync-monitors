@@ -137,8 +137,8 @@ def find_reply_label(
     """Find the label where the guard's format puts it, or return `None` if that is ambiguous.
 
     gpt-oss-safeguard follows the output format its policy asks for
-    [@openai2025gptosssafeguardguide], and a policy like the example asks for
-    the label on the last line, after the reasoning;
+    [@openai2025gptosssafeguardguide], and a policy like the one in the guard
+    guide asks for the label on the last line, after the reasoning;
     Llama Guard writes an unsafe label on the first line, followed only by
     the codes of the violated categories, as in `S1,S10`
     [@meta2024llamaguard3format; @meta2025llamaguard4]. Labels match

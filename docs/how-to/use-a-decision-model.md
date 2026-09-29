@@ -74,7 +74,7 @@ A question is a `YesNoQuestion`: a `key` that names the answer, the question
 
 `ATTACK_CRITERIA` is an opt-in preset of four narrower questions. Atomic
 questions, one proposition each, are what TypeSafe advises
-[@typesafe2026langchain].
+[@typesafe2026docs].
 
 | `key` | Question |
 |---|---|

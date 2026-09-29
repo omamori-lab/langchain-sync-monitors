@@ -36,8 +36,8 @@ plugins:
   - search
   - bibtex:
       bib_file: docs/references.bib
-      # Only bracketed [@key] citations: bare @word inline citations would read
-      # Python decorators in code examples as citation keys.
+      # Only bracketed [@key] citations, so a bare @word, such as a decorator in a
+      # code example, is never read as a citation key.
       enable_inline_citations: false
   - mkdocstrings:
       handlers:
@@ -61,6 +61,11 @@ markdown_extensions:
         - name: mermaid
           class: mermaid
           format: !!python/name:pymdownx.superfences.fence_code_format
+
+# Report a link to a missing anchor as a warning, so --strict fails on it. A line
+# that Markdown mistakes for a footnote definition shows up this way.
+validation:
+  anchors: warn
 
 nav:
   - Home: index.md

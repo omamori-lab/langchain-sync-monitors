@@ -7,12 +7,15 @@ each call of one of the package's classes or functions to its signature. An
 unknown keyword, a positional argument to a keyword-only parameter and a
 missing required argument all fail. A block that elides arguments with a bare
 ``...``, as in ``MonitorMiddleware(..., agent_name="worker")``, has only its
-named keywords checked.
+named keywords checked. The README's examples are checked the same way, and
+every function or class a page's examples call must be defined or imported by
+that point on the page, since a reader copies the blocks in order.
 """
 
 from __future__ import annotations
 
 import ast
+import builtins
 import importlib
 import inspect
 import re
@@ -97,14 +100,62 @@ def is_checked_page(path: Path) -> bool:
     return path.suffix == ".md" and not WORKING_NOTE_DIRECTORIES.intersection(path.parts)
 
 
-def collect_docs_blocks() -> list[CodeBlock]:
-    """Return the Python blocks of every docs page, plans excluded."""
+README_PATH = REPOSITORY_ROOT / "README.md"
+
+
+def collect_checked_pages() -> list[Path]:
+    """Return every docs page, plans excluded, and the README."""
     pages = sorted(path for path in DOCS_DIRECTORY.rglob("*.md") if is_checked_page(path))
+    return [README_PATH, *pages]
+
+
+def collect_docs_blocks() -> list[CodeBlock]:
+    """Return the Python blocks of every checked page, in page order."""
     return [
         block
-        for page in pages
+        for page in collect_checked_pages()
         for block in read_python_blocks(page.read_text(encoding="utf-8"), path=page)
     ]
+
+
+def read_defined_names(tree: ast.Module) -> set[str]:
+    """Return every name a block binds: imports, assignments, definitions and parameters."""
+    names: set[str] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import | ast.ImportFrom):
+            names |= {alias.asname or alias.name.split(".")[0] for alias in node.names}
+        elif isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef | ast.ClassDef):
+            names.add(node.name)
+        elif isinstance(node, ast.arg):
+            names.add(node.arg)
+        elif isinstance(node, ast.Name) and isinstance(node.ctx, ast.Store):
+            names.add(node.id)
+    return names
+
+
+def find_undefined_calls(tree: ast.Module, *, defined: set[str]) -> list[str]:
+    """Return a message for every call of a bare name that nothing has defined or imported."""
+    known = defined | read_defined_names(tree) | set(dir(builtins))
+    return [
+        f"line {node.lineno}: {node.func.id}(...) is called but never defined or imported"
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Name)
+        and node.func.id not in known
+    ]
+
+
+def find_page_undefined_calls(blocks: list[CodeBlock]) -> list[str]:
+    """Check a page's blocks in order, each able to use what the blocks before it defined."""
+    defined: set[str] = set()
+    problems: list[str] = []
+    for block in blocks:
+        tree = ast.parse(block.source, filename=block.label)
+        problems += [
+            f"{block.label}: {problem}" for problem in find_undefined_calls(tree, defined=defined)
+        ]
+        defined |= read_defined_names(tree)
+    return problems
 
 
 def is_package_module(name: str | None) -> bool:
@@ -270,6 +321,48 @@ def check_source(source: str, *, check: Callable[[ast.Module], list[str]]) -> li
 
 
 DOCS_BLOCKS = collect_docs_blocks()
+
+
+CHECKED_PAGES = collect_checked_pages()
+
+
+@pytest.mark.parametrize(
+    "page",
+    CHECKED_PAGES,
+    ids=[str(page.relative_to(REPOSITORY_ROOT)) for page in CHECKED_PAGES],
+)
+def test_every_name_a_page_calls_is_defined_or_imported_first(page: Path) -> None:
+    # Arrange
+    blocks = read_python_blocks(page.read_text(encoding="utf-8"), path=page)
+
+    # Act
+    problems = find_page_undefined_calls(blocks)
+
+    # Assert
+    assert problems == []
+
+
+def test_a_call_to_a_name_never_imported_is_reported() -> None:
+    # Arrange: the second block calls AutoMode and create_agent, and imports neither.
+    page = REPOSITORY_ROOT / "docs" / "example.md"
+    blocks = [
+        CodeBlock(
+            path=page, line_number=1, source="from langchain_sync_monitors import LLMMonitor"
+        ),
+        CodeBlock(
+            path=page,
+            line_number=5,
+            source="judge = LLMMonitor(model='m')\nagent = create_agent(protocol=AutoMode())",
+        ),
+    ]
+
+    # Act
+    problems = find_page_undefined_calls(blocks)
+
+    # Assert
+    assert len(problems) == 2
+    assert any("AutoMode(...)" in problem for problem in problems)
+    assert any("create_agent(...)" in problem for problem in problems)
 
 
 def test_the_docs_hold_python_examples_to_check() -> None:

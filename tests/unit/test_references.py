@@ -24,6 +24,7 @@ CITING_DIRECTORIES = ("src", "docs")
 CITING_SUFFIXES = frozenset({".py", ".md"})
 CITATION_GROUP_PATTERN = re.compile(r"\[(@[^\]\n]+)\]")
 SPLIT_CITATION_PATTERN = re.compile(r"\[@[^\]\n]*\n")
+FOOTNOTE_LIKE_CITATION_PATTERN = re.compile(r"^\[@[^\]\n]+\]:", flags=re.MULTILINE)
 CITATION_KEY_PATTERN = re.compile(r"@([A-Za-z0-9_:-]+)")
 
 
@@ -107,3 +108,38 @@ def test_no_citation_group_in_the_docs_is_split_across_lines() -> None:
 
     # Assert
     assert split == [], f"Citation groups split across lines, which render as raw text: {split}"
+
+
+def test_no_line_in_the_docs_starts_with_a_citation_and_a_colon() -> None:
+    # Arrange: Markdown reads such a line as a footnote definition and drops
+    # the rest of the sentence from the page.
+    docs_pages = [path for path in (REPOSITORY_ROOT / "docs").rglob("*.md") if is_citing_file(path)]
+
+    # Act
+    footnote_like = sorted(
+        str(path.relative_to(REPOSITORY_ROOT))
+        for path in docs_pages
+        if FOOTNOTE_LIKE_CITATION_PATTERN.search(path.read_text(encoding="utf-8"))
+    )
+
+    # Assert
+    assert footnote_like == [], f"Lines that start with a citation and a colon: {footnote_like}"
+
+
+def test_every_source_a_plan_cites_is_also_credited_outside_the_plans() -> None:
+    # Arrange: the sdist leaves the plans out, and its citation tests must pass too.
+    citations = collect_citations()
+    plans_directory = PLANS_PATH.relative_to(REPOSITORY_ROOT)
+
+    # Act
+    cited_only_in_plans = sorted(
+        key
+        for key, paths in citations.items()
+        if all(plans_directory in path.parents for path in paths)
+    )
+
+    # Assert
+    assert cited_only_in_plans == [], (
+        f"Sources cited only in docs/plans/; credit them in docs/explanation/background.md: "
+        f"{cited_only_in_plans}"
+    )

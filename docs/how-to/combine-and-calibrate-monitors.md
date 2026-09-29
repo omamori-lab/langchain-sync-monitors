@@ -234,7 +234,7 @@ scores. `below` counts the honest scores lower than the step's score, and
 `tied` counts those equal to it. `U` is a random number from 0 up to 1, which
 spreads the step evenly over its own place and the places of the honest
 scores it ties with. Dividing by `n + 1` puts the result between 0 and 1.
-Breaking ties at random follows Makins and Angelini and LinuxArena
+Breaking ties at random follows Makins et al. and LinuxArena
 [@makins2026multiagent; @tracy2026linuxarena].
 
 The guarantee holds when the step's raw score is exchangeable with the honest

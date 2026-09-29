@@ -47,7 +47,7 @@ def test_typesafe_adapter_without_its_extra_names_the_extra(
 
     # Act / Assert
     with pytest.raises(MissingExtraError, match=r"langchain-sync-monitors\[typesafe\]"):
-        TypeSafeDecisionModel(classifier=object())  # type: ignore[arg-type]
+        TypeSafeDecisionModel(classifier=object())  # ty: ignore[invalid-argument-type]
 
 
 def test_a_missing_extra_is_both_a_configuration_and_an_import_error() -> None:

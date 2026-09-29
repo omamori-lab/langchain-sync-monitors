@@ -11,7 +11,7 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from typing import TYPE_CHECKING, TypeGuard
 
-from langchain_sync_monitors._langchain import AnyAgentMiddleware
+from langchain_sync_monitors._langchain import append_subagent_middleware
 from langchain_sync_monitors.errors import ConfigurationError, MissingExtraError
 from langchain_sync_monitors.middleware import MonitorMiddleware
 
@@ -71,8 +71,11 @@ def build_declarative_specs(subagents: Sequence[SubagentSpec]) -> list[SubAgent]
 def build_monitored_spec(spec: SubAgent, *, middleware: MonitorMiddleware) -> SubAgent:
     """Return a copy of the spec with the subagent's own monitor after its middleware."""
     monitored = spec.copy()
-    monitor: AnyAgentMiddleware = middleware.copy_for_subagent(subagent_name=spec["name"])
-    monitored["middleware"] = [*spec.get("middleware", []), monitor]
+    monitor = middleware.copy_for_subagent(subagent_name=spec["name"])
+    monitored["middleware"] = append_subagent_middleware(
+        spec.get("middleware", []),
+        middleware=monitor,
+    )
     return monitored
 
 

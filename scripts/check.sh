@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Run every gate: agent files in sync, ruff, mypy, the unit tests, the lanorme
+# Run every gate: agent files in sync, ruff, ty, the unit tests, the lanorme
 # standards, the docs build, and a package build.
 # Run this before committing or finishing a change. No arguments.
 #
@@ -18,8 +18,8 @@ echo "==> ruff"
 uv run --group dev ruff check .
 uv run --group dev ruff format --check .
 
-echo "==> mypy (strict)"
-uv run --group dev mypy
+echo "==> ty (type checking)"
+uv run --group dev ty check
 
 echo "==> unit tests"
 uv run --group dev pytest -q

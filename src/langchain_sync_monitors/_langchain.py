@@ -39,6 +39,9 @@ type AsyncModelCallHandler = Callable[[AgentModelRequest], Awaitable[AgentModelR
 type AnyAgentMiddleware = AgentMiddleware[Any, AgentContext, StructuredOutput]
 """A middleware of any state, context and response schema, as `create_agent` accepts."""
 
+type SubagentMiddleware = AgentMiddleware
+"""A middleware as Deep Agents types a subagent's `middleware` list, with LangChain's defaults."""
+
 MONITOR_LOG_KEY = "monitor_log"
 """The state key that holds the step records of every monitor in the run."""
 
@@ -73,6 +76,20 @@ def build_request_with_messages(
     concrete message the library builds belongs to.
     """
     return request.override(messages=cast("list[AnyMessage]", list(messages)))
+
+
+def append_subagent_middleware(
+    existing: Sequence[SubagentMiddleware],
+    *,
+    middleware: AnyAgentMiddleware,
+) -> list[SubagentMiddleware]:
+    """Return a subagent's middleware list with one more middleware at the end.
+
+    Deep Agents declares the list with LangChain's default type parameters, and
+    generic middleware types do not convert to one another, although every
+    middleware fits the list at run time [@deepagents2026].
+    """
+    return [*existing, cast("SubagentMiddleware", middleware)]
 
 
 def write_stream_event(request: AgentModelRequest, *, event: MonitorStepEvent) -> None:

@@ -237,7 +237,7 @@ Middleware hooks return `dict[str, Any] | None`
 misspelt state key or a value of the wrong type passes the type checker.
 
 This library's shared types are frozen dataclasses, `TypedDict`s, enums and
-`Literal`s (`contracts.py`), checked by strict mypy, and the gate rejects `Any`
+`Literal`s (`contracts.py`), checked by ty, and the gate rejects `Any`
 in our signatures. Untyped LangChain surfaces are confined to one boundary
 module, which is being built with the middleware ([#17](https://github.com/Antonio-Tresol/langchain-sync-monitors/issues/17)).
 

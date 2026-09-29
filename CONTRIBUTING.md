@@ -43,7 +43,7 @@ One script runs every gate:
 scripts/check.sh
 ```
 
-It checks that `CLAUDE.md` matches `AGENTS.md`, then runs ruff, strict mypy,
+It checks that `CLAUDE.md` matches `AGENTS.md`, then runs ruff, ty (type checking),
 the unit tests, the lanorme standards (naming, complexity, docstrings, prose,
 docs layout), a strict docs build and a package build. The pre-commit hooks and
 CI run the same checks, so a green run locally means a green pull request.

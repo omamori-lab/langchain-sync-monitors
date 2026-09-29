@@ -16,7 +16,7 @@ Run the gates and make sure they pass:
 scripts/check.sh
 ```
 
-It runs the agent-file sync check, ruff, strict mypy, the unit tests, the
+It runs the agent-file sync check, ruff, ty (Astral's type checker, warnings treated as errors), the unit tests, the
 lanorme standards, a strict docs build and a package build. CI and the
 pre-commit hooks run the same script. Do not finish with a red gate.
 `uv run --group dev ruff check --fix . && uv run --group dev ruff format .`

@@ -17,9 +17,9 @@ repos:
         language: system
         types: [python]
         require_serial: true
-      - id: mypy
-        name: mypy (strict)
-        entry: uv run --group dev mypy
+      - id: ty
+        name: ty (type checking)
+        entry: uv run --group dev ty check
         language: system
         types: [python]
         pass_filenames: false

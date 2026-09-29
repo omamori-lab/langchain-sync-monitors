@@ -42,7 +42,7 @@ SUBAGENT_HALT = StepRecord(
 def delegate(description: str, tool_call_id: Annotated[str, InjectedToolCallId]) -> Command[None]:
     """Hand a task to the researcher subagent, which the safety monitor halts."""
     report = ToolMessage("Stopped by the safety monitor.", tool_call_id=tool_call_id)
-    return Command(update={"monitor_log": [SUBAGENT_HALT], "messages": [report]})
+    return Command[None](update={"monitor_log": [SUBAGENT_HALT], "messages": [report]})
 
 
 def build_delegation_step() -> AIMessage:
@@ -207,4 +207,4 @@ def test_names_are_unique_per_agent_and_subagent_copies_trust_the_parent_less(
 def test_the_middleware_holds_no_mutable_run_state(middleware: MonitorMiddleware) -> None:
     # Act / Assert
     with pytest.raises(dataclasses.FrozenInstanceError):
-        middleware.agent_name = "changed"  # type: ignore[misc]
+        middleware.agent_name = "changed"  # ty: ignore[invalid-assignment]

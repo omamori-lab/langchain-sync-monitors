@@ -319,7 +319,13 @@ def build_span_manager[ManagerT: (CallbackManager, AsyncCallbackManager)](
     metadata it passes on, as LangChain's `get_child` does; a tag meant for
     the node's own next run, such as `seq:step:1`, stays behind. The node's
     manager is never changed, and the span's own tags, metadata and labels are
-    not inherited by the calls inside it.
+    not inherited by the LangChain runs inside it, model calls included.
+    LangSmith's `traceable` runs are the exception: LangSmith builds one
+    opened inside the span from the span's run, and copies the span's
+    metadata into it [@langsmithsdk2026]. So the hook run `create_agent`
+    opens for a middleware inside the monitor, or a monitor's own `traceable`
+    code, carries the step's `monitor_` labels in LangSmith. Only dropping
+    the labels from the spans would prevent it.
     """
     callbacks = config.get("callbacks")
     source = (
@@ -356,8 +362,9 @@ def open_traced_run_sync(span: TraceSpan) -> Iterator[TracedRun]:
     they inherit, the way `hide_model_calls_from_message_stream` sets it. The
     span ends with the outputs the block reports, or with the exception that
     leaves the block, cancellation included, as LangChain ends a runnable's run
-    [@langchain2026]. A tracer that fails is logged by LangChain and never
-    fails the step.
+    [@langchain2026]. A tracer that fails is logged by LangChain and does not
+    fail the step, unless its handler sets `raise_error`, as for any LangChain
+    run.
     """
     config = ensure_config()
     callback_manager = build_span_manager(config, span=span, manager_class=CallbackManager)

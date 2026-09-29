@@ -47,7 +47,7 @@ so every subagent gets a monitor too.
 
 ## Plan
 
-Open [`docs/plan.html`](docs/plan.html) in a browser. It has the architecture diagrams, readable Python pseudocode for every component, the checks to run before building, the LangChain findings, and the decisions taken so far. Supporting research is in [`docs/research/`](docs/research/).
+Each feature has a plan in [`docs/plans/`](docs/plans/), with its supporting research. The first, [`docs/plans/initial-implementation/`](docs/plans/initial-implementation/), holds the design of the whole library: open `plan.html` in a browser for the architecture diagrams, readable Python pseudocode for every component, the checks run before building, and the decisions taken.
 
 ## What the library provides
 

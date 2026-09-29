@@ -6,7 +6,7 @@ threshold flags the same steps. `GuardModelMonitor` therefore turns labels into
 a suspicion from 0 to 1: from the label token's log-probabilities when the
 provider returns them, otherwise from the share of several sampled replies that
 carry a suspicious label. The evidence is in
-`docs/research/guard-model-scoring.md`.
+`docs/plans/initial-implementation/research/guard-model-scoring.md`.
 """
 
 from __future__ import annotations

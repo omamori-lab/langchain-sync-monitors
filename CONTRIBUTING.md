@@ -5,7 +5,7 @@ change must pass, and how to send a pull request.
 
 ## Where to start
 
-- Read `docs/plan.html` in a browser for the design: the diagrams, the
+- Read `docs/plans/initial-implementation/plan.html` in a browser for the design: the diagrams, the
   pseudocode and the decisions taken so far.
 - Pick an open issue. Issues are grouped into milestones by phase and labelled
   by area (`monitors`, `protocols`, `middleware`, `deepagents`, `docs`).

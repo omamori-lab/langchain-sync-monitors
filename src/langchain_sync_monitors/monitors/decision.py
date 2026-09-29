@@ -6,7 +6,7 @@ yes/no questions about the rendered step and takes suspicion from the
 probabilities of yes. `OpenRouterDecisionModel` and `TypeSafeDecisionModel`
 reach Jev through OpenRouter's Decisions API and through TypeSafe's own
 client. The evidence behind the question format is in
-`docs/research/decision-model-question-format.md`.
+`docs/plans/initial-implementation/research/decision-model-question-format.md`.
 """
 
 from __future__ import annotations
@@ -439,8 +439,8 @@ class DecisionModelMonitor(Monitor):
     yes. With several, such as `ATTACK_CRITERIA`, they go in one request and
     `combine` merges them; `Combine.MAX` is the default because averaging
     dilutes a single strong hit, while the maximum keeps it (see
-    `docs/research/decision-model-question-format.md`). The reason names the
-    question with the highest probability.
+    `docs/plans/initial-implementation/research/decision-model-question-format.md`).
+    The reason names the question with the highest probability.
     """
 
     def __init__(

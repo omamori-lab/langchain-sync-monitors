@@ -4,10 +4,9 @@ repo_url: https://github.com/Antonio-Tresol/langchain-sync-monitors
 repo_name: Antonio-Tresol/langchain-sync-monitors
 edit_uri: edit/main/docs/
 docs_dir: docs
-# Research notes and the design plan are working documents, not user docs.
+# Plans are working documents for contributors, not user docs.
 exclude_docs: |
-  research/
-  plan.html
+  plans/
 
 theme:
   name: material

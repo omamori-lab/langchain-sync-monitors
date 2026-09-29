@@ -2,7 +2,7 @@
 
 The rest of the package codes against these definitions, so they change only in
 a dedicated pull request. The design they come from, with diagrams, is in
-`docs/plan.html`.
+`docs/plans/initial-implementation/plan.html`.
 
 A step is one model call of the agent. The untrusted model proposes it, a
 `Monitor` scores it, and a `ControlProtocol` decides what the agent state

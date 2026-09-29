@@ -30,8 +30,9 @@ a lanorme finding.
 - Core dependencies: `langchain`, `langchain-core`, `langgraph`, `pydantic`,
   `httpx`, `stamina`. Providers sit behind extras: `deepagents`, `openrouter`,
   `typesafe`.
-- The design, with diagrams and pseudocode, is in `docs/plan.html`; research
-  notes behind each decision are in `docs/research/`.
+- Plans live in `docs/plans/<feature>/`, one directory per feature: the plan
+  (diagrams and pseudocode) and the research behind its decisions. The first
+  is `docs/plans/initial-implementation/`. A new feature gets a new directory.
 - Shared interfaces live in `src/langchain_sync_monitors/contracts.py`. Code
   against them; change them only in a dedicated pull request.
 - Errors live in `errors.py` and derive from `MonitorError`. Diagnostics go

@@ -191,8 +191,9 @@ use this library in research, please cite the original authors.
 ## Status and licence
 
 Pre-release, version 0.1.0.dev0, and not on PyPI yet. The monitors,
-protocols, middleware and Deep Agents support are built and tested offline,
-and the API may still change before 0.1.0; [CHANGELOG.md](CHANGELOG.md)
+protocols, middleware and Deep Agents support are built, tested offline and
+tried in [live runs](docs/explanation/live-runs.md), and the API may still
+change before 0.1.0; [CHANGELOG.md](CHANGELOG.md)
 records each change. [CONTRIBUTING.md](CONTRIBUTING.md) explains how to work
 on the library, and [docs/plans](docs/plans/README.md) holds each feature's
 design plan.

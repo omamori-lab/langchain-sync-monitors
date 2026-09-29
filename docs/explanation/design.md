@@ -613,10 +613,11 @@ remain in `monitor_log`, which the `values` and `updates` stream modes carry,
 in the `MonitorStepEvent` on `stream_mode="custom"`, and in traces.
 `astream_events` is not filtered: it reports every model call live, rejected
 samples included, so a user interface should read `stream_mode="messages"`
-instead. With
-`FeedbackVisibility.IN_TRANSCRIPT`, a blocked attempt and its feedback are
-committed as part of the conversation, so they stream along with the step that
-follows them.
+instead. It also reports the monitor's own spans, described in
+[Tracing](#tracing), which `exclude_tags=["monitor"]` drops; no other stream
+carries them. With `FeedbackVisibility.IN_TRANSCRIPT`, a blocked attempt and
+its feedback are committed as part of the conversation, so they stream along
+with the step that follows them.
 
 The monitor's own calls also carry LangChain's internal-call metadata, from
 `model_calls.build_internal_call_config`, which the experimental
@@ -624,6 +625,66 @@ The monitor's own calls also carry LangChain's internal-call metadata, from
 custom monitor that passes its own `tags` in a call's config replaces the tags
 the call would inherit, and that call streams again; such a monitor should add
 `langgraph.constants.TAG_NOSTREAM` to its tags.
+
+## Tracing
+
+Any tracer built on LangChain callbacks, LangSmith and Langfuse among them,
+shows each monitored step as a small tree of named spans. The model calls stay
+where they were, now nested under the step that caused them:
+
+```text
+model                         the agent's model node
+└── monitor step              one per step
+    ├── <untrusted model>     sample 1
+    ├── monitor judgement     the monitor's verdict on sample 1
+    │   ├── monitor classifier    a Decisions API request, if the monitor makes one
+    │   └── <judge model>         the monitor's own model calls
+    ├── <untrusted model>     sample 2, if the protocol draws one
+    ├── monitor judgement
+    ├── <trusted model>       if a fallback writes the step
+    └── monitor decision      opened and closed once the protocol has decided
+```
+
+| Span | Inputs | Outputs |
+|---|---|---|
+| `monitor step` | The step number, and the step first proposed, added when the step ends. | The outcome, whether the step was flagged, the blocked attempts, the highest suspicion, and each sample's suspicion, reason and whether it ran. |
+| `monitor judgement` | The sample's number and the monitor's class. | The verdict's suspicion and reason. |
+| `monitor classifier` | The decision model and its questions. | The probability of yes to each question. One span covers a request and all its retries. |
+| `monitor decision` | None. | The outcome, the flag and the highest suspicion. |
+
+The names are fixed, so both tools can filter and count spans by name, and
+what varies goes in metadata under flat keys: `monitor_name`,
+`monitor_agent`, `monitor_step_number`, `monitor_protocol`,
+`monitor_step_id`, the step span's run id, and inside a subagent
+`monitor_delegation_id`. Every monitor span of a step carries them, and every
+one is tagged `monitor`. A span's tags are fixed when it starts, while the
+step span must start before its samples, so the outcome goes on the decision
+span: it is tagged `monitor:<outcome>`, and `monitor:flagged` when flagged,
+and repeats the outcome in its metadata. In LangSmith,
+`and(eq(name, "monitor decision"), has(tags, "monitor:halted"))` finds every
+halted step; in Langfuse, the name `monitor decision` and the metadata
+`monitor_outcome`. The spans below the step span carry
+`ls_agent_type: "middleware"`, and the model calls the library's monitors
+make carry `ls_message_view_exclude`, which keep them out of LangSmith's
+trajectory and conversation views [@langsmith2026traces]. The step span
+carries neither, because the agent's own samples nest in it.
+
+The spans add no tag or metadata to the model calls inside a step, so no
+sample is labelled as monitor work. The only proposal text the spans add is
+the step span's proposed step; each sample's text stays on the model call
+that drew it. A halt is a decision, and ends its spans as usual. A span ends
+with an error only when the step fails: a model or monitor call that raises,
+a sample cancelled because another one failed, or `SynchronousRunError`.
+With no tracer attached, no span is opened.
+
+The spans are opened from the running node's own callback manager, not
+through `CallbackManager.configure`, so they nest under the model node for
+every handler. Configuring a new manager would, with LangSmith tracing on,
+hang them under the LangSmith-only run in which `create_agent` wraps each
+middleware hook, which can split the trace in Langfuse [@langchain2026;
+@langfuse2026]. For the same reason, code in a monitor that traces itself
+with LangSmith's `traceable` decorator nests under that hook run in
+LangSmith, not under its judgement.
 
 ## The log records
 

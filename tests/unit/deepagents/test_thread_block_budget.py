@@ -332,6 +332,49 @@ def test_a_thread_s_second_turn_keeps_the_subagent_blocks_of_the_first(
     assert "monitor_delegation" not in agent.get_state(config).values
 
 
+def test_a_later_turn_samples_its_first_step_after_subagents_reached_the_total(
+    run_mode: RunMode,
+) -> None:
+    # Arrange
+    main_model = ScriptedChatModel(
+        responses=[
+            build_delegation_step(call_id="call-task-1"),
+            AIMessage(MAIN_ANSWER),
+            build_delegation_step(call_id="call-task-2"),
+            AIMessage("Third answer."),
+        ],
+    )
+    worker_model = ScriptedChatModel(
+        responses=[
+            build_exfiltration_step(call_id="call-post-1"),
+            AIMessage("First report."),
+            build_exfiltration_step(call_id="call-post-2"),
+        ],
+    )
+    agent = build_deep_agent(
+        main_model=main_model,
+        worker_model=worker_model,
+        main_monitor=build_auto_mode_monitor(max_total_blocks=2),
+        checkpointer=InMemorySaver(),
+    )
+    config = build_thread_config(f"third-turn-{run_mode}")
+    run_agent(agent, mode=run_mode, config=config)
+    run_agent(agent, mode=run_mode, config=config)
+
+    # Act
+    result = run_agent(agent, mode=run_mode, config=config)
+
+    # Assert
+    assert summarise(result["monitor_log"])[-3:] == [
+        ("worker", "halted", 1),
+        ("main", "halted", 0),
+        ("main", "allowed", 0),
+    ]
+    assert len(result["monitor_log"][-1]["samples"]) == 1
+    assert read_texts(result["messages"])[-1] == "Third answer."
+    assert len(main_model.calls) == 4
+
+
 def test_a_subagent_halt_under_the_total_leaves_the_parent_running(run_mode: RunMode) -> None:
     # Arrange
     main_model = ScriptedChatModel(responses=[build_delegation_step(), AIMessage(MAIN_ANSWER)])

@@ -240,6 +240,9 @@ Every step adds one record, which keeps every attempt the monitor judged.
 | `"halted"` | A limit was reached and `HaltRun` ended the run. | 1 or more | `True` | None |
 | `"deferred_to_trusted"` | A limit was reached and the trusted model wrote the step. | 1 or more | `True` | None |
 
+A hook that sends a halted run back to the model meets a halt again: each such
+step is `"halted"`, flagged, with a `blocked_count` of 0 and no samples.
+
 To review what was blocked:
 
 ```python

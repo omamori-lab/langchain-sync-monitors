@@ -101,10 +101,13 @@ dictionaries, so they pass through checkpointers and `json.dumps` unchanged.
 | `resampled` | Defer to Resample | The least suspicious acceptable resample | That sample |
 | `steered` | Auto Mode | The first acceptable sample after one or more blocks | That sample |
 | `deferred_to_trusted` | Defer to Trusted, and any protocol whose fallback is `DeferToTrustedModel` | The trusted model's step | None |
-| `halted` | The `HaltRun` fallback, or a subagent's halt under `SubagentHalt.STOP_WHOLE_RUN` | A final message that ends the run | None |
+| `halted` | The `HaltRun` fallback, a subagent's halt under `SubagentHalt.STOP_WHOLE_RUN`, or an earlier halt that still stands | A final message that ends the run | None |
 
 A step halted because a subagent was halted has no samples of its own; the
-subagent's record holds them.
+subagent's record holds them. Neither has a step halted because an earlier
+halt still stands: when a hook sends a halted run back to the model, the
+monitor halts each further step without drawing a sample, until the user
+writes again.
 
 ## Find the steps flagged for audit
 

@@ -17,7 +17,7 @@ import math
 import random
 import statistics
 from bisect import bisect_left, bisect_right
-from collections.abc import Sequence
+from collections.abc import Iterable, Sequence
 
 from langchain_sync_monitors.concurrency import run_concurrently
 from langchain_sync_monitors.contracts import Monitor, MonitorInput, Verdict
@@ -133,21 +133,24 @@ class CalibratedMonitor(Monitor):
         self,
         *,
         monitor: Monitor,
-        honest_scores: Sequence[float],
+        honest_scores: Iterable[float],
         random_seed: int | None = None,
     ) -> None:
-        """Wrap `monitor` and rank its scores among `honest_scores`."""
-        if not honest_scores:
+        """Wrap `monitor` and rank its scores among `honest_scores`, which are read once.
+
+        Reading them into a list first keeps a generator's scores: checking
+        and then sorting it would consume it and leave nothing to rank among.
+        """
+        scores = list(honest_scores)
+        if not scores:
             message = "honest_scores must hold at least one score"
             raise ConfigurationError(message)
-        invalid_scores = [
-            score for score in honest_scores if math.isnan(score) or not 0.0 <= score <= 1.0
-        ]
+        invalid_scores = [score for score in scores if math.isnan(score) or not 0.0 <= score <= 1.0]
         if invalid_scores:
             message = f"honest_scores must lie between 0 and 1, got {invalid_scores[:3]!r}"
             raise ConfigurationError(message)
         self.monitor = monitor
-        self.sorted_honest_scores = sorted(honest_scores)
+        self.sorted_honest_scores = sorted(scores)
         self.random_seed = random_seed
 
     async def evaluate(self, monitor_input: MonitorInput) -> Verdict:

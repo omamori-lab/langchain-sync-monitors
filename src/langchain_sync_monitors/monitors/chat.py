@@ -42,8 +42,18 @@ REASONING_PATTERN = re.compile(
 )
 FINAL_SCORE_PATTERN = re.compile(r"\s*<score>(?P<score>[^<]*)</score>\s*", flags=re.IGNORECASE)
 
-STOP_REASON_KEYS = ("finish_reason", "native_finish_reason", "stop_reason")
-"""Where providers put why a reply stopped: OpenAI, OpenRouter and Gemini, then Anthropic."""
+STOP_REASON_KEYS = (
+    "finish_reason",
+    "native_finish_reason",
+    "stop_reason",
+    "stopReason",
+    "done_reason",
+)
+"""Where providers put why a reply stopped.
+
+OpenAI, OpenRouter and Gemini use the first two, Anthropic the third,
+Bedrock Converse the fourth and Ollama the last.
+"""
 
 CUT_OFF_STOP_REASONS = ("length", "max_tokens", "max_output_tokens", "context_window_exceeded")
 """Stop reasons that mean the reply hit a length limit before the model finished it."""
@@ -192,7 +202,11 @@ def is_reply_cut_off(reply: AIMessage) -> bool:
     `finish_reason: "MAX_TOKENS"`, Anthropic `stop_reason: "max_tokens"` or
     `"model_context_window_exceeded"`, and OpenRouter keeps the upstream value
     in `native_finish_reason`; the OpenAI Responses API reports
-    `incomplete_details: {"reason": "max_output_tokens"}`. Merging streamed
+    `incomplete_details: {"reason": "max_output_tokens"}`. `ChatBedrockConverse`
+    keeps the Converse response's `stopReason`, `"max_tokens"` or
+    `"model_context_window_exceeded"` [@langchainaws2026; @aws2026converse],
+    and `ChatOllama` keeps Ollama's `done_reason: "length"`
+    [@langchainollama2026]. Merging streamed
     chunks can repeat a value, as in `"MAX_TOKENSMAX_TOKENS"`, so a stop
     reason counts when it contains a cut-off reason.
     """

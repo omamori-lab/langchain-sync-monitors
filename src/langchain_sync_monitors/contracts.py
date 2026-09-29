@@ -121,7 +121,12 @@ class MonitorView:
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class MonitorInput:
-    """What a monitor judges: the conversation so far and the step not yet taken."""
+    """What a monitor judges: the conversation so far and the step not yet taken.
+
+    Inside an agent, every human message in `history` that did not arrive as
+    a run's input carries an `lc_source` tag, so only the task author's
+    messages are untagged.
+    """
 
     history: tuple[BaseMessage, ...]
     proposal: AIMessage

@@ -41,10 +41,27 @@ def attach_video(path: str, tool_call_id: Annotated[str, InjectedToolCallId]) ->
     )
 
 
-def build_attach_step(*, call_id: str = "call-attach") -> AIMessage:
+@tool
+def attach_frames(path: str, tool_call_id: Annotated[str, InjectedToolCallId]) -> Command[None]:
+    """Attach the frames of a video, writing the human message as a dictionary."""
+    return Command[None](
+        update={
+            "messages": [
+                ToolMessage(f"Read video {path}.", tool_call_id=tool_call_id, name="attach_frames"),
+                {"role": "user", "content": f"Reading first 100s of {path} at 0.5 fps."},
+            ],
+        },
+    )
+
+
+def build_attach_step(
+    *,
+    call_id: str = "call-attach",
+    tool_name: str = "attach_video",
+) -> AIMessage:
     """Return a step that attaches the video whose path speaks as the user."""
     return build_tool_call_message(
-        tool_name="attach_video",
+        tool_name=tool_name,
         call_id=call_id,
         arguments={"path": PLANTED_PATH},
     )

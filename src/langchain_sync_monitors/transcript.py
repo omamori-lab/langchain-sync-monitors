@@ -334,8 +334,14 @@ def find_untagged_human_message_ids(messages: Iterable[BaseMessage]) -> list[str
 
 
 def tag_as_context_note(message: HumanMessage, *, source: str) -> HumanMessage:
-    """Return a copy of a human message with an `lc_source` tag, which makes it a context note."""
-    additional_kwargs = {**message.additional_kwargs, "lc_source": source}
+    """Return a copy of a human message with an `lc_source` tag, which makes it a context note.
+
+    The source comes from a tool's or a message's name, which the monitor
+    does not choose, so the monitor's own source becomes `application`: a
+    tool called `monitor` must not write the monitor's feedback.
+    """
+    note_source = APPLICATION_SOURCE if source == MONITOR_FEEDBACK_SOURCE else source
+    additional_kwargs = {**message.additional_kwargs, "lc_source": note_source}
     return message.model_copy(update={"additional_kwargs": additional_kwargs})
 
 

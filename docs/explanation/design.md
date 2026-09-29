@@ -214,17 +214,16 @@ code carries, such as a web page or a file, which is escaped and never read as
 a tag.
 
 Telling a run's input from the rest has limits, and each one comes from
-application code, not from what the agent writes. An untagged human message
-that another middleware's `before_agent` hook writes runs before the monitor's
-own hook, so it counts as input. So does one written after the monitor's last
-step of a run, by another middleware's `after_model` or `after_agent` hook or
-by a tool that returns a message as a dictionary rather than a
-`HumanMessage`, when the run ends before a later step sees it. The other way
-round, a human message added to a run that resumes, through
-`Command(update=...)`, is never recorded as input, so it is a note. An
-application that replays a history without a checkpointer keeps only the tags
-that the messages carry, so a middleware's untagged nudge in that history
-counts as input.
+middleware or application code, not from a tool the agent calls. An untagged
+human message that another middleware's `before_agent` hook writes is written
+before the monitor's own hook runs, so it counts as input. So does one that
+another middleware's `after_model` or `after_agent` hook writes after the
+monitor's last step of a run, when no later step sees it before the next run
+starts. A middleware's untagged message is recorded only in the graph state,
+not in the message, so an application that replays a history without a
+checkpointer, or a thread started before the monitor was added, has it count
+as input. The other way round, a human message added to a run that resumes,
+through `Command(update=...)`, is never recorded as input, so it is a note.
 
 When the view keeps only recent entries, every message from the task author is
 kept anyway, in order: the first states the task, and a later one can narrow or

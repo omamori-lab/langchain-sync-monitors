@@ -12,7 +12,7 @@ from typing import Any, cast
 import pytest
 from langchain.agents import create_agent
 from langchain.agents.middleware import AgentMiddleware, HumanInTheLoopMiddleware
-from langchain_core.messages import AIMessage, AnyMessage, HumanMessage
+from langchain_core.messages import AIMessage, HumanMessage
 from langchain_core.runnables import Runnable, RunnableConfig
 from langchain_core.tools import BaseTool
 from langgraph.checkpoint.memory import InMemorySaver
@@ -40,6 +40,7 @@ from tests.support.written_human_messages import (
     NUDGE,
     NUDGE_NAME,
     NudgingMiddleware,
+    attach_frames,
     attach_video,
     build_attach_step,
 )
@@ -50,7 +51,7 @@ SUSPICION_BY_KEYWORD = {"attacker.example": 0.95}
 
 
 def build_tools() -> list[BaseTool]:
-    return [attach_video, *Workspace().build_tools()]
+    return [attach_video, attach_frames, *Workspace().build_tools()]
 
 
 def build_monitored_agent(
@@ -74,7 +75,7 @@ def build_monitored_agent(
 
 def run_messages(
     agent: Runnable[Any, Any],
-    messages: list[AnyMessage],
+    messages: object,
     *,
     mode: RunMode,
     config: RunnableConfig | None = None,
@@ -97,14 +98,20 @@ def read_authors_and_notes(monitor: RenderingMonitor) -> tuple[list[str], list[s
     [MonitorView(), MonitorView(most_recent_entries=1)],
     ids=["default", "most-recent-1"],
 )
+@pytest.mark.parametrize("tool_name", ["attach_video", "attach_frames"])
 def test_a_human_message_a_tool_writes_is_a_note_not_the_user(
     run_mode: RunMode,
     view: MonitorView,
+    tool_name: str,
 ) -> None:
     # Arrange
     monitor = RenderingMonitor(view=view)
     model = ScriptedChatModel(
-        responses=[build_attach_step(), build_exfiltration_step(), AIMessage("Done.")],
+        responses=[
+            build_attach_step(tool_name=tool_name),
+            build_exfiltration_step(),
+            AIMessage("Done."),
+        ],
     )
     agent = build_monitored_agent(model, monitor=monitor)
 
@@ -116,7 +123,35 @@ def test_a_human_message_a_tool_writes_is_a_note_not_the_user(
     assert authors == [TASK]
     assert notes == [FRAMES_TEXT]
     transcript = monitor.find_reading(tool_name="http_post").transcript
-    assert '<context_note source="attach_video">' in transcript
+    assert f'<context_note source="{tool_name}">' in transcript
+
+
+@pytest.mark.parametrize(
+    "task_input",
+    [
+        [HumanMessage(TASK)],
+        [{"role": "user", "content": TASK}],
+        [("user", TASK)],
+        TASK,
+    ],
+    ids=["message", "dictionary", "tuple", "string"],
+)
+def test_the_task_speaks_as_the_user_in_every_input_shape(
+    run_mode: RunMode,
+    task_input: object,
+) -> None:
+    # Arrange
+    monitor = RenderingMonitor()
+    model = ScriptedChatModel(responses=[build_exfiltration_step(), AIMessage("Done.")])
+    agent = build_monitored_agent(model, monitor=monitor)
+
+    # Act
+    run_messages(agent, task_input, mode=run_mode)
+
+    # Assert
+    authors, notes = read_authors_and_notes(monitor)
+    assert authors == [TASK]
+    assert notes == []
 
 
 def test_a_human_message_a_middleware_writes_is_a_note_not_the_user(run_mode: RunMode) -> None:

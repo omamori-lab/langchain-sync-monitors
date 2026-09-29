@@ -33,7 +33,7 @@ from langchain.agents.middleware.types import (
     ToolCallRequest,
     hook_config,
 )
-from langchain_core.messages import AIMessage, BaseMessage
+from langchain_core.messages import AIMessage, BaseMessage, convert_to_messages
 from langgraph.types import Command
 
 from langchain_sync_monitors._langchain import (
@@ -172,12 +172,16 @@ def mark_tool_written_notes(result: ToolCallResult, *, tool_name: str) -> ToolCa
     it is written, with the tool's name as its source, the message stays a
     note in every later run, even one that starts before the monitor has
     seen it, and in a history the application stores and replays. Messages
-    given as dictionaries or tuples are left as they are.
+    given as dictionaries, tuples or strings are converted first, as
+    LangGraph's message reducer would convert them [@langgraph2026].
     """
     if not isinstance(result, Command) or not isinstance(result.update, dict):
         return result
-    messages = result.update.get("messages")
-    if not isinstance(messages, list) or not any(map(is_untagged_human_message, messages)):
+    written = result.update.get("messages")
+    if not isinstance(written, list):
+        return result
+    messages = convert_to_messages(written)
+    if not any(map(is_untagged_human_message, messages)):
         return result
     tagged = [
         tag_as_context_note(message, source=tool_name)

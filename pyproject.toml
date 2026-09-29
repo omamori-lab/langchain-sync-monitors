@@ -1,5 +1,5 @@
 [build-system]
-requires = ["hatchling"]
+requires = ["hatchling>=1.27"]
 build-backend = "hatchling.build"
 
 [project]
@@ -57,6 +57,21 @@ path = "src/langchain_sync_monitors/__init__.py"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/langchain_sync_monitors"]
+
+[tool.hatch.build.targets.sdist]
+# An explicit list, because hatchling ships every file .gitignore does not
+# exclude, tracked or not. The docs travel with the tests that check their
+# citations; the plans are working notes and stay in the repository.
+include = [
+    "/src",
+    "/tests",
+    "/docs",
+    "/README.md",
+    "/LICENSE",
+    "/CHANGELOG.md",
+    "/pyproject.toml",
+]
+exclude = ["/docs/plans"]
 
 [tool.ruff]
 line-length = 100

@@ -47,7 +47,7 @@ so every subagent gets a monitor too.
 
 ## Plan
 
-Each feature has a plan in [`docs/plans/`](docs/plans/), with its supporting research. The first, [`docs/plans/initial-implementation/`](docs/plans/initial-implementation/), holds the design of the whole library: open `plan.html` in a browser for the architecture diagrams, readable Python pseudocode for every component, the checks run before building, and the decisions taken.
+Each feature has a plan in [`docs/plans/`](https://github.com/Antonio-Tresol/langchain-sync-monitors/tree/main/docs/plans/), with its supporting research. The first, [`docs/plans/initial-implementation/`](https://github.com/Antonio-Tresol/langchain-sync-monitors/tree/main/docs/plans/initial-implementation/), holds the design of the whole library: open `plan.html` in a browser for the architecture diagrams, readable Python pseudocode for every component, the checks run before building, and the decisions taken.
 
 ## What the library provides
 

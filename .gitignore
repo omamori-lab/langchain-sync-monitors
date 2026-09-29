@@ -27,3 +27,6 @@ htmlcov/
 # Local agent notes and docs builds
 CLAUDE.local.md
 site/
+
+# Agent worktrees (one checkout per parallel agent)
+.claude/worktrees/

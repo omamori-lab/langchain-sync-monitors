@@ -91,7 +91,7 @@ addopts = "-m 'not live'"
 [tool.lanorme]
 ignore = ["LAYER", "PORT", "TERM"]
 promote = ["NAMING-006", "NAMING-007", "NAMING-008", "NAMING-011"]
-exclude = [".venv/*", "dist/*", "site/*", "docs/research/*", "docs/plan.html"]
+exclude = [".venv/*", ".claude/*", "dist/*", "site/*", "docs/research/*", "docs/plan.html"]
 
 [tool.lanorme.file_limits]
 func_warn_lines = 40

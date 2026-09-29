@@ -1,4 +1,4 @@
-"""Errors raised by the library.
+"""Errors raised by the library, and the warning about what a monitor cannot gate.
 
 Every error derives from `MonitorError`, so a caller can catch the library's
 failures in one place without catching unrelated exceptions.
@@ -31,3 +31,15 @@ class InvalidSuspicionError(MonitorError, ValueError):
 
 class SynchronousRunError(MonitorError):
     """A control protocol awaited real asynchronous work during a synchronous `invoke()`."""
+
+
+class ProviderToolWarning(UserWarning):
+    """The agent's model is given tools that the model provider runs itself.
+
+    LangChain passes every dictionary in an agent's tools to the provider as a
+    built-in tool and never runs it itself [@langchain2026]. A provider runs
+    its server-side tools, such as Anthropic's `web_fetch` or OpenAI's
+    `web_search`, inside the model call, before the monitor judges the step,
+    and again for every sample a protocol draws, so no monitor can stop them.
+    The monitor middleware emits this warning once per middleware instance.
+    """

@@ -1,9 +1,12 @@
 """Control monitors for LangChain agents and Deep Agents, as middleware.
 
-A monitor judges every step an agent proposes before anything runs, and a
-control protocol decides what happens with that judgement. `MonitorMiddleware`
-joins the two and plugs into `create_agent` or `create_deep_agent`;
-`monitor_subagents` gives every Deep Agents subagent a monitor of its own.
+A monitor judges every step an agent proposes before any of the agent's own
+tools run, and a control protocol decides what happens with that judgement.
+`MonitorMiddleware` joins the two and plugs into `create_agent` or
+`create_deep_agent`; `monitor_subagents` gives every Deep Agents subagent a
+monitor of its own. Tools the model provider runs itself run inside the model
+call, before any judgement, and the middleware warns about them with a
+`ProviderToolWarning`.
 """
 
 from langchain_sync_monitors._langchain import MonitorStepEvent, MonitorStepFailedEvent
@@ -34,6 +37,7 @@ from langchain_sync_monitors.errors import (
     InvalidSuspicionError,
     MissingExtraError,
     MonitorError,
+    ProviderToolWarning,
     SynchronousRunError,
 )
 from langchain_sync_monitors.middleware import MonitorMiddleware, MonitorState
@@ -122,6 +126,7 @@ __all__ = [
     "OpenRouterDecisionModel",
     "Outcome",
     "PendingStep",
+    "ProviderToolWarning",
     "RepeatedMonitor",
     "Resampling",
     "Sample",

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import math
 import re
 import time
@@ -18,6 +19,7 @@ from langchain_sync_monitors.monitors.guard import (
     GuardScoring,
     HardLabelWarning,
 )
+from tests.support.flaky_models import FlakyChatModel
 
 from .captured_replies import (
     DEEPSEEK_GUARD_REPLY_TO_AN_EXFILTRATING_STEP,
@@ -418,6 +420,34 @@ async def test_sample_fraction_draws_every_sample_without_log_probabilities(
     # Assert
     assert verdict.suspicion == 0.25
     assert model.received_options == [{}] * 4
+
+
+async def test_a_failed_sample_stops_the_other_samples(
+    monitor_input: MonitorInput,
+    call_path: CallPath,
+) -> None:
+    # Arrange
+    model = FlakyChatModel(
+        replies=[RuntimeError("429 rate limited"), AIMessage("violation"), AIMessage("violation")],
+        delays=[0.0, 0.2, 0.2],
+    )
+    guard = GuardModelMonitor(
+        model=model,
+        policy_prompt=POLICY_PROMPT,
+        suspicious_labels={"violation"},
+        safe_labels={"no_violation"},
+        scoring=GuardScoring.SAMPLE_FRACTION,
+        samples=3,
+    )
+
+    # Act
+    with pytest.raises(RuntimeError, match="429 rate limited"):
+        await evaluate_on_path(guard, monitor_input, call_path=call_path)
+    await asyncio.sleep(0.3)
+
+    # Assert: concurrent samples are cancelled; sequential ones never start.
+    assert model.started_calls == (3 if call_path == "async" else 1)
+    assert model.finished_calls == 0
 
 
 @pytest.mark.parametrize(

@@ -10,7 +10,6 @@ This keeps the protocol logic free of I/O, the sans-I/O pattern
 
 from __future__ import annotations
 
-import asyncio
 import logging
 import re
 from abc import ABC, abstractmethod
@@ -23,6 +22,7 @@ from langchain_core.messages import AIMessage, BaseMessage
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.runnables import Runnable
 
+from langchain_sync_monitors.concurrency import run_concurrently
 from langchain_sync_monitors.contracts import Monitor, MonitorInput, MonitorView, Verdict
 from langchain_sync_monitors.errors import ConfigurationError
 from langchain_sync_monitors.model_calls import build_internal_call_config, resolve_chat_model
@@ -171,14 +171,11 @@ class ChatModelMonitor(Monitor, ABC):
         return run_verdict_plan_sync(plan, request_replies=self.request_replies_sync)
 
     async def request_replies(self, request: ReplyRequest) -> list[AIMessage]:
-        """Draw the requested replies concurrently."""
-        replies = await asyncio.gather(
-            *(
-                request.model.ainvoke(list(request.messages), config=self.call_config)
-                for _ in range(request.count)
-            ),
+        """Draw the requested replies concurrently; one failed call cancels the others."""
+        return await run_concurrently(
+            request.model.ainvoke(list(request.messages), config=self.call_config)
+            for _ in range(request.count)
         )
-        return list(replies)
 
     def request_replies_sync(self, request: ReplyRequest) -> list[AIMessage]:
         """Draw the requested replies one after another."""

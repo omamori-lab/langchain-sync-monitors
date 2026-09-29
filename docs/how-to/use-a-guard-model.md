@@ -140,7 +140,8 @@ the standard fallback. The gain from more samples levels off after a handful,
 around 5 to 10 [@xiong2024uncertainty; @lyu2025sampleconsistency]. The share
 has a resolution of `1 / samples`: five samples give six possible values, from
 0 to 1 in steps of 0.2. Under `ainvoke()` the extra samples are drawn
-concurrently; under `invoke()` one after another.
+concurrently, and one that fails cancels the others; under `invoke()` they are
+drawn one after another.
 
 Guard models are overconfident, especially under jailbreaks
 [@liu2025guardcalibration], so most honest steps score 0 and tie with one

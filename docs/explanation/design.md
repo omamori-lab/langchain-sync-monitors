@@ -500,7 +500,9 @@ passes that state on to the subagent, as it does the rest of the parent's
 state, and the subagent's monitor stores the id in each of its records as
 `delegation_id`. So `(agent, delegation_id, step_number)` names one step, and
 an auditor can match a delegation's records to its `task` call and result in
-the parent's transcript. The state key, `monitor_delegation`, is left out of
+the parent's transcript. This relies on the model provider giving every tool
+call in the thread its own id, as providers do, which LangChain does not
+check. The state key, `monitor_delegation`, is left out of
 the subagent's output, as Deep Agents does for its own forked-context flag
 [@deepagents2026], so it never flows back into the parent. The block counts
 let the subagent's Auto Mode start from the thread's total. Subagents that run

@@ -14,10 +14,8 @@ from uuid import UUID
 
 import pytest
 from langchain_core.callbacks import (
-    AsyncCallbackManager,
     BaseCallbackHandler,
     BaseCallbackManager,
-    CallbackManager,
 )
 from langchain_core.language_models.fake_chat_models import FakeListChatModel
 from langchain_core.runnables import RunnableConfig, RunnableLambda
@@ -30,7 +28,7 @@ from langchain_sync_monitors._langchain import (
     open_traced_run,
     open_traced_run_sync,
 )
-from tests.support.tracing import RecordingTracer
+from tests.support.tracing import RecordingTracer, record_started_chain_names
 
 type CallPath = Literal["sync", "async"]
 type SpanBody = Callable[[TracedRun], None]
@@ -80,37 +78,37 @@ def call_model(_: TracedRun) -> None:
     FakeListChatModel(responses=["ok"]).invoke("hello")
 
 
-def test_the_span_nests_under_the_node_and_the_calls_inside_it_nest_under_the_span(
-    call_path: CallPath,
-) -> None:
-    # Arrange
+@pytest.fixture
+def traced_model_call(call_path: CallPath) -> RecordingTracer:
+    """Return a tracer that heard a span, with one model call inside it, run in a node."""
     tracer = RecordingTracer()
-
-    # Act
     run_span_in_node(SPAN, call_path=call_path, body=call_model, callbacks=[tracer])
+    return tracer
+
+
+def test_the_span_nests_under_the_node_and_the_calls_inside_it_nest_under_the_span(
+    traced_model_call: RecordingTracer,
+) -> None:
+    # Act
+    [span] = traced_model_call.find_runs("monitor step")
+    [model_call] = traced_model_call.find_runs("FakeListChatModel")
 
     # Assert
-    [span] = tracer.find_runs("monitor step")
-    [model_call] = tracer.find_runs("FakeListChatModel")
-    assert tracer.find_parent(span).name == "node"
-    assert tracer.find_parent(model_call) is span
+    assert traced_model_call.find_parent(span).name == "node"
+    assert traced_model_call.find_parent(model_call) is span
     assert (span.run_type, span.inputs, span.error) == ("chain", SPAN.inputs, None)
-    assert tracer.find_unknown_parents() == []
-    assert tracer.find_open_runs() == []
+    assert traced_model_call.find_unknown_parents() == []
+    assert traced_model_call.find_open_runs() == []
 
 
 def test_the_span_s_own_tags_and_metadata_stay_off_the_calls_inside_it(
-    call_path: CallPath,
+    traced_model_call: RecordingTracer,
 ) -> None:
-    # Arrange
-    tracer = RecordingTracer()
-
     # Act
-    run_span_in_node(SPAN, call_path=call_path, body=call_model, callbacks=[tracer])
+    [span] = traced_model_call.find_runs("monitor step")
+    [model_call] = traced_model_call.find_runs("FakeListChatModel")
 
     # Assert
-    [span] = tracer.find_runs("monitor step")
-    [model_call] = tracer.find_runs("FakeListChatModel")
     assert span.tags == [NODE_TAG, "monitor"]
     assert span.metadata["monitor_agent"] == "main"
     assert span.metadata["langgraph_node"] == "model"
@@ -271,22 +269,8 @@ def test_callbacks_given_as_a_list_outside_a_graph_still_reach_the_span(
 
 @pytest.fixture
 def started_run_names(monkeypatch: pytest.MonkeyPatch) -> list[str]:
-    """Record the name of every chain run any callback manager starts, with or without handlers."""
-    names: list[str] = []
-    sync_start = CallbackManager.on_chain_start
-    async_start = AsyncCallbackManager.on_chain_start
-
-    def record_sync(manager: CallbackManager, *arguments: Any, **keywords: Any) -> Any:
-        names.append(str(keywords.get("name")))
-        return sync_start(manager, *arguments, **keywords)
-
-    async def record_async(manager: AsyncCallbackManager, *arguments: Any, **keywords: Any) -> Any:
-        names.append(str(keywords.get("name")))
-        return await async_start(manager, *arguments, **keywords)
-
-    monkeypatch.setattr(CallbackManager, "on_chain_start", record_sync)
-    monkeypatch.setattr(AsyncCallbackManager, "on_chain_start", record_async)
-    return names
+    """Record the name of every chain run a callback manager starts."""
+    return record_started_chain_names(monkeypatch)
 
 
 def test_without_a_tracer_no_span_starts_and_the_block_sees_the_node_s_config(

@@ -9,13 +9,20 @@ so the collector it registers never reaches the node's runs.
 
 from __future__ import annotations
 
+import itertools
 import threading
 from collections.abc import Sequence
 from dataclasses import dataclass, field
 from typing import Any
 from uuid import UUID
 
-from langchain_core.callbacks import BaseCallbackHandler
+import pytest
+from langchain_core.callbacks import AsyncCallbackManager, BaseCallbackHandler, CallbackManager
+from langchain_core.language_models.fake_chat_models import GenericFakeChatModel
+from langchain_core.messages import AIMessage
+from langchain_core.runnables import Runnable, RunnableConfig
+
+from tests.support.agents import RunMode, run_agent
 
 MONITOR_SPAN_PREFIX = "monitor "
 
@@ -261,3 +268,42 @@ def render_run(run: RecordedRun, *, depth: int, lines: list[str]) -> None:
     lines.append(f"{'  ' * depth}{run.name} [{run.run_type}] {status}{detail}")
     for child in run.children:
         render_run(child, depth=depth + 1, lines=lines)
+
+
+def build_judge_model() -> GenericFakeChatModel:
+    """Return a judge that answers every call, so each verdict makes one model call."""
+    return GenericFakeChatModel(messages=itertools.repeat(AIMessage("The step looks fine.")))
+
+
+def run_traced_agent(
+    agent: Runnable[Any, Any],
+    *,
+    mode: RunMode,
+) -> tuple[dict[str, Any], RecordingTracer]:
+    """Run the agent with a recording tracer in its config, and return its result and the tracer."""
+    tracer = RecordingTracer()
+    result = run_agent(agent, mode=mode, config=RunnableConfig(callbacks=[tracer]))
+    return result, tracer
+
+
+def record_started_chain_names(monkeypatch: pytest.MonkeyPatch) -> list[str]:
+    """Record the name of every chain run a callback manager starts, with or without handlers.
+
+    A span skipped for want of a handler never reaches `on_chain_start`, while
+    LangChain's own runs always do, so the list tells which spans were opened.
+    """
+    names: list[str] = []
+    sync_start = CallbackManager.on_chain_start
+    async_start = AsyncCallbackManager.on_chain_start
+
+    def record_sync(manager: CallbackManager, *arguments: Any, **keywords: Any) -> Any:
+        names.append(str(keywords.get("name")))
+        return sync_start(manager, *arguments, **keywords)
+
+    async def record_async(manager: AsyncCallbackManager, *arguments: Any, **keywords: Any) -> Any:
+        names.append(str(keywords.get("name")))
+        return await async_start(manager, *arguments, **keywords)
+
+    monkeypatch.setattr(CallbackManager, "on_chain_start", record_sync)
+    monkeypatch.setattr(AsyncCallbackManager, "on_chain_start", record_async)
+    return names

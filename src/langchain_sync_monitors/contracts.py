@@ -22,6 +22,8 @@ from langchain.agents.middleware.types import ModelResponse
 from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import AIMessage, BaseMessage
 
+from langchain_sync_monitors.errors import ConfigurationError
+
 
 class Channel(Flag):
     """The parts of a transcript a monitor can read.
@@ -30,7 +32,9 @@ class Channel(Flag):
     tool output, following Claude Code's auto mode classifier
     [@hughes2026automode]; reasoning is one flag away, since reading it catches
     more misbehaviour [@baker2025monitoring] but can also mislead a monitor
-    [@arnav2025cotredhanded].
+    [@arnav2025cotredhanded]. Whether a call ran is never left out: a tool
+    error travels with the call, and monitor feedback and context notes with
+    the task.
     """
 
     USER = auto()
@@ -93,14 +97,24 @@ class Outcome(StrEnum):
 class MonitorView:
     """Which parts of the transcript a monitor reads.
 
-    `most_recent_entries` keeps only the last entries of the history, or every
-    entry when it is `None`. `delegation_tools` names the tools whose results
-    are subagent reports.
+    `most_recent_entries` keeps only the last entries of the history, at least
+    one, or every entry when it is `None`; the messages of the task author are
+    kept in addition. `delegation_tools` names the tools whose results are
+    subagent reports.
     """
 
     channels: Channel = Channel.ACTIONS
     most_recent_entries: int | None = None
     delegation_tools: frozenset[str] = frozenset({"task"})
+
+    def __post_init__(self) -> None:
+        """Reject an entry limit below one, which would silently hide every recent step."""
+        if self.most_recent_entries is not None and self.most_recent_entries < 1:
+            message = (
+                "most_recent_entries must be at least 1, or None to keep every entry, "
+                f"got {self.most_recent_entries!r}"
+            )
+            raise ConfigurationError(message)
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)

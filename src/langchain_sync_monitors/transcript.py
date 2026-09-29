@@ -4,6 +4,12 @@ Each transcript entry belongs to one `Channel`, and a monitor only receives the
 entries whose channel is in its `MonitorView`. Entries are wrapped in tags, and
 their content is HTML-escaped, so text inside a tool result cannot close a tag
 and pose as another entry.
+
+Only a human message without an `lc_source` tag is rendered as the task
+author's words. LangChain and Deep Agents tag the human messages their
+middleware writes, such as a summary of earlier messages or a rubric grader's
+revision request [@langchain2026; @deepagents2026], and those are rendered as
+context notes that authorise nothing.
 """
 
 from __future__ import annotations
@@ -13,7 +19,14 @@ import json
 from collections.abc import Iterator, Sequence
 from dataclasses import dataclass
 
-from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, ToolCall, ToolMessage
+from langchain_core.messages import (
+    AIMessage,
+    BaseMessage,
+    HumanMessage,
+    InvalidToolCall,
+    ToolCall,
+    ToolMessage,
+)
 
 from langchain_sync_monitors.contracts import Channel, MonitorView, TaskAuthor
 
@@ -25,10 +38,15 @@ TASK_AUTHOR_TAGS = {TaskAuthor.USER: "user", TaskAuthor.PARENT_AGENT: "delegator
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class TranscriptEntry:
-    """One rendered piece of a conversation, with the channel it belongs to."""
+    """One rendered piece of a conversation, with the channel it belongs to.
+
+    `from_task_author` marks a message from the user, or from the delegating
+    agent, which an entry limit never drops.
+    """
 
     channel: Channel
     text: str
+    from_task_author: bool = False
 
 
 def extract_reasoning_text(message: AIMessage) -> str:
@@ -62,10 +80,20 @@ def read_reasoning_detail_text(detail: object) -> str:
     return text if isinstance(text, str) else ""
 
 
-def wrap_in_tag(*, tag: str, content: str, name: str | None = None) -> str:
-    """Wrap escaped content in a tag, with an optional escaped name attribute."""
-    attribute = f' name="{html.escape(name)}"' if name else ""
-    return f"<{tag}{attribute}>{html.escape(content, quote=False)}</{tag}>"
+def wrap_in_tag(
+    *,
+    tag: str,
+    content: str,
+    name: str | None = None,
+    source: str | None = None,
+) -> str:
+    """Wrap escaped content in a tag, with optional escaped `name` and `source` attributes."""
+    attributes = "".join(
+        f' {attribute}="{html.escape(value)}"'
+        for attribute, value in (("name", name), ("source", source))
+        if value
+    )
+    return f"<{tag}{attributes}>{html.escape(content, quote=False)}</{tag}>"
 
 
 def render_tool_call(tool_call: ToolCall) -> str:
@@ -74,8 +102,20 @@ def render_tool_call(tool_call: ToolCall) -> str:
     return wrap_in_tag(tag="tool_call", content=arguments, name=tool_call["name"])
 
 
+def render_malformed_tool_call(tool_call: InvalidToolCall) -> str:
+    """Render a tool call whose arguments could not be parsed, with its raw argument text.
+
+    Such a call never runs, but it shows what the agent tried to do.
+    """
+    return wrap_in_tag(
+        tag="malformed_tool_call",
+        content=tool_call["args"] or "",
+        name=tool_call["name"],
+    )
+
+
 def build_agent_entries(message: AIMessage) -> Iterator[TranscriptEntry]:
-    """Yield the reasoning, text and tool calls of one agent message."""
+    """Yield the reasoning, text, tool calls and malformed tool calls of one agent message."""
     reasoning = extract_reasoning_text(message)
     if reasoning:
         yield TranscriptEntry(
@@ -89,11 +129,26 @@ def build_agent_entries(message: AIMessage) -> Iterator[TranscriptEntry]:
         )
     for tool_call in message.tool_calls:
         yield TranscriptEntry(channel=Channel.TOOL_CALLS, text=render_tool_call(tool_call))
+    for invalid_tool_call in message.invalid_tool_calls:
+        yield TranscriptEntry(
+            channel=Channel.TOOL_CALLS,
+            text=render_malformed_tool_call(invalid_tool_call),
+        )
+
+
+def read_message_source(message: BaseMessage) -> str | None:
+    """Return the `lc_source` tag of a message another component wrote, or None without one."""
+    source = message.additional_kwargs.get("lc_source")
+    return None if source is None else str(source)
 
 
 def is_monitor_feedback(message: BaseMessage) -> bool:
-    """Tell whether the monitor itself inserted this message into the conversation."""
-    return message.additional_kwargs.get("lc_source") == MONITOR_FEEDBACK_SOURCE
+    """Tell whether the monitor itself inserted this message into the conversation.
+
+    Any code in the application can set the tag, so tool and middleware code
+    is trusted here, as it is everywhere else in the agent.
+    """
+    return read_message_source(message) == MONITOR_FEEDBACK_SOURCE
 
 
 def build_monitor_feedback_entry(
@@ -120,11 +175,19 @@ def build_tool_entry(
     """Render a tool result, as a subagent report when it comes from a delegation tool.
 
     A tool message the monitor wrote to reject a blocked call is its feedback,
-    not the tool's output.
+    not the tool's output. Any other error result says that the call failed or
+    did not run: a person rejected it, the tool does not exist, or the tool
+    raised. It is rendered as a `tool_error` beside the tool calls, so every
+    view that shows the call also shows that it did not complete, and why.
     """
     tool_name = message.name or tool_names_by_call.get(message.tool_call_id, "unknown")
     if is_monitor_feedback(message):
         return build_monitor_feedback_entry(message, name=tool_name)
+    if message.status == "error":
+        return TranscriptEntry(
+            channel=Channel.TOOL_CALLS,
+            text=wrap_in_tag(tag="tool_error", content=message.text, name=tool_name),
+        )
     if tool_name in view.delegation_tools:
         return TranscriptEntry(
             channel=Channel.SUBAGENT_REPORTS,
@@ -137,12 +200,25 @@ def build_tool_entry(
 
 
 def build_human_entry(message: HumanMessage, *, task_author: TaskAuthor) -> TranscriptEntry:
-    """Render a human message as the task author's words, or as the monitor's own feedback."""
-    if is_monitor_feedback(message):
+    """Render a human message as the task author's words, a context note or monitor feedback.
+
+    A human message tagged with any `lc_source` other than the monitor's was
+    written by another part of the application, often with the agent's own
+    model, so it becomes a `context_note` that names its source and
+    authorises nothing.
+    """
+    source = read_message_source(message)
+    if source is None:
+        return TranscriptEntry(
+            channel=Channel.USER,
+            text=wrap_in_tag(tag=TASK_AUTHOR_TAGS[task_author], content=message.text),
+            from_task_author=True,
+        )
+    if source == MONITOR_FEEDBACK_SOURCE:
         return build_monitor_feedback_entry(message)
     return TranscriptEntry(
         channel=Channel.USER,
-        text=wrap_in_tag(tag=TASK_AUTHOR_TAGS[task_author], content=message.text),
+        text=wrap_in_tag(tag="context_note", content=message.text, source=source),
     )
 
 
@@ -163,6 +239,12 @@ def build_message_entries(
     return []
 
 
+def read_tool_names_by_call(message: AIMessage) -> dict[str, str]:
+    """Return the tool name of each call in an agent message, malformed ones included, by id."""
+    calls: list[ToolCall | InvalidToolCall] = [*message.tool_calls, *message.invalid_tool_calls]
+    return {call["id"]: call["name"] for call in calls if call["id"] and call["name"]}
+
+
 def build_transcript_entries(
     history: Sequence[BaseMessage],
     *,
@@ -174,9 +256,7 @@ def build_transcript_entries(
     entries: list[TranscriptEntry] = []
     for message in history:
         if isinstance(message, AIMessage):
-            tool_names_by_call.update(
-                (call["id"], call["name"]) for call in message.tool_calls if call["id"]
-            )
+            tool_names_by_call.update(read_tool_names_by_call(message))
         entries.extend(
             build_message_entries(
                 message,
@@ -195,16 +275,18 @@ def select_visible_entries(
 ) -> list[TranscriptEntry]:
     """Keep the entries the view can read, limited to the most recent ones.
 
-    When the limit drops older entries, the first entry from the task author is
-    kept anyway: it states the task, which a monitor needs to judge anything.
+    When the limit drops older entries, every message from the task author is
+    kept anyway, in order: the first states the task, and a later one can
+    narrow or revoke it. They are few, and a monitor needs them all to judge a
+    step. A context note is never kept in their place.
     """
     visible = [entry for entry in entries if entry.channel in view.channels]
     limit = view.most_recent_entries
     if limit is None or len(visible) <= limit:
         return visible
-    recent = visible[len(visible) - limit :]
-    task_entries = [entry for entry in visible if entry.channel is Channel.USER][:1]
-    return [entry for entry in task_entries if entry not in recent] + recent
+    cut = len(visible) - limit
+    earlier_task_entries = [entry for entry in visible[:cut] if entry.from_task_author]
+    return [*earlier_task_entries, *visible[cut:]]
 
 
 def render_transcript(
@@ -223,7 +305,9 @@ def render_proposed_step(proposal: AIMessage, *, view: MonitorView) -> str:
 
     A proposal without tool calls is a final answer, and the answer is then the
     step's action, so its text is shown even when the view leaves out agent
-    prose.
+    prose. A proposal whose calls are all malformed is a final answer too,
+    because none of them can run; they are shown with it, as evidence of what
+    the agent tried.
     """
     is_final_answer = not proposal.tool_calls
     channels = view.channels | Channel.AGENT_TEXT if is_final_answer else view.channels
@@ -232,5 +316,9 @@ def render_proposed_step(proposal: AIMessage, *, view: MonitorView) -> str:
 
 
 def render_proposal_for_audit(proposal: AIMessage) -> str:
-    """Render a proposal with every channel, for the human auditors reading `monitor_log`."""
+    """Render a proposal with every channel, for the human auditors reading `monitor_log`.
+
+    Malformed tool calls are included, so the record keeps what the agent
+    tried even though nothing ran.
+    """
     return render_proposed_step(proposal, view=MonitorView(channels=Channel.ALL))

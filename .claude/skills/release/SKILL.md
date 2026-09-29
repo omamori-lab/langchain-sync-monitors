@@ -152,6 +152,9 @@ Before 1.0:
   pushed, which happens before anything is published.
 - The docs deploy from the tag, so the `github-pages` environment needs a `v*`
   tag rule; without it GitHub refuses the deployment.
+- The Release workflow runs only in `omamori-lab/langchain-sync-monitors`, so
+  a fork never tries to publish. If the repository is renamed or moved, update
+  the `if:` of its first job, or every run is skipped: grey, not red.
 - setup-uv turns its cache off on release events, so the Release run is slower
   than CI. That is on purpose: it keeps a poisoned cache out of a publishing
   run.

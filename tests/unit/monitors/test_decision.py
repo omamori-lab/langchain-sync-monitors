@@ -5,12 +5,11 @@ from __future__ import annotations
 import json
 import sys
 from collections.abc import Callable, Iterator, Sequence
+from typing import TYPE_CHECKING
 
 import httpx
-import httpx2
 import pytest
 import stamina
-from langchain_typesafe import TypeSafeClassifier
 
 from langchain_sync_monitors.contracts import MonitorInput
 from langchain_sync_monitors.errors import ConfigurationError, MonitorError
@@ -26,6 +25,10 @@ from langchain_sync_monitors.monitors.decision import (
 )
 
 from .doubles import CallPath, evaluate_on_path
+
+if TYPE_CHECKING:
+    import httpx2
+    from langchain_typesafe import TypeSafeClassifier
 
 type Responder = Callable[[httpx.Request], httpx.Response]
 
@@ -237,7 +240,12 @@ def build_typesafe_classifier(
     *,
     requests: list[httpx2.Request],
 ) -> TypeSafeClassifier:
-    """Return a real classifier whose HTTP clients reach a fake TypeSafe API."""
+    """Return a real classifier whose HTTP clients reach a fake TypeSafe API.
+
+    It needs the typesafe extra, so each TypeSafe test skips without it first.
+    """
+    import httpx2
+    from langchain_typesafe import TypeSafeClassifier
 
     def respond(request: httpx2.Request) -> httpx2.Response:
         requests.append(request)
@@ -258,6 +266,7 @@ async def test_typesafe_questions_become_nouls_with_criteria(
     call_path: CallPath,
 ) -> None:
     # Arrange
+    pytest.importorskip("langchain_typesafe")
     requests: list[httpx2.Request] = []
     classifier = build_typesafe_classifier(monkeypatch, requests=requests)
     model = TypeSafeDecisionModel(classifier=classifier)
@@ -281,6 +290,7 @@ def test_typesafe_without_the_extra_explains_how_to_install_it(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     # Arrange
+    pytest.importorskip("langchain_typesafe")
     classifier = build_typesafe_classifier(monkeypatch, requests=[])
     monkeypatch.setitem(sys.modules, "langchain_typesafe", None)
 

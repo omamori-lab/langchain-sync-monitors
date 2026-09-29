@@ -845,15 +845,15 @@ docs = [
 
 [package.metadata]
 requires-dist = [
-    { name = "deepagents", marker = "extra == 'deepagents'", specifier = ">=0.7" },
+    { name = "deepagents", marker = "extra == 'deepagents'", specifier = ">=0.7.12" },
     { name = "httpx", specifier = ">=0.27" },
     { name = "langchain", specifier = ">=1.4" },
     { name = "langchain-core", specifier = ">=1.6" },
-    { name = "langchain-openrouter", marker = "extra == 'openrouter'", specifier = ">=0.2" },
+    { name = "langchain-openrouter", marker = "extra == 'openrouter'", specifier = ">=0.2.1" },
     { name = "langchain-typesafe", marker = "extra == 'typesafe'", specifier = ">=0.0.1a3" },
-    { name = "langgraph", specifier = ">=1.2" },
-    { name = "pydantic", specifier = ">=2.7" },
-    { name = "stamina", specifier = ">=24.2" },
+    { name = "langgraph", specifier = ">=1.2.11" },
+    { name = "pydantic", specifier = ">=2.12" },
+    { name = "stamina", specifier = ">=25.1" },
 ]
 provides-extras = ["deepagents", "openrouter", "typesafe"]
 

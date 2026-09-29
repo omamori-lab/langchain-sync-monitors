@@ -6,7 +6,8 @@
 #   scripts/check.sh
 #
 # Exits non-zero on the first failing gate. CI and the pre-commit hooks run this
-# same script, so a green run here means a green pull request.
+# same script; CI also runs the offline suite at the lowest versions the
+# dependency bounds allow, and without any extra.
 set -euo pipefail
 
 cd "$(git rev-parse --show-toplevel)"

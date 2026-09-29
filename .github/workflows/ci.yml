@@ -1,7 +1,9 @@
 name: CI
 
 # Runs scripts/check.sh, the one gate script, on every pull request and on pushes
-# to main, across the supported Python versions.
+# to main, across the supported Python versions. Two more jobs run the offline
+# suite outside the lock file: at the lowest versions pyproject.toml allows, and
+# without any extra.
 
 on:
   pull_request:
@@ -21,7 +23,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        python-version: ["3.12", "3.13"]
+        python-version: ["3.12", "3.13", "3.14"]
     steps:
       - name: Check out the repository
         uses: actions/checkout@v6
@@ -36,3 +38,44 @@ jobs:
 
       - name: Run every gate
         run: scripts/check.sh
+
+  lowest-versions:
+    # The lock file pins the newest versions, so the gates never see the lower
+    # bounds in pyproject.toml. This job resolves every direct dependency to the
+    # lowest version its bound allows and runs the offline suite there.
+    # UV_RESOLUTION applies to every uv command, so no later command re-locks.
+    runs-on: ubuntu-latest
+    env:
+      UV_RESOLUTION: lowest-direct
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v6
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v8.1.0
+        with:
+          python-version: "3.12"
+
+      - name: Install the lowest direct versions, with every extra
+        run: uv sync --group dev --all-extras
+
+      - name: Run the offline suite
+        run: uv run --no-sync pytest -q
+
+  without-extras:
+    # The package and its offline suite must work with no extra installed.
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v6
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v8.1.0
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies without any extra
+        run: uv sync --locked --group dev
+
+      - name: Run the offline suite
+        run: uv run --no-sync pytest -q

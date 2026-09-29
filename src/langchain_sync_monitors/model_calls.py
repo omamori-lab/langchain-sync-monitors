@@ -25,10 +25,13 @@ def resolve_chat_model(model: str | BaseChatModel) -> BaseChatModel:
     LangChain's ``init_chat_model``, the same way LangChain's own middleware
     accepts a second model [@langchain2026]. The library never picks a model.
 
-    An ``openrouter:`` string without the ``openrouter`` extra raises
-    `MissingExtraError` naming the extra. The check only looks for the
-    package, without importing it; a package that is present but broken, and
-    every other provider, raise LangChain's own ``ImportError``.
+    An ``openrouter:`` string needs the ``openrouter`` extra, which installs
+    langchain-openrouter [@langchainopenrouter2026]; that package calls
+    OpenRouter through its Python SDK [@openrouterpythonsdk2026]. Without the
+    extra, such a string raises `MissingExtraError` naming it. The check only
+    looks for the package, without importing it; a package that is present
+    but broken, and every other provider, raise LangChain's own
+    ``ImportError``.
     """
     if isinstance(model, BaseChatModel):
         return model

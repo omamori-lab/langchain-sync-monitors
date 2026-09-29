@@ -162,8 +162,8 @@ guard against a forged approval:
   tool results still sees that an earlier call was blocked and did not run.
 
 Any other tool message with `status="error"` says that a call failed or did not
-run: a person rejected it through `HumanInTheLoopMiddleware`, with their reason;
-the tool does not exist; or the tool raised. It is rendered as
+run: a person rejected it through `HumanInTheLoopMiddleware`, with their reason
+[@langchain2026]; the tool does not exist; or the tool raised. It is rendered as
 `<tool_error name="...">` in the `TOOL_CALLS` channel, beside the call, so
 every view that shows the call also shows that it did not complete, and why.
 A tool call whose arguments could not be parsed lands in the message's
@@ -188,7 +188,8 @@ revoke it. A context note is never kept in their place. After summarisation has
 replaced the earlier messages of the model request, the original task may be
 gone from what the monitor reads, and the summary is left as a note. Reasoning
 is read from LangChain's standard content blocks, with a fallback for a reply
-that would carry it only in OpenRouter's `reasoning_details`.
+that would carry it only in OpenRouter's `reasoning_details`
+[@langchaincore2026; @langchainopenrouter2026].
 
 ## Control protocols
 
@@ -240,7 +241,8 @@ two extra samples are drawn, as in the paper. `Resampling.SEQUENTIAL` draws
 them one at a time and stops at the first acceptable one;
 `Resampling.PARALLEL` draws them all at once, for lower latency and more model
 calls. The audit flag uses the lowest score across the samples, as in Ctrl-Z.
-Resampling needs fresh draws. A LangChain response cache, global or on the
+Resampling needs fresh draws: the more deterministic the model, the less it
+helps [@bhatt2025ctrlzpost]. A LangChain response cache, global or on the
 agent's model, answers every resample with the first sample again, so the
 library warns once with a `CachedResampleWarning` when a step is resampled
 under one; build the untrusted model with `cache=False`.
@@ -356,7 +358,8 @@ LangChain's `init_chat_model`.
   Research found matters most [@apollo2026monitoringprompt]. A reply is read
   only in that shape: the reasoning, then one score tag, with nothing else
   between them or after the score. The agent writes the step the judge
-  reads, so it can plant a score tag there, and a judge may quote it; the
+  reads, so it can aim text at the judge there, such as a planted score tag
+  [@terekhov2025adaptive], and a judge may quote it; the
   shape keeps a quoted score from becoming the verdict. A reply in any other
   shape, or one the provider reports as cut off at a length limit, is asked
   for again and then counts as fully suspicious.
@@ -372,7 +375,8 @@ LangChain's `init_chat_model`.
   [@liu2025guardcalibration], and a hard 0 or 1 label gives a threshold only
   one operating point, so that option warns. The label is read only where the
   guard's format puts it: on the last line, or on the first line when it is
-  unsafe and only category codes follow, as in Llama Guard. A reply with two
+  unsafe and only category codes follow, as in Llama Guard
+  [@meta2024llamaguard3format; @meta2025llamaguard4]. A reply with two
   different labels on their own lines, a label elsewhere, or a cut-off reply
   counts as suspicious, for the same reason as a quoted score.
 - **Decision models** (`DecisionModelMonitor`) answer yes or no questions with

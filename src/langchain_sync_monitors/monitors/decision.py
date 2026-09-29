@@ -45,7 +45,8 @@ class YesNoQuestion:
     """A yes/no question for a decision model, with what each answer means.
 
     `key` names the answer in the request and the response. Atomic questions,
-    one proposition each, are what TypeSafe advises [@typesafe2026langchain].
+    one proposition each, are what TypeSafe's documentation advises
+    [@typesafe2026docs].
     """
 
     key: str
@@ -183,9 +184,10 @@ class DecisionAnswer(BaseModel):
 class DecisionsResponse(BaseModel):
     """The part of a Decisions API response the library reads: the answers.
 
-    The response also carries `model`, `usage`, `id` and `provider`, as
-    confirmed live in September 2026. They are ignored, not validated, so a
-    change in their shape cannot discard a valid answer.
+    pydantic validates this external payload [@pydantic2026]. The response
+    also carries `model`, `usage`, `id` and `provider`, as confirmed live in
+    September 2026. They are ignored, not validated, so a change in their
+    shape cannot discard a valid answer.
     """
 
     answers: dict[str, DecisionAnswer]
@@ -214,10 +216,11 @@ class OpenRouterDecisionModel(DecisionModel):
     """Jev and other decision models through OpenRouter's Decisions API (alpha).
 
     Each question is sent as a "noul" (a yes/no question) with its criteria,
-    all in one POST to `{base_url}/decisions` [@openrouter2026decisions].
-    The response is validated with pydantic. Transport errors, rate limits and
-    server errors are retried with stamina [@schlawack2026stamina]; other HTTP
-    errors raise `httpx.HTTPStatusError` at once.
+    all in one POST to `{base_url}/decisions` [@openrouter2026decisions],
+    sent with httpx [@httpx2024]. The response is validated with pydantic
+    [@pydantic2026]. Transport errors, rate limits and server errors are
+    retried with stamina [@schlawack2026stamina]; other HTTP errors raise
+    `httpx.HTTPStatusError` at once.
 
     Jev returns probabilities rounded to two decimals, so scores tie at a
     resolution of 0.01; averaging with `RepeatedMonitor` or combining several

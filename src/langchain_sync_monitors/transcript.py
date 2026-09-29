@@ -53,10 +53,11 @@ def extract_reasoning_text(message: AIMessage) -> str:
     """Return the agent's chain of thought from a model reply, or an empty string.
 
     Reads LangChain's standard reasoning content blocks first, which already
-    include OpenRouter's documented `reasoning` field. A reply that carries its
-    reasoning only as `reasoning_details` summaries would have no such block;
-    that shape has not been seen from a real provider, but it is read as a
-    fallback because the check costs nothing.
+    include OpenRouter's documented `reasoning` field, as langchain-openrouter
+    maps it [@langchaincore2026; @langchainopenrouter2026]. A reply that
+    carries its reasoning only as `reasoning_details` summaries would have no
+    such block; that shape has not been seen from a real provider, but it is
+    read as a fallback because the check costs nothing.
     """
     reasoning_parts = [
         block.get("reasoning", "")
@@ -176,9 +177,11 @@ def build_tool_entry(
 
     A tool message the monitor wrote to reject a blocked call is its feedback,
     not the tool's output. Any other error result says that the call failed or
-    did not run: a person rejected it, the tool does not exist, or the tool
-    raised. It is rendered as a `tool_error` beside the tool calls, so every
-    view that shows the call also shows that it did not complete, and why.
+    did not run: a person rejected it, which LangChain's
+    `HumanInTheLoopMiddleware` answers with an error result [@langchain2026];
+    the tool does not exist; or the tool raised. It is rendered as a
+    `tool_error` beside the tool calls, so every view that shows the call also
+    shows that it did not complete, and why.
     """
     tool_name = message.name or tool_names_by_call.get(message.tool_call_id, "unknown")
     if is_monitor_feedback(message):

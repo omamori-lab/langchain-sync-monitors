@@ -46,7 +46,8 @@ scripts/check.sh
 It checks that `CLAUDE.md` matches `AGENTS.md`, then runs ruff, ty (type checking),
 the unit tests, the lanorme standards (naming, complexity, docstrings, prose,
 docs layout), a strict docs build and a package build. The pre-commit hooks and
-CI run the same checks, so a green run locally means a green pull request.
+CI run the same checks. CI also runs the offline suite at the lowest versions
+the dependency bounds in `pyproject.toml` allow, and again without any extra.
 
 lanorme needs Python 3.13, so the script runs it with `uvx --python 3.13`; it
 only parses the code, so it checks 3.12 source correctly. To see why a rule

@@ -103,8 +103,12 @@ verdict.
 
 When no reply can be read, the step gets suspicion 1.0 with the reason "The
 monitor gave no readable score, so the step is treated as suspicious.", and
-the `langchain_sync_monitors.monitors.chat` logger writes a warning. The
-protocol then treats the step as the most suspicious it can be.
+the `langchain_sync_monitors.monitors.chat` logger writes a warning. A bare
+`LLMMonitor` then reports 1.0, the highest suspicion. Inside `RepeatedMonitor`
+that 1.0 is averaged with the other calls, so one unreadable call of three
+gives at least 0.33, and the mean keeps this reason, as the most suspicious
+call's. Inside `CalibratedMonitor` it becomes a rank below 1.0; see [Combine
+and calibrate monitors](combine-and-calibrate-monitors.md#collect-honest-scores).
 
 ## Use the default prompt, or write your own
 

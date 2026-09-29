@@ -201,8 +201,10 @@ class MonitoredStep(PendingStep):
 
     `request` is the step's model request, `monitor` judges each sample, and
     `previous_records` holds this monitor's records for this agent from
-    earlier steps of the thread. The middleware counts `blocks_in_thread` and
-    `new_subagent_blocks` from the log and from the agent's `Delegation`.
+    earlier steps of the thread, every turn of a checkpointed thread included,
+    or, inside a subagent, from earlier steps of its current delegation. The
+    middleware counts `blocks_in_thread` and `new_subagent_blocks` from the
+    log and from the agent's `Delegation`.
     `judged_samples` collects every sample the monitor has judged so far, in
     the order the verdicts arrived, so the middleware can report them if the
     step fails before it is committed. `sample_numbers` numbers the samples

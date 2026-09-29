@@ -255,7 +255,11 @@ class PendingStep(ABC):
     @property
     @abstractmethod
     def previous_records(self) -> tuple[StepRecord, ...]:
-        """This monitor's records from earlier steps of the run."""
+        """This monitor's records from earlier steps of the thread.
+
+        Every turn of a checkpointed thread counts. Inside a subagent, they are
+        the records of its current delegation.
+        """
 
     @property
     def blocks_in_thread(self) -> int:

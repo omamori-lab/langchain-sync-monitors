@@ -108,7 +108,8 @@ works with any protocol. A protocol reaches the model only through the
 - `request_trusted_step(trusted_model=...)` has a trusted model write the step,
   with the same conversation and tools;
 - `previous_records` holds this monitor's records from earlier steps of the
-  run;
+  thread, every turn of a checkpointed thread included, or, inside a
+  subagent, of its current delegation;
 - `blocks_in_thread` counts the blocks this monitor recorded in the
   conversation thread before the step, subagents included, except those of a
   subagent whose run raised, and `new_subagent_blocks` the ones recorded

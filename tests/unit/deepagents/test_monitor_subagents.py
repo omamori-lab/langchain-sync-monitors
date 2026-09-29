@@ -63,6 +63,45 @@ def test_a_given_general_purpose_spec_is_kept_and_not_duplicated(
     assert [spec["description"] for spec in specs] == ["My own helper."]
 
 
+def test_skills_go_to_the_general_purpose_subagent_only(
+    middleware: MonitorMiddleware,
+    researcher: SubAgent,
+) -> None:
+    # Arrange
+    skills = ["/skills/"]
+
+    # Act
+    [monitored_researcher, general_purpose] = monitor_subagents(
+        middleware=middleware, subagents=[researcher], skills=skills
+    )
+
+    # Assert
+    assert general_purpose.get("skills") == ["/skills/"]
+    assert general_purpose.get("skills") is not skills
+    assert "skills" not in monitored_researcher
+
+
+def test_without_skills_the_general_purpose_subagent_names_none(
+    middleware: MonitorMiddleware,
+) -> None:
+    # Act
+    [general_purpose] = monitor_subagents(middleware=middleware)
+
+    # Assert
+    assert "skills" not in general_purpose
+
+
+def test_skills_with_a_given_general_purpose_spec_are_refused(
+    middleware: MonitorMiddleware,
+) -> None:
+    # Arrange
+    general_purpose = SubAgent(name="general-purpose", description="My own helper.")
+
+    # Act / Assert
+    with pytest.raises(ConfigurationError, match="Set 'skills' on that spec"):
+        monitor_subagents(middleware=middleware, subagents=[general_purpose], skills=["/skills/"])
+
+
 def test_no_subagents_still_monitors_the_general_purpose_one(middleware: MonitorMiddleware) -> None:
     # Act
     specs = monitor_subagents(middleware=middleware)

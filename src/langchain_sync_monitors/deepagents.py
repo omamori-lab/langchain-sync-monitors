@@ -27,7 +27,11 @@ INSTALL_HINT = (
 
 
 def read_general_purpose_subagent() -> SubAgent:
-    """Return a copy of the spec Deep Agents uses for its general-purpose subagent.
+    """Return a copy of Deep Agents' base spec for its general-purpose subagent.
+
+    The spec holds the subagent's name, description and prompt only. When Deep
+    Agents adds the subagent itself, it also gives it the main agent's model,
+    tools and skills, and applies the harness profile's settings for it.
 
     Deep Agents is imported here, on first use, so the package imports without
     the optional extra and only this call asks for it.
@@ -74,7 +78,42 @@ def build_compiled_subagent_message(name: str) -> str:
     )
 
 
-def build_declarative_specs(subagents: Sequence[SubagentSpec]) -> list[SubAgent]:
+def build_general_purpose_skills_message(name: str) -> str:
+    """Explain why `skills` cannot go with a general-purpose spec of the caller's own."""
+    return (
+        f"subagents already has a spec named {name!r}, so monitor_subagents adds no "
+        "general-purpose subagent for skills to go to. Set 'skills' on that spec instead."
+    )
+
+
+def build_general_purpose_subagent(
+    specs: Sequence[SubAgent],
+    *,
+    skills: list[str] | None,
+) -> SubAgent | None:
+    """Return the general-purpose spec to add, or `None` when `specs` has one.
+
+    Deep Agents gives the main agent's skills to the general-purpose subagent
+    it adds itself, but a spec passed in `subagents` gets only the skills it
+    names [@deepagents2026], so they are set on the spec here. With a
+    general-purpose spec of the caller's own, `skills` raises rather than go
+    unused.
+    """
+    general_purpose = read_general_purpose_subagent()
+    if any(spec["name"] == general_purpose["name"] for spec in specs):
+        if skills is not None:
+            raise ConfigurationError(build_general_purpose_skills_message(general_purpose["name"]))
+        return None
+    if skills is not None:
+        general_purpose["skills"] = list(skills)
+    return general_purpose
+
+
+def build_declarative_specs(
+    subagents: Sequence[SubagentSpec],
+    *,
+    skills: list[str] | None,
+) -> list[SubAgent]:
     """Return the specs to monitor, adding the general-purpose one when it is missing.
 
     Forked subagents raise, since their monitors would misread who wrote the
@@ -90,8 +129,8 @@ def build_declarative_specs(subagents: Sequence[SubagentSpec]) -> list[SubAgent]
             specs.append(spec)
             continue
         raise ConfigurationError(build_compiled_subagent_message(spec["name"]))
-    general_purpose = read_general_purpose_subagent()
-    if all(spec["name"] != general_purpose["name"] for spec in specs):
+    general_purpose = build_general_purpose_subagent(specs, skills=skills)
+    if general_purpose is not None:
         specs.append(general_purpose)
     return specs
 
@@ -112,12 +151,24 @@ def monitor_subagents(
     middleware: MonitorMiddleware,
     subagents: Sequence[SubagentSpec] = (),
     overrides: Mapping[str, MonitorMiddleware] | None = None,
+    skills: list[str] | None = None,
 ) -> list[SubAgent]:
     """Give every subagent a monitor, including the built-in general-purpose one.
 
     Each subagent gets a copy of `middleware`, or of its entry in `overrides`,
     named after the subagent and told that its task comes from the parent
     agent. Pass the result as `create_deep_agent(subagents=...)`.
+
+    The general-purpose subagent is added as a spec of its own, since Deep
+    Agents offers no way to add middleware to the one it builds itself. Pass
+    the main agent's `skills`, the list given to `create_deep_agent(skills=...)`,
+    so the subagent keeps them as Deep Agents' own would. A harness profile's
+    `general_purpose_subagent` settings do not reach the spec: its description
+    and prompt stay Deep Agents' defaults, and a profile that disables the
+    subagent does not remove it. To change it, pass a spec named
+    `general-purpose` in `subagents`; it is monitored in place of the built-in
+    one, and `skills` then raises `ConfigurationError`, since that spec takes
+    only the skills it names.
 
     A subagent with `mode="fork"` raises `ConfigurationError` (issue #35). A
     fork continues the parent's conversation and inherits the main agent's
@@ -132,7 +183,7 @@ def monitor_subagents(
     in its own graph with `agent_name` set to its name and
     `task_author=TaskAuthor.PARENT_AGENT`.
     """
-    specs = build_declarative_specs(subagents)
+    specs = build_declarative_specs(subagents, skills=skills)
     chosen = overrides or {}
     unknown_names = sorted(set(chosen) - {spec["name"] for spec in specs})
     if unknown_names:

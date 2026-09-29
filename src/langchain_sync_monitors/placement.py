@@ -44,7 +44,7 @@ RETRYING_MIDDLEWARE = frozenset(
 LangChain's retry and fallback middleware retry on an exception, and Deep
 Agents' summarisation retries after a context overflow
 [@langchain2026; @deepagents2026]. Outside a monitor, each retry runs the
-whole monitored step again.
+whole monitored step again. Subclasses count too.
 """
 
 TOOL_FAILURE_HANDLING_MIDDLEWARE = frozenset({"ToolErrorMiddleware", "ToolRetryMiddleware"})
@@ -97,9 +97,14 @@ def is_unsafe_inside_monitor(middleware: AnyAgentMiddleware) -> bool:
     return is_model_call_wrapper(middleware) and not is_request_only
 
 
+def read_class_names(middleware: AnyAgentMiddleware) -> set[str]:
+    """Return the names of a middleware's class and of every class it inherits from."""
+    return {middleware_class.__name__ for middleware_class in type(middleware).__mro__}
+
+
 def is_retrying_middleware(middleware: AnyAgentMiddleware) -> bool:
-    """Tell whether a middleware wraps model calls and is known to retry them when they raise."""
-    is_retrying = type(middleware).__name__ in RETRYING_MIDDLEWARE
+    """Tell whether a middleware wraps model calls and is, or subclasses, one that retries them."""
+    is_retrying = bool(read_class_names(middleware) & RETRYING_MIDDLEWARE)
     return is_retrying and is_model_call_wrapper(middleware)
 
 
@@ -114,8 +119,7 @@ def is_tool_call_wrapper(middleware: AnyAgentMiddleware) -> bool:
 
 def is_tool_failure_handling_middleware(middleware: AnyAgentMiddleware) -> bool:
     """Tell whether a middleware wraps tool calls and is, or subclasses, one known to retry them."""
-    class_names = {middleware_class.__name__ for middleware_class in type(middleware).__mro__}
-    is_handling = bool(class_names & TOOL_FAILURE_HANDLING_MIDDLEWARE)
+    is_handling = bool(read_class_names(middleware) & TOOL_FAILURE_HANDLING_MIDDLEWARE)
     return is_handling and is_tool_call_wrapper(middleware)
 
 

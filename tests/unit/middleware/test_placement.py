@@ -141,6 +141,34 @@ def test_a_retrying_middleware_outside_the_monitor_is_named_in_a_warning(
     assert "monitor_step_failed" in str(caught[0].message)
 
 
+class PatientRetryMiddleware(ModelRetryMiddleware):
+    """A project's own retry policy, built on LangChain's."""
+
+
+class HouseFallbackMiddleware(ModelFallbackMiddleware):
+    """A project's own fallback chain, built on LangChain's."""
+
+
+@pytest.mark.parametrize(
+    "retrying",
+    [
+        PatientRetryMiddleware(),
+        HouseFallbackMiddleware(ScriptedChatModel(responses=[])),
+    ],
+    ids=["retry", "fallback"],
+)
+def test_a_subclass_of_a_retrying_middleware_outside_the_monitor_is_named_in_a_warning(
+    monitor_middleware: MonitorMiddleware,
+    retrying: AgentMiddleware[Any, Any, Any],
+) -> None:
+    # Act
+    with pytest.warns(MonitorPlacementWarning, match="retries failed model calls"):
+        misplaced = check_monitor_placement(middleware=[retrying, monitor_middleware])
+
+    # Assert
+    assert misplaced == [retrying.name]
+
+
 class ReturningToModelMiddleware(AgentMiddleware[Any, Any, Any]):
     """Stands in for a grader whose `after_agent` hook can send the run back to the model."""
 

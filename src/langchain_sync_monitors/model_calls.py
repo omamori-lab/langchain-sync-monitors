@@ -46,10 +46,10 @@ def is_package_installed(name: str) -> bool:
 
 
 MESSAGE_VIEW_EXCLUDE_KEY = "ls_message_view_exclude"
-"""The metadata key that keeps one run out of LangSmith's view of the agent's conversation.
+"""The metadata key that keeps one run out of LangSmith's Trajectory view.
 
-LangSmith checks it by presence, and documents it for guardrail and routing
-calls [@langsmith2026traces].
+LangSmith checks it by presence, and documents it for classification calls,
+safety filters and routing or guardrail decisions [@langsmith2026trajectory].
 """
 
 
@@ -58,8 +58,8 @@ def build_internal_call_config(*, source: str) -> RunnableConfig:
 
     The tag keeps the call out of the agent's message stream, the mechanism
     LangChain's ``InternalCallTransformer`` provides for middleware
-    [@langchain2026], and out of LangSmith's view of the agent's conversation
-    [@langsmith2026traces]. ``source`` names the caller in traces.
+    [@langchain2026], and out of LangSmith's Trajectory view
+    [@langsmith2026trajectory]. ``source`` names the caller in traces.
     """
     return RunnableConfig(
         metadata={

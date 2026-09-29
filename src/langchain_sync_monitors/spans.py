@@ -10,9 +10,10 @@ and count spans by name, and what varies goes in metadata under flat keys
 that start with `monitor_` [@langsmith2026traces; @langfuse2026].
 
 Every span is tagged `monitor`. The spans below the step span also carry
-`ls_agent_type: "middleware"`, which keeps them out of LangSmith's trajectory
-view, as LangSmith advises for guardrails [@langsmith2026traces]. The step
-span does not, because the agent's own samples nest in it.
+`ls_agent_type: "middleware"`, which keeps them out of LangSmith's Trajectory
+view, as LangSmith advises for guardrails and custom middleware
+[@langsmith2026trajectory]. The step span does not, because the agent's own
+samples nest in it.
 """
 
 from __future__ import annotations

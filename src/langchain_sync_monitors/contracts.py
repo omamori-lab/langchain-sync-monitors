@@ -215,12 +215,16 @@ class Delegation(TypedDict):
     """What a monitored agent hands to a subagent that one of its tool calls starts.
 
     `tool_call_id` is the id of that tool call, which the subagent's records
-    carry as their `delegation_id`. `blocks_before` holds, for each monitor
-    label, the blocks recorded in the conversation thread when the subagent
-    started, so that the subagent's Auto Mode counts from the thread's total.
+    carry as their `delegation_id`. `delegating_agent` names the agent that
+    made the call, so a monitor stacked in that agent passes the delegation on
+    as it is, while a subagent whose own call reuses the id hands on a new one.
+    `blocks_before` holds, for each monitor label, the blocks recorded in the
+    conversation thread when the subagent started, so that the subagent's Auto
+    Mode counts from the thread's total.
     """
 
     tool_call_id: str
+    delegating_agent: str
     blocks_before: dict[str, int]
 
 

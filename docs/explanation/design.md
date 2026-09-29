@@ -494,20 +494,28 @@ last position of the annotation [@langgraph2026].
 
 A subagent starts every delegation with an empty log, so its step numbers
 start again at 1. Before each tool call, the parent's monitor adds a
-`Delegation` to the state the tool sees: the id of the tool call and the
-blocks each monitor has recorded in the thread. Deep Agents' `task` tool
-passes that state on to the subagent, as it does the rest of the parent's
-state, and the subagent's monitor stores the id in each of its records as
-`delegation_id`. So `(agent, delegation_id, step_number)` names one step, and
-an auditor can match a delegation's records to its `task` call and result in
-the parent's transcript. This relies on the model provider giving every tool
-call in the thread its own id, as providers do, which LangChain does not
-check. The state key, `monitor_delegation`, is left out of
-the subagent's output, as Deep Agents does for its own forked-context flag
-[@deepagents2026], so it never flows back into the parent. The block counts
-let the subagent's Auto Mode start from the thread's total. Subagents that run
-in parallel do not see each other's blocks, so together they can pass the
-total; the parent counts every one of them at its next step.
+`Delegation` to the state the tool sees: the id of the tool call, the name of
+the agent that made it, and the blocks each monitor has recorded in the
+thread. Deep Agents' `task` tool passes that state on to the subagent, as it
+does the rest of the parent's state, and the subagent's monitor stores the id
+in each of its records as `delegation_id`. So `(agent, delegation_id,
+step_number)` names one step, and an auditor can match a delegation's records
+to its `task` call and result in the parent's transcript. This relies on the
+model provider giving every tool call in the thread its own id, as providers
+do, which LangChain does not check. The state key, `monitor_delegation`, is
+left out of the subagent's output, as Deep Agents does for its own
+forked-context flag [@deepagents2026], so it never flows back into the parent.
+The block counts let the subagent's Auto Mode start from the thread's total.
+Subagents that run in parallel do not see each other's blocks, so together
+they can pass the total; the parent counts every one of them at its next step.
+
+A second monitor stacked in the same agent finds the delegation for the call
+already in place, made by its own agent, and passes it on as it is, so the
+blocks are not counted twice. A subagent's monitor finds the delegation it
+inherited instead, made by another agent, and replaces it with one that adds
+the subagent's own blocks, even when the subagent's tool call reuses the id
+of the call that started it. Telling the two apart relies on each agent's
+monitor having its own `agent_name`, which `monitor_subagents` gives it.
 
 ## Sync and async
 

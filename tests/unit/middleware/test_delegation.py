@@ -36,7 +36,11 @@ RECORD_KEYS = {
     "blocked_count",
     "samples",
 }
-PARENT_DELEGATION = Delegation(tool_call_id="call-parent", blocks_before={"monitor": 5})
+PARENT_DELEGATION = Delegation(
+    tool_call_id="call-parent",
+    delegating_agent="main",
+    blocks_before={"monitor": 5},
+)
 
 
 def build_record(*, monitor: str, blocked_count: int) -> StepRecord:
@@ -111,24 +115,46 @@ def test_a_tool_call_hands_on_the_thread_s_blocks_by_monitor(
         asyncio.run(middleware.awrap_tool_call(request, handle_async))
 
     # Assert
-    expected = Delegation(tool_call_id="call-child", blocks_before={"monitor": 7, "other": 1})
+    expected = Delegation(
+        tool_call_id="call-child",
+        delegating_agent="main",
+        blocks_before={"monitor": 7, "other": 1},
+    )
     [handled] = seen
     assert handled.state["monitor_delegation"] == expected
     assert handled.runtime.state["monitor_delegation"] == expected
     assert subagent_state["monitor_delegation"] == PARENT_DELEGATION
 
 
-def test_a_request_with_this_call_s_delegation_is_passed_on_as_it_is(
+def test_a_request_with_this_agent_s_delegation_for_the_call_is_passed_on_as_it_is(
     subagent_state: dict[str, Any],
 ) -> None:
     # Arrange
-    request = add_delegation(build_tool_request(state=subagent_state, call_id="call-child"))
+    request = build_tool_request(state=subagent_state, call_id="call-child")
+    request = add_delegation(request, agent="worker")
 
     # Act
-    again = add_delegation(request)
+    again = add_delegation(request, agent="worker")
 
     # Assert
     assert again is request
+
+
+def test_an_inherited_delegation_is_replaced_when_the_call_reuses_its_id(
+    subagent_state: dict[str, Any],
+) -> None:
+    # Arrange
+    request = build_tool_request(state=subagent_state, call_id="call-parent")
+
+    # Act
+    handed_on = add_delegation(request, agent="worker")
+
+    # Assert
+    assert handed_on.state["monitor_delegation"] == Delegation(
+        tool_call_id="call-parent",
+        delegating_agent="worker",
+        blocks_before={"monitor": 7, "other": 1},
+    )
 
 
 def test_a_tool_call_without_an_id_is_passed_on_as_it_is(
@@ -138,7 +164,7 @@ def test_a_tool_call_without_an_id_is_passed_on_as_it_is(
     request = build_tool_request(state=subagent_state, call_id=None)
 
     # Act
-    handed_on = add_delegation(request)
+    handed_on = add_delegation(request, agent="worker")
 
     # Assert
     assert handed_on is request

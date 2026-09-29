@@ -186,9 +186,9 @@ class MonitorMiddleware(AgentMiddleware[MonitorState, AgentContext, StructuredOu
     `ConfigurationError`.
 
     Before each tool call, the middleware adds a `Delegation` to the state the
-    tool sees: the call's id and the blocks each monitor has recorded in the
-    thread. A subagent the call starts, as Deep Agents' `task` tool does,
-    receives it, so the subagent's records carry the call's id as
+    tool sees: the call's id, `agent_name` and the blocks each monitor has
+    recorded in the thread. A subagent the call starts, as Deep Agents' `task`
+    tool does, receives it, so the subagent's records carry the call's id as
     `delegation_id` and its Auto Mode counts from the thread's total.
 
     A halted step ends the run. The middleware's `after_model` hook routes the
@@ -311,7 +311,7 @@ class MonitorMiddleware(AgentMiddleware[MonitorState, AgentContext, StructuredOu
         handler: ToolCallHandler,
     ) -> ToolCallResult:
         """Run a tool call under `invoke()`, handing any subagent it starts its delegation."""
-        return handler(add_delegation(request))
+        return handler(add_delegation(request, agent=self.agent_name))
 
     @override
     async def awrap_tool_call(
@@ -320,7 +320,7 @@ class MonitorMiddleware(AgentMiddleware[MonitorState, AgentContext, StructuredOu
         handler: AsyncToolCallHandler,
     ) -> ToolCallResult:
         """Run a tool call under `ainvoke()`, handing any subagent it starts its delegation."""
-        return await handler(add_delegation(request))
+        return await handler(add_delegation(request, agent=self.agent_name))
 
     @hook_config(can_jump_to=["end"])
     @override

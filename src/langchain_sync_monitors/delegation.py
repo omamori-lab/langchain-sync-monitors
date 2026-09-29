@@ -36,26 +36,49 @@ def read_delegation_id(state: object) -> str | None:
     return None if delegation is None else delegation["tool_call_id"]
 
 
-def add_delegation(request: ToolCallRequest) -> ToolCallRequest:
+def add_delegation(request: ToolCallRequest, *, agent: str) -> ToolCallRequest:
     """Return the tool request with the `Delegation` a subagent started by the call receives.
 
-    The blocks count from this agent's log, which holds its subagents'
-    records too, on top of the blocks recorded before this agent started. A
-    request that already carries the delegation for this very call, added by a
-    monitor further out, is returned as it is, so stacked monitors do not count
-    the blocks twice. So is a call without an id, from which Deep Agents
-    refuses to start a subagent [@deepagents2026].
+    `agent` names the agent making the call. The blocks count from this
+    agent's log, which holds its subagents' records too, on top of the blocks
+    recorded before this agent started. A request that already carries this
+    agent's delegation for this very call, added by a monitor further out, is
+    returned as it is, so stacked monitors do not count the blocks twice. A
+    delegation this agent inherited is replaced even when the call reuses its
+    id, so a nested subagent still counts this agent's blocks. A call without
+    an id, from which Deep Agents refuses to start a subagent
+    [@deepagents2026], is returned as it is.
     """
     tool_call_id = request.tool_call["id"]
+    if tool_call_id is None:
+        return request
     earlier = read_delegation(request.state)
-    if tool_call_id is None or (earlier and earlier["tool_call_id"] == tool_call_id):
+    if is_delegation_of_call(earlier, tool_call_id=tool_call_id, agent=agent):
         return request
     blocks_before = count_blocks_by_monitor(
         read_monitor_log(request.state),
         earlier_blocks=earlier["blocks_before"] if earlier else {},
     )
-    delegation = Delegation(tool_call_id=tool_call_id, blocks_before=blocks_before)
+    delegation = Delegation(
+        tool_call_id=tool_call_id,
+        delegating_agent=agent,
+        blocks_before=blocks_before,
+    )
     return build_tool_request_with_delegation(request, delegation=delegation)
+
+
+def is_delegation_of_call(
+    delegation: Delegation | None,
+    *,
+    tool_call_id: str,
+    agent: str,
+) -> bool:
+    """Tell whether the delegation is the one this agent made for this tool call."""
+    return (
+        delegation is not None
+        and delegation["tool_call_id"] == tool_call_id
+        and delegation["delegating_agent"] == agent
+    )
 
 
 def count_blocks_in_thread(state: Mapping[str, object], *, monitor: str) -> int:

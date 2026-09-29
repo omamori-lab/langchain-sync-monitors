@@ -46,22 +46,50 @@ def is_declarative_subagent(spec: SubagentSpec) -> TypeGuard[SubAgent]:
     return "runnable" not in spec and "graph_id" not in spec
 
 
+def is_forked_subagent(spec: SubagentSpec) -> bool:
+    """Tell whether a spec continues the parent's conversation, `mode="fork"` in Deep Agents."""
+    return spec.get("mode") == "fork"
+
+
+def build_fork_message(name: str) -> str:
+    """Explain why a forked subagent cannot be monitored yet."""
+    return (
+        f"Subagent {name!r} has mode='fork', which the monitor does not support yet (issue "
+        "#35). A fork continues the parent's conversation and inherits the main agent's "
+        "monitor, which reads the parent agent's task as the user's words and records the "
+        "fork's steps as the main agent's, so a halt inside the fork does not stop the run. "
+        "Use mode='isolated' for a monitored subagent."
+    )
+
+
+def build_compiled_subagent_message(name: str) -> str:
+    """Explain how to monitor a compiled or remote subagent in its own graph."""
+    return (
+        f"Subagent {name!r} is compiled or remote, so a monitor cannot be added to it here. "
+        "Add one to its own create_agent() instead, named after the subagent and reading "
+        f"its task as the parent agent's: MonitorMiddleware(..., agent_name={name!r}, "
+        "task_author=TaskAuthor.PARENT_AGENT). With the default agent_name='main', its "
+        "records count as the main agent's own, and SubagentHalt.STOP_WHOLE_RUN misses "
+        "its halts."
+    )
+
+
 def build_declarative_specs(subagents: Sequence[SubagentSpec]) -> list[SubAgent]:
     """Return the specs to monitor, adding the general-purpose one when it is missing.
 
-    Compiled and remote subagents are built outside Deep Agents, so middleware
-    cannot be added to them; they raise rather than run unmonitored.
+    Forked subagents raise, since their monitors would misread who wrote the
+    task. Compiled and remote subagents are built outside Deep Agents, so
+    middleware cannot be added to them; they raise rather than run
+    unmonitored.
     """
     specs: list[SubAgent] = []
     for spec in subagents:
+        if is_forked_subagent(spec):
+            raise ConfigurationError(build_fork_message(spec["name"]))
         if is_declarative_subagent(spec):
             specs.append(spec)
             continue
-        error_message = (
-            f"Subagent {spec['name']!r} is compiled or remote, so a monitor cannot be added "
-            "to it here. Add a MonitorMiddleware to its own create_agent() instead."
-        )
-        raise ConfigurationError(error_message)
+        raise ConfigurationError(build_compiled_subagent_message(spec["name"]))
     general_purpose = read_general_purpose_subagent()
     if all(spec["name"] != general_purpose["name"] for spec in specs):
         specs.append(general_purpose)
@@ -91,9 +119,18 @@ def monitor_subagents(
     named after the subagent and told that its task comes from the parent
     agent. Pass the result as `create_deep_agent(subagents=...)`.
 
-    A subagent with `mode="fork"` also inherits the main agent's middleware
-    from Deep Agents, so it runs under the main agent's monitor as well as its
-    own.
+    A subagent with `mode="fork"` raises `ConfigurationError` (issue #35). A
+    fork continues the parent's conversation and inherits the main agent's
+    middleware from Deep Agents, so it runs under the main agent's monitor.
+    That monitor reads the fork's task, which the parent agent wrote, as the
+    user's words, and records the fork's steps under the main agent's name,
+    which hides a halt inside the fork from `SubagentHalt.STOP_WHOLE_RUN`.
+    This holds for a fork passed to `create_deep_agent` without this helper
+    too, so do not give a monitored agent forked subagents.
+
+    A compiled or remote subagent raises `ConfigurationError` too; monitor it
+    in its own graph with `agent_name` set to its name and
+    `task_author=TaskAuthor.PARENT_AGENT`.
     """
     specs = build_declarative_specs(subagents)
     chosen = overrides or {}

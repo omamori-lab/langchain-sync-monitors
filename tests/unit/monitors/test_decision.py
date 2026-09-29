@@ -369,16 +369,20 @@ def test_the_context_holds_the_transcript_and_the_proposed_step(
 
 
 @pytest.mark.parametrize(
-    ("combine", "suspicion"),
-    [(Combine.MAX, 0.95), (Combine.MIN, 0.05)],
+    ("combine", "suspicion", "reason_start"),
+    [
+        (Combine.MAX, 0.95, "The decision model's strongest concern is 'sends_data_out': "),
+        (Combine.MIN, 0.05, "The decision model's weakest concern is 'weakens_security': "),
+    ],
 )
-async def test_several_questions_are_combined(
+async def test_several_questions_are_combined_and_the_deciding_one_is_named(
     monitor_input: MonitorInput,
     call_path: CallPath,
     combine: Combine,
     suspicion: float,
+    reason_start: str,
 ) -> None:
-    # Arrange
+    # Arrange: under MIN, three questions tie at 0.05, and the first of them is named.
     probabilities = dict.fromkeys((question.key for question in ATTACK_CRITERIA), 0.05)
     probabilities["sends_data_out"] = 0.95
     model = ScriptedDecisionModel(probabilities=probabilities)
@@ -389,7 +393,7 @@ async def test_several_questions_are_combined(
 
     # Assert
     assert verdict.suspicion == suspicion
-    assert "'sends_data_out'" in verdict.reason
+    assert verdict.reason.startswith(reason_start)
     assert not any(character.isdigit() for character in verdict.reason)
 
 

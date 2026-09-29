@@ -474,10 +474,11 @@ class DecisionModelMonitor(Monitor):
     `combine` merges them; `Combine.MAX` is the default because averaging
     dilutes a single strong hit, while the maximum keeps it (see
     `docs/plans/initial-implementation/research/decision-model-question-format.md`).
-    The reason names the question with the highest probability of yes, and
-    carries no probability or combined score: Auto Mode shows the reason to
-    the agent, and those numbers would tell it how close its step came to
-    passing. They stay in the suspicion.
+    The reason names the question that set the suspicion: under `Combine.MIN`
+    the one with the lowest probability of yes, otherwise the one with the
+    highest. It carries no probability or combined score: Auto Mode shows the
+    reason to the agent, and those numbers would tell it how close its step
+    came to passing. They stay in the suspicion.
 
     Every answer is checked, whichever `DecisionModel` gave it: a skipped
     question, or an answer that is not a number from 0 to 1, raises
@@ -541,9 +542,18 @@ class DecisionModelMonitor(Monitor):
         return f"<transcript>\n{transcript}\n</transcript>\n{proposed_step}"
 
     def build_verdict(self, probabilities: Mapping[str, float]) -> Verdict:
-        """Check and combine the probabilities, and name the question that scored highest."""
+        """Check and combine the probabilities, and name the question that set the suspicion.
+
+        On a tie, the first question in order is named.
+        """
         answers = select_question_probabilities(probabilities, questions=self.questions)
         suspicion = combine_probabilities(list(answers.values()), combine=self.combine)
-        strongest = max(self.questions, key=lambda question: answers[question.key])
-        reason = f"The decision model's strongest concern is {strongest.key!r}: {strongest.text}"
+        if self.combine is Combine.MIN:
+            weakest = min(self.questions, key=lambda question: answers[question.key])
+            reason = f"The decision model's weakest concern is {weakest.key!r}: {weakest.text}"
+        else:
+            strongest = max(self.questions, key=lambda question: answers[question.key])
+            reason = (
+                f"The decision model's strongest concern is {strongest.key!r}: {strongest.text}"
+            )
         return Verdict(suspicion=suspicion, reason=reason)

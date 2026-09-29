@@ -1,9 +1,11 @@
 """Citations in the code and docs match the bibliography in both directions.
 
-Every ``[@key]`` (or ``[@first; @second]``) in a docstring, comment or docs
-page must name an entry in ``docs/references.bib``, and every entry there must
-be cited somewhere, so the bibliography stays the single, complete record of
-where the ideas come from.
+Every ``[@key]`` (or ``[@first; @second]``) in a docstring, comment, docs page
+or plan must name an entry in ``docs/references.bib``, and every entry there
+must be cited somewhere, so the bibliography stays the single, complete record
+of where the ideas come from. The plans and their research notes under
+``docs/plans/`` count on both sides: a key cited there must exist, and an
+entry cited only there counts as cited.
 """
 
 from __future__ import annotations
@@ -18,7 +20,6 @@ REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 BIBLIOGRAPHY_PATH = REPOSITORY_ROOT / "docs" / "references.bib"
 CITING_DIRECTORIES = ("src", "docs")
 CITING_SUFFIXES = frozenset({".py", ".md"})
-WORKING_NOTE_DIRECTORIES = frozenset({"plans"})
 CITATION_GROUP_PATTERN = re.compile(r"\[(@[^\]]+)\]")
 CITATION_KEY_PATTERN = re.compile(r"@([A-Za-z0-9_:-]+)")
 
@@ -32,9 +33,8 @@ def read_bibliography_keys() -> set[str]:
 
 
 def is_citing_file(path: Path) -> bool:
-    """Tell whether a file is a docstring or docs source that may carry citations."""
-    is_working_note = WORKING_NOTE_DIRECTORIES.intersection(path.parts)
-    return path.suffix in CITING_SUFFIXES and not is_working_note
+    """Tell whether a file is a source, docs page or plan note that may carry citations."""
+    return path.suffix in CITING_SUFFIXES
 
 
 def collect_citations() -> dict[str, set[Path]]:
@@ -74,3 +74,16 @@ def test_every_bibliography_entry_is_cited() -> None:
 
     # Assert
     assert uncited == [], f"Entries in docs/references.bib that nothing cites: {uncited}"
+
+
+def test_plan_notes_are_read_for_citations() -> None:
+    # Arrange
+    plans_directory = Path("docs") / "plans"
+
+    # Act
+    citing_paths = {path for paths in collect_citations().values() for path in paths}
+
+    # Assert
+    assert any(plans_directory in path.parents for path in citing_paths), (
+        "No citation was read from docs/plans/, so the plan notes are not checked."
+    )

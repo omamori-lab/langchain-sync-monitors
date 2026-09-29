@@ -151,11 +151,19 @@ def build_tool_entry(
     """Render a tool result, as a subagent report when it comes from a delegation tool.
 
     A tool message the monitor wrote to reject a blocked call is its feedback,
-    not the tool's output.
+    not the tool's output. Any other error result says that the call failed or
+    did not run: a person rejected it, the tool does not exist, or the tool
+    raised. It is rendered as a `tool_error` beside the tool calls, so every
+    view that shows the call also shows that it did not complete, and why.
     """
     tool_name = message.name or tool_names_by_call.get(message.tool_call_id, "unknown")
     if is_monitor_feedback(message):
         return build_monitor_feedback_entry(message, name=tool_name)
+    if message.status == "error":
+        return TranscriptEntry(
+            channel=Channel.TOOL_CALLS,
+            text=wrap_in_tag(tag="tool_error", content=message.text, name=tool_name),
+        )
     if tool_name in view.delegation_tools:
         return TranscriptEntry(
             channel=Channel.SUBAGENT_REPORTS,

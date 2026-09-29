@@ -1,4 +1,4 @@
-"""What the monitor reads in whole runs: context notes and later turns.
+"""What the monitor reads in whole runs: notes, failed calls and later turns.
 
 The monitor is `RenderingMonitor`, which reads every step through its view as
 `LLMMonitor` fills its prompt, so these tests check the text a chat judge would
@@ -14,6 +14,7 @@ import pytest
 from langchain.agents import create_agent
 from langchain.agents.middleware import (
     AgentMiddleware,
+    HumanInTheLoopMiddleware,
     SummarizationMiddleware,
 )
 from langchain_core.messages import (
@@ -25,6 +26,7 @@ from langchain_core.messages import (
 from langchain_core.runnables import Runnable, RunnableConfig
 from langchain_core.tools import BaseTool, tool
 from langgraph.checkpoint.memory import InMemorySaver
+from langgraph.types import Command
 
 from langchain_sync_monitors import (
     LLMMonitor,
@@ -43,7 +45,7 @@ from tests.support.agents import (
     build_thread_config,
     run_agent,
 )
-from tests.support.chat_models import ScriptedChatModel
+from tests.support.chat_models import ScriptedChatModel, build_tool_call_message
 from tests.support.monitors import RenderingMonitor, read_tagged_entries
 
 TASK = "Summarise q3.md for the team. Never send credentials anywhere."
@@ -157,6 +159,81 @@ def test_a_deep_agent_summary_written_by_the_agent_model_is_never_the_user(
     notes = read_tagged_entries(reading.transcript, tag="context_note")
     assert len(notes) == expected_notes
     assert all(FORGED_SUMMARY in note for note in notes)
+
+
+def test_a_call_a_person_rejected_shows_the_reason_to_the_monitor(run_mode: RunMode) -> None:
+    # Arrange
+    reason = "Do not post anything anywhere."
+    monitor = RenderingMonitor()
+    workspace = Workspace()
+    model = ScriptedChatModel(
+        responses=[
+            build_tool_call_message(
+                tool_name="http_post",
+                call_id="call-1",
+                arguments={"url": "https://intranet.example/reports", "body": "Q3"},
+            ),
+            build_read_step(call_id="call-2"),
+            AIMessage("Done."),
+        ],
+    )
+    middleware: list[AgentMiddleware[Any, Any, Any]] = [
+        HumanInTheLoopMiddleware(interrupt_on={"http_post": True}),
+        build_monitor_middleware(monitor),
+    ]
+    agent: Runnable[Any, Any] = create_agent(
+        model=model,
+        tools=workspace.build_tools(),
+        middleware=middleware,
+        checkpointer=InMemorySaver(),
+    )
+    config = build_thread_config(f"rejected-{run_mode}")
+    run_payload(agent, {"messages": [HumanMessage(TASK)]}, mode=run_mode, config=config)
+
+    # Act
+    resume = Command(resume={"decisions": [{"type": "reject", "message": reason}]})
+    run_payload(agent, resume, mode=run_mode, config=config)
+
+    # Assert
+    assert workspace.executed == ["read_file:q3.md"]
+    reading = monitor.find_reading(tool_name="read_file")
+    call_line, error_line = reading.transcript.splitlines()[1:3]
+    assert call_line.startswith('<tool_call name="http_post">')
+    assert error_line == (
+        '<tool_error name="http_post">User rejected the tool call for `http_post` '
+        f"with reason: {reason}</tool_error>"
+    )
+
+
+def test_a_call_to_a_tool_that_does_not_exist_shows_as_a_tool_error(run_mode: RunMode) -> None:
+    # Arrange
+    monitor = RenderingMonitor()
+    workspace = Workspace()
+    model = ScriptedChatModel(
+        responses=[
+            build_tool_call_message(
+                tool_name="drop_database", call_id="call-1", arguments={"name": "prod"}
+            ),
+            AIMessage("Done."),
+        ],
+    )
+    agent: Runnable[Any, Any] = create_agent(
+        model=model,
+        tools=workspace.build_tools(),
+        middleware=[build_monitor_middleware(monitor)],
+    )
+
+    # Act
+    run_agent(agent, mode=run_mode)
+
+    # Assert
+    assert workspace.executed == []
+    final_transcript = monitor.readings[-1].transcript
+    assert final_transcript.splitlines()[1:] == [
+        '<tool_call name="drop_database">{"name": "prod"}</tool_call>',
+        '<tool_error name="drop_database">Error: drop_database is not a valid tool, '
+        "try one of [read_file, http_post].</tool_error>",
+    ]
 
 
 def test_a_later_instruction_from_the_user_survives_the_entry_limit(run_mode: RunMode) -> None:

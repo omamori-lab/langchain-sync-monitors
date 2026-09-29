@@ -11,8 +11,15 @@ from langchain.agents.middleware import (
     HumanInTheLoopMiddleware,
     ModelFallbackMiddleware,
     ModelRetryMiddleware,
+    ToolErrorMiddleware,
+    ToolRetryMiddleware,
 )
-from langchain.agents.middleware.types import AgentMiddleware, ModelRequest, ModelResponse
+from langchain.agents.middleware.types import (
+    AgentMiddleware,
+    ModelRequest,
+    ModelResponse,
+    ToolCallRequest,
+)
 
 from langchain_sync_monitors.middleware import (
     MonitorMiddleware,
@@ -134,9 +141,65 @@ def test_a_retrying_middleware_outside_the_monitor_is_named_in_a_warning(
     assert "monitor_step_failed" in str(caught[0].message)
 
 
+def render_error_message(error: Exception, request: ToolCallRequest) -> str:
+    return f"{request.tool_call['name']} failed with {type(error).__name__}."
+
+
+def build_tool_retry_lookalike() -> AgentMiddleware[Any, Any, Any]:
+    """Build a middleware that shares the tool retry's class name but wraps no tool call."""
+    lookalike_class: type[AgentMiddleware[Any, Any, Any]] = type(
+        "ToolRetryMiddleware", (AgentMiddleware,), {}
+    )
+    return lookalike_class()
+
+
+@pytest.mark.parametrize(
+    "handling",
+    [
+        ToolRetryMiddleware(),
+        ToolErrorMiddleware(on_error=render_error_message),
+    ],
+    ids=["tool-retry", "tool-error"],
+)
+@pytest.mark.parametrize("position", ["outside", "inside"])
+def test_a_middleware_that_handles_failed_tool_calls_is_named_in_a_warning(
+    monitor_middleware: MonitorMiddleware,
+    handling: AgentMiddleware[Any, Any, Any],
+    position: str,
+) -> None:
+    # Arrange
+    if position == "outside":
+        stack = [handling, monitor_middleware]
+    else:
+        stack = [monitor_middleware, handling]
+
+    # Act
+    with pytest.warns(MonitorPlacementWarning, match="failed tool calls") as caught:
+        misplaced = check_monitor_placement(middleware=stack)
+
+    # Assert
+    assert misplaced == [handling.name]
+    assert "Auto Mode's total" in str(caught[0].message)
+
+
+def test_a_middleware_named_like_a_tool_retry_that_wraps_no_tool_call_is_not_named(
+    monitor_middleware: MonitorMiddleware,
+) -> None:
+    # Arrange
+    stack = [build_tool_retry_lookalike(), monitor_middleware]
+
+    # Act
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        misplaced = check_monitor_placement(middleware=stack)
+
+    # Assert
+    assert misplaced == []
+
+
 def test_a_stack_without_a_monitor_has_nothing_to_check() -> None:
     # Act
-    misplaced = check_monitor_placement(middleware=[CommandingMiddleware()])
+    misplaced = check_monitor_placement(middleware=[CommandingMiddleware(), ToolRetryMiddleware()])
 
     # Assert
     assert misplaced == []

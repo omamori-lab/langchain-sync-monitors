@@ -110,9 +110,9 @@ works with any protocol. A protocol reaches the model only through the
 - `previous_records` holds this monitor's records from earlier steps of the
   run;
 - `blocks_in_thread` counts the blocks this monitor recorded in the
-  conversation thread before the step, subagents included, and
-  `new_subagent_blocks` the ones recorded inside subagents since the agent's
-  last step.
+  conversation thread before the step, subagents included, except those of a
+  subagent whose run raised, and `new_subagent_blocks` the ones recorded
+  inside subagents since the agent's last step.
 
 When no sample is acceptable, a `Fallback` writes the step instead: the trusted
 model does, or the run halts. The protocol's `StepDecision` names the
@@ -274,13 +274,30 @@ A suspicious step is blocked, and the agent is told why, so its next attempt
 can take a safer route [@hughes2026automode]. After three blocks in a row, or
 twenty in one conversation thread, the limits Claude Code uses within a
 session, a fallback takes over: the run halts, or the trusted model writes the
-step. The total counts the monitor's blocks in every agent of the thread, so
-delegating again does not reset it. A subagent starts from the thread's total,
-so it reaches the limit where the thread does, and when blocks inside
-subagents leave the thread at or over the total, the parent's next step goes
-to the fallback without being sampled. The total spans every turn of a
-checkpointed thread, not one run, and never resets, so once a thread has
-reached it, the first block of every later step goes to the fallback.
+step. The total counts the monitor's blocks in the thread's `monitor_log`,
+where each subagent's records arrive when it returns, so delegating again does
+not reset it. A subagent starts from the thread's total, so it reaches the
+limit where the thread does, and when blocks inside subagents leave the thread
+at or over the total, the parent's next step goes to the fallback without
+being sampled. The total spans every turn of a checkpointed thread, not one
+run, and never resets, so once a thread has reached it, the first block of
+every later step goes to the fallback.
+
+The total misses one kind of block: those inside a subagent whose run raises,
+because a subagent's records reach its parent only in the result of the call
+that started it, and a call that raises has no result. They count when the
+failed run is resumed from its checkpoint with `None` as input, since the
+subagent then resumes from its own checkpoint. They never count when the
+thread goes on with new input, or when a middleware such as LangChain's
+`ToolRetryMiddleware` or `ToolErrorMiddleware` answers the failed call with an
+error message or runs it again; a retry starts the subagent again from the
+same count. The subagent's model can bring this about by calling a tool with
+input that makes it raise. `check_monitor_placement` warns about such
+middleware, and the lost steps still reach `stream_mode="custom"` as each is
+committed, with its `delegation_id`, when the run streams with
+`subgraphs=True`. Counting them would need a channel outside the graph state
+and a monitor that turns the subagent's error into a result, which would also
+stop a failed run from being resumed.
 
 ```mermaid
 flowchart LR

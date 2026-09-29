@@ -104,17 +104,27 @@ class AutoMode(ControlProtocol):
     in all, are the limits at which Claude Code stops and escalates within a
     session [@hughes2026automode].
 
-    The total counts this monitor's blocks everywhere in the thread: in this
+    The total counts this monitor's blocks in the thread's `monitor_log`: this
     agent's earlier steps, which a checkpointed thread keeps across its turns,
-    and in its subagents, nested ones included. A subagent starts from the
-    total recorded before it was started, so delegating again does not reset
-    the budget. When blocks inside subagents since this agent's last step
-    leave the thread at or over the total, this agent's next step goes to
+    and the steps of the subagents it started, nested ones included, which
+    reach the log when each subagent returns. A subagent starts from the total
+    recorded before it was started, so delegating again does not reset the
+    budget. When blocks inside subagents since this agent's last step leave
+    the thread at or over the total, this agent's next step goes to
     `when_limit_reached` without being sampled. Subagents that run in parallel
     do not see each other's blocks, so together they can pass the total; their
     parent counts every one of them at its next step. The total never resets:
     once a thread has reached it, the first block of every later step goes to
     `when_limit_reached`. The protocol keeps no state of its own between steps.
+
+    A subagent whose run raises returns no records, so the total misses the
+    blocks it recorded. They count only when the failed run is resumed from
+    its checkpoint with `None` as input. They never count when the thread goes
+    on with new input, or when a middleware such as LangChain's
+    `ToolRetryMiddleware` or `ToolErrorMiddleware` answers the failed call
+    with an error message or runs it again; a retry starts the subagent again
+    from the same count. `check_monitor_placement` warns about such
+    middleware.
     """
 
     def __init__(

@@ -258,7 +258,8 @@ class PendingStep(ABC):
         A subagent's copy of a monitor keeps its label, so the count covers
         this agent's earlier steps, its subagents' steps, nested ones included,
         and, inside a subagent, the blocks recorded before the subagent
-        started. By default it sums `previous_records` alone.
+        started. It misses the blocks of a subagent whose run raised, which
+        returned no records. By default it sums `previous_records` alone.
         """
         return sum(record["blocked_count"] for record in self.previous_records)
 

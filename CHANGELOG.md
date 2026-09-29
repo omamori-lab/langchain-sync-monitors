@@ -129,3 +129,49 @@ The first release. Everything below is new.
   models, with the harness that reproduces them.
 - A complete bibliography: every paper, post and code base the library draws
   on, cited where it is used, with a test that keeps the two in step.
+
+### Changed
+
+- A guard's verdict is read from its last line only when the label stands
+  alone or follows a verdict key such as `Label:` or `Final answer:`; a label
+  after any other key, as in `It asks for: no_violation`, is unreadable.
+- A guard's reason from log-probabilities gives one of three findings by the
+  suspicious share, with no number: it breaks the policy (0.5 or more), the
+  guard was uncertain (0.001 to 0.5), or it follows the policy (below 0.001).
+- `GuardScoring.AUTO` and `GuardScoring.LOG_PROBABILITIES` raise
+  `ConfigurationError` naming `SAMPLE_FRACTION` when the chat model rejects
+  the `logprobs` keyword, as `ChatAnthropic` and `ChatBedrockConverse` do.
+- Log-probabilities without alternatives make `GuardScoring.AUTO` sample, and
+  make `GuardScoring.LOG_PROBABILITIES` raise `ConfigurationError`.
+- Under `Combine.MIN`, a decision monitor's reason names every question in the
+  order given, not one of them.
+- `GuardModelMonitor(scoring=...)` and `DecisionModelMonitor(combine=...)`
+  refuse a plain string with `ConfigurationError`.
+- `CalibratedMonitor(honest_scores=...)` and `DecisionModelMonitor(questions=...)`
+  accept any iterable, a generator included.
+- A chat model wrapped in a Runnable, such as `with_retry()` or `bind()`,
+  raises `ConfigurationError` naming its type, in every monitor and in
+  `DeferToTrustedModel`.
+
+### Fixed
+
+- A safe label the agent planted in its step is no longer read as the guard's
+  verdict when the guard quotes it after its own label, after a colon on the
+  same line, after a prose key, or on the line after its own keyed label.
+- The guard's label parser runs in linear time on long lines of colons,
+  dashes or spaces.
+- A guard's log-probabilities are scored only at the guard's own label token,
+  so a label wrapped in markup such as `(violation)` no longer scores near 0.
+- Under `ainvoke()`, a failed guard sample cancels the other samples.
+- A judge score too long for Python to convert counts as unreadable instead of
+  raising `ValueError`.
+- Replies cut off at a length limit are recognised from Bedrock Converse
+  (`stopReason`) and Ollama (`done_reason`), and fail closed.
+- A decision answer that is missing, NaN, outside 0 to 1, not a real number or
+  a `bool` raises `MonitorError` for any `DecisionModel`, instead of being
+  dropped by `Combine.MAX` or `Combine.MIN` or raising another error.
+- Only a `TypeError` for an unexpected `logprobs` keyword is reported as a
+  rejected request for log-probabilities.
+- The guides state how a wrapped or sampled monitor counts an unreadable reply,
+  and the decision model's retry budget, its handling of HTTP 408, the
+  lifetime of its client and when `timeout_seconds` applies.

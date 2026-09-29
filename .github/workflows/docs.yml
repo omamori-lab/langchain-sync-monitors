@@ -1,0 +1,54 @@
+name: Docs
+
+# Builds the documentation with MkDocs and publishes it to GitHub Pages on every
+# push to main. GitHub Pages must be enabled for the repository, with "GitHub
+# Actions" as the source; on a private repository that needs a paid plan.
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v6
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v8.1.0
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: uv sync --group docs --all-extras
+
+      - name: Build the site
+        run: uv run --group docs mkdocs build --strict --site-dir site
+
+      - name: Keep the site for deployment
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

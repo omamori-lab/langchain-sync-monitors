@@ -102,6 +102,21 @@ emoji; lanorme checks all of this. Diagrams use Mermaid. Preview the site with
 5. Push and open a pull request against `main` with `Closes #N` in the
    description. CI runs the same gate across Python 3.12, 3.13 and 3.14.
 
+## Releasing
+
+A release is a version tag on `main`; the Release workflow does the rest.
+
+1. Move the `## [Unreleased]` entries in `CHANGELOG.md` under a new
+   `## [X.Y.Z] - YYYY-MM-DD` heading, and set `__version__` in
+   `src/langchain_sync_monitors/__init__.py` to `X.Y.Z`.
+2. Merge that change through a pull request, like any other.
+3. Tag the merge commit `vX.Y.Z` and push the tag.
+
+The workflow runs every gate, checks that the tag matches `__version__`,
+builds the package, publishes it to PyPI through trusted publishing and
+creates the GitHub release. The Docs workflow publishes the documentation to
+GitHub Pages on every push to `main`.
+
 ## Licence
 
 By contributing you agree that your contribution is licensed under the MIT

@@ -194,7 +194,7 @@ flagged step, with no code of your own:
 | Traces with a flagged step | `has(tags, "monitor:flagged")` as a tree filter, on root runs | Name `monitor decision`, and metadata `monitor_flagged` equal to `true` |
 | Everything except the monitor's spans | Exclude the `monitor` tag | Exclude the names that start with `monitor` |
 | Everything except the monitor's spans and model calls | Also exclude the runs whose metadata has the key `ls_message_view_exclude` | Also exclude the observations whose metadata has the key `ls_message_view_exclude` |
-| Steps above a suspicion | Not yet; see [Limits](#limits) | Not yet; see [Limits](#limits) |
+| Steps above a suspicion | No score to filter on; see [Limits](#limits) | No score to filter on; see [Limits](#limits) |
 
 Replace `halted` with another outcome, `allowed`, `resampled`, `steered` or
 `deferred_to_trusted`, to find those steps. Langfuse keeps a span's tags only
@@ -240,7 +240,9 @@ will be removed after 31 January 2027 [@langsmithsdk2026]. Its successor,
 `client.runs.query`, takes the same `filter`, `tree_filter` and `is_root`
 strings, with three differences. It takes project ids, not a project name. It
 returns only each run's id unless `selects` names the fields to return. And it
-looks back one day unless `min_start_time` says otherwise.
+looks back one day unless `min_start_time` says otherwise. In version 0.14.1
+it returns an asynchronous iterator, even on the synchronous `Client`, so read
+it with `async for`.
 
 In Langfuse's UI, filter the observations by name and by metadata key. The
 same conditions, as JSON, go to Langfuse's observations API through the SDK:
@@ -320,13 +322,12 @@ explains.
 
 ## Limits
 
-- **No live check yet.** The test suite checks the spans and their nesting
+- **No live check.** The test suite checks the spans and their nesting
   offline, with a recording handler and with LangSmith's tracer on a mock
-  client, where it also checks the parent of each span LangSmith receives.
-  Langfuse's handler has been run offline, with an in-memory exporter, but no
-  test covers it. No live LangSmith or Langfuse project has shown the spans,
-  so how each tool displays them, and whether each filter above matches there,
-  is unconfirmed.
+  client, where it also checks the parent of each span LangSmith receives. No
+  test runs Langfuse's handler. No live LangSmith or Langfuse project has shown
+  the spans, so how each tool displays them, and whether each filter above
+  matches there, is unconfirmed.
 - **Runs that only LangSmith sees can appear as parents when two tracers run
   together.** `create_agent` wraps every middleware hook in a run that only
   LangSmith sees [@langchain2026]. The monitor opens its spans from the model

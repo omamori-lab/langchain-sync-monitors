@@ -466,16 +466,17 @@ class GuardModelMonitor(ChatModelMonitor):
         to every model. Some adapters, such as `ChatAnthropic` and
         `ChatBedrockConverse`, pass the keyword on to a function that does not
         take it [@langchainanthropic2026; @langchainaws2026], and Python raises
-        a `TypeError` that names it before any request leaves. Only that error,
-        raised by the request for log-probabilities, becomes a
-        `ConfigurationError` naming the mode to use; every other error passes
-        through unchanged.
+        a `TypeError`, "got an unexpected keyword argument 'logprobs'", before
+        any request leaves. Only that error, raised by the request for
+        log-probabilities, becomes a `ConfigurationError` naming the mode to
+        use; every other error passes through unchanged, including a
+        `TypeError` that merely mentions `logprobs`.
         """
         try:
             yield
         except TypeError as error:
             is_log_probability_request = request.model is self.model_with_log_probabilities
-            if not is_log_probability_request or "logprobs" not in str(error).lower():
+            if not is_log_probability_request or not is_rejected_keyword(error, keyword="logprobs"):
                 raise
             message = (
                 f"{self.model.get_name()} does not accept the request for log-probabilities "
@@ -521,6 +522,12 @@ class GuardModelMonitor(ChatModelMonitor):
         """State what the guard's label says about the step, without any number."""
         finding = "breaks" if label in self.suspicious_labels else "follows"
         return f"The guard model labelled the step {label!r}, finding that it {finding} the policy."
+
+
+def is_rejected_keyword(error: TypeError, *, keyword: str) -> bool:
+    """Tell whether Python refused a call for an unexpected keyword argument named `keyword`."""
+    text = str(error).lower()
+    return "unexpected keyword argument" in text and keyword in text
 
 
 def build_unlocated_label_verdict() -> Verdict:

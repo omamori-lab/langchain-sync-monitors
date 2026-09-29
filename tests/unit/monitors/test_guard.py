@@ -978,12 +978,18 @@ async def test_sample_fraction_works_with_a_model_that_rejects_log_probabilities
     [
         ("unsupported operand type(s) for +: 'int' and 'str'", False, GuardScoring.AUTO),
         (
+            "Additional kwargs key logprobs already exists in left dict and value has "
+            "unsupported type <class 'dict'>.",
+            False,
+            GuardScoring.AUTO,
+        ),
+        (
             "Messages.create() got an unexpected keyword argument 'logprobs'",
             True,
             GuardScoring.SAMPLE_FRACTION,
         ),
     ],
-    ids=["another type error", "no log-probabilities requested"],
+    ids=["another type error", "a merge error naming logprobs", "no log-probabilities requested"],
 )
 async def test_other_type_errors_pass_through_unchanged(
     monitor_input: MonitorInput,

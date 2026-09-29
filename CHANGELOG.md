@@ -99,6 +99,10 @@ The first release. Everything below is new.
   general-purpose one, a monitor of its own, with per-subagent overrides and a
   choice of what a subagent halt does to the run (`SubagentHalt`). Forked
   subagents (`mode="fork"`) are refused for now.
+- `monitor_subagents(skills=...)` gives the monitored general-purpose subagent
+  the main agent's skills: pass the list given to `create_deep_agent(skills=...)`.
+- `monitor_subagents` raises `ConfigurationError` when `skills` is a plain
+  string, or comes with a `general-purpose` spec of your own.
 - Subagent records carry `delegation_id`, the id of the `task` call that
   started the subagent, and so does a subagent's `MonitorStepFailedEvent`.
 - `Delegation`, what a monitored agent hands each subagent it starts: the

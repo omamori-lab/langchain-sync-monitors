@@ -160,9 +160,10 @@ def monitor_subagents(
     agent. Pass the result as `create_deep_agent(subagents=...)`.
 
     The general-purpose subagent is added as a spec of its own, since Deep
-    Agents offers no way to add middleware to the one it builds itself. Pass
-    the main agent's `skills`, the list given to `create_deep_agent(skills=...)`,
-    so the subagent keeps them as Deep Agents' own would. A harness profile's
+    Agents offers no way to add middleware to the one it builds itself and
+    to no other agent. Pass the main agent's `skills`, the list given to
+    `create_deep_agent(skills=...)`, so the subagent keeps them as Deep
+    Agents' own would. A harness profile's
     `general_purpose_subagent` settings do not reach the spec: its description
     and prompt stay Deep Agents' defaults, and a profile that disables the
     subagent does not remove it. To change it, pass a spec named

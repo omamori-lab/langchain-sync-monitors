@@ -149,8 +149,8 @@ raises `ConfigurationError`.
 ### The general-purpose subagent
 
 Deep Agents offers no way to add middleware to the general-purpose subagent
-it builds itself, so `monitor_subagents` adds one of its own, from Deep
-Agents' default spec. Deep Agents treats that spec like any subagent you
+it builds itself and to no other agent, so `monitor_subagents` adds a
+general-purpose subagent of its own, from Deep Agents' default spec. Deep Agents treats that spec like any subagent you
 declare, so it differs from Deep Agents' own general-purpose subagent in
 three ways:
 

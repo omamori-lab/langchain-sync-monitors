@@ -50,9 +50,9 @@ before an after-model monitor ran.
 LangChain nests `wrap_model_call` handlers so that the first middleware in the
 list is the outermost layer. In a plain `create_agent`, the monitor goes last
 in the list, directly around the model. That position matters: middleware
-listed after the monitor becomes a layer inside it, and LangChain's composed
-handler attaches the commands of inner layers to the wrong sample when the
-monitor draws several (see the [findings](langchain-findings.md)).
+listed after the monitor becomes a layer inside it, and when the monitor draws
+several samples, LangChain's composed handler keeps only the commands of the
+last inner call, whichever sample the protocol commits [@langchain2026].
 
 Deep Agents builds its own stack around the user's middleware. With
 deepagents 0.7.19 [@deepagents2026] and `interrupt_on` set, the list, from
@@ -339,8 +339,8 @@ task's result and carries on under its own monitor. With `STOP_WHOLE_RUN`, the
 parent's monitor finds the subagent's halt record in `monitor_log` and halts
 the parent before its next model call. This works because a subagent's
 records flow back into the parent's log, which depends on declaring the log
-with its reducer in the last position (see the
-[findings](langchain-findings.md)).
+with its reducer in the last position: LangGraph reads a reducer only from the
+last position of the annotation [@langgraph2026].
 
 ## Sync and async
 

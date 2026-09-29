@@ -182,11 +182,13 @@ guard against a forged approval:
   never taken for the next run's input. Before a monitor judges a step, every
   untagged human message whose id is not recorded as input is tagged as a note
   in the monitor's copy of the history, named after its `name`, or else
-  `application`. The monitor also tags the untagged human messages a tool
-  writes through a `Command`, where they are written and with the tool's name
-  as their source, so they stay notes even when the run fails before the next
-  step, and in a history the application stores and replays. Both lists are
-  private state, so a subagent starts with neither and returns neither.
+  `application`. The monitor also tags the new untagged human messages a
+  tool writes through a `Command`, where they are written and with the tool's
+  name as their source, so they stay notes even when the run fails before the
+  next step, and in a history the application stores and replays. A message
+  a tool writes back with the id of one already in the state, as a tool that
+  rewrites the history does, keeps its author. Both lists are private state,
+  so a subagent starts with neither and returns neither.
 - The monitor's own feedback carries `lc_source="monitor"` and is rendered as
   `<monitor_feedback>` wherever the task is shown: both the message that
   answers a blocked final answer and the tool message that answers a blocked

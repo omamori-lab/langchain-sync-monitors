@@ -12,8 +12,16 @@ from __future__ import annotations
 from typing import Annotated, Any
 
 from langchain.agents.middleware import AgentMiddleware
-from langchain_core.messages import AIMessage, AnyMessage, HumanMessage, ToolMessage
+from langchain.tools import InjectedState
+from langchain_core.messages import (
+    AIMessage,
+    AnyMessage,
+    HumanMessage,
+    RemoveMessage,
+    ToolMessage,
+)
 from langchain_core.tools import InjectedToolCallId, tool
+from langgraph.graph.message import REMOVE_ALL_MESSAGES
 from langgraph.runtime import Runtime
 from langgraph.types import Command
 
@@ -49,6 +57,23 @@ def attach_frames(path: str, tool_call_id: Annotated[str, InjectedToolCallId]) -
             "messages": [
                 ToolMessage(f"Read video {path}.", tool_call_id=tool_call_id, name="attach_frames"),
                 {"role": "user", "content": f"Reading first 100s of {path} at 0.5 fps."},
+            ],
+        },
+    )
+
+
+@tool
+def rewrite_history(
+    messages: Annotated[list[AnyMessage], InjectedState("messages")],
+    tool_call_id: Annotated[str, InjectedToolCallId],
+) -> Command[None]:
+    """Write the whole conversation back, as a tool that compacts the history does."""
+    return Command[None](
+        update={
+            "messages": [
+                RemoveMessage(id=REMOVE_ALL_MESSAGES),
+                *messages,
+                ToolMessage("History rewritten.", tool_call_id=tool_call_id),
             ],
         },
     )

@@ -17,7 +17,7 @@ that runs failed tool calls again or answers them with an error message.
 
 import logging
 import operator
-from collections.abc import Mapping, Sequence
+from collections.abc import Sequence
 from dataclasses import dataclass, replace
 from typing import Annotated, NotRequired, Self, override
 
@@ -33,7 +33,7 @@ from langchain.agents.middleware.types import (
     ToolCallRequest,
     hook_config,
 )
-from langchain_core.messages import AIMessage, BaseMessage, convert_to_messages
+from langchain_core.messages import AIMessage
 from langgraph.types import Command
 
 from langchain_sync_monitors._langchain import (
@@ -91,30 +91,16 @@ from langchain_sync_monitors.spans import (
     trace_decision,
     trace_decision_sync,
 )
-from langchain_sync_monitors.transcript import (
-    find_untagged_human_message_ids,
-    is_untagged_human_message,
-    tag_as_context_note,
+from langchain_sync_monitors.task_authorship import (
+    TASK_MESSAGES_KEY,
+    build_run_input_update,
+    build_seen_messages_update,
+    mark_tool_written_notes,
+    merge_message_ids,
+    read_message_ids,
 )
 
 logger = logging.getLogger(__name__)
-
-TASK_MESSAGES_KEY = "monitor_task_messages"
-"""The state key that holds the ids of the human messages that arrived as a run's input."""
-
-SEEN_HUMAN_MESSAGES_KEY = "monitor_seen_human_messages"
-"""The state key that holds the ids of every untagged human message the monitor has seen."""
-
-
-def merge_message_ids(  # lanorme: ignore[KWARG-001]
-    recorded: list[str],
-    new: list[str],
-) -> list[str]:
-    """Add newly recorded message ids to the recorded ones, keeping each id once, in order.
-
-    LangGraph calls a reducer with both values by position [@langgraph2026].
-    """
-    return list(dict.fromkeys([*recorded, *new]))
 
 
 class MonitorState(AgentState):
@@ -147,71 +133,6 @@ class MonitorState(AgentState):
     monitor_seen_human_messages: NotRequired[
         Annotated[list[str], PrivateStateAttr, merge_message_ids]
     ]
-
-
-def read_message_ids(state: Mapping[str, object], *, key: str) -> frozenset[str]:
-    """Return the message ids recorded under a state key, or none when the key is missing."""
-    ids = state.get(key)
-    if not isinstance(ids, list):
-        return frozenset()
-    return frozenset(value for value in ids if isinstance(value, str))
-
-
-def find_unseen_human_message_ids(
-    messages: Sequence[BaseMessage],
-    *,
-    seen_ids: frozenset[str],
-) -> list[str]:
-    """Return the ids of the untagged human messages the monitor has not seen before."""
-    return [
-        message_id
-        for message_id in find_untagged_human_message_ids(messages)
-        if message_id not in seen_ids
-    ]
-
-
-def mark_tool_written_notes(result: ToolCallResult, *, tool_name: str) -> ToolCallResult:
-    """Tag the untagged human messages a tool writes through a `Command` as context notes.
-
-    Deep Agents' `read_file` writes the frames of a video as such a message,
-    with the path the agent chose in its text [@deepagents2026]. Tagged where
-    it is written, with the tool's name as its source, the message stays a
-    note in every later run, even one that starts before the monitor has
-    seen it, and in a history the application stores and replays. Messages
-    given as dictionaries, tuples or strings are converted first, as
-    LangGraph's message reducer would convert them [@langgraph2026].
-    """
-    if not isinstance(result, Command) or not isinstance(result.update, dict):
-        return result
-    written = result.update.get("messages")
-    if not isinstance(written, list):
-        return result
-    messages = convert_to_messages(written)
-    if not any(map(is_untagged_human_message, messages)):
-        return result
-    tagged = [
-        tag_as_context_note(message, source=tool_name)
-        if is_untagged_human_message(message)
-        else message
-        for message in messages
-    ]
-    return replace(result, update={**result.update, "messages": tagged})
-
-
-def build_run_input_update(state: MonitorState) -> AgentStateUpdate | None:
-    """Return the update that records a run's input as the task author's messages.
-
-    At the start of a run, an untagged human message the monitor has not seen
-    is the run's input: the monitor saw every earlier one, at the model call
-    that followed it, and recorded it as seen.
-    """
-    new_ids = find_unseen_human_message_ids(
-        state["messages"],
-        seen_ids=read_message_ids(state, key=SEEN_HUMAN_MESSAGES_KEY),
-    )
-    if not new_ids:
-        return None
-    return {TASK_MESSAGES_KEY: new_ids, SEEN_HUMAN_MESSAGES_KEY: new_ids}
 
 
 def build_end_run_update() -> AgentStateUpdate:
@@ -401,10 +322,14 @@ class MonitorMiddleware(AgentMiddleware[MonitorState, AgentContext, StructuredOu
     ) -> ToolCallResult:
         """Run a tool call under `invoke()`, handing any subagent it starts its delegation.
 
-        A human message the tool writes is tagged as a context note.
+        A new human message the tool writes is tagged as a context note.
         """
         result = handler(add_delegation(request, agent=self.agent_name))
-        return mark_tool_written_notes(result, tool_name=request.tool_call["name"])
+        return mark_tool_written_notes(
+            result,
+            tool_name=request.tool_call["name"],
+            state=request.state,
+        )
 
     @override
     async def awrap_tool_call(
@@ -414,10 +339,14 @@ class MonitorMiddleware(AgentMiddleware[MonitorState, AgentContext, StructuredOu
     ) -> ToolCallResult:
         """Run a tool call under `ainvoke()`, handing any subagent it starts its delegation.
 
-        A human message the tool writes is tagged as a context note.
+        A new human message the tool writes is tagged as a context note.
         """
         result = await handler(add_delegation(request, agent=self.agent_name))
-        return mark_tool_written_notes(result, tool_name=request.tool_call["name"])
+        return mark_tool_written_notes(
+            result,
+            tool_name=request.tool_call["name"],
+            state=request.state,
+        )
 
     @override
     def before_agent(self, state: MonitorState, runtime: AgentRuntime) -> AgentStateUpdate | None:
@@ -560,11 +489,5 @@ class MonitorMiddleware(AgentMiddleware[MonitorState, AgentContext, StructuredOu
             result=messages,
             structured_response=decision.response.structured_response,
         )
-        update: AgentStateUpdate = {MONITOR_LOG_KEY: [record]}
-        unseen_ids = find_unseen_human_message_ids(
-            request.state["messages"],
-            seen_ids=read_message_ids(request.state, key=SEEN_HUMAN_MESSAGES_KEY),
-        )
-        if unseen_ids:
-            update[SEEN_HUMAN_MESSAGES_KEY] = unseen_ids
+        update = {MONITOR_LOG_KEY: [record], **build_seen_messages_update(request.state)}
         return ExtendedModelResponse(model_response=response, command=Command(update=update))

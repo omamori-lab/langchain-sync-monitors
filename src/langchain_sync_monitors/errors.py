@@ -30,7 +30,13 @@ class InvalidSuspicionError(MonitorError, ValueError):
 
 
 class SynchronousRunError(MonitorError):
-    """A control protocol awaited real asynchronous work during a synchronous `invoke()`."""
+    """A control protocol or a monitor needed an event loop during a synchronous `invoke()`.
+
+    The message names which one: a protocol that awaited real asynchronous
+    work or started asyncio work, or a monitor whose `evaluate_sync` started
+    asyncio work. It is also raised when a pending step is used after its
+    `invoke()` step ended.
+    """
 
 
 class ProviderToolWarning(UserWarning):

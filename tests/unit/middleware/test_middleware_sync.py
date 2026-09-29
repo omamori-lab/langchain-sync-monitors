@@ -13,10 +13,13 @@ from langchain_core.messages import AIMessage, HumanMessage
 
 from langchain_sync_monitors.contracts import (
     ControlProtocol,
+    Monitor,
+    MonitorInput,
     Outcome,
     PendingStep,
     Sample,
     StepDecision,
+    Verdict,
 )
 from langchain_sync_monitors.errors import SynchronousRunError
 from langchain_sync_monitors.middleware import MonitorMiddleware
@@ -153,3 +156,64 @@ async def test_a_draw_left_behind_by_invoke_never_reaches_the_model(
     assert len(answering_model.calls) == 1
     [left_behind] = protocol.left_behind
     assert isinstance(left_behind.exception(), SynchronousRunError)
+
+
+@dataclass(kw_only=True)
+class EventLoopMonitor(Monitor):
+    """A monitor whose `evaluate_sync` reaches for an event loop, which invoke() does not run."""
+
+    error_text: str | None = None
+
+    async def evaluate(self, monitor_input: MonitorInput) -> Verdict:
+        return Verdict(suspicion=0.0, reason="Looks fine.")
+
+    def evaluate_sync(self, monitor_input: MonitorInput) -> Verdict:
+        if self.error_text is not None:
+            raise RuntimeError(self.error_text)
+        asyncio.get_running_loop()
+        return Verdict(suspicion=0.0, reason="unreachable")
+
+
+def test_invoke_names_a_monitor_that_needs_an_event_loop(
+    answering_model: ScriptedChatModel,
+) -> None:
+    # Arrange
+    middleware = MonitorMiddleware(monitor=EventLoopMonitor(), protocol=AcceptFirst())
+    agent = create_agent(answering_model, middleware=[middleware])
+
+    # Act
+    with pytest.raises(SynchronousRunError) as raised:
+        run_agent(agent, mode="invoke")
+
+    # Assert
+    message = str(raised.value)
+    assert "The monitor EventLoopMonitor" in message
+    assert "evaluate_sync" in message
+    assert "control protocol" not in message
+
+
+def test_ainvoke_runs_the_monitor_that_needs_an_event_loop(
+    answering_model: ScriptedChatModel,
+) -> None:
+    # Arrange
+    middleware = MonitorMiddleware(monitor=EventLoopMonitor(), protocol=AcceptFirst())
+    agent = create_agent(answering_model, middleware=[middleware])
+
+    # Act
+    result = run_agent(agent, mode="ainvoke")
+
+    # Assert
+    assert [record["outcome"] for record in result["monitor_log"]] == ["allowed"]
+
+
+def test_invoke_passes_on_a_monitor_error_that_is_not_about_an_event_loop(
+    answering_model: ScriptedChatModel,
+) -> None:
+    # Arrange
+    monitor = EventLoopMonitor(error_text="the judge is misconfigured")
+    middleware = MonitorMiddleware(monitor=monitor, protocol=AcceptFirst())
+    agent = create_agent(answering_model, middleware=[middleware])
+
+    # Act / Assert
+    with pytest.raises(RuntimeError, match="the judge is misconfigured"):
+        run_agent(agent, mode="invoke")

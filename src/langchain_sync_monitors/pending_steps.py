@@ -41,6 +41,7 @@ from langchain_sync_monitors.contracts import (
     Sample,
     StepRecord,
     TaskAuthor,
+    Verdict,
 )
 from langchain_sync_monitors.errors import MonitorError, SynchronousRunError
 from langchain_sync_monitors.feedback import build_feedback_messages
@@ -51,6 +52,11 @@ SYNCHRONOUS_RUN_MESSAGE = (
     "A control protocol awaited real asynchronous work during a synchronous invoke(). "
     "Under invoke() a protocol may await only the pending step's own methods; "
     "run the agent with ainvoke() to use anything else."
+)
+MONITOR_EVENT_LOOP_MESSAGE = (
+    "The monitor {monitor_name} started asynchronous work in evaluate_sync, where no event "
+    "loop can run it, during a synchronous invoke(). A monitor's evaluate_sync must finish "
+    "without an event loop; run the agent with ainvoke() to use asyncio."
 )
 MISSING_EVENT_LOOP_MESSAGES = ("no running event loop", "no current event loop")
 """Parts of asyncio's errors for work started where no event loop can run it."""
@@ -107,9 +113,10 @@ def run_synchronously[ResultT](coroutine: Coroutine[object, object, ResultT]) ->
     it suspends instead, it awaited something only an event loop can finish,
     so it is closed and `SynchronousRunError` is raised rather than hanging.
     asyncio's own errors for work started where no loop can run it, such as
-    `gather` or `ensure_future` outside a running loop, become the same error.
-    Inside a running loop, as in a notebook, any task the protocol scheduled
-    is cancelled before it starts.
+    `gather` or `ensure_future` outside a running loop, become the same error;
+    the pending step names the monitor instead when the error came from the
+    monitor's `evaluate_sync`. Inside a running loop, as in a notebook, any task the
+    protocol scheduled is cancelled before it starts.
     """
     loop = read_running_loop()
     earlier_tasks = asyncio.all_tasks(loop) if loop is not None else set()
@@ -118,6 +125,9 @@ def run_synchronously[ResultT](coroutine: Coroutine[object, object, ResultT]) ->
     except StopIteration as finished:
         result: ResultT = finished.value
         return result
+    except SynchronousRunError:
+        cancel_tasks_started_since(loop, earlier_tasks=earlier_tasks)
+        raise
     except RuntimeError as error:
         if not is_missing_event_loop_error(error):
             raise
@@ -359,11 +369,27 @@ class SyncPendingStep(MonitoredStep):
         monitor_input = self.build_monitor_input(conversation=conversation, proposal=proposal)
         judgement_span = build_judgement_span(sample_number=sample_number, monitor=self.monitor)
         with open_traced_run_sync(judgement_span) as traced_judgement:
-            verdict = self.monitor.evaluate_sync(monitor_input)
+            verdict = self.evaluate_without_event_loop(monitor_input)
             traced_judgement.outputs = build_verdict_outputs(verdict)
         return self.keep_judged_sample(
             Sample(response=response, proposal=proposal, verdict=verdict),
         )
+
+    def evaluate_without_event_loop(self, monitor_input: MonitorInput) -> Verdict:
+        """Have the monitor judge a proposal through `evaluate_sync`.
+
+        asyncio's error for work the monitor started where no event loop can
+        run it becomes `SynchronousRunError` naming the monitor, so that
+        `run_synchronously` does not blame the protocol for it.
+        """
+        try:
+            return self.monitor.evaluate_sync(monitor_input)
+        except RuntimeError as error:
+            if not is_missing_event_loop_error(error):
+                raise
+            monitor_name = type(self.monitor).__name__
+            message = MONITOR_EVENT_LOOP_MESSAGE.format(monitor_name=monitor_name)
+            raise SynchronousRunError(message) from error
 
     @override
     async def request_trusted_step(self, *, trusted_model: BaseChatModel) -> AgentModelResponse:

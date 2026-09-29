@@ -4,6 +4,12 @@ Each transcript entry belongs to one `Channel`, and a monitor only receives the
 entries whose channel is in its `MonitorView`. Entries are wrapped in tags, and
 their content is HTML-escaped, so text inside a tool result cannot close a tag
 and pose as another entry.
+
+Only a human message without an `lc_source` tag is rendered as the task
+author's words. LangChain and Deep Agents tag the human messages their
+middleware writes, such as a summary of earlier messages or a rubric grader's
+revision request [@langchain2026; @deepagents2026], and those are rendered as
+context notes that authorise nothing.
 """
 
 from __future__ import annotations
@@ -25,10 +31,15 @@ TASK_AUTHOR_TAGS = {TaskAuthor.USER: "user", TaskAuthor.PARENT_AGENT: "delegator
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class TranscriptEntry:
-    """One rendered piece of a conversation, with the channel it belongs to."""
+    """One rendered piece of a conversation, with the channel it belongs to.
+
+    `from_task_author` marks a message from the user, or from the delegating
+    agent, which an entry limit never drops.
+    """
 
     channel: Channel
     text: str
+    from_task_author: bool = False
 
 
 def extract_reasoning_text(message: AIMessage) -> str:
@@ -62,10 +73,20 @@ def read_reasoning_detail_text(detail: object) -> str:
     return text if isinstance(text, str) else ""
 
 
-def wrap_in_tag(*, tag: str, content: str, name: str | None = None) -> str:
-    """Wrap escaped content in a tag, with an optional escaped name attribute."""
-    attribute = f' name="{html.escape(name)}"' if name else ""
-    return f"<{tag}{attribute}>{html.escape(content, quote=False)}</{tag}>"
+def wrap_in_tag(
+    *,
+    tag: str,
+    content: str,
+    name: str | None = None,
+    source: str | None = None,
+) -> str:
+    """Wrap escaped content in a tag, with optional escaped `name` and `source` attributes."""
+    attributes = "".join(
+        f' {attribute}="{html.escape(value)}"'
+        for attribute, value in (("name", name), ("source", source))
+        if value
+    )
+    return f"<{tag}{attributes}>{html.escape(content, quote=False)}</{tag}>"
 
 
 def render_tool_call(tool_call: ToolCall) -> str:
@@ -91,9 +112,19 @@ def build_agent_entries(message: AIMessage) -> Iterator[TranscriptEntry]:
         yield TranscriptEntry(channel=Channel.TOOL_CALLS, text=render_tool_call(tool_call))
 
 
+def read_message_source(message: BaseMessage) -> str | None:
+    """Return the `lc_source` tag of a message another component wrote, or None without one."""
+    source = message.additional_kwargs.get("lc_source")
+    return None if source is None else str(source)
+
+
 def is_monitor_feedback(message: BaseMessage) -> bool:
-    """Tell whether the monitor itself inserted this message into the conversation."""
-    return message.additional_kwargs.get("lc_source") == MONITOR_FEEDBACK_SOURCE
+    """Tell whether the monitor itself inserted this message into the conversation.
+
+    Any code in the application can set the tag, so tool and middleware code
+    is trusted here, as it is everywhere else in the agent.
+    """
+    return read_message_source(message) == MONITOR_FEEDBACK_SOURCE
 
 
 def build_monitor_feedback_entry(
@@ -137,12 +168,25 @@ def build_tool_entry(
 
 
 def build_human_entry(message: HumanMessage, *, task_author: TaskAuthor) -> TranscriptEntry:
-    """Render a human message as the task author's words, or as the monitor's own feedback."""
-    if is_monitor_feedback(message):
+    """Render a human message as the task author's words, a context note or monitor feedback.
+
+    A human message tagged with any `lc_source` other than the monitor's was
+    written by another part of the application, often with the agent's own
+    model, so it becomes a `context_note` that names its source and
+    authorises nothing.
+    """
+    source = read_message_source(message)
+    if source is None:
+        return TranscriptEntry(
+            channel=Channel.USER,
+            text=wrap_in_tag(tag=TASK_AUTHOR_TAGS[task_author], content=message.text),
+            from_task_author=True,
+        )
+    if source == MONITOR_FEEDBACK_SOURCE:
         return build_monitor_feedback_entry(message)
     return TranscriptEntry(
         channel=Channel.USER,
-        text=wrap_in_tag(tag=TASK_AUTHOR_TAGS[task_author], content=message.text),
+        text=wrap_in_tag(tag="context_note", content=message.text, source=source),
     )
 
 
@@ -195,16 +239,18 @@ def select_visible_entries(
 ) -> list[TranscriptEntry]:
     """Keep the entries the view can read, limited to the most recent ones.
 
-    When the limit drops older entries, the first entry from the task author is
-    kept anyway: it states the task, which a monitor needs to judge anything.
+    When the limit drops older entries, every message from the task author is
+    kept anyway, in order: the first states the task, and a later one can
+    narrow or revoke it. They are few, and a monitor needs them all to judge a
+    step. A context note is never kept in their place.
     """
     visible = [entry for entry in entries if entry.channel in view.channels]
     limit = view.most_recent_entries
     if limit is None or len(visible) <= limit:
         return visible
-    recent = visible[len(visible) - limit :]
-    task_entries = [entry for entry in visible if entry.channel is Channel.USER][:1]
-    return [entry for entry in task_entries if entry not in recent] + recent
+    cut = len(visible) - limit
+    earlier_task_entries = [entry for entry in visible[:cut] if entry.from_task_author]
+    return [*earlier_task_entries, *visible[cut:]]
 
 
 def render_transcript(

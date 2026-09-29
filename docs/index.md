@@ -166,6 +166,7 @@ subagents the helper cannot monitor.
 | solve one task, such as calibrating thresholds | [How-to guides](how-to/index.md) |
 | look up a class or a keyword | [API reference](reference/api.md) |
 | understand how a step flows and why | [How the library is built](explanation/design.md) |
+| see monitored agents run against real models | [Live runs](explanation/live-runs.md) |
 
 ## Credits
 

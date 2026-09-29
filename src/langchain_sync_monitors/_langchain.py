@@ -27,8 +27,10 @@ from langchain_core.runnables.config import var_child_runnable_config
 from langgraph.constants import TAG_NOSTREAM
 from langgraph.runtime import Runtime
 from langgraph.types import Command
+from pydantic import TypeAdapter, ValidationError
 
 from langchain_sync_monitors.contracts import Delegation, SampleRecord, StepRecord
+from langchain_sync_monitors.errors import ConfigurationError
 
 logger = logging.getLogger(__name__)
 
@@ -77,6 +79,9 @@ MONITOR_LOG_KEY = "monitor_log"
 MONITOR_DELEGATION_KEY = "monitor_delegation"
 """The state key through which a monitored agent hands a subagent its `Delegation`."""
 
+DELEGATION_ADAPTER = TypeAdapter(Delegation)
+"""Validates a `Delegation` read from the state, where an agent's input can also put one."""
+
 
 class MonitorStepEvent(TypedDict):
     """The event a monitor writes to `stream_mode="custom"` once per committed step.
@@ -123,14 +128,26 @@ def read_delegation(state: object) -> Delegation | None:
     """Return the delegation a subagent was started with, or None in an agent started directly.
 
     A tool request's state is untyped in LangChain, and may be something other
-    than a mapping, which holds no delegation.
+    than a mapping, which holds no delegation. The key is part of every
+    monitored agent's input, so whoever invokes the agent can set it, and the
+    value is validated before it is used. A value that is not a `Delegation`
+    with non-negative block counts raises `ConfigurationError`. Ignoring it
+    would not do: a subagent would count from its own log alone and so reset
+    the thread's total, and a negative count would lift the total altogether.
     """
     if not isinstance(state, Mapping):
         return None
-    delegation = state.get(MONITOR_DELEGATION_KEY)
-    if not isinstance(delegation, Mapping):
+    value = state.get(MONITOR_DELEGATION_KEY)
+    if value is None:
         return None
-    return cast("Delegation", delegation)
+    try:
+        return DELEGATION_ADAPTER.validate_python(value, strict=True)
+    except ValidationError as error:
+        message = (
+            f"{MONITOR_DELEGATION_KEY} must be a Delegation with non-negative block counts. "
+            "Leave it out of an agent's input: the monitor sets it for each subagent it starts."
+        )
+        raise ConfigurationError(message) from error
 
 
 def build_tool_request_with_delegation(

@@ -21,6 +21,7 @@ from typing import Literal, NotRequired, TypedDict
 from langchain.agents.middleware.types import ModelResponse
 from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import AIMessage, BaseMessage
+from pydantic import NonNegativeInt
 
 from langchain_sync_monitors.errors import ConfigurationError, InvalidSuspicionError
 
@@ -219,13 +220,15 @@ class Delegation(TypedDict):
     made the call, so a monitor stacked in that agent passes the delegation on
     as it is, while a subagent whose own call reuses the id hands on a new one.
     `blocks_before` holds, for each monitor label, the blocks recorded in the
-    conversation thread when the subagent started, so that the subagent's Auto
-    Mode counts from the thread's total.
+    conversation thread when the subagent started, none of them negative, so
+    that the subagent's Auto Mode counts from the thread's total. The state key
+    that holds it is part of every monitored agent's input, and a value that
+    does not fit this shape raises `ConfigurationError` when it is read.
     """
 
     tool_call_id: str
     delegating_agent: str
-    blocks_before: dict[str, int]
+    blocks_before: dict[str, NonNegativeInt]
 
 
 class Monitor(ABC):

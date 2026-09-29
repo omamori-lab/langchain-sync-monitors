@@ -517,6 +517,16 @@ the subagent's own blocks, even when the subagent's tool call reuses the id
 of the call that started it. Telling the two apart relies on each agent's
 monitor having its own `agent_name`, which `monitor_subagents` gives it.
 
+A subagent receives its delegation as input, so `monitor_delegation` is part of
+the input schema of every monitored agent, a plain `create_agent` one
+included. Whoever invokes an agent could set it, so the monitor validates the
+value with pydantic when it reads it. A value that is not a `Delegation` with
+non-negative block counts raises `ConfigurationError` before the step runs. It
+is not ignored: a subagent that ignored a bad delegation would count from its
+own log alone, which resets the thread's total, and a negative count would
+lift the total altogether. Leave the key out when you invoke an agent; the
+monitor sets it for each subagent it starts.
+
 ## Sync and async
 
 LangChain calls `wrap_model_call` under `invoke()` and `stream()`, and

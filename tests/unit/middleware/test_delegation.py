@@ -14,6 +14,7 @@ from langgraph.checkpoint.memory import InMemorySaver
 
 from langchain_sync_monitors.contracts import Delegation, StepRecord
 from langchain_sync_monitors.delegation import add_delegation
+from langchain_sync_monitors.errors import ConfigurationError
 from langchain_sync_monitors.middleware import MonitorMiddleware
 from langchain_sync_monitors.protocols import AutoMode
 from tests.support.agents import (
@@ -22,6 +23,7 @@ from tests.support.agents import (
     build_exfiltration_step,
     build_keyword_monitor,
     build_read_step,
+    build_task_input,
     build_thread_config,
     run_agent,
 )
@@ -200,3 +202,76 @@ def test_an_agent_without_subagents_records_and_stores_what_it_did_before(
     assert workspace.executed == ["read_file:q3.md"]
     assert "monitor_delegation" not in result
     assert "monitor_delegation" not in agent.get_state(config).values
+
+
+def build_agent_with_delegation_input(
+    *,
+    workspace: Workspace,
+    max_total_blocks: int,
+) -> Any:
+    model = ScriptedChatModel(
+        responses=[
+            *(build_exfiltration_step(call_id=f"call-post-{index}") for index in range(3)),
+            AIMessage("Summary."),
+        ],
+    )
+    monitor = MonitorMiddleware(
+        monitor=build_keyword_monitor(),
+        protocol=AutoMode(block_threshold=0.6, max_total_blocks=max_total_blocks),
+    )
+    return create_agent(model, tools=workspace.build_tools(), middleware=[monitor])
+
+
+def run_with_delegation(agent: Any, *, delegation: object, mode: RunMode) -> dict[str, Any]:
+    payload = {**build_task_input(), "monitor_delegation": delegation}
+    if mode == "invoke":
+        return agent.invoke(payload)
+    return asyncio.run(agent.ainvoke(payload))
+
+
+@pytest.mark.parametrize(
+    "delegation",
+    [
+        {"tool_call_id": "x", "delegating_agent": "main", "blocks_before": {"monitor": -100}},
+        {"tool_call_id": "x", "delegating_agent": "main", "blocks_before": {"monitor": "3"}},
+        {"tool_call_id": "x", "delegating_agent": "main", "blocks_before": {"monitor": True}},
+        {"tool_call_id": "x", "blocks_before": {"monitor": 1}},
+        {"id": "x"},
+        "x",
+    ],
+    ids=["negative", "string-count", "bool-count", "no-agent", "unknown-keys", "not-a-mapping"],
+)
+def test_an_invalid_delegation_in_the_input_is_rejected_before_any_step(
+    run_mode: RunMode,
+    delegation: object,
+) -> None:
+    # Arrange
+    workspace = Workspace()
+    agent = build_agent_with_delegation_input(workspace=workspace, max_total_blocks=2)
+
+    # Act
+    with pytest.raises(ConfigurationError, match="monitor_delegation"):
+        run_with_delegation(agent, delegation=delegation, mode=run_mode)
+
+    # Assert
+    assert workspace.executed == []
+
+
+def test_a_valid_delegation_in_the_input_counts_towards_the_total(run_mode: RunMode) -> None:
+    # Arrange
+    workspace = Workspace()
+    agent = build_agent_with_delegation_input(workspace=workspace, max_total_blocks=2)
+    delegation = Delegation(
+        tool_call_id="call-caller",
+        delegating_agent="caller",
+        blocks_before={"monitor": 1},
+    )
+
+    # Act
+    result = run_with_delegation(agent, delegation=delegation, mode=run_mode)
+
+    # Assert
+    [record] = result["monitor_log"]
+    assert (record["outcome"], record["blocked_count"]) == ("halted", 1)
+    assert record["delegation_id"] == "call-caller"
+    assert workspace.executed == []

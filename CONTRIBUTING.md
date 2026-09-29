@@ -99,7 +99,7 @@ emoji; lanorme checks all of this. Diagrams use Mermaid. Preview the site with
 4. Commit with a message that describes the effect, in the imperative mood,
    and reference the issue: `Add Defer to Resample (#15)`.
 5. Push and open a pull request against `main` with `Closes #N` in the
-   description. CI runs the same gate across Python 3.12 and 3.13.
+   description. CI runs the same gate across Python 3.12, 3.13 and 3.14.
 
 ## Licence
 

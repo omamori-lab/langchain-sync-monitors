@@ -3,12 +3,14 @@ name: CI
 # Runs scripts/check.sh, the one gate script, on every pull request and on pushes
 # to main, across the supported Python versions. Two more jobs run the offline
 # suite outside the lock file: at the lowest versions pyproject.toml allows, and
-# without any extra.
+# without any extra. The Release workflow calls this workflow, so a release
+# passes exactly these checks before anything is published.
 
 on:
   pull_request:
   push:
     branches: [main]
+  workflow_call:
 
 permissions:
   contents: read
@@ -26,10 +28,10 @@ jobs:
         python-version: ["3.12", "3.13", "3.14"]
     steps:
       - name: Check out the repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v8.1.0
+        uses: astral-sh/setup-uv@v10.2.0
         with:
           python-version: ${{ matrix.python-version }}
 
@@ -49,10 +51,10 @@ jobs:
       UV_RESOLUTION: lowest-direct
     steps:
       - name: Check out the repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v8.1.0
+        uses: astral-sh/setup-uv@v10.2.0
         with:
           python-version: "3.12"
 
@@ -67,10 +69,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Check out the repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v8.1.0
+        uses: astral-sh/setup-uv@v10.2.0
         with:
           python-version: "3.12"
 

@@ -53,10 +53,13 @@ POLICY_PROMPT = ChatPromptTemplate.from_messages(
 ## Build the monitor
 
 The guard model is a parameter, like every model in the library, and any
-LangChain chat model works. Build it with a temperature above zero, because
-the monitor samples several replies when the provider returns no
-log-probabilities, and at temperature zero every sample would carry the same
-label.
+LangChain chat model works with `GuardScoring.SAMPLE_FRACTION`. The default,
+`GuardScoring.AUTO`, first asks the provider for log-probabilities, and some
+chat models reject that request; see [Choose how labels become a
+score](#choose-how-labels-become-a-score). Build the model with a temperature
+above zero, because the monitor samples several replies when the provider
+returns no log-probabilities, and at temperature zero every sample would carry
+the same label.
 
 ```python
 from langchain.chat_models import init_chat_model
@@ -97,6 +100,22 @@ the same steps. `GuardScoring` sets how the monitor gets a finer score.
 | `LOG_PROBABILITIES` | Always scores from log-probabilities. A provider that returns none, or returns them without alternatives, raises `ConfigurationError` at the first judged step, which fails that step. | 1 |
 | `SAMPLE_FRACTION` | Always draws `samples` replies and uses the share labelled suspicious. | `samples` |
 | `HARD_LABEL` | Reads one reply as 0 or 1, and warns with `HardLabelWarning` when the monitor is built. | 1 |
+
+`AUTO` and `LOG_PROBABILITIES` bind `logprobs=True` and `top_logprobs=20` to
+the model. LangChain has no capability flag that says whether a chat model
+accepts them, so the monitor cannot check before the first call, and a chat
+model that rejects them fails the first judged step:
+
+- `ChatAnthropic` and `ChatBedrockConverse` pass the keywords on to a function
+  that does not take them. The monitor raises `ConfigurationError` naming
+  `SAMPLE_FRACTION`, before any request is sent.
+- Groq's API answers a request with `logprobs` with an HTTP 400 error
+  [@groq2026openaicompatibility], which reaches you as the provider's own
+  error.
+
+Use `SAMPLE_FRACTION` with these models. A provider that accepts the keywords
+and returns nothing, such as OpenRouter's guard endpoints, makes `AUTO`
+sample.
 
 ```mermaid
 flowchart TD

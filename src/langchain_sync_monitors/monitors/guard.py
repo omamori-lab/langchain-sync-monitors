@@ -15,8 +15,9 @@ import logging
 import math
 import re
 import warnings
-from collections.abc import Generator
+from collections.abc import Generator, Iterator
 from collections.abc import Set as AbstractSet
+from contextlib import contextmanager
 from dataclasses import dataclass
 from enum import StrEnum
 from itertools import filterfalse
@@ -69,7 +70,9 @@ class GuardScoring(StrEnum):
 
     `AUTO` reads log-probabilities when the provider returns them and samples
     otherwise. `LOG_PROBABILITIES` raises a `ConfigurationError` when the
-    provider returns none, or none with alternatives. `SAMPLE_FRACTION` always
+    provider returns none, or none with alternatives. Both ask for them, and
+    raise a `ConfigurationError` naming `SAMPLE_FRACTION` when the chat model
+    rejects the request, as `ChatAnthropic` does. `SAMPLE_FRACTION` always
     samples. `HARD_LABEL` reads
     one label as 0 or 1 and warns, because every threshold then flags the same
     steps. Sampling only tells replies apart when the model's temperature is
@@ -483,6 +486,43 @@ class GuardModelMonitor(ChatModelMonitor):
             suspicious_labels=self.suspicious_labels,
             safe_labels=self.safe_labels,
         )
+
+    async def request_replies(self, request: ReplyRequest) -> list[AIMessage]:
+        """Draw the requested replies concurrently; see `explain_rejected_log_probabilities`."""
+        with self.explain_rejected_log_probabilities(request):
+            return await super().request_replies(request)
+
+    def request_replies_sync(self, request: ReplyRequest) -> list[AIMessage]:
+        """Draw the requested replies in turn; see `explain_rejected_log_probabilities`."""
+        with self.explain_rejected_log_probabilities(request):
+            return super().request_replies_sync(request)
+
+    @contextmanager
+    def explain_rejected_log_probabilities(self, request: ReplyRequest) -> Iterator[None]:
+        """Turn a chat model's refusal of the `logprobs` keyword into a `ConfigurationError`.
+
+        LangChain's model profiles have no capability flag for
+        log-probabilities [@langchaincore2026], so the request for them is sent
+        to every model. Some adapters, such as `ChatAnthropic` and
+        `ChatBedrockConverse`, pass the keyword on to a function that does not
+        take it [@langchainanthropic2026; @langchainaws2026], and Python raises
+        a `TypeError` that names it before any request leaves. Only that error,
+        raised by the request for log-probabilities, becomes a
+        `ConfigurationError` naming the mode to use; every other error passes
+        through unchanged.
+        """
+        try:
+            yield
+        except TypeError as error:
+            is_log_probability_request = request.model is self.model_with_log_probabilities
+            if not is_log_probability_request or "logprobs" not in str(error).lower():
+                raise
+            message = (
+                f"{self.model.get_name()} does not accept the request for log-probabilities "
+                "that GuardScoring.AUTO and GuardScoring.LOG_PROBABILITIES make; use "
+                "GuardScoring.SAMPLE_FRACTION with this model"
+            )
+            raise ConfigurationError(message) from error
 
     def build_sample_verdict(self, replies: list[AIMessage]) -> Verdict:
         """Return the share of replies labelled suspicious; an unreadable reply counts as one.

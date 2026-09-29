@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import math
+import re
 import time
 
 import pytest
@@ -22,7 +23,7 @@ from .captured_replies import (
     SAFEGUARD_REPLY_TO_A_BENIGN_STEP,
     SAFEGUARD_REPLY_TO_AN_EXFILTRATING_STEP,
 )
-from .doubles import CallPath, ScriptedChatModel, evaluate_on_path
+from .doubles import CallPath, KeywordRejectingChatModel, ScriptedChatModel, evaluate_on_path
 
 POLICY_PROMPT = ChatPromptTemplate.from_messages(
     [
@@ -752,3 +753,91 @@ def test_a_policy_prompt_without_the_transcript_is_rejected() -> None:
             suspicious_labels={"violation"},
             safe_labels={"no_violation"},
         )
+
+
+def build_rejecting_guard(
+    model: KeywordRejectingChatModel,
+    *,
+    scoring: GuardScoring,
+) -> GuardModelMonitor:
+    """Return a guard over a model that rejects the `logprobs` keyword."""
+    return GuardModelMonitor(
+        model=model,
+        policy_prompt=POLICY_PROMPT,
+        suspicious_labels={"violation"},
+        safe_labels={"no_violation"},
+        scoring=scoring,
+        samples=2,
+    )
+
+
+@pytest.mark.parametrize("scoring", [GuardScoring.AUTO, GuardScoring.LOG_PROBABILITIES])
+@pytest.mark.parametrize(
+    "rejection",
+    [
+        "Messages.create() got an unexpected keyword argument 'logprobs'",
+        "ChatBedrockConverse._converse_params() got an unexpected keyword argument 'logprobs'",
+    ],
+    ids=["anthropic", "bedrock converse"],
+)
+async def test_a_model_that_rejects_log_probabilities_is_a_configuration_error(
+    monitor_input: MonitorInput,
+    call_path: CallPath,
+    rejection: str,
+    scoring: GuardScoring,
+) -> None:
+    # Arrange
+    model = KeywordRejectingChatModel(replies=["violation"], rejection=rejection)
+    guard = build_rejecting_guard(model, scoring=scoring)
+
+    # Act and Assert
+    with pytest.raises(ConfigurationError, match=r"use GuardScoring\.SAMPLE_FRACTION") as raised:
+        await evaluate_on_path(guard, monitor_input, call_path=call_path)
+    assert isinstance(raised.value.__cause__, TypeError)
+
+
+async def test_sample_fraction_works_with_a_model_that_rejects_log_probabilities(
+    monitor_input: MonitorInput,
+    call_path: CallPath,
+) -> None:
+    # Arrange
+    model = KeywordRejectingChatModel(replies=["violation", "no_violation"])
+    guard = build_rejecting_guard(model, scoring=GuardScoring.SAMPLE_FRACTION)
+
+    # Act
+    verdict = await evaluate_on_path(guard, monitor_input, call_path=call_path)
+
+    # Assert
+    assert verdict.suspicion == 0.5
+
+
+@pytest.mark.parametrize(
+    ("rejection", "rejects_every_call", "scoring"),
+    [
+        ("unsupported operand type(s) for +: 'int' and 'str'", False, GuardScoring.AUTO),
+        (
+            "Messages.create() got an unexpected keyword argument 'logprobs'",
+            True,
+            GuardScoring.SAMPLE_FRACTION,
+        ),
+    ],
+    ids=["another type error", "no log-probabilities requested"],
+)
+async def test_other_type_errors_pass_through_unchanged(
+    monitor_input: MonitorInput,
+    call_path: CallPath,
+    rejection: str,
+    rejects_every_call: bool,
+    scoring: GuardScoring,
+) -> None:
+    # Arrange
+    model = KeywordRejectingChatModel(
+        replies=["violation"],
+        rejection=rejection,
+        rejects_every_call=rejects_every_call,
+    )
+    guard = build_rejecting_guard(model, scoring=scoring)
+
+    # Act and Assert
+    with pytest.raises(TypeError, match=re.escape(rejection)):
+        await evaluate_on_path(guard, monitor_input, call_path=call_path)

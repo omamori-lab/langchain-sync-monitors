@@ -406,7 +406,10 @@ LangChain's `init_chat_model`.
   labelled unsafe is the standard fallback, with gains that level off after a
   handful [@xiong2024uncertainty; @lyu2025sampleconsistency].
   `GuardScoring.AUTO` does the first when it can and draws five samples
-  otherwise. Guard models are overconfident, especially under jailbreaks
+  otherwise. LangChain has no capability flag for log-probabilities, so `AUTO`
+  asks every model for them; a chat model that rejects the request, such as
+  `ChatAnthropic`, fails the first judged step with a `ConfigurationError`
+  that names `GuardScoring.SAMPLE_FRACTION`. Guard models are overconfident, especially under jailbreaks
   [@liu2025guardcalibration], and a hard 0 or 1 label gives a threshold only
   one operating point, so that option warns. The label is read only where the
   guard's format puts it: on the last line, or on the first line when it is

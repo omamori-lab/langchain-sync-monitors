@@ -208,7 +208,8 @@ def test_each_protocol_s_step_is_a_span_tree_with_its_outcome(
     case: ProtocolCase,
 ) -> None:
     # Arrange
-    agent = build_agent(protocol=case.build_protocol(), untrusted_steps=case.untrusted_steps())
+    protocol = case.build_protocol()
+    agent = build_agent(protocol=protocol, untrusted_steps=case.untrusted_steps())
 
     # Act
     _, tracer = run_traced_agent(agent, mode=run_mode)
@@ -223,8 +224,11 @@ def test_each_protocol_s_step_is_a_span_tree_with_its_outcome(
         case.outcome,
         case.blocked_count,
     )
+    assert EXFILTRATION_MARK in step.inputs["proposed_step"]
+    assert step.metadata["monitor_protocol"] == type(protocol).__name__
     assert (decision.error, decision.tags) == (None, case.decision_tags)
-    assert decision.outputs["outcome"] == case.outcome
+    assert decision.outputs["outcome"] == decision.metadata["monitor_outcome"] == case.outcome
+    assert decision.metadata["monitor_flagged"] is ("monitor:flagged" in case.decision_tags)
     assert tracer.find_unknown_parents() == []
     assert tracer.find_open_runs() == []
 

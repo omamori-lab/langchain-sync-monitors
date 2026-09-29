@@ -304,7 +304,7 @@ def build_span_manager[ManagerT: (CallbackManager, AsyncCallbackManager)](
     span: TraceSpan,
     manager_class: type[ManagerT],
 ) -> ManagerT | None:
-    """Return the callback manager that starts the span, or None when no tracer listens.
+    """Return the callback manager that starts the span, or None when no handler listens.
 
     Inside a graph node, the config holds the node's own callback manager, and
     the span's manager is built from it, so the span nests under the running
@@ -350,7 +350,7 @@ def build_span_manager[ManagerT: (CallbackManager, AsyncCallbackManager)](
 def open_traced_run_sync(span: TraceSpan) -> Iterator[TracedRun]:
     """Open the span under the running node, for `invoke()`; model calls in the block nest in it.
 
-    With no tracer attached nothing is opened, and the block runs exactly as
+    With no callback handler attached nothing is opened, and the block runs as
     it would without the span. Otherwise the span starts with its inputs, and
     the calls made inside the block become its children through the config
     they inherit, the way `hide_model_calls_from_message_stream` sets it. The

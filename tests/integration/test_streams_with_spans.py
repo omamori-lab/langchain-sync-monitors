@@ -1,9 +1,11 @@
-"""A tracer on a monitored agent leaves every stream as it was; only `astream_events` grows.
+"""The monitor's spans leave every stream as it was; only `astream_events` grows.
 
-The monitor's spans reach callback handlers alone. The message, update and
-custom streams, and the v3 event stream's messages, are compared part by part
-with and without a tracer, as JSON, leaving out only the ids and checkpoint
-names that differ between any two runs.
+The spans reach callback handlers alone. Each stream is compared part by part,
+as JSON, leaving out only the ids and checkpoint names that differ between
+any two runs, across three runs: with the spans switched off, as a monitor
+without them would stream; with the spans on and no tracer, where LangGraph's
+own handler for `stream_mode="messages"` still receives them; and with the
+spans on and a tracer attached.
 """
 
 from __future__ import annotations
@@ -19,6 +21,7 @@ from langchain_core.messages import AIMessage, BaseMessage
 from langchain_core.runnables import RunnableConfig
 from langgraph.graph.state import CompiledStateGraph
 
+from langchain_sync_monitors import _langchain
 from langchain_sync_monitors.middleware import MonitorMiddleware
 from langchain_sync_monitors.protocols import AutoMode
 from tests.support.agents import (
@@ -98,6 +101,17 @@ def stream_parts(
     return render_parts(asyncio.run(collect()))
 
 
+def stream_v3_messages(*, tracer: RecordingTracer | None) -> list[str]:
+    """Return every message of the v3 event stream's `run.messages`, rendered."""
+    run = build_agent().stream_events(build_task_input(), build_config(tracer), version="v3")
+    return render_parts([message_stream.output for message_stream in run.messages])
+
+
+def switch_spans_off(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Make every span helper find no handler, so the run opens no span at all."""
+    monkeypatch.setattr(_langchain, "build_span_manager", lambda *_, **__: None)
+
+
 def collect_events(*, exclude_tags: list[str] | None = None) -> list[dict[str, Any]]:
     """Return every `astream_events` event of a run, as the v2 event stream reports it."""
 
@@ -113,41 +127,46 @@ def collect_events(*, exclude_tags: list[str] | None = None) -> list[dict[str, A
 
 
 @pytest.mark.parametrize("stream_mode", ["messages", "updates", "custom"])
-def test_a_tracer_leaves_the_stream_byte_for_byte_the_same(
+def test_the_spans_leave_the_stream_byte_for_byte_the_same(
     run_mode: RunMode,
     stream_mode: StreamMode,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     # Arrange
     tracer = RecordingTracer()
 
     # Act
+    with monkeypatch.context() as patch:
+        switch_spans_off(patch)
+        without_spans = stream_parts(mode=run_mode, stream_mode=stream_mode, tracer=None)
     untraced = stream_parts(mode=run_mode, stream_mode=stream_mode, tracer=None)
     traced = stream_parts(mode=run_mode, stream_mode=stream_mode, tracer=tracer)
 
     # Assert
-    assert untraced
-    assert traced == untraced
+    assert without_spans
+    assert untraced == without_spans
+    assert traced == without_spans
     assert {span.name for span in tracer.find_monitor_spans()} == MONITOR_SPAN_NAMES
 
 
 @pytest.mark.filterwarnings("ignore::langchain_core._api.beta_decorator.LangChainBetaWarning")
-def test_a_tracer_leaves_the_v3_event_stream_s_messages_the_same() -> None:
+def test_the_spans_leave_the_v3_event_stream_s_messages_the_same(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     # Arrange
     tracer = RecordingTracer()
 
     # Act
-    untraced_run = build_agent().stream_events(build_task_input(), version="v3")
-    untraced = render_parts([message.output for message in untraced_run.messages])
-    traced_run = build_agent().stream_events(
-        build_task_input(),
-        RunnableConfig(callbacks=[tracer]),
-        version="v3",
-    )
-    traced = render_parts([message.output for message in traced_run.messages])
+    with monkeypatch.context() as patch:
+        switch_spans_off(patch)
+        without_spans = stream_v3_messages(tracer=None)
+    untraced = stream_v3_messages(tracer=None)
+    traced = stream_v3_messages(tracer=tracer)
 
     # Assert
-    assert len(untraced) == 2
-    assert traced == untraced
+    assert len(without_spans) == 2
+    assert untraced == without_spans
+    assert traced == without_spans
     assert tracer.find_monitor_spans()
 
 

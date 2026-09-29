@@ -29,7 +29,11 @@ OUTCOME_NAMES: dict[Outcome, OutcomeName] = {
 
 
 def build_sample_record(sample: Sample, *, executed: bool) -> SampleRecord:
-    """Record one judged sample, with its proposal rendered for human auditors."""
+    """Record one judged sample, with its proposal rendered for human auditors.
+
+    The rendering holds every channel, malformed tool calls included, so a
+    call that could not run still leaves evidence of what the agent tried.
+    """
     return SampleRecord(
         suspicion=sample.verdict.suspicion,
         reason=sample.verdict.reason,

@@ -19,7 +19,14 @@ import json
 from collections.abc import Iterator, Sequence
 from dataclasses import dataclass
 
-from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, ToolCall, ToolMessage
+from langchain_core.messages import (
+    AIMessage,
+    BaseMessage,
+    HumanMessage,
+    InvalidToolCall,
+    ToolCall,
+    ToolMessage,
+)
 
 from langchain_sync_monitors.contracts import Channel, MonitorView, TaskAuthor
 
@@ -95,8 +102,20 @@ def render_tool_call(tool_call: ToolCall) -> str:
     return wrap_in_tag(tag="tool_call", content=arguments, name=tool_call["name"])
 
 
+def render_malformed_tool_call(tool_call: InvalidToolCall) -> str:
+    """Render a tool call whose arguments could not be parsed, with its raw argument text.
+
+    Such a call never runs, but it shows what the agent tried to do.
+    """
+    return wrap_in_tag(
+        tag="malformed_tool_call",
+        content=tool_call["args"] or "",
+        name=tool_call["name"],
+    )
+
+
 def build_agent_entries(message: AIMessage) -> Iterator[TranscriptEntry]:
-    """Yield the reasoning, text and tool calls of one agent message."""
+    """Yield the reasoning, text, tool calls and malformed tool calls of one agent message."""
     reasoning = extract_reasoning_text(message)
     if reasoning:
         yield TranscriptEntry(
@@ -110,6 +129,11 @@ def build_agent_entries(message: AIMessage) -> Iterator[TranscriptEntry]:
         )
     for tool_call in message.tool_calls:
         yield TranscriptEntry(channel=Channel.TOOL_CALLS, text=render_tool_call(tool_call))
+    for invalid_tool_call in message.invalid_tool_calls:
+        yield TranscriptEntry(
+            channel=Channel.TOOL_CALLS,
+            text=render_malformed_tool_call(invalid_tool_call),
+        )
 
 
 def read_message_source(message: BaseMessage) -> str | None:
@@ -215,6 +239,12 @@ def build_message_entries(
     return []
 
 
+def read_tool_names_by_call(message: AIMessage) -> dict[str, str]:
+    """Return the tool name of each call in an agent message, malformed ones included, by id."""
+    calls: list[ToolCall | InvalidToolCall] = [*message.tool_calls, *message.invalid_tool_calls]
+    return {call["id"]: call["name"] for call in calls if call["id"] and call["name"]}
+
+
 def build_transcript_entries(
     history: Sequence[BaseMessage],
     *,
@@ -226,9 +256,7 @@ def build_transcript_entries(
     entries: list[TranscriptEntry] = []
     for message in history:
         if isinstance(message, AIMessage):
-            tool_names_by_call.update(
-                (call["id"], call["name"]) for call in message.tool_calls if call["id"]
-            )
+            tool_names_by_call.update(read_tool_names_by_call(message))
         entries.extend(
             build_message_entries(
                 message,
@@ -277,7 +305,9 @@ def render_proposed_step(proposal: AIMessage, *, view: MonitorView) -> str:
 
     A proposal without tool calls is a final answer, and the answer is then the
     step's action, so its text is shown even when the view leaves out agent
-    prose.
+    prose. A proposal whose calls are all malformed is a final answer too,
+    because none of them can run; they are shown with it, as evidence of what
+    the agent tried.
     """
     is_final_answer = not proposal.tool_calls
     channels = view.channels | Channel.AGENT_TEXT if is_final_answer else view.channels
@@ -286,5 +316,9 @@ def render_proposed_step(proposal: AIMessage, *, view: MonitorView) -> str:
 
 
 def render_proposal_for_audit(proposal: AIMessage) -> str:
-    """Render a proposal with every channel, for the human auditors reading `monitor_log`."""
+    """Render a proposal with every channel, for the human auditors reading `monitor_log`.
+
+    Malformed tool calls are included, so the record keeps what the agent
+    tried even though nothing ran.
+    """
     return render_proposed_step(proposal, view=MonitorView(channels=Channel.ALL))

@@ -296,12 +296,13 @@ LangChain's `init_chat_model`.
   validated, so a change in a field the library does not read, such as
   `usage`, cannot discard a valid answer.
 
-Every family writes a `reason` without numbers: a chat judge's reason is its
-reasoning without the score, a guard's names its finding without a
-probability or a count of replies, and a decision model's names the question
-it found most likely without the probability. Auto Mode shows the reason to
-the agent, and a number would tell the agent how close its step came to
-passing. The numbers stay in `suspicion`, which the log records keep.
+No family adds a score, probability or count to its `reason`. A chat
+judge's reason is its own reasoning, passed through as the judge wrote it,
+without the score tag; a guard's names its finding without a probability or
+a count of replies; and a decision model's names the question it found most
+likely without the probability. Auto Mode shows the reason to the agent, and
+such a number would tell the agent how close its step came to passing. The
+numbers stay in `suspicion`, which the log records keep.
 
 Scores have to be fine-grained. Control protocols set thresholds as
 percentiles of honest-run scores, and a score with few distinct values cannot

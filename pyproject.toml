@@ -1,12 +1,11 @@
 [build-system]
-requires = ["hatchling>=1.27"]
+requires = ["hatchling>=1.27", "hatch-fancy-pypi-readme>=25.1"]
 build-backend = "hatchling.build"
 
 [project]
 name = "langchain-sync-monitors"
-dynamic = ["version"]
+dynamic = ["version", "readme"]
 description = "Control monitors for LangChain agents and Deep Agents, as middleware."
-readme = "README.md"
 requires-python = ">=3.12"
 license = "MIT"
 license-files = ["LICENSE"]
@@ -55,6 +54,24 @@ docs = [
 
 [tool.hatch.version]
 path = "src/langchain_sync_monitors/__init__.py"
+
+# The README links images and pages by relative path, which GitHub resolves.
+# PyPI does not, so the package description gets absolute URLs at build time:
+# raw files for the diagrams, repository pages for links. PyPI drops the
+# <source> of each <picture>, so it shows the light variant of every diagram.
+[tool.hatch.metadata.hooks.fancy-pypi-readme]
+content-type = "text/markdown"
+
+[[tool.hatch.metadata.hooks.fancy-pypi-readme.fragments]]
+path = "README.md"
+
+[[tool.hatch.metadata.hooks.fancy-pypi-readme.substitutions]]
+pattern = '(src|srcset)="(docs/assets/[^"]+)"'
+replacement = '\1="https://raw.githubusercontent.com/Antonio-Tresol/langchain-sync-monitors/main/\2"'
+
+[[tool.hatch.metadata.hooks.fancy-pypi-readme.substitutions]]
+pattern = '\]\((?!https?://|#|mailto:)([^)\s]+)\)'
+replacement = '](https://github.com/Antonio-Tresol/langchain-sync-monitors/blob/main/\1)'
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/langchain_sync_monitors"]

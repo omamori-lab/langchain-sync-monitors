@@ -1,0 +1,82 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="900" height="360" viewBox="0 0 900 360" role="img" aria-labelledby="title desc">
+  <title id="title">A monitor in every subagent</title>
+  <desc id="desc">In a Deep Agent, the main agent's monitor, monitor[main], reads the user's task. When the main agent calls the task tool, monitor[main] judges that call first, and the subagent then runs under a monitor of its own, monitor[researcher], which reads the task as the parent agent's words, not the user's. The subagent's final report returns to the main agent as a subagent report. The subagent's records flow back into the main agent's monitor_log, halts included. monitor_subagents gives every subagent a copy of the monitor, the general-purpose one included.</desc>
+  <!-- The light and dark variants of this diagram differ only in the colours of the style block. -->
+  <style>
+    text { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans", Helvetica, Arial, sans-serif; font-size: 13px; fill: #E3E8EF; }
+    .title { font-size: 14px; font-weight: 600; }
+    .small { font-size: 12px; fill: #93A0B1; }
+    .mono { font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace; font-size: 12px; fill: #85A6FF; }
+    .mono-title { font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace; font-size: 13px; font-weight: 600; fill: #85A6FF; }
+    .frame { fill: #151C26; stroke: #4B5A6E; stroke-width: 1.2; }
+    .shadow { fill: #151C26; stroke: #4B5A6E; stroke-width: 1; stroke-dasharray: 4 3; }
+    .box { fill: #151C26; stroke: #4B5A6E; stroke-width: 1.2; }
+    .accent-box { fill: #1B2745; stroke: #85A6FF; stroke-width: 1.5; }
+    .log { fill: #111822; stroke: #4B5A6E; stroke-width: 1.2; }
+    .edge { fill: none; stroke: #93A0B1; stroke-width: 1.4; }
+    .records { fill: none; stroke: #F08D62; stroke-width: 1.4; stroke-dasharray: 3 3; }
+    .head { fill: #93A0B1; }
+    .records-head { fill: #F08D62; }
+  </style>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" markerUnits="userSpaceOnUse" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="head"/></marker>
+    <marker id="records-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" markerUnits="userSpaceOnUse" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="records-head"/></marker>
+  </defs>
+
+  <!-- The main agent. -->
+  <rect class="frame" x="16" y="16" width="384" height="264" rx="12"/>
+  <text x="32" y="42"><tspan class="title">Main agent</tspan><tspan class="small" dx="8">the user's task</tspan></text>
+
+  <rect class="accent-box" x="32" y="60" width="200" height="80" rx="8"/>
+  <text x="48" y="86" class="mono-title">monitor[main]</text>
+  <text x="48" y="106" class="small">wraps the main model;</text>
+  <text x="48" y="122" class="small">task author: the user</text>
+
+  <line class="edge" x1="232" y1="100" x2="250" y2="100" marker-end="url(#arrow)"/>
+
+  <rect class="box" x="252" y="60" width="132" height="80" rx="8"/>
+  <text x="268" y="86" class="title">task tool</text>
+  <text x="268" y="106" class="small">hands work</text>
+  <text x="268" y="122" class="small">to a subagent</text>
+
+  <rect class="log" x="32" y="176" width="352" height="88" rx="8"/>
+  <text x="48" y="202" class="mono-title">monitor_log</text>
+  <text x="48" y="222" class="small">the main agent's own records,</text>
+  <text x="48" y="238" class="small">and the records of every subagent</text>
+
+  <!-- A subagent, one of several. -->
+  <rect class="shadow" x="506" y="22" width="384" height="264" rx="12"/>
+  <rect class="frame" x="500" y="16" width="384" height="264" rx="12"/>
+  <text x="516" y="42"><tspan class="title">Subagent: researcher</tspan><tspan class="small" dx="8">and every other one</tspan></text>
+
+  <rect class="accent-box" x="516" y="60" width="222" height="80" rx="8"/>
+  <text x="532" y="86" class="mono-title">monitor[researcher]</text>
+  <text x="532" y="106" class="small">wraps the subagent's model;</text>
+  <text x="532" y="122" class="small">task author: the parent agent</text>
+
+  <line class="edge" x1="738" y1="100" x2="756" y2="100" marker-end="url(#arrow)"/>
+
+  <rect class="box" x="758" y="60" width="110" height="80" rx="8"/>
+  <text x="774" y="86" class="title">its tools</text>
+  <text x="774" y="106" class="small">judged step</text>
+  <text x="774" y="122" class="small">by step</text>
+
+  <rect class="log" x="516" y="176" width="352" height="88" rx="8"/>
+  <text x="532" y="202" class="mono-title">monitor_log</text>
+  <text x="532" y="222" class="small">the subagent's own records</text>
+  <text x="532" y="238" class="small">a halt here can also stop the whole run</text>
+
+  <!-- Between the two. -->
+  <line class="edge" x1="384" y1="80" x2="514" y2="80" marker-end="url(#arrow)"/>
+  <text x="450" y="72" text-anchor="middle" class="small">the task</text>
+  <line class="edge" x1="516" y1="124" x2="386" y2="124" marker-end="url(#arrow)"/>
+  <text x="450" y="142" text-anchor="middle" class="small">its report</text>
+
+  <line class="records" x1="516" y1="220" x2="386" y2="220" marker-end="url(#records-arrow)"/>
+  <text x="450" y="212" text-anchor="middle" class="small">records,</text>
+  <text x="450" y="238" text-anchor="middle" class="small">halts too</text>
+
+  <!-- How to set it up. -->
+  <text x="16" y="318" class="mono">monitor_subagents(middleware=monitor, subagents=[...])</text>
+  <text x="16" y="340" class="small">gives every subagent a copy of the monitor, named after it, the general-purpose subagent included</text>
+</svg>

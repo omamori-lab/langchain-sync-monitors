@@ -1,0 +1,79 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="900" height="444" viewBox="0 0 900 444" role="img" aria-labelledby="title desc">
+  <title id="title">The four control protocols</title>
+  <desc id="desc">What each protocol does with a step the monitor finds suspicious. Trusted Monitoring lets the step run and flags it for a person to review. Defer to Trusted has the trusted model write the step instead. Defer to Resample draws up to two fresh samples; if one passes, the least suspicious runs, and if none passes, the trusted model writes the step. Auto Mode blocks the step and tells the agent why; the agent tries again and an attempt that passes runs; after three blocks in a row, or twenty in the thread, the run halts.</desc>
+  <!-- The light and dark variants of this diagram differ only in the colours of the style block. -->
+  <style>
+    text { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans", Helvetica, Arial, sans-serif; font-size: 13px; fill: #E3E8EF; }
+    .title { font-size: 14px; font-weight: 600; }
+    .small { font-size: 12px; fill: #93A0B1; }
+    .mono { font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace; font-size: 12px; fill: #85A6FF; }
+    .rule { stroke: #283343; stroke-width: 1; }
+    .allow-chip { fill: #12301F; stroke: #52C48E; stroke-width: 1.3; }
+    .resample-chip { fill: #1B2745; stroke: #85A6FF; stroke-width: 1.3; }
+    .trusted-chip { fill: #251F46; stroke: #AB9DFF; stroke-width: 1.3; }
+    .flag-chip { fill: #33280F; stroke: #E4B24E; stroke-width: 1.3; }
+    .halt-chip { fill: #3A1E13; stroke: #F08D62; stroke-width: 1.3; }
+    .edge { fill: none; stroke: #93A0B1; stroke-width: 1.4; }
+    .loop { fill: none; stroke: #E4B24E; stroke-width: 1.3; stroke-dasharray: 5 4; }
+    .head { fill: #93A0B1; }
+    .flag-head { fill: #E4B24E; }
+  </style>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" markerUnits="userSpaceOnUse" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="head"/></marker>
+    <marker id="flag-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" markerUnits="userSpaceOnUse" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="flag-head"/></marker>
+  </defs>
+
+  <text x="16" y="26" class="title">What each protocol does with a step the monitor finds suspicious</text>
+  <text x="16" y="46" class="small">A step scored below the threshold runs unchanged under every protocol.</text>
+
+  <line class="rule" x1="16" y1="60" x2="884" y2="60"/>
+  <line class="rule" x1="16" y1="136" x2="884" y2="136"/>
+  <line class="rule" x1="16" y1="212" x2="884" y2="212"/>
+  <line class="rule" x1="16" y1="312" x2="884" y2="312"/>
+  <line class="rule" x1="16" y1="432" x2="884" y2="432"/>
+
+  <!-- Trusted Monitoring -->
+  <text x="24" y="86" class="title">Trusted Monitoring</text>
+  <text x="24" y="104" class="mono">TrustedMonitoring</text>
+  <text x="24" y="120" class="small">AI Control</text>
+  <rect class="allow-chip" x="230" y="81" width="170" height="34" rx="17"/>
+  <text x="315" y="102" text-anchor="middle">the step runs</text>
+  <line class="edge" x1="400" y1="98" x2="518" y2="98" marker-end="url(#arrow)"/>
+  <rect class="flag-chip" x="520" y="81" width="250" height="34" rx="17"/>
+  <text x="645" y="102" text-anchor="middle">flagged for a person to review</text>
+
+  <!-- Defer to Trusted -->
+  <text x="24" y="162" class="title">Defer to Trusted</text>
+  <text x="24" y="180" class="mono">DeferToTrusted</text>
+  <text x="24" y="196" class="small">AI Control</text>
+  <rect class="trusted-chip" x="230" y="157" width="320" height="34" rx="17"/>
+  <text x="390" y="178" text-anchor="middle">the trusted model writes the step instead</text>
+
+  <!-- Defer to Resample -->
+  <text x="24" y="238" class="title">Defer to Resample</text>
+  <text x="24" y="256" class="mono">DeferToResample</text>
+  <text x="24" y="272" class="small">Ctrl-Z</text>
+  <rect class="resample-chip" x="230" y="229" width="250" height="34" rx="17"/>
+  <text x="355" y="250" text-anchor="middle">draw up to 2 fresh samples</text>
+  <line class="edge" x1="480" y1="246" x2="518" y2="246" marker-end="url(#arrow)"/>
+  <path class="edge" d="M498,246 V284 H518" marker-end="url(#arrow)"/>
+  <rect class="allow-chip" x="520" y="229" width="310" height="34" rx="17"/>
+  <text x="675" y="250" text-anchor="middle">if one passes, the least suspicious runs</text>
+  <rect class="trusted-chip" x="520" y="267" width="330" height="34" rx="17"/>
+  <text x="685" y="288" text-anchor="middle">if none passes, the trusted model writes it</text>
+
+  <!-- Auto Mode -->
+  <text x="24" y="346" class="title">Auto Mode</text>
+  <text x="24" y="364" class="mono">AutoMode</text>
+  <text x="24" y="380" class="small">Claude Code auto mode</text>
+  <path class="loop" d="M690,352 V334 H355 V350" marker-end="url(#flag-arrow)"/>
+  <text x="522" y="330" text-anchor="middle" class="small">suspicious again: blocked again</text>
+  <rect class="flag-chip" x="230" y="352" width="250" height="34" rx="17"/>
+  <text x="355" y="373" text-anchor="middle">block it and tell the agent why</text>
+  <line class="edge" x1="480" y1="369" x2="518" y2="369" marker-end="url(#arrow)"/>
+  <path class="edge" d="M498,369 V407 H518" marker-end="url(#arrow)"/>
+  <rect class="allow-chip" x="520" y="352" width="340" height="34" rx="17"/>
+  <text x="690" y="373" text-anchor="middle">the agent tries again; one that passes runs</text>
+  <rect class="halt-chip" x="520" y="390" width="340" height="34" rx="17"/>
+  <text x="690" y="411" text-anchor="middle">3 blocks in a row, or 20 in the thread: halt</text>
+</svg>

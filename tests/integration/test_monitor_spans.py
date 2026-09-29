@@ -378,7 +378,12 @@ def test_judgement_numbers_follow_the_order_parallel_draws_started(run_mode: Run
     # Arrange: under ainvoke the n-th model call waits the n-th delay, so the
     # first resample started finishes last and the judgements start out of order.
     monitor = KeywordMonitor(
-        suspicion_by_keyword={EXFILTRATION_MARK: 0.9, "one.md": 0.2, "two.md": 0.3, "three.md": 0.4},
+        suspicion_by_keyword={
+            EXFILTRATION_MARK: 0.9,
+            "one.md": 0.2,
+            "two.md": 0.3,
+            "three.md": 0.4,
+        },
     )
     model = FlakyChatModel(
         replies=[

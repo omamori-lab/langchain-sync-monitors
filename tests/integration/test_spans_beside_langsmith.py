@@ -47,13 +47,13 @@ HOOK_NAMES = {"invoke": "wrap_model_call", "ainvoke": "awrap_model_call"}
 
 
 @traceable(name=TRACED_CHECK_NAME)
-def run_traced_check(text: str) -> str:
-    return text
+def run_traced_check() -> str:
+    return "fine"
 
 
 @traceable(name=TRACED_CHECK_NAME)
-async def arun_traced_check(text: str) -> str:
-    return text
+async def arun_traced_check() -> str:
+    return "fine"
 
 
 @dataclass(kw_only=True)
@@ -61,11 +61,11 @@ class TracedMonitor(Monitor):
     """Traces part of its own work with LangSmith's `traceable`, and finds every step benign."""
 
     async def evaluate(self, monitor_input: MonitorInput) -> Verdict:
-        await arun_traced_check("Judge this step.")
+        await arun_traced_check()
         return Verdict(suspicion=0.1, reason="nothing suspicious")
 
     def evaluate_sync(self, monitor_input: MonitorInput) -> Verdict:
-        run_traced_check("Judge this step.")
+        run_traced_check()
         return Verdict(suspicion=0.1, reason="nothing suspicious")
 
 
@@ -203,9 +203,7 @@ def test_the_spans_nest_the_same_way_in_langsmith(
     assert {find_sent_parent(sent_runs, span).name for span in spans_below_the_step} == {
         "monitor step"
     }
-    assert {find_sent_parent(sent_runs, call).name for call in judge_calls} == {
-        "monitor judgement"
-    }
+    assert {find_sent_parent(sent_runs, call).name for call in judge_calls} == {"monitor judgement"}
     assert [find_sent_parent(sent_runs, sample) for sample in samples[:2]] == [steps[0]] * 2
 
 

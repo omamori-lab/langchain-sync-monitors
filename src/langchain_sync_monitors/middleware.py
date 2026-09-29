@@ -38,6 +38,7 @@ from langchain_sync_monitors._langchain import (
     ModelCallHandler,
     MonitorStepEvent,
     StructuredOutput,
+    hide_model_calls_from_message_stream,
     read_monitor_log,
     write_stream_event,
 )
@@ -142,6 +143,9 @@ class MonitorMiddleware(AgentMiddleware[MonitorState, AgentContext, StructuredOu
     The monitor judges each proposed step before any tool runs, and the
     protocol decides what the agent state receives. Only the decision is
     committed, with one record that keeps every judged sample for audit.
+    Nothing the protocol calls streams to `stream_mode="messages"`: not the
+    samples, not the trusted model's step, not the monitor's own calls. The
+    committed step streams whole once the model node returns it.
     Place it last in a `create_agent` middleware list; `check_monitor_placement`
     checks a list.
 
@@ -196,7 +200,8 @@ class MonitorMiddleware(AgentMiddleware[MonitorState, AgentContext, StructuredOu
                 task_author=self.task_author,
                 previous_records=previous_records,
             )
-            decision = run_synchronously(self.protocol.decide(step))
+            with hide_model_calls_from_message_stream():
+                decision = run_synchronously(self.protocol.decide(step))
         return self.commit(request, decision=decision, previous_records=previous_records)
 
     @override
@@ -217,7 +222,8 @@ class MonitorMiddleware(AgentMiddleware[MonitorState, AgentContext, StructuredOu
                 task_author=self.task_author,
                 previous_records=previous_records,
             )
-            decision = await self.protocol.decide(step)
+            with hide_model_calls_from_message_stream():
+                decision = await self.protocol.decide(step)
         return self.commit(request, decision=decision, previous_records=previous_records)
 
     def find_halt_decision(self, records: Sequence[StepRecord]) -> StepDecision | None:

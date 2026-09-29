@@ -17,6 +17,9 @@ integration into a failing one is a breaking change.
   `monitor_log` and streams it as a `MonitorStepEvent`; runs under both
   `invoke()` and `ainvoke()`. `check_monitor_placement` warns when middleware
   inside the monitor could return commands.
+- Only committed steps reach `stream_mode="messages"`. Rejected samples, blocked
+  attempts with hidden feedback and the monitor's own model calls never stream,
+  and each committed step arrives whole once the protocol has decided.
 - `monitor_subagents`, which gives every Deep Agents subagent, including the
   general-purpose one, a monitor of its own, with per-subagent overrides and a
   choice of what a subagent halt does to the run (`SubagentHalt`).

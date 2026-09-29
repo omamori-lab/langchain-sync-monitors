@@ -8,11 +8,15 @@ so every other module works with the library's own precise types.
 from __future__ import annotations
 
 import logging
-from collections.abc import Awaitable, Callable, Mapping, Sequence
+from collections.abc import Awaitable, Callable, Iterator, Mapping, Sequence
+from contextlib import contextmanager
 from typing import Any, Literal, TypedDict, cast
 
 from langchain.agents.middleware.types import AgentMiddleware, ModelRequest, ModelResponse
 from langchain_core.messages import AnyMessage, BaseMessage
+from langchain_core.runnables import RunnableConfig
+from langchain_core.runnables.config import var_child_runnable_config
+from langgraph.constants import TAG_NOSTREAM
 
 from langchain_sync_monitors.contracts import StepRecord
 
@@ -106,3 +110,23 @@ def write_stream_event(request: AgentModelRequest, *, event: MonitorStepEvent) -
         writer(event)
     except Exception:
         logger.exception("The stream writer failed on a monitor step event; the step stands.")
+
+
+@contextmanager
+def hide_model_calls_from_message_stream() -> Iterator[None]:
+    """Keep every model call made inside the block out of `stream_mode="messages"`.
+
+    LangGraph's message stream skips a model call tagged `nostream`, and still
+    streams the messages a node returns once the node finishes [@langgraph2026].
+    The tag goes on the config that calls inside the block inherit, so it
+    reaches the agent's samples, the trusted model's step and the monitor's own
+    calls alike, including calls in tasks started inside the block. A call made
+    with its own `tags` replaces the inherited ones and streams again.
+    """
+    config = var_child_runnable_config.get() or RunnableConfig()
+    hidden_config: RunnableConfig = {**config, "tags": [*config.get("tags", []), TAG_NOSTREAM]}
+    token = var_child_runnable_config.set(hidden_config)
+    try:
+        yield
+    finally:
+        var_child_runnable_config.reset(token)

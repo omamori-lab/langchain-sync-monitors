@@ -34,9 +34,8 @@ Rejected samples and the monitor's own model calls never reach the agent's
 messages. What is committed is the chosen response, whether an untrusted
 sample or the trusted model's step, together with one `StepRecord` in
 `monitor_log` that keeps every sample the monitor judged, so rejected samples
-survive as evidence for an auditor. The monitor's own model calls are tagged
-with `model_calls.build_internal_call_config`, LangChain's mechanism for
-keeping a middleware's calls out of the message stream [@langchain2026].
+survive as evidence for an auditor. Nor do they reach the message stream, as
+[What streams](#what-streams) explains.
 
 ## Where the middleware sits
 
@@ -368,6 +367,44 @@ asynchronous work there, the library raises `SynchronousRunError` instead of
 hanging. Under `invoke()`, samples asked for concurrently are drawn one after
 another. Monitors declare both `evaluate` and `evaluate_sync`, so a monitor
 that lacks either cannot be instantiated.
+
+## What streams
+
+A synchronous monitor judges a step before anything uses it, so nothing the
+protocol produces reaches `stream_mode="messages"` before the protocol has
+decided. The middleware runs the protocol inside a block that adds LangGraph's
+`nostream` tag to every model call made there, and the message stream skips
+calls with that tag [@langgraph2026]. That covers the untrusted samples, the
+trusted model's step and the monitor's own calls, including samples drawn in
+parallel and calls inside a subagent's monitor. When the model node returns the
+committed step, LangGraph streams it from the node's output [@langgraph2026].
+
+```mermaid
+flowchart LR
+    samples["Samples, the trusted step and the monitor's calls"] -- "tagged nostream" --> skipped["Skipped by the message stream"]
+    protocol["The protocol decides"] --> committed["The committed step"]
+    committed -- "returned by the model node" --> consumer["stream_mode=messages"]
+```
+
+The cost is live tokens. A monitored agent streams each step whole, once the
+protocol commits it, and not token by token as the model writes it.
+
+Rejected samples stay out of the conversation, not out of the record. They
+remain in `monitor_log`, which the `values` and `updates` stream modes carry,
+in the `MonitorStepEvent` on `stream_mode="custom"`, and in traces.
+`astream_events` is not filtered: it reports every model call live, rejected
+samples included, so a user interface should read `stream_mode="messages"`
+instead. With
+`FeedbackVisibility.IN_TRANSCRIPT`, a blocked attempt and its feedback are
+committed as part of the conversation, so they stream along with the step that
+follows them.
+
+The monitor's own calls also carry LangChain's internal-call metadata, from
+`model_calls.build_internal_call_config`, which the experimental
+`stream_events(version="v3")` projection uses to drop them [@langchain2026]. A
+custom monitor that passes its own `tags` in a call's config replaces the tags
+the call would inherit, and that call streams again; such a monitor should add
+`langgraph.constants.TAG_NOSTREAM` to its tags.
 
 ## The log records
 

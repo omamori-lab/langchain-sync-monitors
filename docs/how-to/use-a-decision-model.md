@@ -29,12 +29,15 @@ monitor = DecisionModelMonitor(
   not at the first step.
 - **Endpoint.** Requests go to `{base_url}/decisions`, and `base_url` defaults
   to `https://openrouter.ai/api/alpha`. The Decisions API is in alpha.
-- **Timeout.** `timeout_seconds` defaults to 30.
+- **Timeout.** `timeout_seconds` defaults to 30. It applies only to the
+  clients the model opens itself: an `http_client` or `async_http_client` you
+  pass keeps its own timeout.
 - **Connections.** Pass `http_client` or `async_http_client`, both `httpx`
-  clients, to reuse connections or change the transport. Without them, the
-  `invoke()` path keeps one client for the model's lifetime, and the
-  `ainvoke()` path opens a client per request, since a pooled async client
-  cannot move between event loops.
+  clients, to reuse connections, change the transport or decide when a client
+  closes. Without them, the `invoke()` path opens one client for the model's
+  lifetime, which the library never closes, and the `ainvoke()` path opens and
+  closes a client per request, since a pooled async client cannot move between
+  event loops.
 
 ## Reach Jev through TypeSafe's client
 
@@ -154,10 +157,14 @@ off-site, with the default question:
 
 ## Know what is retried
 
-`OpenRouterDecisionModel` retries transport errors, rate limits (HTTP 429) and
-server errors (HTTP 5xx) with stamina [@schlawack2026stamina], up to five
-attempts in all, with a growing, jittered wait between them. Any other HTTP
-error, such as a bad key, raises `httpx.HTTPStatusError` at once. The
+`OpenRouterDecisionModel` retries transport errors, timeouts included, rate
+limits (HTTP 429) and server errors (HTTP 5xx) with stamina
+[@schlawack2026stamina], with a growing, jittered wait between attempts. It
+stops after five attempts in all, or sooner, once an attempt fails 45 seconds
+or more after the first one began, stamina's default time budget. With the
+default 30-second timeout, two attempts that time out end the retries. Any
+other HTTP error, such as a bad key (401) or a request timeout the server
+reports (408), raises `httpx.HTTPStatusError` at once. The
 response's answers are validated with pydantic: a response in an unexpected
 shape, or one that skips a question, raises `MonitorError`. Fields the library
 does not read, such as `usage`, are not validated, so a change in them cannot

@@ -247,10 +247,16 @@ class OpenRouterDecisionModel(DecisionModel):
     questions restores some resolution.
 
     The key comes from `OPENROUTER_API_KEY` unless `api_key` is given. Pass
-    your own `http_client` or `async_http_client` to reuse connections or
-    change transports. Without them, the sync path keeps one client for the
-    model's lifetime, and the async path opens a client per request, since a
-    pooled async client cannot move between event loops.
+    your own `http_client` or `async_http_client` to reuse connections, change
+    transports or decide when a client closes; a client you pass keeps its own
+    timeout, and `timeout_seconds` applies only to the clients the model opens.
+    Without them, the sync path opens one client for the model's lifetime,
+    which is never closed, and the async path opens and closes a client per
+    request, since a pooled async client cannot move between event loops.
+
+    Retries stop after `RETRY_ATTEMPTS` attempts, or once an attempt fails 45
+    seconds or more after the first began, stamina's default time budget.
+    HTTP 408 is a client error like any other, and is not retried.
     """
 
     def __init__(

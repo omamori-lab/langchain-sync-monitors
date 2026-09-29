@@ -237,10 +237,17 @@ def read_judge_reply(text: str) -> JudgeReply | None:
 
 
 def parse_score(score_text: str, *, lowest_score: int, highest_score: int) -> int | None:
-    """Read the score as an integer, or return `None` if it is not an integer in range."""
+    """Read the score as an integer, or return `None` if it is not an integer in range.
+
+    Python refuses to convert an integer of more than 4,300 digits, by
+    default; such a score is no integer in range either.
+    """
     if not INTEGER_PATTERN.fullmatch(score_text):
         return None
-    score = int(score_text)
+    try:
+        score = int(score_text)
+    except ValueError:
+        return None
     return score if lowest_score <= score <= highest_score else None
 
 

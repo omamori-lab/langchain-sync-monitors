@@ -7,19 +7,23 @@ and pose as another entry. The built-in tools a model provider runs inside the
 model call are rendered too, with the tool calls and the tool results.
 
 Only a human message without an `lc_source` tag is rendered as the task
-author's words. LangChain and Deep Agents tag the human messages their
+author's words. LangChain and Deep Agents tag some of the human messages their
 middleware writes, such as a summary of earlier messages or a rubric grader's
 revision request [@langchain2026; @deepagents2026], and those are rendered as
-context notes that authorise nothing.
+context notes that authorise nothing. Deep Agents leaves others untagged, such
+as the frames of a video that `read_file` attaches, with the agent's own path
+in their text [@deepagents2026]. So the middleware passes a monitor only the
+human messages that arrived as a run's input untagged; `mark_context_notes`
+tags every other one in the monitor's copy of the history.
 """
 
 from __future__ import annotations
 
 import html
 import json
-from collections.abc import Iterator, Mapping, Sequence
+from collections.abc import Collection, Iterable, Iterator, Mapping, Sequence
 from dataclasses import dataclass
-from typing import NotRequired, TypedDict
+from typing import NotRequired, TypedDict, TypeGuard
 
 from langchain_core.messages import (
     AIMessage,
@@ -40,6 +44,9 @@ MONITOR_FEEDBACK_SOURCE = "monitor"
 """The `lc_source` tag on messages the monitor itself inserts into a conversation."""
 
 TASK_AUTHOR_TAGS = {TaskAuthor.USER: "user", TaskAuthor.PARENT_AGENT: "delegator"}
+
+APPLICATION_SOURCE = "application"
+"""The source of a context note made from a human message that names no source of its own."""
 
 
 class ProviderToolCallDetails(TypedDict):
@@ -298,7 +305,8 @@ def build_human_entry(message: HumanMessage, *, task_author: TaskAuthor) -> Tran
     A human message tagged with any `lc_source` other than the monitor's was
     written by another part of the application, often with the agent's own
     model, so it becomes a `context_note` that names its source and
-    authorises nothing.
+    authorises nothing. Inside an agent, `mark_context_notes` has already
+    tagged every human message that did not arrive as a run's input.
     """
     source = read_message_source(message)
     if source is None:
@@ -312,6 +320,53 @@ def build_human_entry(message: HumanMessage, *, task_author: TaskAuthor) -> Tran
     return TranscriptEntry(
         channel=Channel.USER,
         text=wrap_in_tag(tag="context_note", content=message.text, source=source),
+    )
+
+
+def is_untagged_human_message(message: BaseMessage) -> TypeGuard[HumanMessage]:
+    """Tell whether a message is a human message that no part of the application tagged."""
+    return isinstance(message, HumanMessage) and read_message_source(message) is None
+
+
+def find_untagged_human_message_ids(messages: Iterable[BaseMessage]) -> list[str]:
+    """Return the ids of the untagged human messages, in order, leaving out any without an id."""
+    return [message.id for message in messages if is_untagged_human_message(message) and message.id]
+
+
+def tag_as_context_note(message: HumanMessage, *, source: str) -> HumanMessage:
+    """Return a copy of a human message with an `lc_source` tag, which makes it a context note."""
+    additional_kwargs = {**message.additional_kwargs, "lc_source": source}
+    return message.model_copy(update={"additional_kwargs": additional_kwargs})
+
+
+def mark_context_note(message: HumanMessage) -> HumanMessage:
+    """Return a copy of a human message tagged as a context note.
+
+    The note's source is the message's `name`, as Deep Agents' Nemotron
+    profile names its nudges [@deepagents2026], or else `application`.
+    """
+    return tag_as_context_note(message, source=message.name or APPLICATION_SOURCE)
+
+
+def mark_context_notes(
+    history: Sequence[BaseMessage],
+    *,
+    task_message_ids: Collection[str],
+) -> tuple[BaseMessage, ...]:
+    """Tag every untagged human message the task author did not write as a context note.
+
+    `task_message_ids` holds the ids of the human messages that arrived as a
+    run's input. Any other untagged human message was written during a run,
+    by a tool, a middleware or the application, and a tool can put the
+    agent's own words in it, so it must not speak as the user. The tagged
+    copies exist only in what the monitor reads; the agent's conversation is
+    unchanged. A message without an id is never the task author's.
+    """
+    return tuple(
+        mark_context_note(message)
+        if is_untagged_human_message(message) and message.id not in task_message_ids
+        else message
+        for message in history
     )
 
 

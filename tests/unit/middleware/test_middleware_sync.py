@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import asyncio
+from dataclasses import dataclass, field
 from typing import Any
 
 import pytest
@@ -9,6 +11,13 @@ from langchain.agents import create_agent
 from langchain.agents.middleware.types import ExtendedModelResponse, ModelRequest, ModelResponse
 from langchain_core.messages import AIMessage, HumanMessage
 
+from langchain_sync_monitors.contracts import (
+    ControlProtocol,
+    Outcome,
+    PendingStep,
+    Sample,
+    StepDecision,
+)
 from langchain_sync_monitors.errors import SynchronousRunError
 from langchain_sync_monitors.middleware import MonitorMiddleware
 from tests.support.agents import build_keyword_monitor, build_task_input, read_texts, run_agent
@@ -108,3 +117,39 @@ def test_a_request_outside_a_graph_commits_without_a_stream_writer(
     assert isinstance(result.command.update, dict)
     [record] = result.command.update["monitor_log"]
     assert record["step_number"] == 1
+
+
+@dataclass(kw_only=True)
+class LeavesADrawBehind(ControlProtocol):
+    """Runs its first sample and schedules a second draw it never awaits, as a buggy one might."""
+
+    left_behind: list[asyncio.Future[tuple[Sample, ...]]] = field(default_factory=list)
+
+    async def decide(self, step: PendingStep) -> StepDecision:
+        [sample] = await step.sample(count=1)
+        self.left_behind.append(asyncio.ensure_future(step.sample(count=1)))
+        return StepDecision(
+            outcome=Outcome.ALLOWED,
+            response=sample.response,
+            samples=(sample,),
+            executed_sample=sample,
+            flagged=False,
+        )
+
+
+async def test_a_draw_left_behind_by_invoke_never_reaches_the_model(
+    answering_model: ScriptedChatModel,
+) -> None:
+    # Arrange
+    protocol = LeavesADrawBehind()
+    middleware = MonitorMiddleware(monitor=build_keyword_monitor(), protocol=protocol)
+    agent = create_agent(answering_model, middleware=[middleware])
+
+    # Act: the step is committed, then the loop runs the draw it left behind
+    agent.invoke(build_task_input())
+    await asyncio.sleep(0.05)
+
+    # Assert
+    assert len(answering_model.calls) == 1
+    [left_behind] = protocol.left_behind
+    assert isinstance(left_behind.exception(), SynchronousRunError)

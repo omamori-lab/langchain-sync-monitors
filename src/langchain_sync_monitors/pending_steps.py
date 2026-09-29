@@ -9,6 +9,8 @@ call the synchronous model and monitor without awaiting anything, so
 
 from __future__ import annotations
 
+import asyncio
+import threading
 from collections.abc import Coroutine, Sequence
 from dataclasses import dataclass, field
 from typing import override
@@ -41,7 +43,42 @@ SYNCHRONOUS_RUN_MESSAGE = (
     "Under invoke() a protocol may await only the pending step's own methods; "
     "run the agent with ainvoke() to use anything else."
 )
-NO_RUNNING_LOOP_MESSAGE = "no running event loop"
+MISSING_EVENT_LOOP_MESSAGES = ("no running event loop", "no current event loop")
+"""Parts of asyncio's errors for work started where no event loop can run it."""
+
+CLOSED_STEP_MESSAGE = (
+    "A pending step was used after its synchronous invoke() step was over, from a task a "
+    "control protocol scheduled on an event loop. Run the agent with ainvoke() to use asyncio."
+)
+
+
+def read_running_loop() -> asyncio.AbstractEventLoop | None:
+    """Return the event loop running in this thread, or None when there is none."""
+    try:
+        return asyncio.get_running_loop()
+    except RuntimeError:
+        return None
+
+
+def is_missing_event_loop_error(error: RuntimeError) -> bool:
+    """Tell whether asyncio refused to start work because no event loop could run it."""
+    return any(fragment in str(error) for fragment in MISSING_EVENT_LOOP_MESSAGES)
+
+
+def cancel_tasks_started_since(
+    loop: asyncio.AbstractEventLoop | None,
+    *,
+    earlier_tasks: set[asyncio.Task[object]],
+) -> None:
+    """Cancel every task scheduled on `loop` since `earlier_tasks` were read.
+
+    The loop is blocked while a synchronous step runs, so those tasks have not
+    started yet, and cancelling them now keeps them from ever calling a model.
+    """
+    if loop is None:
+        return
+    for task in asyncio.all_tasks(loop) - earlier_tasks:
+        task.cancel()
 
 
 def run_synchronously[ResultT](coroutine: Coroutine[object, object, ResultT]) -> ResultT:
@@ -50,19 +87,25 @@ def run_synchronously[ResultT](coroutine: Coroutine[object, object, ResultT]) ->
     A protocol driven by a `SyncPendingStep` completes on its first `send`. If
     it suspends instead, it awaited something only an event loop can finish,
     so it is closed and `SynchronousRunError` is raised rather than hanging.
-    asyncio's own "no running event loop" error, raised when such work starts
-    outside a loop, becomes the same error.
+    asyncio's own errors for work started where no loop can run it, such as
+    `gather` or `ensure_future` outside a running loop, become the same error.
+    Inside a running loop, as in a notebook, any task the protocol scheduled
+    is cancelled before it starts.
     """
+    loop = read_running_loop()
+    earlier_tasks = asyncio.all_tasks(loop) if loop is not None else set()
     try:
         coroutine.send(None)
     except StopIteration as finished:
         result: ResultT = finished.value
         return result
     except RuntimeError as error:
-        if NO_RUNNING_LOOP_MESSAGE in str(error):
-            raise SynchronousRunError(SYNCHRONOUS_RUN_MESSAGE) from error
-        raise
+        if not is_missing_event_loop_error(error):
+            raise
+        cancel_tasks_started_since(loop, earlier_tasks=earlier_tasks)
+        raise SynchronousRunError(SYNCHRONOUS_RUN_MESSAGE) from error
     coroutine.close()
+    cancel_tasks_started_since(loop, earlier_tasks=earlier_tasks)
     raise SynchronousRunError(SYNCHRONOUS_RUN_MESSAGE)
 
 
@@ -192,10 +235,23 @@ class SyncPendingStep(MonitoredStep):
 
     Its methods call the synchronous `handler` and `Monitor.evaluate_sync`
     directly, so `run_synchronously` can drive any protocol written against
-    `PendingStep`.
+    `PendingStep`. Once the middleware has finished the step it calls
+    `close`, and from then on the step refuses to call a model: a task that a
+    protocol scheduled on an event loop, and that runs after the step, cannot
+    reach the model.
     """
 
     handler: ModelCallHandler
+    closed: threading.Event = field(default_factory=threading.Event)
+
+    def close(self) -> None:
+        """Refuse every later call to the model through this step."""
+        self.closed.set()
+
+    def check_open(self) -> None:
+        """Raise `SynchronousRunError` when the step is already over."""
+        if self.closed.is_set():
+            raise SynchronousRunError(CLOSED_STEP_MESSAGE)
 
     @override
     async def sample(
@@ -210,6 +266,7 @@ class SyncPendingStep(MonitoredStep):
         Without an event loop nothing can run at once, so `concurrently` draws
         the same samples in sequence.
         """
+        self.check_open()
         conversation = self.build_conversation(blocked_attempts)
         return tuple(self.draw_sample(conversation) for _ in range(count))
 
@@ -226,4 +283,5 @@ class SyncPendingStep(MonitoredStep):
     @override
     async def request_trusted_step(self, *, trusted_model: BaseChatModel) -> AgentModelResponse:
         """Have the trusted model write the step through the rest of the stack."""
+        self.check_open()
         return self.handler(self.build_trusted_request(trusted_model))

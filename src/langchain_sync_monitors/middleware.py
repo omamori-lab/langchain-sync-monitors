@@ -279,6 +279,8 @@ class MonitorMiddleware(AgentMiddleware[MonitorState, AgentContext, StructuredOu
             except BaseException as error:
                 self.report_failed_step(request, step=step, error=error)
                 raise
+            finally:
+                step.close()
         return self.commit(request, decision=decision, previous_records=previous_records)
 
     @override

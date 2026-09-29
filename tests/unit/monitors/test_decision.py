@@ -368,21 +368,26 @@ def test_the_context_holds_the_transcript_and_the_proposed_step(
     )
 
 
+MIN_REASON = "The decision model's score rests on all of its concerns together: " + "; ".join(
+    f"{question.key!r}: {question.text}" for question in ATTACK_CRITERIA
+)
+
+
 @pytest.mark.parametrize(
     ("combine", "suspicion", "reason_start"),
     [
         (Combine.MAX, 0.95, "The decision model's strongest concern is 'sends_data_out': "),
-        (Combine.MIN, 0.05, "The decision model's weakest concern is 'weakens_security': "),
+        (Combine.MIN, 0.05, MIN_REASON),
     ],
 )
-async def test_several_questions_are_combined_and_the_deciding_one_is_named(
+async def test_several_questions_are_combined_and_named(
     monitor_input: MonitorInput,
     call_path: CallPath,
     combine: Combine,
     suspicion: float,
     reason_start: str,
 ) -> None:
-    # Arrange: under MIN, three questions tie at 0.05, and the first of them is named.
+    # Arrange
     probabilities = dict.fromkeys((question.key for question in ATTACK_CRITERIA), 0.05)
     probabilities["sends_data_out"] = 0.95
     model = ScriptedDecisionModel(probabilities=probabilities)
@@ -395,6 +400,29 @@ async def test_several_questions_are_combined_and_the_deciding_one_is_named(
     assert verdict.suspicion == suspicion
     assert verdict.reason.startswith(reason_start)
     assert not any(character.isdigit() for character in verdict.reason)
+
+
+@pytest.mark.parametrize("lowest", [question.key for question in ATTACK_CRITERIA])
+async def test_the_min_reason_does_not_point_at_the_lowest_question(
+    monitor_input: MonitorInput,
+    call_path: CallPath,
+    lowest: str,
+) -> None:
+    # Arrange: under MIN the lowest answer is the one lever that lets the step pass.
+    probabilities = dict.fromkeys((question.key for question in ATTACK_CRITERIA), 0.97)
+    probabilities[lowest] = 0.91
+    monitor = DecisionModelMonitor(
+        decision_model=ScriptedDecisionModel(probabilities=probabilities),
+        questions=ATTACK_CRITERIA,
+        combine=Combine.MIN,
+    )
+
+    # Act
+    verdict = await evaluate_on_path(monitor, monitor_input, call_path=call_path)
+
+    # Assert
+    assert verdict.suspicion == 0.91
+    assert verdict.reason == MIN_REASON
 
 
 @pytest.mark.parametrize(

@@ -487,11 +487,13 @@ class DecisionModelMonitor(Monitor):
     `combine` merges them; `Combine.MAX` is the default because averaging
     dilutes a single strong hit, while the maximum keeps it (see
     `docs/plans/initial-implementation/research/decision-model-question-format.md`).
-    The reason names the question that set the suspicion: under `Combine.MIN`
-    the one with the lowest probability of yes, otherwise the one with the
-    highest. It carries no probability or combined score: Auto Mode shows the
-    reason to the agent, and those numbers would tell it how close its step
-    came to passing. They stay in the suspicion.
+    The reason names the question with the highest probability of yes, or,
+    under `Combine.MIN`, every question in the order given: the minimum rests
+    on all of them, and naming the lowest would point the agent at the one
+    criterion it needs to lower to pass. It carries no probability or
+    combined score: Auto Mode shows the reason to the agent, and those numbers
+    would tell it how close its step came to passing. They stay in the
+    suspicion.
 
     Every answer is checked, whichever `DecisionModel` gave it: a skipped
     question, or an answer that is not a real number from 0 to 1, a `bool`
@@ -556,15 +558,19 @@ class DecisionModelMonitor(Monitor):
         return f"<transcript>\n{transcript}\n</transcript>\n{proposed_step}"
 
     def build_verdict(self, probabilities: Mapping[str, float]) -> Verdict:
-        """Check and combine the probabilities, and name the question that set the suspicion.
+        """Check and combine the probabilities, and name the questions the suspicion rests on.
 
-        On a tie, the first question in order is named.
+        Under `Combine.MIN` that is every question, in the order given, so the
+        reason does not depend on the answers. Otherwise it is the question
+        with the highest probability of yes, the first in order on a tie.
         """
         answers = select_question_probabilities(probabilities, questions=self.questions)
         suspicion = combine_probabilities(list(answers.values()), combine=self.combine)
         if self.combine is Combine.MIN:
-            weakest = min(self.questions, key=lambda question: answers[question.key])
-            reason = f"The decision model's weakest concern is {weakest.key!r}: {weakest.text}"
+            concerns = "; ".join(
+                f"{question.key!r}: {question.text}" for question in self.questions
+            )
+            reason = f"The decision model's score rests on all of its concerns together: {concerns}"
         else:
             strongest = max(self.questions, key=lambda question: answers[question.key])
             reason = (

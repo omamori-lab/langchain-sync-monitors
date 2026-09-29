@@ -5,6 +5,7 @@ from __future__ import annotations
 import math
 import re
 import time
+import warnings
 
 import pytest
 from langchain_core.messages import AIMessage
@@ -733,6 +734,43 @@ def test_unusable_labels_are_rejected(
             suspicious_labels=suspicious_labels,
             safe_labels=safe_labels,
         )
+
+
+@pytest.mark.filterwarnings("ignore::langchain_sync_monitors.monitors.guard.HardLabelWarning")
+@pytest.mark.parametrize("scoring", list(GuardScoring))
+def test_every_scoring_member_is_accepted(scoring: GuardScoring) -> None:
+    # Act
+    guard, _ = build_guard("violation", scoring=scoring)
+
+    # Assert
+    assert guard.scoring is scoring
+
+
+@pytest.mark.parametrize("scoring", [member.value for member in GuardScoring])
+def test_a_plain_string_scoring_is_refused_without_a_warning(scoring: str) -> None:
+    # Arrange: a string read from YAML or JSON matches no member by identity.
+    model = ScriptedChatModel(replies=["violation"])
+
+    accepted = (
+        "GuardScoring.AUTO, GuardScoring.LOG_PROBABILITIES, "
+        "GuardScoring.SAMPLE_FRACTION, GuardScoring.HARD_LABEL"
+    )
+    expected = f"scoring must be one of {accepted}, got '{scoring}'"
+
+    # Act
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        with pytest.raises(ConfigurationError, match=re.escape(expected)):
+            GuardModelMonitor(
+                model=model,
+                policy_prompt=POLICY_PROMPT,
+                suspicious_labels={"violation"},
+                safe_labels={"no_violation"},
+                scoring=scoring,  # ty: ignore[invalid-argument-type]
+            )
+
+    # Assert
+    assert not [warning for warning in caught if warning.category is HardLabelWarning]
 
 
 def test_fewer_than_one_sample_is_rejected() -> None:

@@ -37,6 +37,7 @@ from langchain_sync_monitors.monitors.chat import (
     VerdictPlan,
     is_reply_cut_off,
 )
+from langchain_sync_monitors.options import check_enum_option
 
 logger = logging.getLogger(__name__)
 
@@ -355,6 +356,7 @@ class GuardModelMonitor(ChatModelMonitor):
         view: MonitorView = DEFAULT_MONITOR_VIEW,
     ) -> None:
         """Build a guard monitor; `samples` applies to sampling, including `AUTO`'s fallback."""
+        check_enum_option(scoring, option_type=GuardScoring, parameter_name="scoring")
         validate_labels(suspicious_labels=suspicious_labels, safe_labels=safe_labels)
         if samples < 1:
             message = f"samples must be at least 1, got {samples}"

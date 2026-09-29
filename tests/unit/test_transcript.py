@@ -3,9 +3,16 @@
 from __future__ import annotations
 
 import pytest
-from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, ToolCall, ToolMessage
+from langchain_core.messages import (
+    AIMessage,
+    BaseMessage,
+    HumanMessage,
+    ToolCall,
+    ToolMessage,
+)
 
 from langchain_sync_monitors.contracts import Channel, MonitorView, TaskAuthor
+from langchain_sync_monitors.errors import ConfigurationError
 from langchain_sync_monitors.feedback import build_tool_call_rejection
 from langchain_sync_monitors.transcript import (
     MONITOR_FEEDBACK_SOURCE,
@@ -233,3 +240,18 @@ def test_message_without_reasoning_has_empty_reasoning_text() -> None:
 
     # Assert
     assert reasoning == ""
+
+
+@pytest.mark.parametrize("limit", [0, -5])
+def test_an_entry_limit_below_one_is_rejected(limit: int) -> None:
+    # Act / Assert
+    with pytest.raises(ConfigurationError, match="most_recent_entries must be at least 1"):
+        MonitorView(most_recent_entries=limit)
+
+
+def test_an_entry_limit_of_one_is_accepted() -> None:
+    # Act
+    view = MonitorView(most_recent_entries=1)
+
+    # Assert
+    assert view.most_recent_entries == 1

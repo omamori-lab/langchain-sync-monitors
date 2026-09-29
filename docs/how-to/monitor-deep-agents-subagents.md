@@ -129,6 +129,7 @@ A subagent without a `model` of its own uses the main agent's.
 | `middleware` | Required | The monitor every subagent gets a copy of, usually the main agent's. |
 | `subagents` | No specs | Your subagent specs. The general-purpose subagent is added when it is missing. |
 | `overrides` | `None` | A monitor for named subagents, in place of the copy of `middleware`. |
+| `skills` | `None` | The main agent's skills, the list you give `create_deep_agent(skills=...)`. The general-purpose subagent gets them. |
 
 `monitor_subagents` returns new specs and leaves yours unchanged; pass the
 result to `create_deep_agent(subagents=...)`. For each subagent it copies the
@@ -142,9 +143,53 @@ monitor, or its entry in `overrides`, and changes two things on the copy:
   as the user's authorisation.
 
 The monitor goes after any middleware the spec already has, so it sits last
-in the subagent's list. If you pass your own spec named `general-purpose`, it
-is kept and monitored instead of the built-in one. An override for a name
-that matches no subagent raises `ConfigurationError`.
+in the subagent's list. An override for a name that matches no subagent
+raises `ConfigurationError`.
+
+### The general-purpose subagent
+
+Deep Agents offers no way to add middleware to the general-purpose subagent
+it builds itself and to no other agent, so `monitor_subagents` adds a
+general-purpose subagent of its own, from Deep Agents' default spec. Deep
+Agents treats that spec like any subagent you declare, so it differs from
+Deep Agents' own general-purpose subagent in three ways:
+
+- it gets the main agent's skills only through `skills`, so pass the same
+  list you give `create_deep_agent`;
+- a harness profile's `general_purpose_subagent` settings do not reach it:
+  its description and prompt ignore them, though the profile's
+  `base_system_prompt` and `system_prompt_suffix` still apply, and a profile
+  that disables the general-purpose subagent does not remove it;
+- middleware you give the main agent to replace one of Deep Agents' own, such
+  as its summarisation, does not replace it in this subagent.
+
+```python
+agent = create_deep_agent(
+    model="openrouter:deepseek/deepseek-v4.1-flash",
+    middleware=[main_monitor],
+    subagents=monitor_subagents(middleware=main_monitor, skills=["/skills/"]),
+    skills=["/skills/"],
+)
+```
+
+`skills` takes a list; a plain string raises `ConfigurationError`.
+
+To change the subagent's description, prompt, skills or middleware, pass your
+own spec named `general-purpose`. It is kept and monitored instead of the
+built-in one, and it gets only the skills it names, so passing `skills` as
+well raises `ConfigurationError`, even an empty list.
+
+If your harness profile disables the general-purpose subagent, remove the
+spec named `general-purpose` from the list `monitor_subagents` returns:
+
+```python
+subagents = [
+    spec for spec in monitor_subagents(middleware=main_monitor) if spec["name"] != "general-purpose"
+]
+```
+
+Do this only when the active profile disables it. Otherwise Deep Agents adds
+its own general-purpose subagent, and that one has no monitor.
 
 ### `when_subagent_halts`
 

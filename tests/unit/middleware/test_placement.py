@@ -21,11 +21,8 @@ from langchain.agents.middleware.types import (
     ToolCallRequest,
 )
 
-from langchain_sync_monitors.middleware import (
-    MonitorMiddleware,
-    MonitorPlacementWarning,
-    check_monitor_placement,
-)
+from langchain_sync_monitors.middleware import MonitorMiddleware
+from langchain_sync_monitors.placement import MonitorPlacementWarning, check_monitor_placement
 from tests.support.chat_models import ScriptedChatModel
 from tests.support.monitors import KeywordMonitor
 from tests.support.protocols import AcceptFirst

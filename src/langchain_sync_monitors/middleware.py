@@ -17,7 +17,6 @@ that runs failed tool calls again or answers them with an error message.
 
 import logging
 import operator
-import warnings
 from collections.abc import Sequence
 from dataclasses import dataclass, replace
 from typing import Annotated, NotRequired, Self, override
@@ -42,7 +41,6 @@ from langchain_sync_monitors._langchain import (
     AgentModelRequest,
     AgentRuntime,
     AgentStateUpdate,
-    AnyAgentMiddleware,
     AsyncModelCallHandler,
     AsyncToolCallHandler,
     ModelCallHandler,
@@ -90,47 +88,6 @@ from langchain_sync_monitors.records import (
 
 logger = logging.getLogger(__name__)
 
-REQUEST_ONLY_MIDDLEWARE = frozenset(
-    {
-        "AnthropicPromptCachingMiddleware",
-        "BedrockPromptCachingMiddleware",
-        "FireworksPromptCachingMiddleware",
-        "MemoryMiddleware",
-        "UnsupportedContentMiddleware",
-        "_ToolExclusionMiddleware",
-    },
-)
-"""Classes that only rewrite the request, so they are safe inside a monitor.
-
-Deep Agents places these after user middleware [@deepagents2026].
-"""
-
-RETRYING_MIDDLEWARE = frozenset(
-    {
-        "ModelFallbackMiddleware",
-        "ModelRetryMiddleware",
-        "_DeepAgentsSummarizationMiddleware",
-    },
-)
-"""Classes that call the rest of the stack again when a model call raises.
-
-LangChain's retry and fallback middleware retry on an exception, and Deep
-Agents' summarisation retries after a context overflow
-[@langchain2026; @deepagents2026]. Outside a monitor, each retry runs the
-whole monitored step again.
-"""
-
-TOOL_FAILURE_HANDLING_MIDDLEWARE = frozenset({"ToolErrorMiddleware", "ToolRetryMiddleware"})
-"""Classes that run a failed tool call again or answer it with an error message.
-
-LangChain's tool retry middleware calls a tool again when it raises and, by
-default, answers the call with an error message once the retries run out; its
-tool error middleware answers the failures its handler chooses to
-[@langchain2026]. Wherever they sit in the list, they wrap every tool call,
-Deep Agents' `task` tool included, and a subagent whose run raises returns no
-records to its parent.
-"""
-
 
 class MonitorState(AgentState):
     """The agent state with the log of every monitored step.
@@ -150,18 +107,6 @@ class MonitorState(AgentState):
 
     monitor_log: NotRequired[Annotated[list[StepRecord], OmitFromInput, operator.add]]
     monitor_delegation: NotRequired[Annotated[Delegation, OmitFromOutput]]
-
-
-class MonitorPlacementWarning(UserWarning):
-    """A middleware placed around or inside a monitor undermines what the monitor records.
-
-    Inside a monitor, a middleware can return state updates for samples the
-    monitor rejects. Outside it, a middleware that retries failed model calls
-    runs the whole step again, and the samples judged before the failure never
-    reach `monitor_log`. Anywhere in the list, a middleware that runs failed
-    tool calls again or answers them lets a subagent's run fail without its
-    blocks reaching Auto Mode's thread total.
-    """
 
 
 def build_end_run_update() -> AgentStateUpdate:
@@ -457,130 +402,3 @@ class MonitorMiddleware(AgentMiddleware[MonitorState, AgentContext, StructuredOu
         )
         update = {MONITOR_LOG_KEY: [record]}
         return ExtendedModelResponse(model_response=response, command=Command(update=update))
-
-
-def is_model_call_wrapper(middleware: AnyAgentMiddleware) -> bool:
-    """Tell whether a middleware wraps model calls, as `create_agent` decides it."""
-    middleware_class = type(middleware)
-    return (
-        middleware_class.wrap_model_call is not AgentMiddleware.wrap_model_call
-        or middleware_class.awrap_model_call is not AgentMiddleware.awrap_model_call
-    )
-
-
-def is_unsafe_inside_monitor(middleware: AnyAgentMiddleware) -> bool:
-    """Tell whether a middleware wraps model calls and is not known to only rewrite the request."""
-    is_request_only = type(middleware).__name__ in REQUEST_ONLY_MIDDLEWARE
-    return is_model_call_wrapper(middleware) and not is_request_only
-
-
-def is_retrying_middleware(middleware: AnyAgentMiddleware) -> bool:
-    """Tell whether a middleware wraps model calls and is known to retry them when they raise."""
-    is_retrying = type(middleware).__name__ in RETRYING_MIDDLEWARE
-    return is_retrying and is_model_call_wrapper(middleware)
-
-
-def is_tool_call_wrapper(middleware: AnyAgentMiddleware) -> bool:
-    """Tell whether a middleware wraps tool calls, as `create_agent` decides it."""
-    middleware_class = type(middleware)
-    return (
-        middleware_class.wrap_tool_call is not AgentMiddleware.wrap_tool_call
-        or middleware_class.awrap_tool_call is not AgentMiddleware.awrap_tool_call
-    )
-
-
-def is_tool_failure_handling_middleware(middleware: AnyAgentMiddleware) -> bool:
-    """Tell whether a middleware wraps tool calls and is known to retry or answer failed ones."""
-    is_handling = type(middleware).__name__ in TOOL_FAILURE_HANDLING_MIDDLEWARE
-    return is_handling and is_tool_call_wrapper(middleware)
-
-
-def find_last_monitor_position(middleware: Sequence[AnyAgentMiddleware]) -> int | None:
-    """Return the position of the last monitor in the list, or None when there is none."""
-    monitor_positions = [
-        index for index, item in enumerate(middleware) if isinstance(item, MonitorMiddleware)
-    ]
-    return monitor_positions[-1] if monitor_positions else None
-
-
-def find_middleware_inside_monitor(
-    middleware: Sequence[AnyAgentMiddleware],
-) -> Sequence[AnyAgentMiddleware]:
-    """Return the middleware after the last monitor, which LangChain nests inside it."""
-    position = find_last_monitor_position(middleware)
-    return () if position is None else middleware[position + 1 :]
-
-
-def find_middleware_outside_monitor(
-    middleware: Sequence[AnyAgentMiddleware],
-) -> Sequence[AnyAgentMiddleware]:
-    """Return the middleware before the last monitor, which LangChain wraps around it."""
-    position = find_last_monitor_position(middleware)
-    return () if position is None else middleware[:position]
-
-
-def check_monitor_placement(*, middleware: Sequence[AnyAgentMiddleware]) -> list[str]:
-    """Warn about each middleware placed where it undermines the last monitor.
-
-    Pass the list given to `create_agent`. Three placements are warned about:
-
-    - inside the monitor, a middleware that wraps model calls and is not known
-      to only rewrite the request. It can return commands, which LangChain
-      collects per call of the monitor's handler, so they would pile up from
-      every sample the protocol draws [@langchain2026];
-    - outside the monitor, a middleware known to retry failed model calls,
-      such as `ModelRetryMiddleware`. A retry runs the whole step again with
-      fresh samples, and the samples judged before the failure reach only a
-      warning log line and a `MonitorStepFailedEvent`, never `monitor_log`;
-    - anywhere in a list with a monitor, a middleware known to run failed tool
-      calls again or answer them with an error message, such as
-      `ToolRetryMiddleware`. A subagent's records reach its parent only in the
-      result of the call that started it, so when the subagent's run raises,
-      its blocks never reach Auto Mode's thread total, the run goes on, and a
-      retry starts the subagent again from the same count. The check cannot
-      tell whether the agent starts subagents, so it warns either way.
-
-    Returns the names of the middleware it warned about.
-    """
-    misplaced_inside = [
-        item.name
-        for item in find_middleware_inside_monitor(middleware)
-        if is_unsafe_inside_monitor(item)
-    ]
-    retrying_outside = [
-        item.name
-        for item in find_middleware_outside_monitor(middleware)
-        if is_retrying_middleware(item)
-    ]
-    has_monitor = find_last_monitor_position(middleware) is not None
-    handling_tool_failures = [
-        item.name
-        for item in middleware
-        if has_monitor and is_tool_failure_handling_middleware(item)
-    ]
-    for name in misplaced_inside:
-        warnings.warn(
-            f"{name} wraps model calls inside a monitor, so a state update it returns "
-            "may come from a sample the protocol does not commit. Put the monitor last.",
-            MonitorPlacementWarning,
-            stacklevel=2,
-        )
-    for name in retrying_outside:
-        warnings.warn(
-            f"{name} retries failed model calls from outside a monitor, so a step that fails "
-            "runs again from the start with fresh samples. The samples the monitor judged "
-            "before the failure never reach monitor_log; only a warning log line and a "
-            "monitor_step_failed event on stream_mode='custom' keep them.",
-            MonitorPlacementWarning,
-            stacklevel=2,
-        )
-    for name in handling_tool_failures:
-        warnings.warn(
-            f"{name} runs failed tool calls again or answers them with an error message. "
-            "If this agent starts monitored subagents, a subagent whose run raises returns "
-            "no records, so the blocks it recorded never count towards Auto Mode's total, "
-            "and a retry starts it again from the same count.",
-            MonitorPlacementWarning,
-            stacklevel=2,
-        )
-    return misplaced_inside + retrying_outside + handling_tool_failures

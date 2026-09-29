@@ -36,12 +36,7 @@ from langchain_sync_monitors.errors import (
     MonitorError,
     SynchronousRunError,
 )
-from langchain_sync_monitors.middleware import (
-    MonitorMiddleware,
-    MonitorPlacementWarning,
-    MonitorState,
-    check_monitor_placement,
-)
+from langchain_sync_monitors.middleware import MonitorMiddleware, MonitorState
 from langchain_sync_monitors.monitors import (
     ATTACK_CRITERIA,
     IS_THE_STEP_SUSPICIOUS,
@@ -61,6 +56,7 @@ from langchain_sync_monitors.monitors import (
     YesNoQuestion,
 )
 from langchain_sync_monitors.pending_steps import CachedResampleWarning
+from langchain_sync_monitors.placement import MonitorPlacementWarning, check_monitor_placement
 from langchain_sync_monitors.prompts import DEFAULT_MONITOR_PROMPT
 from langchain_sync_monitors.protocols import (
     DEFAULT_FEEDBACK_TEMPLATE,

@@ -430,18 +430,33 @@ async def test_the_reason_names_the_concern_without_numbers(
         {"leaks": 0.2, "suspicious_step": 1.5},
         {"leaks": 0.2, "suspicious_step": -0.1},
         {"leaks": 0.2},
+        {"leaks": 0.2, "suspicious_step": None},
+        {"leaks": 0.2, "suspicious_step": "0.9"},
+        {"leaks": 0.2, "suspicious_step": True},
+        {"leaks": 0.2, "suspicious_step": False},
     ],
-    ids=["not a number", "above one", "below zero", "skipped"],
+    ids=[
+        "not a number",
+        "above one",
+        "below zero",
+        "skipped",
+        "None",
+        "a string",
+        "True",
+        "False",
+    ],
 )
 async def test_an_answer_that_is_no_probability_is_a_monitor_error(
     monitor_input: MonitorInput,
     call_path: CallPath,
-    answers: dict[str, float],
+    answers: dict[str, object],
     combine: Combine,
 ) -> None:
     # Arrange: a custom decision model's answers reach the monitor unvalidated.
     monitor = DecisionModelMonitor(
-        decision_model=ScriptedDecisionModel(probabilities=answers),
+        decision_model=ScriptedDecisionModel(
+            probabilities=answers,  # ty: ignore[invalid-argument-type]
+        ),
         questions=[LEAK_QUESTION, IS_THE_STEP_SUSPICIOUS],
         combine=combine,
     )
@@ -452,15 +467,21 @@ async def test_an_answer_that_is_no_probability_is_a_monitor_error(
 
 
 @pytest.mark.parametrize(("combine", "suspicion"), [(Combine.MAX, 1.0), (Combine.MIN, 0.0)])
-async def test_answers_at_zero_and_one_are_read(
+@pytest.mark.parametrize(
+    "answers",
+    [{"leaks": 0.0, "suspicious_step": 1.0}, {"leaks": 0, "suspicious_step": 1}],
+    ids=["floats", "integers"],
+)
+async def test_answers_at_zero_and_one_are_read_as_floats(
     monitor_input: MonitorInput,
     call_path: CallPath,
+    answers: dict[str, float],
     combine: Combine,
     suspicion: float,
 ) -> None:
     # Arrange
     monitor = DecisionModelMonitor(
-        decision_model=ScriptedDecisionModel(probabilities={"leaks": 0.0, "suspicious_step": 1.0}),
+        decision_model=ScriptedDecisionModel(probabilities=answers),
         questions=[LEAK_QUESTION, IS_THE_STEP_SUSPICIOUS],
         combine=combine,
     )
@@ -470,6 +491,7 @@ async def test_answers_at_zero_and_one_are_read(
 
     # Assert
     assert verdict.suspicion == suspicion
+    assert type(verdict.suspicion) is float
 
 
 def test_the_mean_warns_that_it_dilutes_a_single_hit(monitor_input: MonitorInput) -> None:

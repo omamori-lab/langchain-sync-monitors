@@ -12,7 +12,7 @@ client. The evidence behind the question format is in
 from __future__ import annotations
 
 import importlib
-import math
+import numbers
 import os
 import statistics
 import warnings
@@ -149,23 +149,30 @@ def select_question_probabilities(
 ) -> dict[str, float]:
     """Keep one probability per question; fail if the model skipped one or gave no probability.
 
-    An answer that is not a number from 0 to 1, NaN included, raises
-    `MonitorError`, as a skipped question does: the decision model gave no
-    readable answer. Read as a number, a NaN would be dropped or kept by
-    `max` and `min` depending on its position, and the step could score low.
+    An answer that is not a real number from 0 to 1 raises `MonitorError`,
+    as a skipped question does: the decision model gave no readable answer.
+    That covers NaN, which `max` and `min` would drop or keep depending on
+    its position, so that the step could score low; `None` and strings,
+    which cannot be compared; and `True` and `False`, which Python counts as
+    numbers but which are no probability. Answers come back as floats.
     """
     missing = [question.key for question in questions if question.key not in probabilities]
     if missing:
         message = f"the decision model returned no answer for {missing}"
         raise MonitorError(message)
     selected = {question.key: probabilities[question.key] for question in questions}
-    unreadable = sorted(
-        key for key, value in selected.items() if math.isnan(value) or not 0.0 <= value <= 1.0
-    )
+    unreadable = sorted(key for key, value in selected.items() if not is_probability(value))
     if unreadable:
         message = f"the decision model returned no probability from 0 to 1 for {unreadable}"
         raise MonitorError(message)
-    return selected
+    return {key: float(value) for key, value in selected.items()}
+
+
+def is_probability(value: object) -> bool:
+    """Tell whether a value is a real number from 0 to 1; a bool is not, and neither is NaN."""
+    if isinstance(value, bool) or not isinstance(value, numbers.Real):
+        return False
+    return 0.0 <= float(value) <= 1.0
 
 
 class NoulCriteriaBody(TypedDict):
@@ -487,8 +494,9 @@ class DecisionModelMonitor(Monitor):
     came to passing. They stay in the suspicion.
 
     Every answer is checked, whichever `DecisionModel` gave it: a skipped
-    question, or an answer that is not a number from 0 to 1, raises
-    `MonitorError`, so the step fails and nothing it proposed runs.
+    question, or an answer that is not a real number from 0 to 1, a `bool`
+    included, raises `MonitorError`, so the step fails and nothing it
+    proposed runs.
     """
 
     def __init__(

@@ -295,3 +295,8 @@ The default follows Claude Code's auto mode, which judges actions against the
 user's words and leaves the agent's own text out [@hughes2026automode].
 Reasoning is one flag away when you want it: `Channel.ACTIONS |
 Channel.REASONING`.
+
+## Related guides
+
+- [Use a chat judge](use-a-chat-judge.md) for a monitor that takes a view.
+- [Monitor Deep Agents subagents](monitor-deep-agents-subagents.md) for what a subagent's monitor reads.

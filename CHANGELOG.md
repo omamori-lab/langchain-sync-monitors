@@ -91,5 +91,11 @@ The first release. Everything below is new.
   Python 3.12, 3.13 and 3.14. The gate script, CI (including the lowest
   allowed dependency versions and an install without extras), pre-commit
   hooks, the documentation and the bibliography with its citation test.
-- An explanation page on how the library is built, with diagrams of a
-  monitored step, the protocols, auto mode and subagents.
+- Documentation: a visual README; a tutorial that monitors a first agent, with
+  or without an API key; how-to guides for choosing and using each protocol,
+  each monitor family, wrapping and calibrating monitors, choosing what the
+  monitor reads, reading the monitor log and monitoring Deep Agents
+  subagents; and explanation pages on how the library is built and where
+  its ideas come from.
+- A complete bibliography: every paper, post and code base the library draws
+  on, cited where it is used, with a test that keeps the two in step.

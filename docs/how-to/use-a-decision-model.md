@@ -191,3 +191,8 @@ resolution of 0.01. Combining several questions, or averaging calls with
 `RepeatedMonitor`, restores some resolution. A decision model also makes a
 good fast first stage in front of a chat judge; [Combine and calibrate
 monitors](combine-and-calibrate-monitors.md) shows `CascadeMonitor`.
+
+## Related guides
+
+- [Choose a protocol](choose-a-protocol.md) to decide what happens with the decision model's verdict.
+- [Use Auto Mode](use-auto-mode.md) where the decision model's reason becomes the agent's feedback.

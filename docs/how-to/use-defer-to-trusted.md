@@ -131,3 +131,8 @@ for record in result["monitor_log"]:
   trusted model raises, nothing is committed and the error propagates, after
   the judged sample is logged as a warning and written to
   `stream_mode="custom"` as a `monitor_step_failed` event.
+
+## Related guides
+
+- [Combine and calibrate monitors](combine-and-calibrate-monitors.md) to set the defer threshold from honest runs.
+- [Read the monitor log](read-the-monitor-log.md) to see which steps went to the trusted model.

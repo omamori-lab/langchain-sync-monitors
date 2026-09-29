@@ -139,10 +139,12 @@ otherwise the constructor raises `ConfigurationError`.
 
 The monitor reads the label only where a guard's format puts it:
 
-- on the last non-empty line, alone or after a colon, as gpt-oss-safeguard
-  writes it after its reasoning;
+- on the last non-empty line, alone or after a colon, where a policy like the
+  one above asks gpt-oss-safeguard to put it, after its reasoning
+  [@openai2025gptosssafeguardguide];
 - on the first line, when it is a suspicious label and only category codes
-  such as `S1` or `S1,S10` follow, as Llama Guard writes it.
+  such as `S1` or `S1,S10` follow, as Llama Guard writes it
+  [@meta2024llamaguard3format; @meta2025llamaguard4].
 
 A reply with no label in either place, a reply with two different labels on
 lines of their own, and a reply the provider reports as cut off at a length
@@ -176,7 +178,8 @@ therefore always samples, and every judged step costs `samples` calls.
 | `meta-llama/llama-guard-4-12b` | Its own hazard categories, which cover harmful content rather than an agent going beyond its task | Its label format is read, checked against its model card, not in a live run. |
 | `nvidia/nemotron-3.5-content-safety` | Content safety | Not checked: whether its replies put a label where the monitor reads it is unknown. |
 
-`gpt-oss-safeguard` is the one to start with: it follows a policy you write,
+`gpt-oss-safeguard` is the one to start with: it follows a policy you write
+[@openai2025gptosssafeguard],
 so the policy can describe an agent that oversteps its task. To score from
 log-probabilities, serve a guard model through a provider that returns them,
 for example one you host yourself.
@@ -198,3 +201,8 @@ Verdict(suspicion=0.4, reason="The guard model labelled the step 'violation', fi
 A suspicious label comes first in the reason, then an unreadable reply, which
 gives "The guard model gave no readable label, so the step is treated as
 suspicious.", then the safe label.
+
+## Related guides
+
+- [Choose a protocol](choose-a-protocol.md) to decide what happens with the guard's verdict.
+- [Use Auto Mode](use-auto-mode.md) where the guard's reason becomes the agent's feedback.

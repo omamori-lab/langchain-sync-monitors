@@ -342,3 +342,8 @@ fast stage keeps has a suspicion below `escalate_at`; if a threshold lay
 below `escalate_at`, such a step could cross it and trigger the protocol
 without the careful stage ever reading it. `escalate_at` must lie between 0
 and 1, or the constructor raises `ConfigurationError`.
+
+## Related guides
+
+- [Choose a protocol](choose-a-protocol.md) for the thresholds each protocol takes.
+- [Use Defer to Resample](use-defer-to-resample.md) for the protocol whose audit budget calibration serves best.

@@ -150,3 +150,8 @@ for record in result["monitor_log"]:
   than token by token. The monitor's own calls never stream.
 - **The graph takes one more step per model call.** The middleware's
   `after_model` hook counts towards an explicit `recursion_limit`.
+
+## Related guides
+
+- [Combine and calibrate monitors](combine-and-calibrate-monitors.md) to set the flag threshold from honest runs.
+- [Read the monitor log](read-the-monitor-log.md) to find and audit flagged steps.

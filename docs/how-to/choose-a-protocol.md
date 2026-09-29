@@ -80,3 +80,9 @@ Each protocol has its own guide, with a complete example and every option:
 Whichever you choose, every threshold defaults to a placeholder and warns with
 an `UncalibratedThresholdWarning` until you pass your own value. The protocol
 guides say how to choose one.
+
+## Related guides
+
+- [Use a chat judge](use-a-chat-judge.md) for the monitor most setups start with.
+- [Combine and calibrate monitors](combine-and-calibrate-monitors.md) for thresholds that mean an audit budget.
+- [Read the monitor log](read-the-monitor-log.md) for what each protocol records.

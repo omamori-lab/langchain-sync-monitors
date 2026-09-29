@@ -34,7 +34,7 @@ adds its records to the ones before, step numbers continue across turns, and
 every turn's result returns the whole log so far. Read it at any time with
 `agent.get_state(config).values["monitor_log"]`. A Deep Agent's log also holds
 the records of its subagents, each under the subagent's name; see
-[Subagents](../explanation/design.md#subagents).
+[Monitor Deep Agents subagents](monitor-deep-agents-subagents.md).
 
 ## Read a record
 
@@ -334,3 +334,8 @@ def read_honest_scores(monitor_log: list[StepRecord], *, agent: str, monitor: st
 [Combine and calibrate monitors](combine-and-calibrate-monitors.md) shows how
 to collect enough of them and turn them into thresholds with
 `CalibratedMonitor`.
+
+## Related guides
+
+- [Choose a protocol](choose-a-protocol.md) for what each outcome means.
+- [Monitor Deep Agents subagents](monitor-deep-agents-subagents.md) for the records subagents add.

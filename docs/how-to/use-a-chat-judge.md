@@ -257,3 +257,8 @@ By default the judge reads the user's messages, the tool calls and the
 subagent reports, and not the agent's reasoning. Pass `view=` to change that;
 [Choose what the monitor reads](choose-what-the-monitor-reads.md) explains
 the options and their trade-offs.
+
+## Related guides
+
+- [Choose a protocol](choose-a-protocol.md) to decide what happens with the judge's verdict.
+- [Use Auto Mode](use-auto-mode.md) where the judge's reasoning becomes the agent's feedback.

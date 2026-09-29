@@ -187,3 +187,8 @@ for record in result["monitor_log"]:
   to its end, even an agent that would otherwise loop until it has a
   structured response. This costs one more graph step per model call, which
   counts towards an explicit `recursion_limit`.
+
+## Related guides
+
+- [Combine and calibrate monitors](combine-and-calibrate-monitors.md) to set the defer and audit thresholds from honest runs.
+- [Read the monitor log](read-the-monitor-log.md) to read every sample the monitor judged.

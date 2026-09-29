@@ -380,5 +380,11 @@ and Auto Mode blocks the leak and sends the feedback.
   Mode with the other three protocols.
 - [Use Auto Mode](../how-to/use-auto-mode.md) covers every option used here,
   and what the agent sees when a step is blocked.
+- [Choose a protocol](../how-to/choose-a-protocol.md) compares Auto Mode with
+  the other protocols.
+- [Choose what the monitor reads](../how-to/choose-what-the-monitor-reads.md)
+  shows how to let the judge read the agent's reasoning.
+- [Read the monitor log](../how-to/read-the-monitor-log.md) covers every field
+  of the records you printed.
 - [How the library is built](../explanation/design.md) explains what happens
   inside one step.

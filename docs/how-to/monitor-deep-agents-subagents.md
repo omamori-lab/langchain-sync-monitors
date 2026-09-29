@@ -293,3 +293,8 @@ To see one agent's steps, filter by `agent`:
 ```python
 publisher_steps = [record for record in result["monitor_log"] if record["agent"] == "publisher"]
 ```
+
+## Related guides
+
+- [Choose what the monitor reads](choose-what-the-monitor-reads.md) for delegation tools and subagent reports.
+- [Read the monitor log](read-the-monitor-log.md) for the records subagents add to the parent's log.

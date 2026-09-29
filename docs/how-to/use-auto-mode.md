@@ -261,3 +261,9 @@ records' `blocked_count`.
   fallback raises, nothing is committed and the error propagates. The attempts
   judged before the failure are logged as a warning and written to
   `stream_mode="custom"` as a `monitor_step_failed` event.
+
+## Related guides
+
+- [Use a chat judge](use-a-chat-judge.md) for what goes into the reason the agent is shown.
+- [Choose what the monitor reads](choose-what-the-monitor-reads.md) to decide which channels the monitor judges.
+- [Read the monitor log](read-the-monitor-log.md) to count blocks and read the feedback that was sent.

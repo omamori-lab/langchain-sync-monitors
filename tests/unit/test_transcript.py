@@ -119,7 +119,7 @@ def test_a_blocked_tool_call_shows_as_monitor_feedback_under_the_default_view(
 ) -> None:
     # Arrange
     blocked_call: ToolCall = {"id": "call-9", "name": tool_name, "args": arguments}
-    conversation = [
+    conversation: list[BaseMessage] = [
         HumanMessage("Summarise q3.md."),
         AIMessage(content="", tool_calls=[blocked_call]),
         build_tool_call_rejection(tool_call=blocked_call, feedback="[Safety monitor] Blocked."),

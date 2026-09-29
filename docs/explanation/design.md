@@ -502,7 +502,10 @@ flowchart TD
 
 `SubagentHalt` decides what a halt inside a subagent does. With
 `STOP_SUBAGENT_ONLY`, the default, the parent receives the halt message as the
-task's result and carries on under its own monitor. With `STOP_WHOLE_RUN`, the
+task's result and carries on under its own monitor, unless the subagent's
+blocks spent Auto Mode's thread total: the total belongs to the whole thread,
+so the parent's next step then goes to `when_limit_reached`, which halts the
+run by default. With `STOP_WHOLE_RUN`, the
 parent's monitor finds the subagent's halt record in `monitor_log` and halts
 the parent before its next model call. This works because a subagent's
 records flow back into the parent's log, which depends on declaring the log

@@ -153,13 +153,13 @@ Set it on the main agent's monitor.
 
 | Value | What happens when a subagent is halted |
 |---|---|
-| `SubagentHalt.STOP_SUBAGENT_ONLY`, the default | The subagent ends. The parent receives the halt message as the task's result, and carries on under its own monitor. |
+| `SubagentHalt.STOP_SUBAGENT_ONLY`, the default | The subagent ends. The parent receives the halt message as the task's result, and carries on under its own monitor, unless the halt came from Auto Mode's thread total: then the total is spent for the whole thread, and the parent's next step goes to `when_limit_reached`, which halts the run by default. |
 | `SubagentHalt.STOP_WHOLE_RUN` | The parent's monitor finds the subagent's halt record in `monitor_log` and halts the parent before its next model call. |
 
 ```mermaid
 flowchart LR
     halt["A subagent's monitor halts it"] --> choice{"when_subagent_halts on the parent's monitor"}
-    choice -- "STOP_SUBAGENT_ONLY" --> report["The parent reads the halt message as the task's result and goes on"]
+    choice -- "STOP_SUBAGENT_ONLY" --> report["The parent reads the halt message as the task's result and goes on, unless Auto Mode's thread total is spent"]
     choice -- "STOP_WHOLE_RUN" --> stop["The parent halts before its next model call"]
 ```
 

@@ -75,5 +75,5 @@
   <rect class="allow-chip" x="520" y="352" width="340" height="34" rx="17"/>
   <text x="690" y="373" text-anchor="middle">the agent tries again; one that passes runs</text>
   <rect class="halt-chip" x="520" y="390" width="340" height="34" rx="17"/>
-  <text x="690" y="411" text-anchor="middle">3 blocks in a row, or 20 with subagents: halt</text>
+  <text x="690" y="411" text-anchor="middle">3 blocks in a row, or 20 in the thread: halt</text>
 </svg>

@@ -259,7 +259,9 @@ class PendingStep(ABC):
         this agent's earlier steps, its subagents' steps, nested ones included,
         and, inside a subagent, the blocks recorded before the subagent
         started. It misses the blocks of a subagent whose run raised, which
-        returned no records. By default it sums `previous_records` alone.
+        returned no records, and of sibling subagents still running in
+        parallel, whose records arrive when they return. By default it sums
+        `previous_records` alone.
         """
         return sum(record["blocked_count"] for record in self.previous_records)
 
@@ -267,7 +269,8 @@ class PendingStep(ABC):
     def new_subagent_blocks(self) -> int:
         """The blocks this monitor recorded inside subagents since this agent's last step.
 
-        It is 0 by default.
+        Like `blocks_in_thread`, it misses the blocks of a subagent whose run
+        raised. It is 0 by default.
         """
         return 0
 

@@ -179,6 +179,34 @@ def test_a_middleware_that_handles_failed_tool_calls_is_named_in_a_warning(
     assert "Auto Mode's total" in str(caught[0].message)
 
 
+def test_a_subclass_of_a_tool_retry_middleware_is_named_in_a_warning(
+    monitor_middleware: MonitorMiddleware,
+) -> None:
+    # Arrange
+    class LoggingToolRetryMiddleware(ToolRetryMiddleware):
+        pass
+
+    subclass = LoggingToolRetryMiddleware()
+
+    # Act
+    with pytest.warns(MonitorPlacementWarning, match="failed tool calls"):
+        misplaced = check_monitor_placement(middleware=[subclass, monitor_middleware])
+
+    # Assert
+    assert misplaced == [subclass.name]
+
+
+def test_a_placement_warning_points_at_the_code_that_checks_the_list(
+    monitor_middleware: MonitorMiddleware,
+) -> None:
+    # Act
+    with pytest.warns(MonitorPlacementWarning) as caught:
+        check_monitor_placement(middleware=[ToolRetryMiddleware(), monitor_middleware])
+
+    # Assert
+    assert caught[0].filename == __file__
+
+
 def test_a_middleware_named_like_a_tool_retry_that_wraps_no_tool_call_is_not_named(
     monitor_middleware: MonitorMiddleware,
 ) -> None:

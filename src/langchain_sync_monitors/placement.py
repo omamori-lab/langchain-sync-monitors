@@ -53,8 +53,9 @@ LangChain's tool retry middleware calls a tool again when it raises and, by
 default, answers the call with an error message once the retries run out; its
 tool error middleware answers the failures its handler chooses to
 [@langchain2026]. Wherever they sit in the list, they wrap every tool call,
-Deep Agents' `task` tool included, and a subagent whose run raises returns no
-records to its parent.
+Deep Agents' `task` tool included, unless their `tools` argument leaves it out,
+and a subagent whose run raises returns no records to its parent. Subclasses
+count too.
 """
 
 
@@ -101,8 +102,9 @@ def is_tool_call_wrapper(middleware: AnyAgentMiddleware) -> bool:
 
 
 def is_tool_failure_handling_middleware(middleware: AnyAgentMiddleware) -> bool:
-    """Tell whether a middleware wraps tool calls and is known to retry or answer failed ones."""
-    is_handling = type(middleware).__name__ in TOOL_FAILURE_HANDLING_MIDDLEWARE
+    """Tell whether a middleware wraps tool calls and is, or subclasses, one known to retry them."""
+    class_names = {middleware_class.__name__ for middleware_class in type(middleware).__mro__}
+    is_handling = bool(class_names & TOOL_FAILURE_HANDLING_MIDDLEWARE)
     return is_handling and is_tool_call_wrapper(middleware)
 
 
@@ -200,8 +202,9 @@ def check_monitor_placement(*, middleware: Sequence[AnyAgentMiddleware]) -> list
     warn_about_placement(
         handling_tool_failures,
         reason="runs failed tool calls again or answers them with an error message. If "
-        "this agent starts monitored subagents, a subagent whose run raises returns no "
-        "records, so the blocks it recorded never count towards Auto Mode's total, and a "
-        "retry starts it again from the same count.",
+        "this agent starts monitored subagents and its tools argument covers the task "
+        "tool, a subagent whose run raises returns no records, so the blocks it recorded "
+        "never count towards Auto Mode's total, and a retry starts it again from the "
+        "same count.",
     )
     return misplaced_inside + retrying_outside + handling_tool_failures

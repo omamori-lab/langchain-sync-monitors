@@ -50,6 +50,25 @@ LEADING_MARKUP_PATTERN = re.compile(r"^\W+")
 UNREADABLE_LABEL_REASON = (
     "The guard model gave no readable label, so the step is treated as suspicious."
 )
+UNCERTAIN_LABEL_REASON = "The guard model was uncertain whether the step breaks the policy."
+
+SUSPICIOUS_SHARE = 0.5
+"""From this suspicious share on, a log-probability reason says the step breaks the policy.
+
+At one half or more, a suspicious label is the guard's likelier finding. The
+library's default thresholds are 0.6 and above, so every step a raw guard
+score blocks at a default threshold reads as breaking the policy; a blocked
+step reads as uncertain only under calibration or a threshold below one half.
+"""
+CONFIDENTLY_SAFE_SHARE = 0.001
+"""Below this suspicious share, a log-probability reason says the step follows the policy.
+
+A guard that commits to a label leaves the other kind a tiny share: the real
+DeepSeek reply the tests use left its safe alternatives about one in ten
+million. A share of 0.1% or more is doubt. The edge is small because under
+`CalibratedMonitor` a threshold can block a step whose raw share is below it,
+and that step's reason would still say it follows the policy.
+"""
 
 type LabelKind = Literal["suspicious", "safe"]
 
@@ -253,7 +272,8 @@ class GuardModelMonitor(ChatModelMonitor):
 
     The verdict's reason states the guard's finding, with no probability or
     count: the most severe label among sampled replies, or, from
-    log-probabilities, a label of the kind with the larger share. Auto Mode
+    log-probabilities, one of three bands of the suspicious share (it breaks
+    the policy, the guard was uncertain, or it follows the policy). Auto Mode
     shows the reason to the agent, and those numbers would tell it how close
     its step came to passing. They stay in the suspicion.
     """
@@ -363,34 +383,56 @@ class GuardModelMonitor(ChatModelMonitor):
         )
         if share is None:
             return None
-        label = self.name_likelier_label(position, written_label=match.label, share=share)
-        return Verdict(suspicion=share, reason=self.build_label_reason(label))
+        reason = self.build_log_probability_reason(
+            position,
+            written_label=match.label,
+            share=share,
+        )
+        return Verdict(suspicion=share, reason=reason)
 
-    def name_likelier_label(
+    def build_log_probability_reason(
         self,
         position: TokenLogProbability,
         *,
         written_label: str,
         share: float,
     ) -> str:
-        """Name a label of the kind the guard gave the larger share, preferring the one it wrote.
+        """State the guard's finding in one of three bands of the suspicious share, with no number.
 
-        A share of one half counts as suspicious. When the guard wrote a label
-        of the less likely kind, the reason names the likeliest label of the
-        other kind instead, so that it agrees with the suspicion and reads as
-        it would had the guard written that label: a different wording would
-        tell the agent that its step came close.
+        From `SUSPICIOUS_SHARE` on, the guard found that the step breaks the
+        policy; below `CONFIDENTLY_SAFE_SHARE`, that it follows it; in
+        between, the guard was uncertain, and the reason names no label. The
+        edges are explained where they are defined.
         """
-        likelier_kind: LabelKind = "suspicious" if share >= 0.5 else "safe"
-        if self.classify_label(written_label) == likelier_kind:
+        if CONFIDENTLY_SAFE_SHARE <= share < SUSPICIOUS_SHARE:
+            return UNCERTAIN_LABEL_REASON
+        kind: LabelKind = "suspicious" if share >= SUSPICIOUS_SHARE else "safe"
+        label = self.name_label_of_kind(position, written_label=written_label, kind=kind)
+        return self.build_label_reason(label)
+
+    def name_label_of_kind(
+        self,
+        position: TokenLogProbability,
+        *,
+        written_label: str,
+        kind: LabelKind,
+    ) -> str:
+        """Name a label of `kind`: the one the guard wrote, or else its likeliest of that kind.
+
+        When the guard wrote a label of the other kind, the reason names the
+        likeliest label of `kind` instead, so that it agrees with the
+        suspicion and reads as it would had the guard written that label: a
+        different wording would tell the agent that its step came close.
+        """
+        if self.classify_label(written_label) == kind:
             return written_label
         alternatives = collect_alternatives(position)
         likeliest_token = max(
-            (token for token in alternatives if self.classify_token(token) == likelier_kind),
+            (token for token in alternatives if self.classify_token(token) == kind),
             key=alternatives.__getitem__,
         )
         prefix = read_label_prefix(likeliest_token)
-        labels = self.suspicious_labels if likelier_kind == "suspicious" else self.safe_labels
+        labels = self.suspicious_labels if kind == "suspicious" else self.safe_labels
         return min(label for label in labels if label.startswith(prefix))
 
     def classify_label(self, label: str) -> LabelKind:

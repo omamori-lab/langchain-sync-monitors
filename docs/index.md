@@ -28,7 +28,7 @@ The package is not on PyPI yet. Until the first release, install it from
 GitHub:
 
 ```console
-pip install "langchain-sync-monitors[openrouter,deepagents] @ git+https://github.com/Antonio-Tresol/langchain-sync-monitors"
+pip install "langchain-sync-monitors[openrouter,deepagents] @ git+https://github.com/omamori-lab/langchain-sync-monitors"
 ```
 
 | Extra | Adds | Needed for |
@@ -183,6 +183,6 @@ library in research, please cite the original authors.
 Pre-release, version 0.1.0.dev0, and not on PyPI yet. The monitors,
 protocols, middleware and Deep Agents support are built and tested offline,
 and the API may still change before 0.1.0; the
-[changelog](https://github.com/Antonio-Tresol/langchain-sync-monitors/blob/main/CHANGELOG.md)
+[changelog](https://github.com/omamori-lab/langchain-sync-monitors/blob/main/CHANGELOG.md)
 records each change. The library is released under the
-[MIT licence](https://github.com/Antonio-Tresol/langchain-sync-monitors/blob/main/LICENSE).
+[MIT licence](https://github.com/omamori-lab/langchain-sync-monitors/blob/main/LICENSE).

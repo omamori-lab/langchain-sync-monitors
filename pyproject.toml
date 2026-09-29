@@ -35,7 +35,11 @@ openrouter = ["langchain-openrouter>=0.2.1"]
 typesafe = ["langchain-typesafe>=0.0.1a3"]
 
 [project.urls]
-Repository = "https://github.com/Antonio-Tresol/langchain-sync-monitors"
+Homepage = "https://omamori-lab.github.io/langchain-sync-monitors/"
+Documentation = "https://omamori-lab.github.io/langchain-sync-monitors/"
+Repository = "https://github.com/omamori-lab/langchain-sync-monitors"
+Issues = "https://github.com/omamori-lab/langchain-sync-monitors/issues"
+Changelog = "https://github.com/omamori-lab/langchain-sync-monitors/blob/main/CHANGELOG.md"
 
 [dependency-groups]
 dev = [
@@ -57,8 +61,10 @@ path = "src/langchain_sync_monitors/__init__.py"
 
 # The README links images and pages by relative path, which GitHub resolves.
 # PyPI does not, so the package description gets absolute URLs at build time:
-# raw files for the diagrams, repository pages for links. PyPI drops the
-# <source> of each <picture>, so it shows the light variant of every diagram.
+# raw files for the diagrams, repository pages for links. The URLs name the
+# release tag, v$HFPR_VERSION, so a release's PyPI page keeps showing the files
+# it was released with. PyPI drops the <source> of each <picture>, so it shows
+# the light variant of every diagram.
 [tool.hatch.metadata.hooks.fancy-pypi-readme]
 content-type = "text/markdown"
 
@@ -67,11 +73,11 @@ path = "README.md"
 
 [[tool.hatch.metadata.hooks.fancy-pypi-readme.substitutions]]
 pattern = '(src|srcset)="(docs/assets/[^"]+)"'
-replacement = '\1="https://raw.githubusercontent.com/Antonio-Tresol/langchain-sync-monitors/main/\2"'
+replacement = '\1="https://raw.githubusercontent.com/omamori-lab/langchain-sync-monitors/v$HFPR_VERSION/\2"'
 
 [[tool.hatch.metadata.hooks.fancy-pypi-readme.substitutions]]
 pattern = '\]\((?!https?://|#|mailto:)([^)\s]+)\)'
-replacement = '](https://github.com/Antonio-Tresol/langchain-sync-monitors/blob/main/\1)'
+replacement = '](https://github.com/omamori-lab/langchain-sync-monitors/blob/v$HFPR_VERSION/\1)'
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/langchain_sync_monitors"]

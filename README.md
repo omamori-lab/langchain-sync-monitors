@@ -27,7 +27,7 @@ The package is not on PyPI yet. Until the first release, install it from
 GitHub:
 
 ```console
-pip install "langchain-sync-monitors[openrouter,deepagents] @ git+https://github.com/Antonio-Tresol/langchain-sync-monitors"
+pip install "langchain-sync-monitors[openrouter,deepagents] @ git+https://github.com/omamori-lab/langchain-sync-monitors"
 ```
 
 | Extra | Adds | Needed for |

@@ -25,7 +25,7 @@ change must pass, and how to send a pull request.
 ## Setup
 
 ```console
-git clone https://github.com/Antonio-Tresol/langchain-sync-monitors
+git clone https://github.com/omamori-lab/langchain-sync-monitors
 cd langchain-sync-monitors
 uv sync --group dev --group docs --all-extras
 uvx pre-commit install

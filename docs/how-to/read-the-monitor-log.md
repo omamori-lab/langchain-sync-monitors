@@ -33,7 +33,8 @@ With a checkpointer, the log spans the whole conversation thread. Each turn
 adds its records to the ones before, step numbers continue across turns, and
 every turn's result returns the whole log so far. Read it at any time with
 `agent.get_state(config).values["monitor_log"]`. A Deep Agent's log also holds
-the records of its subagents, each under the subagent's name; see
+the records of its subagents, each under the subagent's name and with the
+`delegation_id` of the `task` call that started it; see
 [Monitor Deep Agents subagents](monitor-deep-agents-subagents.md).
 
 ## Read a record
@@ -73,11 +74,12 @@ A `StepRecord` describes one step:
 |---|---|---|
 | `agent` | `str` | The agent the step belongs to: `main`, or a subagent's name |
 | `monitor` | `str` | The monitor's `label`, `monitor` unless you set one on `MonitorMiddleware` |
-| `step_number` | `int` | The step's number among this monitor's records for this agent, from 1 |
+| `step_number` | `int` | The step's number among this monitor's records for this agent, from 1. A subagent's steps start again at 1 with each delegated task |
 | `outcome` | `str` | What the protocol did with the step; see the next section |
 | `flagged` | `bool` | Whether the step is marked for a person to review |
 | `blocked_count` | `int` | How many attempts Auto Mode blocked in this step; 0 under the other protocols |
 | `samples` | `list[SampleRecord]` | Every sample the monitor judged in the step, rejected ones included |
+| `delegation_id` | `str`, subagents only | The id of the `task` call that started the subagent; absent from the records of an agent no monitored agent started |
 
 A `SampleRecord` describes one sample:
 
@@ -197,7 +199,8 @@ flowchart LR
 
 A failed step is never committed, so nothing it proposed runs, and no record
 reaches `monitor_log`. The event is the record of what the monitor had judged
-by then, with no sample executed, and the error is raised after it. This
+by then, with no sample executed, and the error is raised after it. A
+subagent's event also carries its `delegation_id`. This
 event comes from a scripted run of Defer to Resample in which the monitor
 judged the first sample and the agent's model then raised a `TimeoutError` on
 the resample:

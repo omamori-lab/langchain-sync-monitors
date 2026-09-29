@@ -20,8 +20,10 @@ The first release. Everything below is new.
   model call of a LangChain agent or Deep Agent, logs each step to
   `monitor_log` and streams it as a `MonitorStepEvent`; runs under both
   `invoke()` and `ainvoke()`. `check_monitor_placement` warns when middleware
-  inside the monitor could return commands, and when a middleware that retries
-  or falls back sits outside it.
+  inside the monitor could return commands, when a middleware that retries
+  or falls back sits outside it, and when a middleware that retries or
+  answers failed tool calls, such as `ToolRetryMiddleware`, sits anywhere in
+  the list.
 - Only committed steps reach `stream_mode="messages"`. Rejected samples, blocked
   attempts with hidden feedback and the monitor's own model calls never stream,
   and each committed step arrives whole once the protocol has decided.
@@ -42,6 +44,13 @@ The first release. Everything below is new.
   for audit and never blocks it.
 - A `CachedResampleWarning` when a response cache would turn resamples into
   copies of the first sample.
+- Auto Mode's total counts across the whole conversation thread, subagents
+  and nested subagents included: a subagent starts from the thread's count,
+  so delegating again does not reset it, and the parent's next step goes to
+  the fallback once blocks inside subagents reach the total. Blocks inside a
+  subagent whose run raises count only when the run is resumed.
+  `PendingStep.blocks_in_thread` and `PendingStep.new_subagent_blocks` give a
+  protocol these counts.
 
 **Monitors**
 
@@ -77,6 +86,13 @@ The first release. Everything below is new.
   general-purpose one, a monitor of its own, with per-subagent overrides and a
   choice of what a subagent halt does to the run (`SubagentHalt`). Forked
   subagents (`mode="fork"`) are refused for now.
+- Subagent records carry `delegation_id`, the id of the `task` call that
+  started the subagent, and so does a subagent's `MonitorStepFailedEvent`.
+- `Delegation`, what a monitored agent hands each subagent it starts: the
+  call's id, the delegating agent and the thread's block counts. It travels
+  in the `monitor_delegation` state key, which is part of every monitored
+  agent's input; a value that is not a valid `Delegation` raises
+  `ConfigurationError`.
 
 **Errors**
 

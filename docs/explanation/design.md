@@ -108,7 +108,11 @@ works with any protocol. A protocol reaches the model only through the
 - `request_trusted_step(trusted_model=...)` has a trusted model write the step,
   with the same conversation and tools;
 - `previous_records` holds this monitor's records from earlier steps of the
-  run.
+  run;
+- `blocks_in_thread` counts the blocks this monitor recorded in the
+  conversation thread before the step, subagents included, except those of a
+  subagent whose run raised, and `new_subagent_blocks` the ones recorded
+  inside subagents since the agent's last step.
 
 When no sample is acceptable, a `Fallback` writes the step instead: the trusted
 model does, or the run halts. The protocol's `StepDecision` names the
@@ -270,12 +274,36 @@ A suspicious step is blocked, and the agent is told why, so its next attempt
 can take a safer route [@hughes2026automode]. After three blocks in a row, or
 twenty in one conversation thread, the limits Claude Code uses within a
 session, a fallback takes over: the run halts, or the trusted model writes the
-step. Both limits count the agent's own records. The total spans every turn of
-a checkpointed thread, not one run, and never resets, so once a thread has
-reached it, the first block of every later step goes to the fallback.
+step. The total counts the monitor's blocks in the thread's `monitor_log`,
+where each subagent's records arrive when it returns, so delegating again does
+not reset it. A subagent starts from the thread's total, so it reaches the
+limit where the thread does, and when blocks inside subagents leave the thread
+at or over the total, the parent's next step goes to the fallback without
+being sampled. The total spans every turn of a checkpointed thread, not one
+run, and never resets, so once a thread has reached it, the first block of
+every later step goes to the fallback.
+
+The total misses one kind of block: those inside a subagent whose run raises,
+because a subagent's records reach its parent only in the result of the call
+that started it, and a call that raises has no result. They count when the
+failed run is resumed from its checkpoint with `None` as input, since the
+subagent then resumes from its own checkpoint. They never count when the
+thread goes on with new input, or when a middleware such as LangChain's
+`ToolRetryMiddleware` or `ToolErrorMiddleware` answers the failed call with an
+error message or runs it again; a retry starts the subagent again from the
+same count. The subagent's model can bring this about by calling a tool with
+input that makes it raise. `check_monitor_placement` warns about such
+middleware, and the lost steps still reach `stream_mode="custom"` as each is
+committed, with its `delegation_id`, when the run streams with
+`subgraphs=True`. Counting them would need a channel outside the graph state
+and a monitor that turns the subagent's error into a result, which would also
+stop a failed run from being resumed.
 
 ```mermaid
 flowchart LR
+    start["A new step"] --> subagents{"Subagent blocks since the last step, and the total reached?"}
+    subagents -- "yes" --> fallback
+    subagents -- "no" --> attempt
     attempt["Draw one sample, with any earlier feedback"] --> check{"Suspicion at or above the block threshold?"}
     check -- "no, first attempt" --> allowed["Run it: ALLOWED"]
     check -- "no, after a block" --> steered["Run it: STEERED"]
@@ -467,19 +495,57 @@ flowchart TD
         subModel --> subTools["Its own tools"]
         subLog[("monitor_log: its own records")]
     end
-    taskTool -- "task description, judged first by monitor[main]" --> subMonitor
+    taskTool -- "task description, judged first by monitor[main], and the Delegation" --> subMonitor
     subModel -- "final report, read by monitor[main]" --> taskTool
     subLog -. "records, including halts" .-> mainLog
 ```
 
 `SubagentHalt` decides what a halt inside a subagent does. With
 `STOP_SUBAGENT_ONLY`, the default, the parent receives the halt message as the
-task's result and carries on under its own monitor. With `STOP_WHOLE_RUN`, the
+task's result and carries on under its own monitor, unless the subagent's
+blocks spent Auto Mode's thread total: the total belongs to the whole thread,
+so the parent's next step then goes to `when_limit_reached`, which halts the
+run by default. With `STOP_WHOLE_RUN`, the
 parent's monitor finds the subagent's halt record in `monitor_log` and halts
 the parent before its next model call. This works because a subagent's
 records flow back into the parent's log, which depends on declaring the log
 with its reducer in the last position: LangGraph reads a reducer only from the
 last position of the annotation [@langgraph2026].
+
+A subagent starts every delegation with an empty log, so its step numbers
+start again at 1. Before each tool call, the parent's monitor adds a
+`Delegation` to the state the tool sees: the id of the tool call, the name of
+the agent that made it, and the blocks each monitor has recorded in the
+thread. Deep Agents' `task` tool passes that state on to the subagent, as it
+does the rest of the parent's state, and the subagent's monitor stores the id
+in each of its records as `delegation_id`. So `(agent, delegation_id,
+step_number)` names one step, and an auditor can match a delegation's records
+to its `task` call and result in the parent's transcript. This relies on the
+model provider giving every tool call in the thread its own id, as providers
+do, which LangChain does not check. The state key, `monitor_delegation`, is
+left out of the subagent's output, as Deep Agents does for its own
+forked-context flag [@deepagents2026], so it never flows back into the parent.
+The block counts let the subagent's Auto Mode start from the thread's total.
+Subagents that run in parallel do not see each other's blocks, so together
+they can pass the total; the parent counts every one of them at its next step.
+
+A second monitor stacked in the same agent finds the delegation for the call
+already in place, made by its own agent, and passes it on as it is, so the
+blocks are not counted twice. A subagent's monitor finds the delegation it
+inherited instead, made by another agent, and replaces it with one that adds
+the subagent's own blocks, even when the subagent's tool call reuses the id
+of the call that started it. Telling the two apart relies on each agent's
+monitor having its own `agent_name`, which `monitor_subagents` gives it.
+
+A subagent receives its delegation as input, so `monitor_delegation` is part of
+the input schema of every monitored agent, a plain `create_agent` one
+included. Whoever invokes an agent could set it, so the monitor validates the
+value with pydantic when it reads it. A value that is not a `Delegation` with
+non-negative block counts raises `ConfigurationError` before the step runs. It
+is not ignored: a subagent that ignored a bad delegation would count from its
+own log alone, which resets the thread's total, and a negative count would
+lift the total altogether. Leave the key out when you invoke an agent; the
+monitor sets it for each subagent it starts.
 
 ## Sync and async
 
@@ -567,4 +633,6 @@ a string. A `StepRecord` names the agent and the monitor, numbers the step,
 gives the outcome, whether the step was flagged and how many attempts were
 blocked, and lists a `SampleRecord` for every sample: its suspicion, the
 monitor's reason, the proposal rendered in full for a human auditor, and
-whether it ran.
+whether it ran. A subagent's records also carry `delegation_id`, the id of the
+tool call that started the subagent, because its step numbers start again
+with every delegation; the main agent's records have none.

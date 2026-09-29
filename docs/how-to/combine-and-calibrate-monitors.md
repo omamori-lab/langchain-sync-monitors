@@ -111,7 +111,8 @@ run goes as it would unmonitored and every step is judged once. A protocol
 that resamples would judge extra samples only for suspicious steps and skew
 the scores. Keep only the records of the agent and the monitor you are
 calibrating: a record names both, and a Deep Agent's log also holds its
-subagents' records.
+subagents' records, each with the `delegation_id` of the task that started
+it.
 
 ```python
 import json

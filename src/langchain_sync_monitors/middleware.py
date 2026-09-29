@@ -10,13 +10,13 @@ middleware inside the monitor that returns state updates would have them
 taken from a sample the protocol may not commit: LangChain keeps the updates of
 the last inner call, and mixes them when samples are drawn concurrently
 [@langchain2026].
-`check_monitor_placement` warns about such a list, and about a middleware
-outside the monitor that retries failed model calls.
+`check_monitor_placement` warns about such a list, about a middleware
+outside the monitor that retries failed model calls, and about a middleware
+that runs failed tool calls again or answers them with an error message.
 """
 
 import logging
 import operator
-import warnings
 from collections.abc import Sequence
 from dataclasses import dataclass, replace
 from typing import Annotated, NotRequired, Self, override
@@ -28,6 +28,8 @@ from langchain.agents.middleware.types import (
     ExtendedModelResponse,
     ModelResponse,
     OmitFromInput,
+    OmitFromOutput,
+    ToolCallRequest,
     hook_config,
 )
 from langchain_core.messages import AIMessage
@@ -39,31 +41,38 @@ from langchain_sync_monitors._langchain import (
     AgentModelRequest,
     AgentRuntime,
     AgentStateUpdate,
-    AnyAgentMiddleware,
     AsyncModelCallHandler,
+    AsyncToolCallHandler,
     ModelCallHandler,
     MonitorStepEvent,
     MonitorStepFailedEvent,
     StructuredOutput,
+    ToolCallHandler,
+    ToolCallResult,
     hide_model_calls_from_message_stream,
     read_monitor_log,
     write_stream_event,
 )
 from langchain_sync_monitors.contracts import (
     ControlProtocol,
+    Delegation,
     FeedbackVisibility,
     Monitor,
-    Outcome,
     SampleRecord,
     StepDecision,
     StepRecord,
     SubagentHalt,
     TaskAuthor,
 )
-from langchain_sync_monitors.feedback import (
-    build_blocked_attempt_messages,
-    build_monitor_message_id,
+from langchain_sync_monitors.delegation import (
+    add_delegation,
+    build_subagent_halt_decision,
+    count_blocks_in_thread,
+    count_new_subagent_blocks,
+    find_new_subagent_halts,
+    read_delegation_id,
 )
+from langchain_sync_monitors.feedback import build_blocked_attempt_messages
 from langchain_sync_monitors.options import check_enum_option
 from langchain_sync_monitors.pending_steps import (
     AsyncPendingStep,
@@ -79,36 +88,6 @@ from langchain_sync_monitors.records import (
 
 logger = logging.getLogger(__name__)
 
-REQUEST_ONLY_MIDDLEWARE = frozenset(
-    {
-        "AnthropicPromptCachingMiddleware",
-        "BedrockPromptCachingMiddleware",
-        "FireworksPromptCachingMiddleware",
-        "MemoryMiddleware",
-        "UnsupportedContentMiddleware",
-        "_ToolExclusionMiddleware",
-    },
-)
-"""Classes that only rewrite the request, so they are safe inside a monitor.
-
-Deep Agents places these after user middleware [@deepagents2026].
-"""
-
-RETRYING_MIDDLEWARE = frozenset(
-    {
-        "ModelFallbackMiddleware",
-        "ModelRetryMiddleware",
-        "_DeepAgentsSummarizationMiddleware",
-    },
-)
-"""Classes that call the rest of the stack again when a model call raises.
-
-LangChain's retry and fallback middleware retry on an exception, and Deep
-Agents' summarisation retries after a context overflow
-[@langchain2026; @deepagents2026]. Outside a monitor, each retry runs the
-whole monitored step again.
-"""
-
 
 class MonitorState(AgentState):
     """The agent state with the log of every monitored step.
@@ -117,58 +96,17 @@ class MonitorState(AgentState):
     from the last metadata position; anywhere else the log silently keeps only
     its last write [@langgraph2026]. `OmitFromInput` keeps the log out of a
     subagent's input, so a subagent never copies its parent's records back.
+
+    `monitor_delegation` holds the `Delegation` a subagent was started with.
+    The monitor adds it to the state each tool call sees, and Deep Agents'
+    `task` tool passes that state on to the subagent it starts.
+    `OmitFromOutput` keeps it out of the subagent's result, so it never flows
+    back into the parent, as Deep Agents does for its own forked-context flag
+    [@deepagents2026].
     """
 
     monitor_log: NotRequired[Annotated[list[StepRecord], OmitFromInput, operator.add]]
-
-
-class MonitorPlacementWarning(UserWarning):
-    """A middleware placed around or inside a monitor undermines what the monitor records.
-
-    Inside a monitor, a middleware can return state updates for samples the
-    monitor rejects. Outside it, a middleware that retries failed model calls
-    runs the whole step again, and the samples judged before the failure never
-    reach `monitor_log`.
-    """
-
-
-def build_subagent_halt_decision(*, subagent_names: Sequence[str]) -> StepDecision:
-    """Return the decision that ends the run because a subagent was halted."""
-    distinct_names = sorted(set(subagent_names))
-    subject = "subagent" if len(distinct_names) == 1 else "subagents"
-    message = AIMessage(
-        content=(
-            f"[Safety monitor] Stopped: the safety monitor halted the {subject} "
-            f"{', '.join(distinct_names)}, so this agent stops too."
-        ),
-        id=build_monitor_message_id(),
-    )
-    return StepDecision(
-        outcome=Outcome.HALTED,
-        response=ModelResponse(result=[message]),
-        samples=(),
-        executed_sample=None,
-        flagged=True,
-    )
-
-
-def find_new_subagent_halts(
-    records: Sequence[StepRecord],
-    *,
-    agent: str,
-) -> list[StepRecord]:
-    """Return the halts of other agents logged since this agent's last step.
-
-    Only halts this agent has not yet answered count, so a halted run does not
-    stay halted on the next turn of a checkpointed thread.
-    """
-    own_positions = [index for index, record in enumerate(records) if record["agent"] == agent]
-    start = own_positions[-1] + 1 if own_positions else 0
-    return [
-        record
-        for record in records[start:]
-        if record["agent"] != agent and record["outcome"] == "halted"
-    ]
+    monitor_delegation: NotRequired[Annotated[Delegation, OmitFromOutput]]
 
 
 def build_end_run_update() -> AgentStateUpdate:
@@ -205,6 +143,12 @@ class MonitorMiddleware(AgentMiddleware[MonitorState, AgentContext, StructuredOu
     this agent before its next model call once a subagent was halted. Each
     option must be a member of its enum; a plain string raises
     `ConfigurationError`.
+
+    Before each tool call, the middleware adds a `Delegation` to the state the
+    tool sees: the call's id, `agent_name` and the blocks each monitor has
+    recorded in the thread. A subagent the call starts, as Deep Agents' `task`
+    tool does, receives it, so the subagent's records carry the call's id as
+    `delegation_id` and its Auto Mode counts from the thread's total.
 
     A halted step ends the run. The middleware's `after_model` hook routes the
     agent to its end, since the halt message alone does not end an agent that
@@ -274,6 +218,10 @@ class MonitorMiddleware(AgentMiddleware[MonitorState, AgentContext, StructuredOu
                 monitor=self.monitor,
                 task_author=self.task_author,
                 previous_records=previous_records,
+                blocks_in_thread=count_blocks_in_thread(request.state, monitor=self.label),
+                new_subagent_blocks=count_new_subagent_blocks(
+                    records, agent=self.agent_name, monitor=self.label
+                ),
             )
             try:
                 with hide_model_calls_from_message_stream():
@@ -302,6 +250,10 @@ class MonitorMiddleware(AgentMiddleware[MonitorState, AgentContext, StructuredOu
                 monitor=self.monitor,
                 task_author=self.task_author,
                 previous_records=previous_records,
+                blocks_in_thread=count_blocks_in_thread(request.state, monitor=self.label),
+                new_subagent_blocks=count_new_subagent_blocks(
+                    records, agent=self.agent_name, monitor=self.label
+                ),
             )
             try:
                 with hide_model_calls_from_message_stream():
@@ -310,6 +262,24 @@ class MonitorMiddleware(AgentMiddleware[MonitorState, AgentContext, StructuredOu
                 self.report_failed_step(request, step=step, error=error)
                 raise
         return self.commit(request, decision=decision, previous_records=previous_records)
+
+    @override
+    def wrap_tool_call(
+        self,
+        request: ToolCallRequest,
+        handler: ToolCallHandler,
+    ) -> ToolCallResult:
+        """Run a tool call under `invoke()`, handing any subagent it starts its delegation."""
+        return handler(add_delegation(request, agent=self.agent_name))
+
+    @override
+    async def awrap_tool_call(
+        self,
+        request: ToolCallRequest,
+        handler: AsyncToolCallHandler,
+    ) -> ToolCallResult:
+        """Run a tool call under `ainvoke()`, handing any subagent it starts its delegation."""
+        return await handler(add_delegation(request, agent=self.agent_name))
 
     @hook_config(can_jump_to=["end"])
     @override
@@ -384,6 +354,9 @@ class MonitorMiddleware(AgentMiddleware[MonitorState, AgentContext, StructuredOu
             error=f"{type(error).__name__}: {error}",
             samples=samples,
         )
+        delegation_id = read_delegation_id(request.state)
+        if delegation_id is not None:
+            event["delegation_id"] = delegation_id
         write_stream_event(request, event=event)
         if samples:
             logger.warning(
@@ -414,6 +387,7 @@ class MonitorMiddleware(AgentMiddleware[MonitorState, AgentContext, StructuredOu
             agent=self.agent_name,
             monitor=self.label,
             step_number=len(previous_records) + 1,
+            delegation_id=read_delegation_id(request.state),
         )
         write_stream_event(request, event=MonitorStepEvent(type="monitor_step", record=record))
         logger.debug(
@@ -428,93 +402,3 @@ class MonitorMiddleware(AgentMiddleware[MonitorState, AgentContext, StructuredOu
         )
         update = {MONITOR_LOG_KEY: [record]}
         return ExtendedModelResponse(model_response=response, command=Command(update=update))
-
-
-def is_model_call_wrapper(middleware: AnyAgentMiddleware) -> bool:
-    """Tell whether a middleware wraps model calls, as `create_agent` decides it."""
-    middleware_class = type(middleware)
-    return (
-        middleware_class.wrap_model_call is not AgentMiddleware.wrap_model_call
-        or middleware_class.awrap_model_call is not AgentMiddleware.awrap_model_call
-    )
-
-
-def is_unsafe_inside_monitor(middleware: AnyAgentMiddleware) -> bool:
-    """Tell whether a middleware wraps model calls and is not known to only rewrite the request."""
-    is_request_only = type(middleware).__name__ in REQUEST_ONLY_MIDDLEWARE
-    return is_model_call_wrapper(middleware) and not is_request_only
-
-
-def is_retrying_middleware(middleware: AnyAgentMiddleware) -> bool:
-    """Tell whether a middleware wraps model calls and is known to retry them when they raise."""
-    is_retrying = type(middleware).__name__ in RETRYING_MIDDLEWARE
-    return is_retrying and is_model_call_wrapper(middleware)
-
-
-def find_last_monitor_position(middleware: Sequence[AnyAgentMiddleware]) -> int | None:
-    """Return the position of the last monitor in the list, or None when there is none."""
-    monitor_positions = [
-        index for index, item in enumerate(middleware) if isinstance(item, MonitorMiddleware)
-    ]
-    return monitor_positions[-1] if monitor_positions else None
-
-
-def find_middleware_inside_monitor(
-    middleware: Sequence[AnyAgentMiddleware],
-) -> Sequence[AnyAgentMiddleware]:
-    """Return the middleware after the last monitor, which LangChain nests inside it."""
-    position = find_last_monitor_position(middleware)
-    return () if position is None else middleware[position + 1 :]
-
-
-def find_middleware_outside_monitor(
-    middleware: Sequence[AnyAgentMiddleware],
-) -> Sequence[AnyAgentMiddleware]:
-    """Return the middleware before the last monitor, which LangChain wraps around it."""
-    position = find_last_monitor_position(middleware)
-    return () if position is None else middleware[:position]
-
-
-def check_monitor_placement(*, middleware: Sequence[AnyAgentMiddleware]) -> list[str]:
-    """Warn about each middleware placed where it undermines the last monitor.
-
-    Pass the list given to `create_agent`. Two placements are warned about:
-
-    - inside the monitor, a middleware that wraps model calls and is not known
-      to only rewrite the request. It can return commands, which LangChain
-      collects per call of the monitor's handler, so they would pile up from
-      every sample the protocol draws [@langchain2026];
-    - outside the monitor, a middleware known to retry failed model calls,
-      such as `ModelRetryMiddleware`. A retry runs the whole step again with
-      fresh samples, and the samples judged before the failure reach only a
-      warning log line and a `MonitorStepFailedEvent`, never `monitor_log`.
-
-    Returns the names of the middleware it warned about.
-    """
-    misplaced_inside = [
-        item.name
-        for item in find_middleware_inside_monitor(middleware)
-        if is_unsafe_inside_monitor(item)
-    ]
-    retrying_outside = [
-        item.name
-        for item in find_middleware_outside_monitor(middleware)
-        if is_retrying_middleware(item)
-    ]
-    for name in misplaced_inside:
-        warnings.warn(
-            f"{name} wraps model calls inside a monitor, so a state update it returns "
-            "may come from a sample the protocol does not commit. Put the monitor last.",
-            MonitorPlacementWarning,
-            stacklevel=2,
-        )
-    for name in retrying_outside:
-        warnings.warn(
-            f"{name} retries failed model calls from outside a monitor, so a step that fails "
-            "runs again from the start with fresh samples. The samples the monitor judged "
-            "before the failure never reach monitor_log; only a warning log line and a "
-            "monitor_step_failed event on stream_mode='custom' keep them.",
-            MonitorPlacementWarning,
-            stacklevel=2,
-        )
-    return misplaced_inside + retrying_outside

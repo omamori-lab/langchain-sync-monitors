@@ -195,8 +195,10 @@ class StepRecord(TypedDict):
     outcome is a string and every sequence is a list. A subagent's step
     numbers start again with every delegation, so its records also carry
     `delegation_id`, the id of the tool call that started the subagent, and
-    `(agent, delegation_id, step_number)` names one step. The records of an
-    agent that no monitored agent started have no `delegation_id`.
+    `(agent, delegation_id, step_number)` names one step, provided the model
+    provider gives every tool call in the thread its own id, which LangChain
+    does not check. The records of an agent that no monitored agent started
+    have no `delegation_id`.
     """
 
     agent: str

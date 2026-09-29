@@ -1,5 +1,8 @@
 site_name: langchain-sync-monitors
-site_description: Control monitors for LangChain agents and Deep Agents, as middleware.
+site_description: >-
+  AI-control monitors for LangChain agents and Deep Agents: every step an agent
+  proposes is judged before its tools run, and a control protocol decides what
+  runs.
 site_url: https://omamori-lab.github.io/langchain-sync-monitors/
 repo_url: https://github.com/omamori-lab/langchain-sync-monitors
 repo_name: omamori-lab/langchain-sync-monitors

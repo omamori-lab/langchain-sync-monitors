@@ -5,19 +5,38 @@ build-backend = "hatchling.build"
 [project]
 name = "langchain-sync-monitors"
 dynamic = ["version", "readme"]
-description = "Control monitors for LangChain agents and Deep Agents, as middleware."
+description = "AI-control monitors for LangChain agents and Deep Agents: every step an agent proposes is judged before its tools run, and a control protocol decides what runs."
 requires-python = ">=3.12"
 license = "MIT"
 license-files = ["LICENSE"]
 authors = [{ name = "Antonio Badilla-Olivas", email = "antonio1dbo@gmail.com" }]
-keywords = ["ai-control", "monitoring", "langchain", "deepagents", "middleware", "ai-safety"]
+keywords = [
+    "ai-safety",
+    "ai-control",
+    "langchain",
+    "langgraph",
+    "deepagents",
+    "ai-agents",
+    "llm-agents",
+    "agent-safety",
+    "monitoring",
+    "guardrails",
+    "prompt-injection",
+    "llm-security",
+    "middleware",
+]
 classifiers = [
-    "Development Status :: 2 - Pre-Alpha",
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
     "Intended Audience :: Science/Research",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
     "Programming Language :: Python :: 3.14",
     "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Topic :: Security",
     "Typing :: Typed",
 ]
 dependencies = [

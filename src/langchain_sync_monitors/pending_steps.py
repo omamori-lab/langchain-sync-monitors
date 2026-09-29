@@ -10,11 +10,15 @@ call the synchronous model and monitor without awaiting anything, so
 from __future__ import annotations
 
 import asyncio
+import functools
 import threading
+import warnings
 from collections.abc import Coroutine, Sequence
 from dataclasses import dataclass, field
 from typing import override
 
+from langchain_core.caches import BaseCache
+from langchain_core.globals import get_llm_cache
 from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import AIMessage, BaseMessage
 
@@ -37,6 +41,7 @@ from langchain_sync_monitors.contracts import (
 )
 from langchain_sync_monitors.errors import MonitorError, SynchronousRunError
 from langchain_sync_monitors.feedback import build_feedback_messages
+from langchain_sync_monitors.thresholds import LIBRARY_DIRECTORY
 
 SYNCHRONOUS_RUN_MESSAGE = (
     "A control protocol awaited real asynchronous work during a synchronous invoke(). "
@@ -50,6 +55,14 @@ CLOSED_STEP_MESSAGE = (
     "A pending step was used after its synchronous invoke() step was over, from a task a "
     "control protocol scheduled on an event loop. Run the agent with ainvoke() to use asyncio."
 )
+
+
+class CachedResampleWarning(UserWarning):
+    """A step is sampled more than once on the same request while a response cache is active.
+
+    LangChain answers an identical request from its cache, so every resample
+    is a copy of the first sample and resampling can never find a safer one.
+    """
 
 
 def read_running_loop() -> asyncio.AbstractEventLoop | None:
@@ -136,6 +149,36 @@ def build_sampling_conversation(
     return (*messages, *feedback)
 
 
+def is_response_cache_active(model: BaseChatModel) -> bool:
+    """Tell whether LangChain answers this model's calls from a response cache.
+
+    A model's own `cache` wins: an instance is used, `False` turns caching
+    off, and `True` or `None` use the global cache when one is set.
+    """
+    if isinstance(model.cache, BaseCache):
+        return True
+    return model.cache is not False and get_llm_cache() is not None
+
+
+@functools.cache
+def warn_about_cached_resamples() -> None:
+    """Emit the `CachedResampleWarning`, on the first call in the process only.
+
+    The cache on this function is what keeps the warning to one per process:
+    Python's own once-per-location filter forgets what it has shown whenever
+    any code changes the warning filters, as libraries often do.
+    """
+    warnings.warn(
+        "A LangChain response cache is active for the agent's model, so each resample of a "
+        "step returns a copy of the first sample and resampling cannot find a safer one. "
+        "Build the untrusted model with cache=False, or unset the global cache with "
+        "set_llm_cache(None).",
+        CachedResampleWarning,
+        stacklevel=2,
+        skip_file_prefixes=(LIBRARY_DIRECTORY,),
+    )
+
+
 @dataclass(frozen=True, kw_only=True, eq=False)
 class MonitoredStep(PendingStep):
     """The parts of a pending step that do not depend on whether the run awaits.
@@ -154,6 +197,7 @@ class MonitoredStep(PendingStep):
     task_author: TaskAuthor
     previous_records: tuple[StepRecord, ...] = ()
     judged_samples: list[Sample] = field(default_factory=list)
+    sampled_attempts: list[tuple[BlockedAttempt, ...]] = field(default_factory=list)
 
     def build_conversation(
         self,
@@ -184,6 +228,22 @@ class MonitoredStep(PendingStep):
         self.judged_samples.append(sample)
         return sample
 
+    def warn_when_resamples_are_cached(
+        self,
+        *,
+        count: int,
+        blocked_attempts: tuple[BlockedAttempt, ...],
+    ) -> None:
+        """Warn, once per process, when this draw repeats a request under a response cache.
+
+        A request repeats when several samples are drawn at once, or when an
+        earlier draw of this step saw the same blocked attempts.
+        """
+        is_repeat = count > 1 or blocked_attempts in self.sampled_attempts
+        self.sampled_attempts.append(blocked_attempts)
+        if is_repeat and is_response_cache_active(self.request.model):
+            warn_about_cached_resamples()
+
 
 @dataclass(frozen=True, kw_only=True, eq=False)
 class AsyncPendingStep(MonitoredStep):
@@ -207,6 +267,7 @@ class AsyncPendingStep(MonitoredStep):
         With `concurrently`, the samples are drawn at once in a task group, so
         one failed draw cancels the others.
         """
+        self.warn_when_resamples_are_cached(count=count, blocked_attempts=blocked_attempts)
         conversation = self.build_conversation(blocked_attempts)
         if concurrently:
             draws = (self.draw_sample(conversation) for _ in range(count))
@@ -267,6 +328,7 @@ class SyncPendingStep(MonitoredStep):
         the same samples in sequence.
         """
         self.check_open()
+        self.warn_when_resamples_are_cached(count=count, blocked_attempts=blocked_attempts)
         conversation = self.build_conversation(blocked_attempts)
         return tuple(self.draw_sample(conversation) for _ in range(count))
 

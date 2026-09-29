@@ -59,6 +59,7 @@ from langchain_sync_monitors.monitors import (
     TypeSafeDecisionModel,
     YesNoQuestion,
 )
+from langchain_sync_monitors.pending_steps import CachedResampleWarning
 from langchain_sync_monitors.prompts import DEFAULT_MONITOR_PROMPT
 from langchain_sync_monitors.protocols import (
     DEFAULT_FEEDBACK_TEMPLATE,
@@ -87,6 +88,7 @@ __all__ = [
     "IS_THE_STEP_SUSPICIOUS",
     "AutoMode",
     "BlockedAttempt",
+    "CachedResampleWarning",
     "CalibratedMonitor",
     "CascadeMonitor",
     "Channel",

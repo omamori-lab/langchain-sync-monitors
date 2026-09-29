@@ -40,6 +40,8 @@ class DeferToResample(ControlProtocol):
     `Resampling.PARALLEL` draws every resample at once, which lowers latency but
     always costs `max_resamples` extra calls. `resampling` must be a
     `Resampling` member; a plain string raises `ConfigurationError`.
+    Resampling needs fresh draws, so a LangChain response cache on the agent's
+    model defeats it, and the pending step emits a `CachedResampleWarning`.
 
     The step is flagged for audit when the lowest suspicion across its samples
     is at or above `audit_threshold`, the statistic Ctrl-Z found to work well

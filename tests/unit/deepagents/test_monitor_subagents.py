@@ -91,15 +91,36 @@ def test_without_skills_the_general_purpose_subagent_names_none(
     assert "skills" not in general_purpose
 
 
+def test_empty_skills_are_kept_on_the_general_purpose_subagent(
+    middleware: MonitorMiddleware,
+) -> None:
+    # Act
+    [general_purpose] = monitor_subagents(middleware=middleware, skills=[])
+
+    # Assert
+    assert general_purpose.get("skills") == []
+
+
+@pytest.mark.parametrize("skills", [["/skills/"], []])
 def test_skills_with_a_given_general_purpose_spec_are_refused(
     middleware: MonitorMiddleware,
+    skills: list[str],
 ) -> None:
     # Arrange
     general_purpose = SubAgent(name="general-purpose", description="My own helper.")
 
     # Act / Assert
     with pytest.raises(ConfigurationError, match="Set 'skills' on that spec"):
-        monitor_subagents(middleware=middleware, subagents=[general_purpose], skills=["/skills/"])
+        monitor_subagents(middleware=middleware, subagents=[general_purpose], skills=skills)
+
+
+def test_a_plain_string_for_skills_is_refused(middleware: MonitorMiddleware) -> None:
+    # Act / Assert
+    with pytest.raises(ConfigurationError, match=r"Pass \['/skills/'\] for a single source"):
+        monitor_subagents(
+            middleware=middleware,
+            skills="/skills/",  # ty: ignore[invalid-argument-type]
+        )
 
 
 def test_no_subagents_still_monitors_the_general_purpose_one(middleware: MonitorMiddleware) -> None:

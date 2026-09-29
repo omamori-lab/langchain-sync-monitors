@@ -86,6 +86,16 @@ def build_general_purpose_skills_message(name: str) -> str:
     )
 
 
+def check_skills_option(skills: object) -> None:
+    """Refuse a plain string for `skills`, which a list would split into one source per letter."""
+    if isinstance(skills, str):
+        error_message = (
+            f"skills must be a list of skill source paths, not the string {skills!r}. "
+            f"Pass [{skills!r}] for a single source."
+        )
+        raise ConfigurationError(error_message)
+
+
 def build_general_purpose_subagent(
     specs: Sequence[SubAgent],
     *,
@@ -97,8 +107,9 @@ def build_general_purpose_subagent(
     it adds itself, but a spec passed in `subagents` gets only the skills it
     names [@deepagents2026], so they are set on the spec here. With a
     general-purpose spec of the caller's own, `skills` raises rather than go
-    unused.
+    unused, even when it is empty.
     """
+    check_skills_option(skills)
     general_purpose = read_general_purpose_subagent()
     if any(spec["name"] == general_purpose["name"] for spec in specs):
         if skills is not None:
@@ -163,13 +174,18 @@ def monitor_subagents(
     Agents offers no way to add middleware to the one it builds itself and
     to no other agent. Pass the main agent's `skills`, the list given to
     `create_deep_agent(skills=...)`, so the subagent keeps them as Deep
-    Agents' own would. A harness profile's
-    `general_purpose_subagent` settings do not reach the spec: its description
-    and prompt stay Deep Agents' defaults, and a profile that disables the
-    subagent does not remove it. To change it, pass a spec named
-    `general-purpose` in `subagents`; it is monitored in place of the built-in
-    one, and `skills` then raises `ConfigurationError`, since that spec takes
-    only the skills it names.
+    Agents' own would; a plain string raises `ConfigurationError`.
+
+    A harness profile's `general_purpose_subagent` settings do not reach the
+    spec: its description and prompt ignore them, though the profile's
+    `base_system_prompt` and `system_prompt_suffix` still apply, and a
+    profile that disables the subagent does not remove it. When the active
+    profile disables it, drop the spec named `general-purpose` from the
+    result; do this only then, since otherwise Deep Agents adds its own
+    general-purpose subagent, unmonitored. To change the subagent, pass a spec
+    named `general-purpose` in `subagents`; it is monitored in place of the
+    built-in one, and `skills` then raises `ConfigurationError`, even when
+    empty, since that spec takes only the skills it names.
 
     A subagent with `mode="fork"` raises `ConfigurationError` (issue #35). A
     fork continues the parent's conversation and inherits the main agent's

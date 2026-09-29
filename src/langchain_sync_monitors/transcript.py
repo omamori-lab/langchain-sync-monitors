@@ -3,7 +3,8 @@
 Each transcript entry belongs to one `Channel`, and a monitor only receives the
 entries whose channel is in its `MonitorView`. Entries are wrapped in tags, and
 their content is HTML-escaped, so text inside a tool result cannot close a tag
-and pose as another entry.
+and pose as another entry. The built-in tools a model provider runs inside the
+model call are rendered too, with the tool calls and the tool results.
 
 Only a human message without an `lc_source` tag is rendered as the task
 author's words. LangChain and Deep Agents tag the human messages their
@@ -16,14 +17,19 @@ from __future__ import annotations
 
 import html
 import json
-from collections.abc import Iterator, Sequence
+from collections.abc import Iterator, Mapping, Sequence
 from dataclasses import dataclass
+from typing import NotRequired, TypedDict
 
 from langchain_core.messages import (
     AIMessage,
     BaseMessage,
+    ContentBlock,
     HumanMessage,
     InvalidToolCall,
+    ServerToolCall,
+    ServerToolCallChunk,
+    ServerToolResult,
     ToolCall,
     ToolMessage,
 )
@@ -34,6 +40,17 @@ MONITOR_FEEDBACK_SOURCE = "monitor"
 """The `lc_source` tag on messages the monitor itself inserts into a conversation."""
 
 TASK_AUTHOR_TAGS = {TaskAuthor.USER: "user", TaskAuthor.PARENT_AGENT: "delegator"}
+
+
+class ProviderToolCallDetails(TypedDict):
+    """What the entry of a provider's built-in tool call shows.
+
+    `args` is a dictionary once the call is complete; a streamed part of a
+    call holds its arguments as a JSON fragment.
+    """
+
+    args: Mapping[str, object] | str
+    extras: NotRequired[Mapping[str, object]]
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -97,9 +114,14 @@ def wrap_in_tag(
     return f"<{tag}{attributes}>{html.escape(content, quote=False)}</{tag}>"
 
 
+def render_json(value: object) -> str:
+    """Render a value as stable, readable JSON, with anything JSON cannot hold as text."""
+    return json.dumps(value, ensure_ascii=False, sort_keys=True, default=str)
+
+
 def render_tool_call(tool_call: ToolCall) -> str:
     """Render a tool call as a tag holding its arguments as stable, readable JSON."""
-    arguments = json.dumps(tool_call["args"], ensure_ascii=False, sort_keys=True, default=str)
+    arguments = render_json(tool_call["args"])
     return wrap_in_tag(tag="tool_call", content=arguments, name=tool_call["name"])
 
 
@@ -115,14 +137,82 @@ def render_malformed_tool_call(tool_call: InvalidToolCall) -> str:
     )
 
 
-def build_agent_entries(message: AIMessage) -> Iterator[TranscriptEntry]:
-    """Yield the reasoning, text, tool calls and malformed tool calls of one agent message."""
+def render_provider_tool_call(block: ServerToolCall | ServerToolCallChunk) -> str:
+    """Render a built-in tool call that the model provider ran inside the model call.
+
+    The content holds the call's arguments and, when the block has them, its
+    provider `extras`, where a remote MCP call keeps the name of the tool it
+    ran and any arguments that could not be parsed.
+    """
+    details = ProviderToolCallDetails(args=block.get("args", {}))
+    if "extras" in block:
+        details["extras"] = block["extras"]
+    return wrap_in_tag(
+        tag="provider_tool_call",
+        content=render_json(details),
+        name=block.get("name"),
+    )
+
+
+def render_provider_tool_result(block: ServerToolResult, *, tool_name: str) -> str:
+    """Render what a provider's built-in tool returned: its output as text, or else as JSON."""
+    output = block.get("output")
+    if output is None:
+        content = ""
+    elif isinstance(output, str):
+        content = output
+    else:
+        content = render_json(output)
+    return wrap_in_tag(tag="provider_tool_result", content=content, name=tool_name)
+
+
+def build_provider_tool_entries(
+    blocks: Sequence[ContentBlock],
+    *,
+    tool_names_by_call: Mapping[str, str],
+) -> Iterator[TranscriptEntry]:
+    """Yield the built-in tool calls the provider ran inside a model call, and their results.
+
+    Tools such as Anthropic's web fetch or OpenAI's web search run at the
+    provider, before the reply reaches the monitor, and LangChain gives them
+    to every provider as standard `server_tool_call` and `server_tool_result`
+    blocks [@langchaincore2026]. A call sits with the tool calls and a result
+    with the tool results, each in a tag that says the provider ran it.
+    """
+    for block in blocks:
+        if block["type"] == "server_tool_call" or block["type"] == "server_tool_call_chunk":
+            yield TranscriptEntry(
+                channel=Channel.TOOL_CALLS,
+                text=render_provider_tool_call(block),
+            )
+        elif block["type"] == "server_tool_result":
+            tool_name = tool_names_by_call.get(block["tool_call_id"], "unknown")
+            yield TranscriptEntry(
+                channel=Channel.TOOL_RESULTS,
+                text=render_provider_tool_result(block, tool_name=tool_name),
+            )
+
+
+def build_agent_entries(
+    message: AIMessage,
+    *,
+    tool_names_by_call: Mapping[str, str],
+) -> Iterator[TranscriptEntry]:
+    """Yield the reasoning, provider tools, text, tool calls and malformed calls of a message.
+
+    `tool_names_by_call` names the provider tool call that each provider tool
+    result answers.
+    """
     reasoning = extract_reasoning_text(message)
     if reasoning:
         yield TranscriptEntry(
             channel=Channel.REASONING,
             text=wrap_in_tag(tag="agent_reasoning", content=reasoning),
         )
+    yield from build_provider_tool_entries(
+        message.content_blocks,
+        tool_names_by_call=tool_names_by_call,
+    )
     if message.text.strip():
         yield TranscriptEntry(
             channel=Channel.AGENT_TEXT,
@@ -234,7 +324,7 @@ def build_message_entries(
 ) -> list[TranscriptEntry]:
     """Render one message; system messages and unknown message types render as nothing."""
     if isinstance(message, AIMessage):
-        return list(build_agent_entries(message))
+        return list(build_agent_entries(message, tool_names_by_call=tool_names_by_call))
     if isinstance(message, ToolMessage):
         return [build_tool_entry(message, tool_names_by_call=tool_names_by_call, view=view)]
     if isinstance(message, HumanMessage):
@@ -242,10 +332,26 @@ def build_message_entries(
     return []
 
 
+def read_provider_tool_names_by_call(message: AIMessage) -> dict[str, str]:
+    """Return the name of each built-in tool call the provider ran in a message, by id."""
+    names: dict[str, str] = {}
+    for block in message.content_blocks:
+        if block["type"] == "server_tool_call" or block["type"] == "server_tool_call_chunk":
+            call_id = block.get("id")
+            name = block.get("name")
+            if call_id and name:
+                names[call_id] = name
+    return names
+
+
 def read_tool_names_by_call(message: AIMessage) -> dict[str, str]:
-    """Return the tool name of each call in an agent message, malformed ones included, by id."""
+    """Return the tool name of each call in an agent message by id.
+
+    Malformed calls and the provider's built-in tool calls are included.
+    """
     calls: list[ToolCall | InvalidToolCall] = [*message.tool_calls, *message.invalid_tool_calls]
-    return {call["id"]: call["name"] for call in calls if call["id"] and call["name"]}
+    names = {call["id"]: call["name"] for call in calls if call["id"] and call["name"]}
+    return {**names, **read_provider_tool_names_by_call(message)}
 
 
 def build_transcript_entries(
@@ -307,18 +413,24 @@ def render_proposed_step(proposal: AIMessage, *, view: MonitorView) -> str:
     """Render the step the agent proposes, wrapped in a `proposed_step` tag.
 
     The view decides what the monitor reads of the history, not of the step it
-    judges: the step's tool calls, malformed ones included, are its action, so
-    they are shown whatever the view. A proposal without tool calls is a final
-    answer, and the answer is then the step's action, so its text is shown
-    even when the view leaves out agent prose. A proposal whose calls are all
-    malformed is a final answer too, because none of them can run; they are
-    shown with it, as evidence of what the agent tried.
+    judges: the step's tool calls, malformed ones and the provider's built-in
+    ones included, are its action, so they are shown whatever the view. A
+    proposal without tool calls is a final answer, and the answer is then the
+    step's action, so its text is shown even when the view leaves out agent
+    prose. A proposal whose calls are all malformed is a final answer too,
+    because none of them can run; they are shown with it, as evidence of what
+    the agent tried. So is a proposal whose only calls the provider already
+    ran, which are shown with it.
     """
     is_final_answer = not proposal.tool_calls
     channels = view.channels | Channel.TOOL_CALLS
     if is_final_answer:
         channels |= Channel.AGENT_TEXT
-    parts = [entry.text for entry in build_agent_entries(proposal) if entry.channel in channels]
+    entries = build_agent_entries(
+        proposal,
+        tool_names_by_call=read_provider_tool_names_by_call(proposal),
+    )
+    parts = [entry.text for entry in entries if entry.channel in channels]
     return "<proposed_step>\n" + "\n".join(parts) + "\n</proposed_step>"
 
 
@@ -326,6 +438,7 @@ def render_proposal_for_audit(proposal: AIMessage) -> str:
     """Render a proposal with every channel, for the human auditors reading `monitor_log`.
 
     Malformed tool calls are included, so the record keeps what the agent
-    tried even though nothing ran.
+    tried even though nothing ran, and so are the provider's built-in tool
+    calls and their full results, which ran before the monitor judged.
     """
     return render_proposed_step(proposal, view=MonitorView(channels=Channel.ALL))

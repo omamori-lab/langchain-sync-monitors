@@ -58,10 +58,12 @@ flowchart LR
     channelCalls --> tagCall["tool_call"]
     channelCalls --> tagMalformed["malformed_tool_call"]
     channelCalls --> tagError["tool_error"]
+    channelCalls --> tagProviderCall["provider_tool_call"]
     channelReports --> tagReport["subagent_report"]
     channelReasoning --> tagReasoning["agent_reasoning"]
     channelText --> tagAgent["agent"]
     channelResults --> tagResult["tool_result"]
+    channelResults --> tagProviderResult["provider_tool_result"]
 ```
 
 | Tag | Channel | What it holds |
@@ -73,11 +75,13 @@ flowchart LR
 | `<tool_call name="...">` | `TOOL_CALLS` | A tool call, with its arguments as JSON. |
 | `<malformed_tool_call name="...">` | `TOOL_CALLS` | A call whose arguments could not be parsed, with the raw argument text. It never ran. |
 | `<tool_error name="...">` | `TOOL_CALLS` | A tool result with `status="error"`: the call failed or did not run, for example because a person rejected it, the tool does not exist or the tool raised. |
+| `<provider_tool_call name="...">` | `TOOL_CALLS` | A built-in tool of the model provider, such as Anthropic's web fetch or OpenAI's web search, which the provider ran inside the model call. It holds the call's `args` and any provider `extras` as JSON. It ran before the monitor judged the step. |
 | `<tool_result name="...">` | `TOOL_RESULTS` | What a tool returned. |
+| `<provider_tool_result name="...">` | `TOOL_RESULTS` | What a provider's built-in tool returned. |
 | `<subagent_report name="...">` | `SUBAGENT_REPORTS` | What a delegation tool returned: a subagent's report. |
 | `<agent>` | `AGENT_TEXT` | What the agent wrote. |
 | `<agent_reasoning>` | `REASONING` | The agent's chain of thought. |
-| `<proposed_step>` | always shown | The step being judged: its tool calls and malformed calls in every view, its text when it is a final answer, and the rest of it that the view shows. |
+| `<proposed_step>` | always shown | The step being judged: its tool calls, malformed calls and provider tool calls in every view, its text when it is a final answer, and the rest of it that the view shows. |
 
 A few rules hold in every view:
 
@@ -93,11 +97,16 @@ A few rules hold in every view:
   that shows a call also shows that it failed or was blocked, even a view
   without tool results.
 - **The step's action.** The tool calls of the proposed step are the action
-  the protocol gates, so `<proposed_step>` shows them, and its malformed calls,
-  even when the view leaves out `TOOL_CALLS`. A proposed step with no tool
-  calls is the agent's final answer, and the answer is then the step's action,
-  so `<proposed_step>` shows the answer's text even when the view leaves out
-  `AGENT_TEXT`.
+  the protocol gates, so `<proposed_step>` shows them, its malformed calls and
+  its provider tool calls, even when the view leaves out `TOOL_CALLS`. A
+  proposed step with no tool calls is the agent's final answer, and the answer
+  is then the step's action, so `<proposed_step>` shows the answer's text even
+  when the view leaves out `AGENT_TEXT`.
+- **Provider tools.** A provider's built-in tools run at the provider, inside
+  the model call, before the monitor judges the step. The monitor reads them,
+  and a suspicious score still decides what happens to the rest of the step,
+  but it cannot stop a call that has already run. The log records keep their
+  calls and full results.
 - **Escaping.** Content is HTML-escaped, so text inside a tool result or a
   report cannot close its tag and pose as a message from the user.
 - **System messages** are never rendered.

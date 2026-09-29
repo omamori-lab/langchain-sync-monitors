@@ -142,7 +142,20 @@ but persuasive reasoning can also talk a monitor out of a correct flag
 `transcript.py` renders the entries as tagged text: `<user>`, `<agent>`,
 `<agent_reasoning>`, `<tool_call>`, `<tool_result>`, `<subagent_report>` and,
 for the step being judged, `<proposed_step>`. Content is HTML-escaped, so text
-inside a tool result cannot close a tag and pose as another entry.
+inside a tool result cannot close a tag and pose as another entry. The view
+selects what the monitor reads of the history; the step being judged always
+shows its tool calls, whatever the view, because they are the action the
+protocol gates.
+
+A provider's built-in tools, such as Anthropic's web fetch or OpenAI's web
+search, run at the provider inside the model call, so they have run before the
+monitor sees the step. LangChain gives them to every provider as standard
+`server_tool_call` and `server_tool_result` blocks [@langchaincore2026], which
+the monitor renders as `<provider_tool_call>` beside the tool calls and
+`<provider_tool_result>` beside the tool results. The judge reads them and the
+audit record keeps them, and a suspicious score still decides what happens to
+the rest of the step, but a synchronous monitor cannot stop a call that has
+already run.
 
 Only the task author's own words authorise an action, so three kinds of entry
 guard against a forged approval:

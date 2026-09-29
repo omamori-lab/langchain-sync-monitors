@@ -14,10 +14,12 @@ import re
 from pathlib import Path
 
 import bibtexparser
+import pytest
 from bibtexparser.bparser import BibTexParser
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 BIBLIOGRAPHY_PATH = REPOSITORY_ROOT / "docs" / "references.bib"
+PLANS_PATH = REPOSITORY_ROOT / "docs" / "plans"
 CITING_DIRECTORIES = ("src", "docs")
 CITING_SUFFIXES = frozenset({".py", ".md"})
 CITATION_GROUP_PATTERN = re.compile(r"\[(@[^\]]+)\]")
@@ -76,9 +78,10 @@ def test_every_bibliography_entry_is_cited() -> None:
     assert uncited == [], f"Entries in docs/references.bib that nothing cites: {uncited}"
 
 
+@pytest.mark.skipif(not PLANS_PATH.is_dir(), reason="the sdist leaves out docs/plans")
 def test_plan_notes_are_read_for_citations() -> None:
     # Arrange
-    plans_directory = Path("docs") / "plans"
+    plans_directory = PLANS_PATH.relative_to(REPOSITORY_ROOT)
 
     # Act
     citing_paths = {path for paths in collect_citations().values() for path in paths}

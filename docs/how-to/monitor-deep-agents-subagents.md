@@ -276,8 +276,8 @@ Things to know when you read it:
 
 - **Step numbers restart for each delegated task.** A subagent starts every
   task with an empty log, so two delegations to the analyst both begin at
-  step 1. Records from subagents that run in parallel follow one another in
-  the order their tasks finished.
+  step 1. Each delegation's records arrive together, when its task returns,
+  so they stay next to one another in the parent's log.
 - **The parent's halt has no samples.** When `STOP_WHOLE_RUN` stops the
   parent, its record has the outcome `halted`, is flagged, and holds no
   samples, because the parent's model was never called.

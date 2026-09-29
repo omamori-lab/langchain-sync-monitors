@@ -98,11 +98,16 @@ honest_scores = [
 flag_threshold = statistics.quantiles(honest_scores, n=100)[97]
 ```
 
-`honest_results` holds the results of your honest runs. With a threshold at
-the 98th percentile, about 2% of honest steps are flagged. Another route is to
-wrap the monitor in `CalibratedMonitor`, which reports each step's suspicion as
-its rank among honest-run scores, so that a threshold of 0.98 flags about 2%
-of honest steps whatever the monitor.
+`honest_results` holds the results of your honest runs. When scores are
+fine-grained, a threshold at the 98th percentile flags about 2% of honest
+steps.
+A single chat judge scores in steps of 0.1, though, so many honest steps share
+a score, and the percentile can fall inside a group of tied scores. The share
+flagged then lands well away from 2% [@kaufman2025basharena;
+@koran2026ensemble]. Two wrappers help: `RepeatedMonitor` averages several
+calls of the monitor, which spreads the scores out, and `CalibratedMonitor`
+reports each step's suspicion as its rank among honest-run scores, breaking
+ties at random, so that a threshold of 0.98 flags about 2% of honest steps.
 
 ## Read the outcome in `monitor_log`
 

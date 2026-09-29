@@ -61,7 +61,7 @@ def find_closing_fence(lines: list[str], *, start: int, fence: str) -> int:
     """Return the index of the line that closes `fence`, or the line count when none does.
 
     A closing fence uses the opening fence's character, at least as many times,
-    and nothing else, as CommonMark specifies; an unclosed block runs to the end.
+    and nothing else; an unclosed block runs to the end of the page.
     """
     closing = re.compile(rf"[ \t]*{re.escape(fence[0])}{{{len(fence)},}}[ \t]*")
     for index in range(start, len(lines)):

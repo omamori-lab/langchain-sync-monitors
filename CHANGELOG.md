@@ -114,8 +114,8 @@ change raises the minor version.
 - The monitor writes a note's tag into the message in the agent's state too,
   so a saved or replayed history keeps it.
 - A message a tool writes never carries the monitor's own `lc_source`, and a
-  tool that writes back a message by id keeps its author only if the message
-  is unchanged.
+  tool that writes back a message by id keeps its author only if the whole
+  message is unchanged, its metadata included.
 - After a run that stopped before its end, such as one whose model call raised
   or whose client cancelled it, the next run's new messages, the user's own
   included, are notes from `unconfirmed_input` for the rest of the thread: the

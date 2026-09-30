@@ -275,16 +275,15 @@ def is_unchanged_write_back(
     """Tell whether a tool writes back, under its id, a message the state holds unchanged.
 
     Such a message keeps its author, as when a tool rewrites the history.
-    One whose type, words or tag the tool changed does not: a tool that edits
-    a message by id must not put the agent's words in the user's.
+    One the tool changed in any field does not: a tool that edits a message
+    by id must not put the agent's words in the user's. Metadata can change
+    what a message says, too: Deep Agents' `FilesystemMiddleware` shows a
+    human message that carries `additional_kwargs["lc_evicted_to"]` as a stub
+    that names that path [@deepagents2026]. So the whole message is compared,
+    its type included.
     """
     existing = existing_messages.get(message.id) if message.id else None
-    return (
-        existing is not None
-        and existing.type == message.type
-        and existing.content == message.content
-        and read_message_source(existing) == read_message_source(message)
-    )
+    return existing is not None and existing == message
 
 
 def relabel_tool_command(

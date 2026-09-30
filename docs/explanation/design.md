@@ -202,11 +202,15 @@ guard against a forged approval:
   it. The monitor's `wrap_tool_call` tags the new human messages a tool
   writes where they are written, with the tool's name as their source,
   whether the tool returns a `Command`, a list of commands and tool
-  messages, or messages as dictionaries. A message a tool writes back
+  messages, or messages as dictionaries. A message a tool writes back wholly
   unchanged, with the id of one already in the state, as a tool that
-  rewrites the history does, keeps its author. One whose words, type or tag
-  the tool changed does not: a tool that edits a message by id writes a note
-  named after the tool, so it cannot put the agent's words in the user's.
+  rewrites the history does, keeps its author. One the tool changed in any
+  field does not, its metadata included, since metadata can change what a
+  message says: Deep Agents' `FilesystemMiddleware` shows a human message
+  that carries `additional_kwargs["lc_evicted_to"]` as a stub that names
+  that path [@deepagents2026]. A tool that edits a message by id thus writes
+  a note named after the tool, so it cannot put the agent's words in the
+  user's.
   Before a monitor judges a step, every untagged
   human message whose id is not recorded as input is tagged as a note in the
   monitor's copy of the model request, which can hold messages the state

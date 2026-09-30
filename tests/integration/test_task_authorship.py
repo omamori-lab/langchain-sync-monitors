@@ -17,7 +17,7 @@ import pytest
 from langchain.agents import create_agent
 from langchain.agents.middleware import AgentMiddleware, HumanInTheLoopMiddleware
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, ToolMessage
-from langchain_core.runnables import Runnable, RunnableConfig
+from langchain_core.runnables import RunnableConfig
 from langchain_core.tools import BaseTool, InjectedToolCallId, tool
 from langgraph.checkpoint.memory import InMemorySaver
 from langgraph.graph.state import CompiledStateGraph
@@ -43,6 +43,7 @@ from tests.support.agents import (
     build_read_step,
     build_thread_config,
     run_agent,
+    run_messages,
 )
 from tests.support.chat_models import ScriptedChatModel, build_tool_call_message
 from tests.support.monitors import RenderingMonitor, read_tagged_entries
@@ -117,19 +118,6 @@ def build_monitored_agent(
         middleware=middleware,
         checkpointer=checkpointer,
     )
-
-
-def run_messages(
-    agent: Runnable[Any, Any],
-    messages: object,
-    *,
-    mode: RunMode,
-    config: RunnableConfig | None = None,
-) -> dict[str, Any]:
-    payload = {"messages": messages}
-    if mode == "invoke":
-        return cast("dict[str, Any]", agent.invoke(payload, config))
-    return cast("dict[str, Any]", asyncio.run(agent.ainvoke(payload, config)))
 
 
 def read_authors_and_notes(monitor: RenderingMonitor) -> tuple[list[str], list[str]]:

@@ -289,9 +289,9 @@ web page, a file or an argument the agent chose, which is escaped and never
 read as a tag.
 
 Telling a run's input from the rest still has two open paths, both through
-another middleware's hooks. Such a message can carry the agent's own words, as
-Deep Agents' final answer guard quotes a value the agent chose
-[@deepagents2026]. The two paths are these:
+the hooks of a middleware listed before the monitor. Such a message can carry
+the agent's own words, as Deep Agents' final answer guard quotes a value the
+agent chose [@deepagents2026]. The two paths are these:
 
 - A `before_agent` hook of a middleware listed before the monitor runs before
   the monitor's own, so an untagged human message it writes counts as the

@@ -150,7 +150,8 @@ def run_synchronously[ResultT](coroutine: Coroutine[object, object, ResultT]) ->
 
 def find_proposal(response: AgentModelResponse) -> AIMessage:
     """Return the step a model call proposes: the first AI message of its response."""
-    # With structured output through a tool, LangChain puts tool messages after the AI message.
+    # With structured output through a tool, the result also holds tool messages, so the loop
+    # skips anything that is not an AI message.
     for message in response.result:
         if isinstance(message, AIMessage):
             return message

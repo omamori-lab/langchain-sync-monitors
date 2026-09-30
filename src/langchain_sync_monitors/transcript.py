@@ -460,7 +460,7 @@ def build_transcript_entries(
     tool_names_by_call: dict[str, str] = {}
     entries: list[TranscriptEntry] = []
     for message in history:
-        # A tool result names its call by id alone, so names come from the AI messages before it.
+        # A tool result may name its call by id alone, so the AI messages before it supply names.
         if isinstance(message, AIMessage):
             tool_names_by_call.update(read_tool_names_by_call(message))
         entries.extend(

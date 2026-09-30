@@ -376,7 +376,8 @@ def build_span_manager[ManagerT: (CallbackManager, AsyncCallbackManager)](
         metadata=dict(source.inheritable_metadata),
         inheritable_metadata=dict(source.inheritable_metadata),
     )
-    # Not inherited, so the runs nested in the span keep the tags and metadata LangChain gives.
+    # Not inherited, so the span's own tags, labels and metadata do not spread to the runs
+    # nested in it.
     callback_manager.add_tags(list(span.tags), inherit=False)
     callback_manager.add_metadata({**(span_labels.get() or {}), **span.metadata}, inherit=False)
     return callback_manager

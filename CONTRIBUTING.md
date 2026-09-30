@@ -143,8 +143,9 @@ A repository administrator does this once, before the first release:
    who releases bypass that rule, because the script pushes the release commit
    to `main`.
 
-The required reviewers and the tag ruleset are the controls that hold, against
-anyone who is not an administrator; an administrator can bypass both. The
+The required reviewers and the tag ruleset are the controls that hold. An
+administrator can bypass the reviewer, and the ruleset too when its bypass list
+includes them. The
 Release workflow's own checks catch mistakes, but they run from the tagged
 commit's copy of the workflow, which anyone with write access can change.
 

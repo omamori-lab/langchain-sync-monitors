@@ -4,9 +4,9 @@ name: Release
 # scripts/release.sh tags a commit on main and creates that Release. The
 # workflow:
 #   1. checks that the Release is not a pre-release, that the pypi
-#      environment has a required reviewer, that the tag is vX.Y.Z and names a commit on main, and that it agrees
-#      with __version__, CITATION.cff and CHANGELOG.md
-#      (scripts/check-release.sh);
+#      environment has a required reviewer, that the tag is vX.Y.Z and
+#      names a commit on main, and that it agrees with __version__,
+#      CITATION.cff and CHANGELOG.md (scripts/check-release.sh);
 #   2. runs the whole CI workflow on the tagged commit;
 #   3. builds the sdist and the wheel once, records their SHA-256 digests,
 #      checks them with twine, and installs the wheel into fresh

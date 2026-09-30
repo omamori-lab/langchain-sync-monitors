@@ -28,7 +28,9 @@ Contents:
   `<label>_suspicion`, on the `monitor step` span, from one background worker
   per process.
 - **Owner decisions kept.** D3: no trace-retention extension, so no change to
-  the LangSmith bill. D6: the judge's reason is never sent, since neither SDK
+  the LangSmith bill. The tier is not visible through the API, so this rests
+  on sending `extend_trace_retention: false` and on LangSmith's retention
+  docs. D6: the judge's reason is never sent, since neither SDK
   masks feedback or score comments; only numbers and ids leave the process.
 - **No SDK.** Both writers call the public HTTP APIs with httpx and retry with
   stamina, so the library takes no new dependency and no SDK floor. The
@@ -68,9 +70,10 @@ Contents:
 
 - **Finding the step.** `GET /api/public/v2/observations`, the only real-time
   read path, with `fields=core,basic,metadata`.
-  - One query per window serves every waiting step: name `monitor step` and
-    `startTime` at or after the earliest waiting step's start, less 5 seconds.
-    The ids are matched in the library.
+  - One query per window serves every waiting step: name `monitor step`, and
+    `startTime` from the earliest waiting step's start less 5 seconds to the
+    latest one's plus 5 seconds. The ids are matched in the library. Live,
+    the bounded query returned exactly the 4 steps it was built for.
   - A multi-value filter on the metadata key does not work: a
     `categoryOptions` `any of` filter on `metadata` returned `400`, "Expected
     filter type 'stringObject'" (live).
@@ -135,6 +138,7 @@ Contents:
 | A LangSmith feedback posted again with its id | `200`, and still one feedback |
 | A Langfuse score sent again with its id | `207` with success, and still one score |
 | A run that failed with `GraphRecursionError` part way | Its three steps' scores were written in both tools, during the run and at exit |
+| The tracing guide's suspicion queries | LangSmith runs filtered with `and(eq(feedback_key, "monitor_suspicion"), gte(feedback_score, 0.5))`, and Langfuse's v3 scores with `name`, `dataType` `NUMERIC` and `valueMin` 0.5, each returned exactly the two steps judged 0.9 |
 | Spend | $0.0026 measured for the two real-model runs; the failed first attempt was not metered and made about 7 calls at about $0.0003 each |
 
 ## Corrections to the plan
@@ -143,8 +147,8 @@ Contents:
   retention extension. It does not: `feedback_source` only labels who wrote
   the feedback. `extend_trace_retention: false` avoids the extension.
 - **No metadata `any of`.** The plan's `metadata_is_any_of` lookup does not
-  exist in the API. The lookup filters by name and start time instead, and
-  matches the ids in the library.
+  exist in the API. The lookup filters by name and a start-time window
+  instead, and matches the ids in the library.
 - **Where the scores are posted.** They go through `/api/public/ingestion`
   as `score-create` events, not `POST /api/public/scores`, for the rate-limit
   reason above.

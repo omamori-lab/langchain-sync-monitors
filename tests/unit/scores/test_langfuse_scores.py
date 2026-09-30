@@ -74,7 +74,7 @@ def test_one_lookup_finds_every_waiting_step_and_one_request_writes_their_scores
     assert sorted(item["value"] for item in service.scores.values()) == [0.2, 0.5, 0.9]
 
 
-def test_the_lookup_asks_for_monitor_steps_since_the_earliest_waiting_step_began() -> None:
+def test_the_lookup_asks_for_monitor_steps_that_started_while_the_waiting_steps_did() -> None:
     # Arrange
     service = FakeLangfuse()
     earlier = build_score()
@@ -89,9 +89,11 @@ def test_the_lookup_asks_for_monitor_steps_since_the_earliest_waiting_step_began
     assert lookup.url.params["limit"] == "1000"
     assert "cursor" not in lookup.url.params
     since = read_step_start(earlier.step_id) - START_TIME_MARGIN
+    latest = read_step_start(later.step_id) + START_TIME_MARGIN
     assert read_lookup_filter(lookup) == [
         {"type": "string", "column": "name", "operator": "=", "value": "monitor step"},
         {"type": "datetime", "column": "startTime", "operator": ">=", "value": since.isoformat()},
+        {"type": "datetime", "column": "startTime", "operator": "<=", "value": latest.isoformat()},
     ]
 
 
@@ -238,15 +240,8 @@ def test_a_rate_limit_on_a_later_page_keeps_every_score_waiting() -> None:
     on_second_page = build_score()
     service.add_step(str(found_first.step_id))
     service.add_step(str(on_second_page.step_id))
-    first_page = build_sender(service).build_lookup(
-        since=datetime.now(UTC) - timedelta(hours=1), cursor=None
-    )
     service.queued_answers = [
-        httpx.Response(
-            200,
-            json={"data": [service.observations[0]], "meta": {"cursor": "1"}},
-            request=first_page,
-        ),
+        httpx.Response(200, json={"data": [service.observations[0]], "meta": {"cursor": "1"}}),
         httpx.Response(429, headers={"Retry-After": "5"}),
     ]
 

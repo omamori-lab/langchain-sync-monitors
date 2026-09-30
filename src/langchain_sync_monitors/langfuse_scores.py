@@ -38,7 +38,7 @@ MAX_OBSERVATION_PAGES: Final = 5
 """The most pages one window reads, each one request against the rate limit."""
 
 START_TIME_MARGIN: Final = timedelta(seconds=5)
-"""How far before the earliest waiting step's start the lookup reaches."""
+"""How far before the earliest and after the latest waiting step's start the lookup reaches."""
 
 UNKNOWN_START_REACH: Final = timedelta(hours=1)
 """How far back the lookup reaches for a step whose id does not say when it began."""
@@ -139,7 +139,7 @@ class ObservationFilter(TypedDict):
 
     type: Literal["string", "datetime"]
     column: str
-    operator: Literal["=", ">="]
+    operator: Literal["=", ">=", "<="]
     value: str
 
 
@@ -164,12 +164,42 @@ class LangfuseScoreEvent(BaseModel):
     body: LangfuseScoreBody
 
 
-def build_step_filter(since: datetime) -> list[ObservationFilter]:
-    """Return the filter for the `monitor step` observations that started at `since` or later."""
+@dataclass(frozen=True, slots=True, kw_only=True)
+class StartWindow:
+    """When the waiting steps started, widened by `START_TIME_MARGIN` on both sides."""
+
+    earliest: datetime
+    latest: datetime
+
+
+def read_start_window(scores: Sequence[PendingScore]) -> StartWindow:
+    """Return the window in which every waiting step's span started."""
+    starts = [read_step_start(score.step_id) for score in scores]
+    return StartWindow(
+        earliest=min(starts) - START_TIME_MARGIN,
+        latest=max(starts) + START_TIME_MARGIN,
+    )
+
+
+def build_step_filter(window: StartWindow) -> list[ObservationFilter]:
+    """Return the filter for the `monitor step` observations that started within the window.
+
+    The upper bound keeps each lookup to the steps that wait, so a busy
+    project's later steps do not fill its pages.
+    """
     return [
         ObservationFilter(type="string", column="name", operator="=", value=STEP_SPAN_NAME),
         ObservationFilter(
-            type="datetime", column="startTime", operator=">=", value=since.isoformat()
+            type="datetime",
+            column="startTime",
+            operator=">=",
+            value=window.earliest.isoformat(),
+        ),
+        ObservationFilter(
+            type="datetime",
+            column="startTime",
+            operator="<=",
+            value=window.latest.isoformat(),
         ),
     ]
 
@@ -264,9 +294,10 @@ class LangfuseScoreSender:
     step is found by the `monitor_step_id` its `monitor step` observation
     carries, through `GET /api/public/v2/observations`, the only real-time
     read path [@langfuse2026api]. One query serves every waiting step: the
-    observations named `monitor step` that started since the earliest
-    waiting step began, matched here by id, since the API filters metadata
-    on one value only. Pages follow the cursor, up to `MAX_OBSERVATION_PAGES`.
+    observations named `monitor step` that started between the earliest and
+    the latest waiting step's start, matched here by id, since the API
+    filters metadata on one value only. Pages follow the cursor, up to
+    `MAX_OBSERVATION_PAGES`.
 
     The scores found go in one `POST /api/public/ingestion`, as
     `score-create` events, which is how Langfuse's own SDK sends scores
@@ -301,11 +332,11 @@ class LangfuseScoreSender:
     ) -> tuple[dict[str, LangfuseObservation], float | None]:
         """Return the waiting steps' observations found, and the pause a `429` asks for, if any."""
         wanted = {str(score.step_id) for score in scores}
-        since = min(read_step_start(score.step_id) for score in scores) - START_TIME_MARGIN
+        window = read_start_window(scores)
         found: dict[str, LangfuseObservation] = {}
         cursor: str | None = None
         for _ in range(MAX_OBSERVATION_PAGES):
-            request = self.build_lookup(since=since, cursor=cursor)
+            request = self.build_lookup(window=window, cursor=cursor)
             response = send_request(self.http_client, request=request)
             if response is not None and is_rate_limited(response):
                 return found, read_pause_seconds(response)
@@ -318,12 +349,12 @@ class LangfuseScoreSender:
                 break
         return found, None
 
-    def build_lookup(self, *, since: datetime, cursor: str | None) -> httpx.Request:
-        """Return the request for one page of the `monitor step` observations since `since`."""
+    def build_lookup(self, *, window: StartWindow, cursor: str | None) -> httpx.Request:
+        """Return the request for one page of the `monitor step` observations in the window."""
         parameters = {
             "fields": "core,basic,metadata",
             "limit": str(OBSERVATION_PAGE_SIZE),
-            "filter": json.dumps(build_step_filter(since)),
+            "filter": json.dumps(build_step_filter(window)),
         }
         if cursor is not None:
             parameters["cursor"] = cursor

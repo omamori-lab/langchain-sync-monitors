@@ -53,8 +53,9 @@ class MonitorState(AgentState):
     reducer keeps the latest entry for each monitor.
 
     These four are private, so a subagent starts without its parent's and
-    returns none of its own, and their reducers let stacked monitors write
-    them in one node.
+    returns none of its own, and a run's result leaves them out, though
+    `stream_mode="values"`, `stream_mode="updates"` and `get_state` show
+    them. Their reducers let stacked monitors write them in one node.
     """
 
     monitor_log: NotRequired[Annotated[list[StepRecord], OmitFromInput, operator.add]]

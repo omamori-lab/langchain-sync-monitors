@@ -216,7 +216,9 @@ guard against a forged approval:
   human message whose id is not recorded as input is tagged as a note in the
   monitor's copy of the model request, which can hold messages the state
   lacks. The two lists and the flag below are private state, so a subagent
-  starts with none of them and returns none of them.
+  starts with none of them and returns none of them. A run's result leaves
+  them out too, though `stream_mode="values"`, `stream_mode="updates"` and
+  `get_state` show them.
 
   A run can stop before its end: a model, monitor or fallback call raises,
   it hits its recursion limit, the client stops reading its stream or

@@ -258,7 +258,7 @@ what they show:
 |---|---|
 | `stream_mode="messages"` | Only committed steps, each streamed whole once the protocol commits it, not token by token. Rejected samples and the monitor's own calls never appear. |
 | `stream_mode="custom"` | One `monitor_step` event per committed step, and a `monitor_step_failed` event per failed one |
-| `stream_mode="values"` or `"updates"` | The state, whose `monitor_log` holds every judged sample, rejected ones included |
+| `stream_mode="values"` or `"updates"` | The state, whose `monitor_log` holds every judged sample, rejected ones included, with the monitor's private keys, which `get_state` shows too and a run's result leaves out |
 | `astream_events` or `astream_log` | Every model call, live, as it runs: every sample before the protocol decides, rejected ones included, the monitor's own calls, and the monitor's spans |
 
 `astream_events` and `astream_log` are not filtered. A user interface should

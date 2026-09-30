@@ -98,7 +98,7 @@ validation:
   anchors: warn
 
 nav:
-  - Home: index.md
+  - langchain-sync-monitors: index.md
   - Tutorials:
       - tutorials/index.md
       - Monitor your first agent: tutorials/first-monitored-agent.md

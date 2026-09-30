@@ -373,7 +373,7 @@ When you read it:
   thread's count, so delegating again does not reset it. Subagents that run
   in parallel do not see each other's blocks, so together they can pass the
   total; their parent counts every one of them at its next step. See
-  [Use Auto Mode](use-auto-mode.md#thresholds-and-limits).
+  [Thresholds and limits](use-auto-mode.md#thresholds-and-limits).
   `max_consecutive_blocks` still counts one step of one agent.
 - **The parent's monitor reads subagent reports.** The default view shows the
   parent's monitor each subagent's final report as `<subagent_report>`, and

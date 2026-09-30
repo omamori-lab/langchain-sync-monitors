@@ -144,8 +144,9 @@ Three pieces work together here:
 The value 0.6 is the library's default. Passing it explicitly silences the
 `UncalibratedThresholdWarning` the default raises, but it is still a guess. A
 real threshold comes from the scores your monitor gives on honest runs of your
-own agent [@bhatt2025ctrlz]; the
-[Auto Mode guide](../how-to/use-auto-mode.md#thresholds-and-limits) says how.
+own agent [@bhatt2025ctrlz];
+[Calibrate the threshold](../how-to/use-trusted-monitoring.md#calibrate-the-threshold)
+says how.
 
 ## Print what the monitor recorded
 

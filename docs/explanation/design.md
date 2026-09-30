@@ -240,7 +240,7 @@ drop a message's `name`; a custom `FeedbackTemplate` or `HaltRun` message
 should too. The trusted model at the limit sees neither the blocked attempts
 nor the feedback.
 
-## What the judge reads {#what-the-monitor-reads}
+## What the judge reads
 
 Every transcript entry belongs to one `Channel`: `USER`, `REASONING`,
 `AGENT_TEXT`, `TOOL_CALLS`, `TOOL_RESULTS` or `SUBAGENT_REPORTS`. A
@@ -491,7 +491,7 @@ it are skipped. The model node cannot route itself: a routing edge reads a
 fresh copy of the state that keeps only its own node's writes, and `jump_to`
 is cleared everywhere else [@langgraph2026].
 
-### <span id="halts-fallbacks-and-failed-steps"></span>A halt stands
+### A halt stands
 
 The agent's end is not always the end of the run. `jump_to: "end"` reaches
 the agent's exit node, which is the first `after_agent` hook when there is one

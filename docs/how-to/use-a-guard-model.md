@@ -21,7 +21,7 @@ live tests use, with two additions that were not run live:
 
 - the second paragraph, since the monitor only tags a context note, and a
   guard learns that a note authorises nothing only from its policy (see
-  [Choose what the monitor reads](choose-what-the-monitor-reads.md#know-who-speaks-as-the-user));
+  [Know who speaks as the user](choose-what-the-monitor-reads.md#know-who-speaks-as-the-user));
 - the last sentence, which asks the guard not to open any other line with a
   label, because the monitor reads such a line as a possible verdict (see
   [Know how the label is read](#know-how-the-label-is-read)).

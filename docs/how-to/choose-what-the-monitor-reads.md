@@ -397,6 +397,6 @@ whatever the monitor read; see [Read the monitor log](read-the-monitor-log.md).
 
 - [Use a chat judge](use-a-chat-judge.md) for a monitor that takes a view.
 - [Monitor Deep Agents subagents](monitor-deep-agents-subagents.md) for what a subagent's monitor reads.
-- [How the library is built](../explanation/design.md#task-authorship-and-notes) for how the monitor tells a run's input from other messages.
+- [Task authorship and notes](../explanation/design.md#task-authorship-and-notes) for how the monitor tells a run's input from other messages.
 
 ## References

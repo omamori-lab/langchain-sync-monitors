@@ -122,8 +122,8 @@ harness nudge, not an `unconfirmed_input` note. Two open paths remain, both
 through a middleware listed before the monitor: an untagged human message its
 `before_agent` hook writes, or one its `after_agent` hook writes without
 sending the run back to the model, counts as the user's input and lifts the
-halt. [Halts, fallbacks and failed steps](../explanation/design.md#halts-fallbacks-and-failed-steps)
-explains the rule.
+halt. [A halt stands](../explanation/design.md#a-halt-stands) explains the
+rule.
 
 ### Tell apart the records without samples
 

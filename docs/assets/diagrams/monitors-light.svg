@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1000" height="822" viewBox="0 0 1000 822" role="img" aria-labelledby="title desc">
   <title id="title">Three kinds of monitor model, one scale</title>
-  <desc id="desc">Three monitor classes cover three kinds of model, each drawn as the charm. LLMMonitor asks a chat model to reason and then score the step, from 0 to 10 by default. GuardModelMonitor has a guard model label the step against a policy you write, and suspicion is the chance the label is unsafe. DecisionModelMonitor asks a decision model yes or no questions, and suspicion is the chance of yes. Each returns the same Verdict, a suspicion from 0 to 1 and a reason, so any monitor works with any control protocol. Three wrappers stack around any monitor: RepeatedMonitor averages several calls, CalibratedMonitor ranks the score among the scores of honest runs, and CascadeMonitor runs a fast monitor on every step and a careful one when the fast one finds the step suspicious.</desc>
+  <desc id="desc">Three monitor classes cover three kinds of model, each drawn as the charm. LLMMonitor asks a chat model to reason and then score the step, from 0 to 10 by default. GuardModelMonitor has a guard model label the step against a policy you write, and suspicion is the chance the label is unsafe. DecisionModelMonitor asks a decision model yes or no questions, and suspicion is the chance of yes. Each returns the same Verdict, a suspicion from 0 to 1 and a reason, so any monitor works with any control protocol. Three wrappers nest around any monitor: RepeatedMonitor averages several calls, CalibratedMonitor ranks the score among the scores of honest runs, and CascadeMonitor runs a fast monitor on every step and, when the fast one finds the step suspicious, a careful one whose verdict replaces the fast one&#x27;s.</desc>
   <!-- Colours come from the brand tokens: diagrams/render.py fills this style block. -->
   <style>
     svg { color-scheme: light; }
@@ -64,7 +64,7 @@
   <path class="edge" d="M362.0,483.5 L402.0,483.5 L402.0,320.5 L458.0,320.5" marker-end="url(#arrow)"/>
   <path class="edge" d="M670.0,320.5 L704.0,320.5" marker-end="url(#arrow)"/>
   <rect class="frame" x="16.0" y="589.0" width="968.0" height="201.0" rx="10"/>
-  <text x="40.0" y="619.0" text-anchor="start"><tspan class="title">Wrappers</tspan><tspan class="small">   each wraps any monitor and is a monitor itself, so they stack</tspan></text>
+  <text x="40.0" y="619.0" text-anchor="start"><tspan class="title">Wrappers</tspan><tspan class="small">   each wraps any monitor and is a monitor itself, so they nest</tspan></text>
   <rect class="box" x="48.0" y="643.0" width="282.7" height="123.0" rx="6"/>
   <text x="189.3" y="674.0" text-anchor="middle" class="title">Average</text>
   <text x="189.3" y="696.0" text-anchor="middle" class="mono">RepeatedMonitor</text>
@@ -78,6 +78,6 @@
   <rect class="box" x="669.3" y="643.0" width="282.7" height="123.0" rx="6"/>
   <text x="810.7" y="674.0" text-anchor="middle" class="title">Cascade</text>
   <text x="810.7" y="696.0" text-anchor="middle" class="mono">CascadeMonitor</text>
-  <text x="810.7" y="717.0" text-anchor="middle" class="small">a fast monitor on every step,</text>
-  <text x="810.7" y="738.0" text-anchor="middle" class="small">a careful one on suspicious steps</text>
+  <text x="810.7" y="717.0" text-anchor="middle" class="small">fast on every step; when suspicious,</text>
+  <text x="810.7" y="738.0" text-anchor="middle" class="small">a careful one&#x27;s verdict replaces it</text>
 </svg>

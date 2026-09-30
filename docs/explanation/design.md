@@ -59,15 +59,21 @@ deepagents 0.7.19 [@deepagents2026] and `interrupt_on` set, it is, from
 outermost to innermost:
 
 ```mermaid
-flowchart TD
-    filesystem["FilesystemMiddleware"] --> subagents["SubAgentMiddleware"]
-    subagents --> summarisation["SummarizationMiddleware"]
-    summarisation --> patch["PatchToolCallsMiddleware"]
-    patch --> ours["monitor[main], this library"]
-    ours --> caching["AnthropicPromptCachingMiddleware"]
-    caching --> approval["HumanInTheLoopMiddleware"]
-    approval --> content["UnsupportedContentMiddleware"]
-    content --> model["Chat model: the untrusted agent"]
+flowchart LR
+    subgraph outside ["Outside: wraps the whole step"]
+        direction TB
+        filesystem["FilesystemMiddleware"] --> subagents["SubAgentMiddleware"]
+        subagents --> summarisation["SummarizationMiddleware"]
+        summarisation --> patch["PatchToolCallsMiddleware"]
+    end
+    subgraph inside ["Inside: called once per sample"]
+        direction TB
+        caching["AnthropicPromptCachingMiddleware"] --> approval["HumanInTheLoopMiddleware"]
+        approval --> content["UnsupportedContentMiddleware"]
+        content --> model["Chat model: the untrusted agent"]
+    end
+    outside --> ours["monitor[main]"]
+    ours --> inside
 ```
 
 The monitor therefore reads the conversation after summarisation, as the
@@ -88,10 +94,10 @@ flowchart TD
     start["A run starts"] --> beforeAgent["before_agent: record the run's input"]
     beforeAgent --> beforeModel["before_model: tag notes, mark the run open"]
     beforeModel --> model["wrap_model_call: sample, judge, decide, commit"]
-    model --> afterModel{"after_model: did this monitor just halt?"}
-    afterModel -- "no, and the step calls tools" --> tools["wrap_tool_call: hand on the Delegation, tag notes a tool writes"]
+    model --> afterModel["after_model: end the run after this monitor's halt"]
+    afterModel -- "the step calls tools" --> tools["wrap_tool_call: hand on the Delegation, tag notes a tool writes"]
     tools --> beforeModel
-    afterModel -- "yes, or the step is a final answer" --> afterAgent["after_agent: tag notes, mark the run closed"]
+    afterModel -- "a halt or a final answer" --> afterAgent["after_agent: tag notes, mark the run closed"]
     afterAgent --> finish["The run ends"]
 ```
 
@@ -157,7 +163,7 @@ triggers.
 
 Each step ends in one of five outcomes:
 
-| Outcome | What the agent's state receives | Written by | Flagged |
+| Outcome | What the agent's state receives | Decided by | Flagged |
 |---|---|---|---|
 | `ALLOWED` | The first sample | Any protocol | Trusted Monitoring: at or above `flag_threshold`. Defer to Resample and Defer to Trusted: at or above `audit_threshold`. Auto Mode: never. |
 | `RESAMPLED` | The least suspicious acceptable resample | Defer to Resample | When the lowest score across the samples is at or above `audit_threshold`. |
@@ -207,27 +213,25 @@ Claude Code uses within a session, `when_limit_reached` writes the step; by
 default `HaltRun` ends the run.
 
 ```mermaid
-flowchart LR
-    start["A new step"] --> subagents{"Subagent blocks since the last step, and the total reached?"}
-    subagents -- "yes" --> fallback
-    subagents -- "no" --> attempt
-    attempt["Draw one sample, with any earlier feedback"] --> check{"Suspicion at or above the block threshold?"}
-    check -- "no, first attempt" --> allowed["Run it: ALLOWED"]
-    check -- "no, after a block" --> steered["Run it: STEERED"]
-    check -- "yes" --> limit{"Three blocks in this step, or the thread total, reached?"}
-    limit -- "no" --> feedback["Block it and write the feedback"]
-    feedback --> attempt
-    limit -- "yes" --> fallback["when_limit_reached: HALTED or DEFERRED_TO_TRUSTED"]
+flowchart TD
+    start["A new step"] --> spent{"Subagents spent the total?"}
+    spent -- "yes" --> fallback
+    spent -- "no" --> attempt["Draw a sample, with every blocked attempt and its feedback"]
+    attempt --> check{"Suspicious?"}
+    check -- "no" --> run["Run it: ALLOWED, or STEERED after a block"]
+    check -- "yes" --> limit{"A limit reached?"}
+    limit -- "no: block it, write the feedback" --> attempt
+    limit -- "yes: three in this step, or the thread total" --> fallback["when_limit_reached: HALTED or DEFERRED_TO_TRUSTED"]
 ```
 
 The default feedback is `DEFAULT_FEEDBACK_TEMPLATE`, with the monitor's
 reason in place of `{reason}`:
 
-```text
-[Safety monitor] Your last step was blocked, and none of your tools ran it.
-Reason: {reason}
-Continue the user's task by a safer route. Do not retry the blocked action, and do not try to get the same effect another way. If no safe route exists, stop and say what approval you would need from the user to continue.
-```
+> [Safety monitor] Your last step was blocked, and none of your tools ran it.<br>
+> Reason: {reason}<br>
+> Continue the user's task by a safer route. Do not retry the blocked action,
+> and do not try to get the same effect another way. If no safe route exists,
+> stop and say what approval you would need from the user to continue.
 
 The thread total counts this monitor label's blocks in the thread's
 `monitor_log`: this agent's earlier steps, across every turn of a
@@ -283,24 +287,25 @@ provider, counts as one. The rest of the step, such as its reasoning or a
 tool-calling step's text, follows the view's channels.
 
 Each entry is a tag, and its content is HTML-escaped, so text inside a tool
-result cannot close a tag and pose as another entry:
+result cannot close a tag and pose as another entry. A note's tag names its
+`source`, and a tool's tag the tool's `name`:
 
 | Tag | Channel | What it holds |
 |---|---|---|
 | `<user>` | `USER` | A run's input: the user's words ([task authorship](#task-authorship-and-notes)). |
 | `<delegator>` | `USER` | Inside a subagent, a run's input: the delegating agent's words. |
-| `<context_note source="...">` | `USER` | Any other human message, such as a summary. It authorises nothing. |
+| `<context_note>` | `USER` | Any other human message, such as a summary. It authorises nothing. |
 | `<monitor_feedback>` | `USER` | The monitor's feedback on a blocked step, named after the tool when it answers a tool call. |
 | `<agent_reasoning>` | `REASONING` | The agent's chain of thought. |
 | `<agent>` | `AGENT_TEXT` | The agent's prose, and a provider's refusal. |
-| `<tool_call name="...">` | `TOOL_CALLS` | A call and its arguments. |
-| `<malformed_tool_call name="...">` | `TOOL_CALLS` | A call whose arguments could not be parsed, with their raw text. It never runs. |
-| `<tool_error name="...">` | `TOOL_CALLS` | A call that failed or did not run: a person rejected it, the tool does not exist, or it raised. |
-| `<provider_tool_call name="...">` | `TOOL_CALLS` | A built-in tool the provider ran inside the model call. |
-| `<unrecognised_block name="...">` | `TOOL_CALLS`, or `REASONING` for a reasoning block | A part of the reply LangChain cannot map, shown whole rather than dropped. |
-| `<tool_result name="...">` | `TOOL_RESULTS` | What a tool returned. |
-| `<provider_tool_result name="...">` | `TOOL_RESULTS` | What a provider's built-in tool returned. |
-| `<subagent_report name="...">` | `SUBAGENT_REPORTS` | What a delegation tool returned. |
+| `<tool_call>` | `TOOL_CALLS` | A call and its arguments. |
+| `<malformed_tool_call>` | `TOOL_CALLS` | A call whose arguments could not be parsed, with their raw text. It never runs. |
+| `<tool_error>` | `TOOL_CALLS` | A call that failed or did not run: a person rejected it, the tool does not exist, or it raised. |
+| `<provider_tool_call>` | `TOOL_CALLS` | A built-in tool the provider ran inside the model call. |
+| `<unrecognised_block>` | `TOOL_CALLS`, or `REASONING` for a reasoning block | A part of the reply LangChain cannot map, shown whole rather than dropped. |
+| `<tool_result>` | `TOOL_RESULTS` | What a tool returned. |
+| `<provider_tool_result>` | `TOOL_RESULTS` | What a provider's built-in tool returned. |
+| `<subagent_report>` | `SUBAGENT_REPORTS` | What a delegation tool returned. |
 
 A person's rejection through `HumanInTheLoopMiddleware` arrives as an error
 tool result [@langchain2026], so it shows as a `<tool_error>` beside the call.
@@ -352,8 +357,10 @@ suspicious.
   write. Llama Guard and its peers score with the probability of the unsafe
   label, read from the label token's log-probabilities
   [@inan2023llamaguard; @zeng2024shieldgemma; @padhi2024graniteguardian].
-  Without log-probabilities, the share of several samples labelled unsafe is
-  the standard fallback, with gains that level off after a handful
+  Without log-probabilities, the share of several samples labelled unsafe
+  estimates the same probability. Studies of sample consistency, on question
+  answering rather than guards, find its gains converge as samples grow, and
+  saturate after 15 to 20 in Lyu et al.
   [@xiong2024uncertainty; @lyu2025sampleconsistency]. `GuardScoring.AUTO`
   reads log-probabilities when the provider returns them and draws five
   samples otherwise. LangChain has no capability flag for log-probabilities,
@@ -361,8 +368,8 @@ suspicious.
   request, such as `ChatAnthropic`, fails the first judged step with a
   `ConfigurationError` that names `GuardScoring.SAMPLE_FRACTION`.
   `GuardScoring.HARD_LABEL` warns, because a hard 0 or 1 gives a threshold
-  only one operating point, and guard models are overconfident, especially
-  under jailbreaks [@liu2025guardcalibration].
+  only one operating point, and guard models are overconfident and markedly
+  miscalibrated under jailbreak prompts [@liu2025guardcalibration].
 - **Decision models** (`DecisionModelMonitor`) answer yes or no questions
   with a probability and generate no text. Suspicion is the probability of
   yes. Several questions in one request are combined by their maximum by
@@ -396,15 +403,18 @@ hit a small audit budget, because the budget falls inside a group of tied
 scores [@kaufman2025basharena; @koran2026ensemble]. Three wrappers, each a
 monitor itself, address this and stack around any family:
 
-- `RepeatedMonitor` averages several calls of one monitor, as the control
-  papers do [@bhatt2025ctrlz; @tracy2026linuxarena; @koran2026ensemble];
+- `RepeatedMonitor` averages several calls of one monitor, which raises its
+  resolution at low false-positive rates [@kaufman2025basharena], as
+  LinuxArena does with two calls per action [@tracy2026linuxarena];
 - `CalibratedMonitor` reports suspicion as the step's smoothed conformal rank
   among honest-run scores, breaking ties at random
   [@vovk2005algorithmic; @makins2026multiagent], so a threshold of 0.99
   flags 1% of honest steps on average;
-- `CascadeMonitor` runs a fast monitor on every step and sends only the steps
-  it finds suspicious to a careful one [@hua2025combining], after the two
-  stages of Claude Code's auto mode [@hughes2026automode].
+- `CascadeMonitor` runs a fast monitor on every step and a careful one when
+  the fast score reaches one threshold, after the two stages of Claude Code's
+  auto mode [@hughes2026automode]. Hua et al.'s best two-monitor protocol
+  calls the expensive monitor only when the cheap score falls in an uncertain
+  band [@hua2025combining]; `CascadeMonitor` uses the simpler rule.
 
 ## Task authorship and notes
 
@@ -493,9 +503,8 @@ first, logging or reporting. What this leaves open is in
 A halted step ends the run with a final message that has no tool calls.
 `HaltRun` writes `DEFAULT_HALT_MESSAGE` unless it is given its own:
 
-```text
-[Safety monitor] This run was stopped because the agent's proposed steps looked unsafe. The rejected steps are recorded in monitor_log for review.
-```
+> [Safety monitor] This run was stopped because the agent's proposed steps
+> looked unsafe. The rejected steps are recorded in monitor_log for review.
 
 A message without tool calls does not end every agent: one with structured
 output and no tools returns to the model until it has a structured response
@@ -532,9 +541,9 @@ A halt without a sample does not call the untrusted model, and its record is
 `halted`, flagged, with no samples. A standing halt's final message is
 `STANDING_HALT_MESSAGE`:
 
-```text
-[Safety monitor] This run stays stopped: the safety monitor halted it, and no new input the monitor could confirm has arrived since. The rejected steps are recorded in monitor_log for review.
-```
+> [Safety monitor] This run stays stopped: the safety monitor halted it, and
+> no new input the monitor could confirm has arrived since. The rejected steps
+> are recorded in monitor_log for review.
 
 The rule counts rather than reading where messages sit, so a hook that
 rewrites, trims or removes messages cannot lift a halt, and one that writes
@@ -857,8 +866,10 @@ raise `ConfigurationError` for an option of the wrong type:
   `AutoMode(max_total_blocks=...)` alone also accepts `math.inf`, for no
   total limit.
 
-The monitors check the values they depend on, such as a label set, a score
-range or `CascadeMonitor`'s `escalate_at`, but not the type of every option.
+Apart from those two enum options, the monitors and `MonitorView` do not
+check their options' types: `RepeatedMonitor(repeats=True)` is accepted. They
+check only some values they depend on, such as a label set, a score range or
+`CascadeMonitor`'s `escalate_at`.
 
 ### Error and warning classes
 
@@ -925,8 +936,9 @@ limit is linked from where it arises above.
   after the monitor's own, since LangChain runs those hooks in reverse list
   order [@langchain2026], so an untagged human message it writes without
   sending the run back to the model counts as the next run's input. Both lift
-  a standing halt. Such a message can carry the agent's own words, as Deep
-  Agents' harness nudges quote values the agent chose [@deepagents2026]. No
+  a standing halt. A message a middleware writes can carry the agent's own
+  words: one of Deep Agents' harness nudges quotes an argument the agent chose
+  [@deepagents2026]. No
   sound fail-closed rule covers them: at the start of a run, such a message
   and the new input are both unseen, both untagged, and both follow the last
   message the monitor saw, so the only rule that would close these paths

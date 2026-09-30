@@ -28,24 +28,31 @@ theme:
     - search.highlight
     - content.code.copy
   # Custom colours in both schemes: docs/stylesheets/brand.css sets them from
-  # the omamori lab brand, and site.css adds the shades it leaves out. The site
-  # follows the operating system's colour scheme until the reader picks one
-  # with the toggle.
+  # the omamori lab brand, and site.css adds the shades it leaves out. The toggle
+  # cycles through three settings, automatic, light and dark, and the browser
+  # remembers the reader's choice. Automatic, the first, is where a new reader
+  # starts: it follows the operating system's scheme, and changes with it.
   palette:
+    - media: "(prefers-color-scheme)"
+      primary: custom
+      accent: custom
+      toggle:
+        icon: material/brightness-auto
+        name: Switch to light mode
     - media: "(prefers-color-scheme: light)"
       scheme: default
       primary: custom
       accent: custom
       toggle:
-        icon: material/weather-night
+        icon: material/brightness-7
         name: Switch to dark mode
     - media: "(prefers-color-scheme: dark)"
       scheme: slate
       primary: custom
       accent: custom
       toggle:
-        icon: material/weather-sunny
-        name: Switch to light mode
+        icon: material/brightness-4
+        name: Switch to the system setting
 
 extra_css:
   - stylesheets/brand.css

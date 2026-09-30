@@ -29,12 +29,17 @@ tools run it.
 Tools that the model provider runs itself are the exception. Anthropic's web
 search, OpenAI's code interpreter and Gemini's Google Search run inside the
 model call, so they have run by the time the monitor sees the step, and they
-run again for every sample a protocol draws. The middleware raises a
-`ProviderToolWarning` when the model request holds a known one, for
-Anthropic, OpenAI and Gemini. It cannot see every such tool: not a
-server-side feature switched on in the model's own settings, such as
-OpenRouter's web plugin, and not one bound inside a wrapper such as
-`with_fallbacks(...)`.
+run again for every sample a protocol draws. The middleware warns with a
+`ProviderToolWarning`, once per middleware, about the known ones for
+Anthropic, OpenAI and Gemini when it can see them. It cannot see four kinds:
+
+- a server-side feature switched on in the model's own settings, such as
+  OpenRouter's web plugin or an `:online` model;
+- a tool an integration has already turned into an object of its provider's
+  SDK;
+- tools bound inside a wrapper such as `with_fallbacks(...)`;
+- tools queued with `bind_tools` on a model built with
+  `init_chat_model(..., configurable_fields=...)`.
 
 ## Install
 
@@ -105,9 +110,10 @@ suspicious. Each is a parameter, and any LangChain chat model works; the
 library picks none for you. Thresholds share one scale from 0 to 1 and warn
 until you set them; calibrate them on honest runs of your own agent.
 
-Put the monitor last in the middleware list; call
-`check_monitor_placement(middleware=[...])` with your list to be warned about
-middleware that undermines it. Each step leaves one record in
+Put the monitor last in the middleware list.
+`check_monitor_placement(middleware=[...])` warns about placements known to
+undermine it, but does not look for the `before_agent` and `after_agent`
+hooks that can lift a halt. Each step leaves one record in
 `monitor_log`, and [Read the monitor log](how-to/read-the-monitor-log.md)
 explains its fields. The tutorial,
 [Monitor your first agent](tutorials/first-monitored-agent.md), builds a
@@ -117,9 +123,10 @@ A monitored step costs time and graph steps:
 
 - Each step waits for its verdict, so `stream_mode="messages"` shows it
   whole once the protocol has committed it, not token by token.
-- The monitor's hooks add two graph steps per model call and two per run.
-  They count towards `recursion_limit`, so raise a limit you set for the
-  agent without a monitor.
+- The monitor's hooks add two graph steps per agent step, however many
+  samples or model calls the step draws, and two per run. An agent that
+  takes N steps needs a `recursion_limit` of 2N without the monitor and
+  4N + 2 with it, so raise a limit you set for the agent without one.
 
 ## Pick a protocol
 
@@ -133,14 +140,15 @@ A monitored step costs time and graph steps:
 | `DeferToResample` | you want to keep the agent's own work where you can, and keep rejected samples as evidence | [Use Defer to Resample](how-to/use-defer-to-resample.md) |
 | `AutoMode` | you want the agent to hear why a step was blocked and find a safer route | [Use Auto Mode](how-to/use-auto-mode.md) |
 
-Not sure which? [Choose a control protocol](how-to/choose-a-protocol.md)
-compares them.
+Not sure which? [Choose a protocol](how-to/choose-a-protocol.md) compares
+them.
 
 A halt ends the run, and it stands until a later run brings a message the
 monitor records as new input from the user: nothing written during a run
-lifts it. A middleware listed before the monitor is the exception. An untagged human message that its
-`before_agent` hook writes, or that its `after_agent` hook writes without
-sending the run back to the model, counts as new input and lifts the halt.
+lifts it. A middleware listed before the monitor is the exception. An
+untagged human message that its `before_agent` hook writes, or that its
+`after_agent` hook writes without sending the run back to the model, counts
+as new input and lifts the halt.
 
 ## Pick a monitor
 

@@ -1,0 +1,43 @@
+/*
+ * The site's own styles, loaded after brand.css.
+ *
+ * brand.css is copied unchanged from the omamori lab brand repository
+ * (diagrams/out/brand.css), so it can be copied again when the brand changes.
+ * It sets the primary, accent, link and Mermaid colours of both schemes. This
+ * file adds the rest of the custom palette and the logo size.
+ */
+
+/* The rest of the custom palette -----------------------------------------
+ *
+ * mkdocs.yml sets `primary: custom` and `accent: custom`, so Material leaves
+ * these shades to the site. They come from the brand tokens: sumi for the
+ * primary shades, vermilion (seal) for the accent, and on-seal for text on
+ * the accent.
+ */
+[data-md-color-scheme="default"] {
+  --md-primary-fg-color--light: #2B2B2B;
+  --md-primary-fg-color--dark: #000000;
+  --md-primary-bg-color--light: #FFFFFFB3;
+  --md-accent-fg-color--transparent: #BF3A221A;
+  --md-accent-bg-color: #FFFFFF;
+  --md-accent-bg-color--light: #FFFFFFB3;
+}
+
+[data-md-color-scheme="slate"] {
+  --md-primary-fg-color--light: #2B2B2B;
+  --md-primary-fg-color--dark: #000000;
+  --md-primary-bg-color--light: #ECEBE6B3;
+  --md-accent-fg-color--transparent: #E0563B1A;
+  --md-accent-bg-color: #111111;
+  --md-accent-bg-color--light: #111111B3;
+}
+
+/* The logo: the mark's white charm reads on the sumi header in both schemes,
+ * so it is shown a little larger than Material's default. */
+.md-header__button.md-logo {
+  padding: 0.2rem;
+}
+
+.md-header__button.md-logo img {
+  height: 1.6rem;
+}

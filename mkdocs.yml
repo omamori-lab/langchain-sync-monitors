@@ -14,6 +14,10 @@ exclude_docs: |
 
 theme:
   name: material
+  # overrides/main.html adds the favicon sizes.
+  custom_dir: overrides
+  logo: assets/brand/omamori-lab.svg
+  favicon: assets/brand/favicon-32.png
   features:
     - navigation.indexes
     - navigation.top
@@ -22,19 +26,25 @@ theme:
     - search.suggest
     - search.highlight
     - content.code.copy
+  # Custom colours in both schemes: docs/stylesheets/brand.css sets them from
+  # the omamori lab brand, and site.css adds the shades it leaves out.
   palette:
     - scheme: default
-      primary: black
-      accent: indigo
+      primary: custom
+      accent: custom
       toggle:
         icon: material/weather-night
         name: Switch to dark mode
     - scheme: slate
-      primary: black
-      accent: indigo
+      primary: custom
+      accent: custom
       toggle:
         icon: material/weather-sunny
         name: Switch to light mode
+
+extra_css:
+  - stylesheets/brand.css
+  - stylesheets/site.css
 
 plugins:
   - search

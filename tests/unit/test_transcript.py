@@ -490,6 +490,47 @@ def test_unrecognised_reasoning_follows_the_view_and_a_repeated_call_is_not_show
     assert with_reasoning.splitlines()[2:-1] == [call]
 
 
+def test_a_refusal_is_read_as_the_agent_s_prose() -> None:
+    # Arrange: OpenAI gives a refusal as its own item, which LangChain does not map
+    refusal = "I can't help with posting credentials."
+    reply = AIMessage(
+        content=[{"type": "refusal", "refusal": refusal}],
+        response_metadata={"model_provider": "openai"},
+    )
+
+    # Act
+    judged = render_proposed_step(reply, view=MonitorView())
+    history = render_transcript([reply], view=MonitorView(), task_author=TaskAuthor.USER)
+
+    # Assert: a final answer shows it; the default view leaves prose out of the history
+    assert judged.splitlines() == [
+        "<proposed_step>",
+        f"<agent>{refusal}</agent>",
+        "</proposed_step>",
+    ]
+    assert history == ""
+
+
+def test_gemini_image_search_is_shown_as_a_provider_tool_call() -> None:
+    # Arrange
+    reply = AIMessage(
+        content="Here is the chart.",
+        response_metadata={
+            "model_provider": "google_genai",
+            "grounding_metadata": {"image_search_queries": [GROUNDING_QUERY]},
+        },
+    )
+
+    # Act
+    judged = render_proposed_step(reply, view=MonitorView())
+
+    # Assert
+    assert (
+        '<provider_tool_call name="grounding">'
+        f'{{"args": {{"image_search_queries": ["{GROUNDING_QUERY}"]}}}}</provider_tool_call>'
+    ) in judged.splitlines()
+
+
 def test_gemini_search_grounding_is_shown_as_a_provider_tool_call_and_result() -> None:
     # Arrange
     reply = build_gemini_grounded_reply()

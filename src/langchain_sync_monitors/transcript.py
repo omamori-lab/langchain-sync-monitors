@@ -49,6 +49,12 @@ TASK_AUTHOR_TAGS = {TaskAuthor.USER: "user", TaskAuthor.PARENT_AGENT: "delegator
 REASONING_BLOCK_TYPES = frozenset({"thinking", "redacted_thinking", "reasoning"})
 """The types of provider blocks that hold the model's reasoning, encrypted or not."""
 
+PROSE_BLOCK_TYPES = frozenset({"refusal"})
+"""The types of provider blocks that hold text the model wrote, under a key named after the type.
+
+OpenAI gives a refusal as a `refusal` item, which LangChain keeps as a block it does not map.
+"""
+
 GROUNDING_QUERY_KEYS = ("web_search_queries", "image_search_queries")
 """The keys of Gemini's `grounding_metadata` that hold the searches its built-in tools ran."""
 
@@ -188,9 +194,11 @@ def build_unrecognised_block_entry(
     call the provider ran, in a reply without `model_provider` in its
     metadata, so it sits with the tool calls rather than being dropped. A
     block of reasoning, such as Anthropic's `thinking`, sits with the
-    reasoning instead, so a view without it still leaves it out. A block that
-    carries the id of one of the message's tool calls repeats that call, which
-    is rendered already, so it renders as nothing.
+    reasoning instead, so a view without it still leaves it out. A refusal is
+    text the model wrote to the user, so it renders as the agent's prose,
+    which is how the judge reads it in a final answer. A block that carries
+    the id of one of the message's tool calls repeats that call, which is
+    rendered already, so it renders as nothing.
     """
     value = block.get("value", {})
     if not isinstance(value, Mapping):
@@ -200,6 +208,11 @@ def build_unrecognised_block_entry(
         return None
     block_type = value.get("type")
     name = block_type if isinstance(block_type, str) else None
+    prose = value.get(name) if name in PROSE_BLOCK_TYPES else None
+    if isinstance(prose, str):
+        return TranscriptEntry(
+            channel=Channel.AGENT_TEXT, text=wrap_in_tag(tag="agent", content=prose)
+        )
     channel = Channel.REASONING if name in REASONING_BLOCK_TYPES else Channel.TOOL_CALLS
     text = wrap_in_tag(tag="unrecognised_block", content=render_json(value), name=name)
     return TranscriptEntry(channel=channel, text=text)

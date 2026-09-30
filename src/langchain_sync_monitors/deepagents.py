@@ -19,7 +19,10 @@ from langchain_sync_monitors.options import (
     check_name_part_option,
     describe_option_value,
 )
-from langchain_sync_monitors.placement import find_nested_placements, warn_about_nested_placements
+from langchain_sync_monitors.placement import (
+    find_nested_placements,
+    warn_about_misplaced_middleware,
+)
 
 if TYPE_CHECKING:
     from deepagents import AsyncSubAgent, CompiledSubAgent, SubAgent
@@ -253,7 +256,7 @@ def build_monitored_spec(spec: SubAgent, *, middleware: MonitorMiddleware) -> Su
         spec.get("middleware", []),
         middleware=monitor,
     )
-    warn_about_nested_placements(find_nested_placements(monitored["middleware"]))
+    warn_about_misplaced_middleware(find_nested_placements(monitored["middleware"]))
     return monitored
 
 

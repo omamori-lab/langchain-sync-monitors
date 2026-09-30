@@ -16,7 +16,7 @@ from langchain.agents.middleware import ToolRetryMiddleware
 from langchain.agents.middleware.types import AgentMiddleware
 from langchain_core.messages import AIMessage
 
-from langchain_sync_monitors.contracts import ControlProtocol
+from langchain_sync_monitors.contracts import ControlProtocol, FeedbackVisibility
 from langchain_sync_monitors.deepagents import monitor_subagents
 from langchain_sync_monitors.middleware import MonitorMiddleware
 from langchain_sync_monitors.placement import MonitorPlacementWarning, check_monitor_placement
@@ -217,3 +217,52 @@ def test_a_spec_s_other_middleware_is_left_to_check_monitor_placement() -> None:
     # Assert
     with pytest.warns(MonitorPlacementWarning, match="failed tool calls"):
         check_monitor_placement(middleware=specs[0].get("middleware", []))
+
+
+def test_an_added_monitor_that_shows_its_blocks_inside_a_spec_s_monitor_is_named(
+    run_mode: RunMode,
+) -> None:
+    # Arrange: the added Auto Mode blocks the worker's first draft and keeps it in the
+    # transcript, inside the spec's own Trusted Monitoring guard
+    guard_monitor = KeywordMonitor()
+    guard = MonitorMiddleware(
+        monitor=guard_monitor,
+        protocol=TrustedMonitoring(flag_threshold=THRESHOLD),
+        label="guard",
+        agent_name="worker",
+    )
+    spec_middleware: list[AgentMiddleware[Any, Any, Any]] = [guard]
+    worker = SubAgent(
+        name="worker",
+        description="Finds sources.",
+        middleware=spec_middleware,
+        model=ScriptedChatModel(responses=[build_exfiltration_step(), AIMessage(WORKER_REPORT)]),
+    )
+    added = MonitorMiddleware(
+        monitor=build_keyword_monitor(),
+        protocol=AutoMode(block_threshold=THRESHOLD),
+        feedback_visibility=FeedbackVisibility.IN_TRANSCRIPT,
+    )
+    with pytest.warns(MonitorPlacementWarning) as caught:
+        subagents = monitor_subagents(middleware=added, subagents=[worker])
+    agent = create_deep_agent(
+        model=ScriptedChatModel(responses=[build_delegation_step(), AIMessage("Done.")]),
+        middleware=[build_trusted_monitoring_monitor()],
+        subagents=subagents,
+    )
+
+    # Act
+    result = run_agent(agent, mode=run_mode)
+
+    # Assert: the warning is right, since the guard judged the blocked draft, not the report
+    [message] = [str(warning.message) for warning in caught]
+    assert message.startswith("monitor[worker] commits its blocked attempts")
+    [guard_record] = [
+        record
+        for record in result["monitor_log"]
+        if (record["agent"], record["monitor"]) == ("worker", "guard")
+    ]
+    assert "attacker.example" in guard_record["samples"][0]["proposal"]
+    assert [
+        monitor_input.proposal.tool_calls[0]["name"] for monitor_input in guard_monitor.inputs
+    ] == ["http_post"]

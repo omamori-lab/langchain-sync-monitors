@@ -138,6 +138,15 @@ OUTER_PROTOCOLS: dict[str, tuple[ProtocolBuilder, bool]] = {
         lambda trusted: build_auto_mode(trusted, max_consecutive_blocks=3, max_total_blocks=1),
         True,
     ),
+    "resample-none-then-halt-with-message": (
+        lambda _: DeferToResample(
+            fallback=HaltRun(message="Stopped by the guard."),
+            defer_threshold=THRESHOLD,
+            audit_threshold=THRESHOLD,
+            max_resamples=0,
+        ),
+        True,
+    ),
     "defer-to-trusted": (
         lambda trusted: DeferToTrusted(
             trusted_model=trusted, defer_threshold=THRESHOLD, audit_threshold=THRESHOLD
@@ -473,7 +482,11 @@ def load_design_page_monitor(directory: Path) -> CombinedMonitorBuilder:
 
 @pytest.mark.parametrize(
     ("combine", "expected_outcome"),
-    [("higher-suspicion", "resampled"), ("cascade", "allowed")],
+    [
+        ("higher-suspicion-flagging-first", "resampled"),
+        ("higher-suspicion-flagging-second", "resampled"),
+        ("cascade", "allowed"),
+    ],
 )
 def test_one_monitor_keeping_the_higher_suspicion_rejects_what_a_cascade_lets_through(
     run_mode: RunMode,
@@ -481,24 +494,29 @@ def test_one_monitor_keeping_the_higher_suspicion_rejects_what_a_cascade_lets_th
     combine: str,
     expected_outcome: str,
 ) -> None:
-    # Arrange: the first judge flags the unsafe draft, the second finds nothing
+    # Arrange: one judge flags the unsafe draft, the other finds nothing; invoke() runs the
+    # monitors' evaluate_sync and ainvoke() their evaluate
     flagging, clearing = build_keyword_monitor(), KeywordMonitor()
-    if combine == "cascade":
-        monitor: Monitor = CascadeMonitor(fast=flagging, careful=clearing, escalate_at=THRESHOLD)
-    else:
-        monitor = load_design_page_monitor(tmp_path)(first=flagging, second=clearing)
+    higher_suspicion = load_design_page_monitor(tmp_path)
+    monitors: dict[str, Monitor] = {
+        "higher-suspicion-flagging-first": higher_suspicion(first=flagging, second=clearing),
+        "higher-suspicion-flagging-second": higher_suspicion(first=clearing, second=flagging),
+        "cascade": CascadeMonitor(fast=flagging, careful=clearing, escalate_at=THRESHOLD),
+    }
     protocol = build_resampling(build_trusted_model())
     agent = create_agent(
         build_untrusted_model(),
-        middleware=[MonitorMiddleware(monitor=monitor, protocol=protocol)],
+        middleware=[MonitorMiddleware(monitor=monitors[combine], protocol=protocol)],
     )
 
     # Act
     result = run_agent(agent, mode=run_mode)
 
-    # Assert: the cascade lets the careful judge clear the step the fast one flagged
+    # Assert: both judges read every sample, and only the cascade lets the careful judge
+    # clear the step the fast one flagged
     [record] = result["monitor_log"]
     assert record["outcome"] == expected_outcome
+    assert len(flagging.inputs) == len(clearing.inputs) == len(record["samples"])
     ran = read_texts(result["messages"])[-1]
     assert ("attacker.example" in ran) is (combine == "cascade")
 

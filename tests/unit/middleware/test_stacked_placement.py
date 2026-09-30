@@ -111,6 +111,12 @@ SINGLE_CALL_PROTOCOLS: dict[str, ProtocolBuilder] = {
     "auto-mode-one-block-in-thread-then-halt": lambda: build_auto_mode(
         max_consecutive_blocks=3, max_total_blocks=1, when_limit_reached=HaltRun()
     ),
+    "resample-none-then-halt-with-message": lambda: build_resampling(
+        fallback=HaltRun(message="Stopped by the guard."), max_resamples=0
+    ),
+    "auto-mode-one-block-then-halt-with-message": lambda: build_auto_mode(
+        max_consecutive_blocks=1, when_limit_reached=HaltRun(message="Stopped by the guard.")
+    ),
 }
 """The settings that call the rest of the stack at most once per step."""
 
@@ -151,6 +157,9 @@ REPEATING_PROTOCOLS: dict[str, ProtocolBuilder] = {
     ),
     "resample-subclass-without-settings": UnsetResample,
     "auto-mode-subclass-without-settings": UnsetAutoMode,
+    "auto-mode-one-block-then-halt-subclass": lambda: build_auto_mode(
+        max_consecutive_blocks=1, when_limit_reached=LoudHaltRun()
+    ),
     "own-protocol": AcceptFirst,
 }
 """The settings that may call the rest of the stack again, each next to a sound one."""

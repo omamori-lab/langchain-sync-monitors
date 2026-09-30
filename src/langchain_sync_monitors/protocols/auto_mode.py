@@ -142,7 +142,8 @@ class AutoMode(ControlProtocol):
     and LangChain keeps the commands of the last model call only, so that
     monitor loses its judgement of every blocked sample, unless
     `max_consecutive_blocks` or `max_total_blocks` is 1 and
-    `when_limit_reached` is `HaltRun()`, so that a step draws one sample.
+    `when_limit_reached` is a `HaltRun` (not a subclass), so that a step draws
+    at most one sample.
     Inside another monitor, this one should keep
     `FeedbackVisibility.HIDDEN`: with `IN_TRANSCRIPT` its blocked attempts
     come first in the step, and the outer monitor judges the first blocked

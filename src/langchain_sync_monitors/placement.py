@@ -98,8 +98,8 @@ class MonitorPlacementWarning(UserWarning):
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
-class NestedPlacement:
-    """A middleware nested inside one or more monitors, and why its place undermines them."""
+class MisplacedMiddleware:
+    """A middleware placed where it undermines a monitor, and the reason it does."""
 
     name: str
     reason: str
@@ -288,7 +288,7 @@ def build_repeated_call_reason(
 
 def find_middleware_inside_repeating_monitors(
     middleware: Sequence[AnyAgentMiddleware],
-) -> list[NestedPlacement]:
+) -> list[MisplacedMiddleware]:
     """Return each middleware up to the last monitor that sits inside a monitor that may call again.
 
     A monitor whose protocol can call the rest of the stack more than once in a
@@ -300,18 +300,18 @@ def find_middleware_inside_repeating_monitors(
     """
     last_position = find_last_monitor_position(middleware)
     candidates = () if last_position is None else middleware[: last_position + 1]
-    nested: list[NestedPlacement] = []
+    nested: list[MisplacedMiddleware] = []
     for position, item in enumerate(candidates):
         repeating = find_repeating_monitors_before(middleware, position=position)
         if repeating and is_unsafe_inside_monitor(item):
             reason = build_repeated_call_reason(item, repeating=repeating)
-            nested.append(NestedPlacement(name=item.name, reason=reason))
+            nested.append(MisplacedMiddleware(name=item.name, reason=reason))
     return nested
 
 
 def find_monitors_showing_blocks_to_monitors(
     middleware: Sequence[AnyAgentMiddleware],
-) -> list[NestedPlacement]:
+) -> list[MisplacedMiddleware]:
     """Return each monitor inside another that commits its blocked attempts with the step.
 
     With `FeedbackVisibility.IN_TRANSCRIPT`, the response a monitor commits
@@ -319,7 +319,7 @@ def find_monitors_showing_blocks_to_monitors(
     AI message of that response: a proposal already blocked, never the step
     that runs. A protocol known never to block commits no blocked attempt.
     """
-    nested: list[NestedPlacement] = []
+    nested: list[MisplacedMiddleware] = []
     for position, item in enumerate(middleware):
         around = find_monitors_before(middleware, position=position)
         if around and is_showing_blocks(item):
@@ -330,11 +330,11 @@ def find_monitors_showing_blocks_to_monitors(
                 "proposal. Give a monitor inside another "
                 "feedback_visibility=FeedbackVisibility.HIDDEN."
             )
-            nested.append(NestedPlacement(name=item.name, reason=reason))
+            nested.append(MisplacedMiddleware(name=item.name, reason=reason))
     return nested
 
 
-def find_nested_placements(middleware: Sequence[AnyAgentMiddleware]) -> list[NestedPlacement]:
+def find_nested_placements(middleware: Sequence[AnyAgentMiddleware]) -> list[MisplacedMiddleware]:
     """Return each middleware whose place inside another monitor undermines it, with the reason."""
     return [
         *find_middleware_inside_repeating_monitors(middleware),
@@ -364,25 +364,25 @@ def check_middleware_list_option(middleware: object) -> None:
 
 def warn_about_placement(names: Sequence[str], *, reason: str) -> None:
     """Warn once for each named middleware, giving the reason its placement matters."""
-    for name in names:
-        # Level 3 skips this helper and `check_monitor_placement`, to point at their caller.
-        warnings.warn(f"{name} {reason}", MonitorPlacementWarning, stacklevel=3)
+    warn_about_misplaced_middleware(
+        [MisplacedMiddleware(name=name, reason=reason) for name in names]
+    )
 
 
-def warn_about_nested_placements(nested: Sequence[NestedPlacement]) -> list[str]:
-    """Warn once for each nested middleware, giving its own reason, and return their names.
+def warn_about_misplaced_middleware(misplaced: Sequence[MisplacedMiddleware]) -> list[str]:
+    """Warn once for each misplaced middleware, giving its own reason, and return their names.
 
     Both `check_monitor_placement` and `monitor_subagents` warn through here,
     so the warning skips every frame of the library to point at their caller.
     """
-    for placement in nested:
+    for placement in misplaced:
         warnings.warn(
             f"{placement.name} {placement.reason}",
             MonitorPlacementWarning,
             stacklevel=2,
             skip_file_prefixes=(LIBRARY_DIRECTORY,),
         )
-    return [placement.name for placement in nested]
+    return [placement.name for placement in misplaced]
 
 
 def check_monitor_placement(*, middleware: Sequence[AnyAgentMiddleware]) -> list[str]:
@@ -457,7 +457,7 @@ def check_monitor_placement(*, middleware: Sequence[AnyAgentMiddleware]) -> list
         reason="wraps model calls inside a monitor, so a state update it returns may come "
         "from a sample the protocol does not commit. Put the monitor last.",
     )
-    nested = warn_about_nested_placements(find_nested_placements(middleware))
+    nested = warn_about_misplaced_middleware(find_nested_placements(middleware))
     warn_about_placement(
         retrying_outside,
         reason="retries failed model calls from outside a monitor, so a step that fails "

@@ -4,7 +4,7 @@
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/assets/diagrams/monitored-step-dark.svg">
-  <img alt="One monitored step. The untrusted model proposes a step, the monitor reads it through its view and scores it from 0 to 1, and the control protocol chooses one of five outcomes: allow, resample, defer to trusted, block and steer, or halt. Only the committed step reaches the tools, with one record in monitor_log." src="docs/assets/diagrams/monitored-step-light.svg">
+  <img alt="The untrusted model proposes a step. The monitor, drawn as an omamori charm, reads it through its view and scores its suspicion from 0 to 1. The control protocol chooses one of five outcomes, from the lightest touch to the strongest: allow it, resample it, defer to the trusted model, block it and tell the agent why, or halt. All of this happens inside the middleware, before any of the agent's tools run; a brushed line marks that boundary. A committed step reaches the tools and a halted run ends, and either way one record joins monitor_log. Tool results come back, and the next model call is a new step." src="docs/assets/diagrams/monitored-step-light.svg">
 </picture>
 
 ## Why this exists
@@ -87,7 +87,7 @@ builds this agent step by step.
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/assets/diagrams/protocols-dark.svg">
-  <img alt="The four control protocols. Trusted Monitoring lets a suspicious step run and flags it for review. Defer to Trusted has the trusted model write the step instead. Defer to Resample draws up to 2 fresh samples and runs the least suspicious one that passes, or has the trusted model write the step. Auto Mode blocks the step and tells the agent why; the agent tries again, and after 3 blocks in a row or 20 in the thread, subagents' blocks included, the run halts." src="docs/assets/diagrams/protocols-light.svg">
+  <img alt="What each protocol does with a step the monitor finds suspicious; a step below the threshold runs unchanged under every protocol. Trusted Monitoring lets the step run and flags it for a person to review. Defer to Trusted has the trusted model write the step instead. Defer to Resample draws up to two fresh samples; if one passes, the least suspicious runs, and if none passes, the fallback writes the step, usually the trusted model. Auto Mode blocks the step and tells the agent why, and the agent tries again; after three blocks in a row, or twenty in the thread with subagents' blocks included, the fallback takes over, which by default halts the run." src="docs/assets/diagrams/protocols-light.svg">
 </picture>
 
 | Protocol | Pick it when | Guide |
@@ -104,7 +104,7 @@ them.
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/assets/diagrams/monitors-dark.svg">
-  <img alt="Three kinds of monitor model, one scale. LLMMonitor, GuardModelMonitor and DecisionModelMonitor each return a Verdict with a suspicion from 0 to 1 and a reason, so any monitor fits any protocol. RepeatedMonitor, CalibratedMonitor and CascadeMonitor wrap any monitor and stack." src="docs/assets/diagrams/monitors-light.svg">
+  <img alt="Three monitor classes cover three kinds of model, each drawn as the charm. LLMMonitor asks a chat model to reason and then score the step, from 0 to 10 by default. GuardModelMonitor has a guard model label the step against a policy you write, and suspicion is the chance the label is unsafe. DecisionModelMonitor asks a decision model yes or no questions, and suspicion is the chance of yes. Each returns the same Verdict, a suspicion from 0 to 1 and a reason, so any monitor works with any control protocol. Three wrappers stack around any monitor: RepeatedMonitor averages several calls, CalibratedMonitor ranks the score among the scores of honest runs, and CascadeMonitor runs a fast monitor on every step and a careful one when the fast one finds the step suspicious." src="docs/assets/diagrams/monitors-light.svg">
 </picture>
 
 | Monitor | Scores with | Guide |
@@ -118,7 +118,7 @@ them.
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/assets/diagrams/monitor-view-dark.svg">
-  <img alt="What the monitor reads. The transcript has six channels: USER, REASONING, AGENT_TEXT, TOOL_CALLS, TOOL_RESULTS and SUBAGENT_REPORTS. The default view, Channel.ACTIONS, reads the user's messages, the tool calls and the subagent reports. A MonitorView picks the channels, and the monitor reads them as escaped, tagged text that ends with the proposed step." src="docs/assets/diagrams/monitor-view-light.svg">
+  <img alt="Every entry of the transcript belongs to one channel. The default view, Channel.ACTIONS, reads USER (the task, context notes and feedback), TOOL_CALLS (tool calls and errors) and SUBAGENT_REPORTS (what subagents report), and leaves out REASONING, AGENT_TEXT and TOOL_RESULTS, each one flag away. The proposed step is always shown in full, its text and its tool calls, whatever the view. A MonitorView chooses the channels, can keep only the most recent entries, and names the tools whose results are subagent reports. The monitor reads the chosen entries as escaped, tagged text ending with the proposed step, then scores the step." src="docs/assets/diagrams/monitor-view-light.svg">
 </picture>
 
 By default a monitor reads the user's messages, the tool calls and the
@@ -142,7 +142,7 @@ covers every channel and the limit on recent entries.
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/assets/diagrams/subagents-dark.svg">
-  <img alt="A monitor in every subagent. The main agent runs under monitor[main], which reads the user's task. A subagent such as researcher runs under monitor[researcher], which reads its task as the parent agent's words. The subagent's report returns through the task tool, and its records, halts included, flow back into the main agent's monitor_log." src="docs/assets/diagrams/subagents-light.svg">
+  <img alt="In a Deep Agent, the main agent's monitor, monitor[main], reads the user's task. When the main agent calls the task tool, monitor[main] judges that call first, and the subagent then runs under a monitor of its own, monitor[researcher], which reads the task as the parent agent's words, not the user's, and judges each of the subagent's steps. The subagent's final report returns to the main agent. When the subagent returns or halts, its records flow back into the main agent's monitor_log, halts included. monitor_subagents gives every subagent a copy of the monitor, the general-purpose one included." src="docs/assets/diagrams/subagents-light.svg">
 </picture>
 
 Deep Agents does not pass the main agent's middleware to its subagents, so

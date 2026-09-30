@@ -96,13 +96,8 @@ scores measured, here the mean of three calls, and the mean adds the
 resolution that ranking needs. The other way round would average percentiles,
 and a mean of percentiles is not itself a percentile.
 
-```mermaid
-flowchart TD
-    step["Proposed step"] --> calls["Three LLMMonitor scores"]
-    calls --> mean["RepeatedMonitor: the mean"]
-    mean --> rank["CalibratedMonitor: its rank"]
-    rank --> verdict["An honest-run percentile"]
-```
+[![CalibratedMonitor wraps RepeatedMonitor, which wraps LLMMonitor. The proposed step goes to the chat judge three times, and RepeatedMonitor takes the mean of the three scores, rounded to 12 decimal places, with the reason of the most suspicious call. CalibratedMonitor then ranks that mean among the honest scores, which were collected with this same stack, so the verdict's suspicion is an honest-run percentile and its reason is still the most suspicious call's.](../assets/diagrams/monitors-average-then-calibrate-light.svg#only-light)](../assets/diagrams/monitors-average-then-calibrate-light.svg "Open the diagram at full size")
+[![CalibratedMonitor wraps RepeatedMonitor, which wraps LLMMonitor. The proposed step goes to the chat judge three times, and RepeatedMonitor takes the mean of the three scores, rounded to 12 decimal places, with the reason of the most suspicious call. CalibratedMonitor then ranks that mean among the honest scores, which were collected with this same stack, so the verdict's suspicion is an honest-run percentile and its reason is still the most suspicious call's.](../assets/diagrams/monitors-average-then-calibrate-dark.svg#only-dark)](../assets/diagrams/monitors-average-then-calibrate-dark.svg "Open the diagram at full size")
 
 ## Collect honest scores
 
@@ -110,13 +105,8 @@ Honest scores are the scores your monitor gives to steps of runs you trust.
 Collect them with exactly the monitor you will calibrate: the same model,
 prompt, view, number of repeats and temperature.
 
-```mermaid
-flowchart TD
-    tasks["Honest tasks"] --> run["Trusted Monitoring runs"]
-    run --> log[("monitor_log")]
-    log --> scores["Honest scores"]
-    scores --> calibrate["CalibratedMonitor"]
-```
+[![Run the agent on honest tasks under TrustedMonitoring, which never changes a step, so every step is judged once, as in an unmonitored run. Its monitor_log holds one record per step; keep the records of this agent and this monitor, since a Deep Agent's log also holds its subagents' records. Every sample's suspicion is an honest score; read the highest first, since a score of 1.0 from a reply that could not be read measures nothing. Pass the scores to CalibratedMonitor as honest_scores. The monitor that judges the honest runs and the one CalibratedMonitor wraps are the same: the same model, prompt, view, repeats and temperature.](../assets/diagrams/monitors-honest-scores-light.svg#only-light)](../assets/diagrams/monitors-honest-scores-light.svg "Open the diagram at full size")
+[![Run the agent on honest tasks under TrustedMonitoring, which never changes a step, so every step is judged once, as in an unmonitored run. Its monitor_log holds one record per step; keep the records of this agent and this monitor, since a Deep Agent's log also holds its subagents' records. Every sample's suspicion is an honest score; read the highest first, since a score of 1.0 from a reply that could not be read measures nothing. Pass the scores to CalibratedMonitor as honest_scores. The monitor that judges the honest runs and the one CalibratedMonitor wraps are the same: the same model, prompt, view, repeats and temperature.](../assets/diagrams/monitors-honest-scores-dark.svg#only-dark)](../assets/diagrams/monitors-honest-scores-dark.svg "Open the diagram at full size")
 
 Run the agent under `TrustedMonitoring`, which never changes a step, so the
 run goes as it would unmonitored and every step is judged once. A protocol
@@ -301,13 +291,8 @@ al.'s best two-monitor protocol calls the expensive monitor only when the
 cheap one's score falls in an uncertain range [@hua2025combining];
 `CascadeMonitor` uses the simpler rule of one threshold.
 
-```mermaid
-flowchart TD
-    step["Proposed step"] --> fast["Fast: a decision model"]
-    fast -- "below escalate_at" --> keep["The fast verdict"]
-    fast -- "at or above it" --> careful["Careful: a repeated chat judge"]
-    careful --> replace["The careful verdict"]
-```
+[![CascadeMonitor runs the fast monitor, such as a calibrated decision model, on every step. When the fast suspicion is below escalate_at, the fast verdict stands, its reason included. At or above escalate_at, the careful monitor, such as a calibrated, repeated chat judge, scores the step, and its verdict, reason included, replaces the fast one. The careful monitor runs on escalated steps only.](../assets/diagrams/monitors-cascade-light.svg#only-light)](../assets/diagrams/monitors-cascade-light.svg "Open the diagram at full size")
+[![CascadeMonitor runs the fast monitor, such as a calibrated decision model, on every step. When the fast suspicion is below escalate_at, the fast verdict stands, its reason included. At or above escalate_at, the careful monitor, such as a calibrated, repeated chat judge, scores the step, and its verdict, reason included, replaces the fast one. The careful monitor runs on escalated steps only.](../assets/diagrams/monitors-cascade-dark.svg#only-dark)](../assets/diagrams/monitors-cascade-dark.svg "Open the diagram at full size")
 
 Calibrate each stage on its own honest scores, collected as above with that
 stage as the monitor. Collect the careful stage's scores on every honest step,

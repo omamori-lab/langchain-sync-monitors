@@ -121,21 +121,16 @@ A label alone gives one operating point: every threshold flags the same steps.
 | Mode | What it does | Calls per judged step |
 |---|---|---|
 | `AUTO`, the default | Asks for log-probabilities on the first reply and scores from them when it can. Otherwise it draws `samples - 1` more replies and uses the share of all the replies labelled suspicious. | 1, or `samples` |
-| `LOG_PROBABILITIES` | Always scores from log-probabilities. A provider that returns none, or none with alternatives, raises `ConfigurationError` at the first judged step. A reply whose log-probabilities give no readable label, or that is cut off, scores 1.0 and logs a warning. | 1 |
+| `LOG_PROBABILITIES` | Always scores from log-probabilities. A provider that returns none, or none with alternatives, raises `ConfigurationError` at the first judged step. A reply that comes back with them but gives no label to score, or is cut off, scores 1.0 and logs a warning. | 1 |
 | `SAMPLE_FRACTION` | Always draws `samples` replies and uses the share labelled suspicious. | `samples` |
 | `HARD_LABEL` | Reads one reply as 0 or 1, and warns with `HardLabelWarning` when the monitor is built. | 1 |
 
-```mermaid
-flowchart TD
-    first["First reply, with log-probabilities requested"] --> back{"Any came back?"}
-    back -- "no, under LOG_PROBABILITIES" --> error["ConfigurationError: the step fails"]
-    back -- "no, under AUTO" --> more["Draw samples - 1 more replies"]
-    back -- "yes, with alternatives" --> found{"Label token found?"}
-    found -- "yes, in a complete reply" --> probability["Suspicion: the probability of a suspicious label"]
-    found -- "no, or cut off, under AUTO" --> more
-    found -- "no, or cut off, under LOG_PROBABILITIES" --> closed["Fail closed: 1.0, and a warning in the log"]
-    more --> share["Suspicion: the share of all replies labelled suspicious, an unreadable reply counting as suspicious"]
-```
+[![GuardModelMonitor has four scoring modes. AUTO, the default, asks for log-probabilities on the first reply. If they give a label to score, suspicion is the probability of a suspicious label at the label's first token. If no log-probabilities came back, the reply holds no label to score, or it was cut off, AUTO samples instead: samples minus 1 more replies, and suspicion is the share of all the replies labelled suspicious, the first included. LOG_PROBABILITIES asks for them too and scores the same way. When no log-probabilities with alternatives come back, it raises ConfigurationError, so the step fails; when they come back but give no label to score, or the reply was cut off, it fails closed at 1.0 with a warning in the log. Under both, a chat model that refuses the request for log-probabilities raises ConfigurationError naming SAMPLE_FRACTION. SAMPLE_FRACTION draws samples replies, 5 by default, and suspicion is the share labelled suspicious. HARD_LABEL reads one reply as 1.0 or 0.0, and warns when the monitor is built. A sampled reply that is cut off, or holds no readable label, counts as a suspicious label. A call that still fails after the chat model's own retries raises its error, and the step fails.](../assets/diagrams/monitors-guard-scoring-light.svg#only-light)](../assets/diagrams/monitors-guard-scoring-light.svg "Open the diagram at full size")
+[![GuardModelMonitor has four scoring modes. AUTO, the default, asks for log-probabilities on the first reply. If they give a label to score, suspicion is the probability of a suspicious label at the label's first token. If no log-probabilities came back, the reply holds no label to score, or it was cut off, AUTO samples instead: samples minus 1 more replies, and suspicion is the share of all the replies labelled suspicious, the first included. LOG_PROBABILITIES asks for them too and scores the same way. When no log-probabilities with alternatives come back, it raises ConfigurationError, so the step fails; when they come back but give no label to score, or the reply was cut off, it fails closed at 1.0 with a warning in the log. Under both, a chat model that refuses the request for log-probabilities raises ConfigurationError naming SAMPLE_FRACTION. SAMPLE_FRACTION draws samples replies, 5 by default, and suspicion is the share labelled suspicious. HARD_LABEL reads one reply as 1.0 or 0.0, and warns when the monitor is built. A sampled reply that is cut off, or holds no readable label, counts as a suspicious label. A call that still fails after the chat model's own retries raises its error, and the step fails.](../assets/diagrams/monitors-guard-scoring-dark.svg#only-dark)](../assets/diagrams/monitors-guard-scoring-dark.svg "Open the diagram at full size")
+
+There is a label to score when the reply is complete and holds a readable
+label, and the guard's own token where that label starts comes with
+alternatives and begins a label of the same kind.
 
 `AUTO` and `LOG_PROBABILITIES` bind `logprobs=True` and `top_logprobs=20` to
 the model. LangChain has no capability flag that says whether a chat model

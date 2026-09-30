@@ -1,0 +1,78 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1000" height="829" viewBox="0 0 1000 829" role="img" aria-labelledby="title desc">
+  <title id="title">How a decision model&#x27;s answers become a verdict</title>
+  <desc id="desc">DecisionModelMonitor renders the transcript and the proposed step through its view, and sends the decision model one request with every question. If the request fails, OpenRouterDecisionModel sends it again after a network error, an HTTP 429 or a server error, up to 5 attempts, and stops once an attempt fails 45 seconds or more after the first began; any other failure, or the last one, is raised, so the step fails and nothing it proposed runs. TypeSafeDecisionModel gets no retries from the library. Every question must then be answered with a number from 0 to 1. A missing answer, a bool, a string, None or NaN raises MonitorError, and the step fails the same way. The answers are combined, with MAX by default, or MIN or MEAN, into the suspicion. The reason names the question with the highest probability of yes, or, under MIN, every question.</desc>
+  <!-- Colours come from the brand tokens: diagrams/render.py fills this style block. -->
+  <style>
+    svg { color-scheme: dark; }
+    text { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans", "Noto Sans JP", Helvetica, Arial, sans-serif; font-size: 15px; fill: #ECEBE6; }
+    .title { font-size: 17px; font-weight: 600; }
+    .small { font-size: 14px; fill: #A9A8A2; }
+    .mono { font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace; font-size: 13.5px; }
+    .soft { fill: #A9A8A2; }
+    .dashed { stroke-dasharray: 5 4; fill: none; stroke: #6A6A66; }
+    .box { fill: #141414; stroke: #ECEBE6; stroke-width: 1.4; }
+    .charm { fill: #ECEBE6; }
+    .on-charm { fill: #111111; }
+    .charm-cord { fill: none; stroke: #ECEBE6; stroke-width: 2.2; }
+    .seal { fill: #E0563B; }
+    .allow { fill: #141414; stroke: #ECEBE6; stroke-width: 1.4; }
+    .resample { fill: #1F1F1E; stroke: #ECEBE6; stroke-width: 1.4; }
+    .defer { fill: #34332F; stroke: #ECEBE6; stroke-width: 1.4; }
+    .steer { fill: #D9D8D2; stroke: #D9D8D2; stroke-width: 1.4; }
+    .on-steer { fill: #111111; }
+    .halt { fill: #E0563B; stroke: #E0563B; stroke-width: 1.4; }
+    .on-halt { fill: #111111; }
+    .frame { fill: none; stroke: #6A6A66; stroke-width: 1.2; stroke-dasharray: 6 4; }
+    .edge { fill: none; stroke: #D6D5CF; stroke-width: 1.5; }
+    .loop { fill: none; stroke: #D6D5CF; stroke-width: 1.5; stroke-dasharray: 5 4; }
+    .head { fill: #D6D5CF; }
+    .brush { fill: #ECEBE6; }
+  </style>
+  <defs><marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="9" markerHeight="9" markerUnits="userSpaceOnUse" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="head"/></marker></defs>
+  <text x="32.0" y="44.0" text-anchor="start"><tspan class="title">How a decision model&#x27;s answers become a verdict</tspan></text>
+  <text x="32.0" y="70.0" text-anchor="start" class="small">A decision model never fails closed with a score: a step it cannot answer fails.</text>
+  <path class="charm-cord" d="M226.0,105.0 C222.0,88.0 242.0,88.0 238.0,105.0"/>
+  <path class="charm" d="M48.0,104.0 H416.0 L432.0,120.0 V200.0 Q432.0,206.0 426.0,206.0 H38.0 Q32.0,206.0 32.0,200.0 V120.0 Z"/>
+  <rect class="seal" x="41.0" y="188.0" width="9" height="9" rx="1"/>
+  <text x="232.0" y="135.0" text-anchor="middle" class="title on-charm">Render the step</text>
+  <text x="232.0" y="157.0" text-anchor="middle"><tspan class="mono on-charm">DecisionModelMonitor</tspan></text>
+  <text x="232.0" y="178.0" text-anchor="middle" class="small on-charm">the transcript and the step, through the view</text>
+  <rect class="box" x="32.0" y="258.0" width="400.0" height="102.0" rx="6"/>
+  <text x="232.0" y="289.0" text-anchor="middle" class="title">One request, every question</text>
+  <text x="232.0" y="311.0" text-anchor="middle" class="small">to the decision model, which answers</text>
+  <text x="232.0" y="332.0" text-anchor="middle" class="small">each with a probability of yes</text>
+  <path class="box" d="M50.0,412.0 H414.0 L432.0,463.0 L414.0,514.0 H50.0 L32.0,463.0 Z"/>
+  <text x="232.0" y="443.0" text-anchor="middle" class="title">Every question answered?</text>
+  <text x="232.0" y="465.0" text-anchor="middle"><tspan class="small">with a number from 0 to 1: not a </tspan><tspan class="mono">bool</tspan><tspan class="small">,</tspan></text>
+  <text x="232.0" y="486.0" text-anchor="middle"><tspan class="small">a string, </tspan><tspan class="mono">None</tspan><tspan class="small"> or NaN</tspan></text>
+  <rect class="box" x="32.0" y="566.0" width="400.0" height="81.0" rx="6"/>
+  <text x="232.0" y="597.0" text-anchor="middle" class="title">Combine the answers</text>
+  <text x="232.0" y="619.0" text-anchor="middle"><tspan class="mono">MAX</tspan><tspan class="small"> by default, or </tspan><tspan class="mono">MIN</tspan><tspan class="small"> or </tspan><tspan class="mono">MEAN</tspan></text>
+  <rect class="box" x="32.0" y="695.0" width="400.0" height="102.0" rx="6"/>
+  <text x="232.0" y="726.0" text-anchor="middle" class="title">Verdict</text>
+  <text x="232.0" y="748.0" text-anchor="middle" class="small">suspicion: the combined probability of yes</text>
+  <text x="232.0" y="769.0" text-anchor="middle"><tspan class="small">reason: the strongest question, or all under </tspan><tspan class="mono">MIN</tspan></text>
+  <path class="edge" d="M232.0,206.0 L232.0,256.0" marker-end="url(#arrow)"/>
+  <path class="edge" d="M232.0,360.0 L232.0,410.0" marker-end="url(#arrow)"/>
+  <text x="244.0" y="391.0" text-anchor="start" class="small">the answers</text>
+  <path class="edge" d="M232.0,514.0 L232.0,564.0" marker-end="url(#arrow)"/>
+  <text x="244.0" y="545.0" text-anchor="start" class="small">yes</text>
+  <path class="edge" d="M232.0,647.0 L232.0,693.0" marker-end="url(#arrow)"/>
+  <path class="box" d="M606.0,258.0 H950.0 L968.0,309.0 L950.0,360.0 H606.0 L588.0,309.0 Z"/>
+  <text x="778.0" y="289.0" text-anchor="middle" class="title">A transient failure?</text>
+  <text x="778.0" y="311.0" text-anchor="middle" class="small">a network error, HTTP 429 or 5xx,</text>
+  <text x="778.0" y="332.0" text-anchor="middle" class="small">and attempts left: 5 within 45 s</text>
+  <rect class="box" x="588.0" y="412.0" width="380.0" height="102.0" rx="6"/>
+  <text x="778.0" y="443.0" text-anchor="middle" class="title">The error is raised</text>
+  <text x="778.0" y="465.0" text-anchor="middle" class="small">the step fails, and nothing</text>
+  <text x="778.0" y="486.0" text-anchor="middle" class="small">it proposed runs</text>
+  <path class="edge" d="M432.0,309.0 L586.0,309.0" marker-end="url(#arrow)"/>
+  <text x="510.0" y="299.0" text-anchor="middle" class="small">it fails</text>
+  <path class="loop" d="M778.0,258.0 L778.0,236.0 L376.0,236.0 L376.0,256.0" marker-end="url(#arrow)"/>
+  <text x="790.0" y="226.0" text-anchor="end"><tspan class="small">yes: </tspan><tspan class="mono">OpenRouterDecisionModel</tspan><tspan class="small"> sends it again</tspan></text>
+  <path class="edge" d="M778.0,360.0 L778.0,410.0" marker-end="url(#arrow)"/>
+  <text x="790.0" y="391.0" text-anchor="start" class="small">no: its own error</text>
+  <path class="edge" d="M432.0,463.0 L586.0,463.0" marker-end="url(#arrow)"/>
+  <text x="510.0" y="453.0" text-anchor="middle" class="small">no</text>
+  <text x="510.0" y="487.0" text-anchor="middle"><tspan class="mono">MonitorError</tspan></text>
+</svg>

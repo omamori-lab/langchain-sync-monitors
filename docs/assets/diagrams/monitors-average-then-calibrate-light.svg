@@ -1,0 +1,70 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1000" height="710" viewBox="0 0 1000 710" role="img" aria-labelledby="title desc">
+  <title id="title">Average first, then calibrate</title>
+  <desc id="desc">CalibratedMonitor wraps RepeatedMonitor, which wraps LLMMonitor. The proposed step goes to the chat judge three times, and RepeatedMonitor takes the mean of the three scores, rounded to 12 decimal places, with the reason of the most suspicious call. CalibratedMonitor then ranks that mean among the honest scores, which were collected with this same stack, so the verdict&#x27;s suspicion is an honest-run percentile and its reason is still the most suspicious call&#x27;s.</desc>
+  <!-- Colours come from the brand tokens: diagrams/render.py fills this style block. -->
+  <style>
+    svg { color-scheme: light; }
+    text { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans", "Noto Sans JP", Helvetica, Arial, sans-serif; font-size: 15px; fill: #111111; }
+    .title { font-size: 17px; font-weight: 600; }
+    .small { font-size: 14px; fill: #5B5B57; }
+    .mono { font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace; font-size: 13.5px; }
+    .soft { fill: #5B5B57; }
+    .dashed { stroke-dasharray: 5 4; fill: none; stroke: #9A9A94; }
+    .box { fill: #FFFFFF; stroke: #111111; stroke-width: 1.4; }
+    .charm { fill: #111111; }
+    .on-charm { fill: #FFFFFF; }
+    .charm-cord { fill: none; stroke: #111111; stroke-width: 2.2; }
+    .seal { fill: #BF3A22; }
+    .allow { fill: #FFFFFF; stroke: #111111; stroke-width: 1.4; }
+    .resample { fill: #F2F1EC; stroke: #111111; stroke-width: 1.4; }
+    .defer { fill: #DCDBD4; stroke: #111111; stroke-width: 1.4; }
+    .steer { fill: #3A3A38; stroke: #3A3A38; stroke-width: 1.4; }
+    .on-steer { fill: #FFFFFF; }
+    .halt { fill: #BF3A22; stroke: #BF3A22; stroke-width: 1.4; }
+    .on-halt { fill: #FFFFFF; }
+    .frame { fill: none; stroke: #9A9A94; stroke-width: 1.2; stroke-dasharray: 6 4; }
+    .edge { fill: none; stroke: #2B2B2B; stroke-width: 1.5; }
+    .loop { fill: none; stroke: #2B2B2B; stroke-width: 1.5; stroke-dasharray: 5 4; }
+    .head { fill: #2B2B2B; }
+    .brush { fill: #111111; }
+  </style>
+  <defs><marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="9" markerHeight="9" markerUnits="userSpaceOnUse" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="head"/></marker></defs>
+  <text x="32.0" y="44.0" text-anchor="start"><tspan class="title">Average first, then calibrate</tspan></text>
+  <text x="32.0" y="70.0" text-anchor="start" class="small">The calibrated monitor ranks exactly the score its honest scores measured: the mean of three calls.</text>
+  <path class="box" d="M308.0,228.0 H567.0 L583.0,244.0 V324.0 Q583.0,330.0 577.0,330.0 H298.0 Q292.0,330.0 292.0,324.0 V244.0 Z"/>
+  <path class="box" d="M301.0,221.0 H560.0 L576.0,237.0 V317.0 Q576.0,323.0 570.0,323.0 H291.0 Q285.0,323.0 285.0,317.0 V237.0 Z"/>
+  <path class="charm-cord" d="M417.5,215.0 C413.5,198.0 433.5,198.0 429.5,215.0"/>
+  <path class="charm" d="M294.0,214.0 H553.0 L569.0,230.0 V310.0 Q569.0,316.0 563.0,316.0 H284.0 Q278.0,316.0 278.0,310.0 V230.0 Z"/>
+  <rect class="seal" x="287.0" y="298.0" width="9" height="9" rx="1"/>
+  <text x="423.5" y="245.0" text-anchor="middle" class="title on-charm">Three calls</text>
+  <text x="423.5" y="267.0" text-anchor="middle"><tspan class="mono on-charm">LLMMonitor</tspan></text>
+  <text x="423.5" y="288.0" text-anchor="middle" class="small on-charm">three scores from 0 to 1</text>
+  <rect class="box" x="631.0" y="214.0" width="305.0" height="102.0" rx="6"/>
+  <text x="783.5" y="245.0" text-anchor="middle" class="title">The mean</text>
+  <text x="783.5" y="267.0" text-anchor="middle" class="small">rounded to 12 decimal places, with</text>
+  <text x="783.5" y="288.0" text-anchor="middle" class="small">the most suspicious call&#x27;s reason</text>
+  <path class="edge" d="M583.0,265.0 L629.0,265.0" marker-end="url(#arrow)"/>
+  <rect class="box" x="278.0" y="402.0" width="305.0" height="102.0" rx="6"/>
+  <text x="430.5" y="433.0" text-anchor="middle" class="title">Honest scores</text>
+  <text x="430.5" y="455.0" text-anchor="middle" class="small">collected with this same stack</text>
+  <text x="430.5" y="476.0" text-anchor="middle" class="small">on steps of runs you trust</text>
+  <rect class="box" x="631.0" y="402.0" width="305.0" height="102.0" rx="6"/>
+  <text x="783.5" y="433.0" text-anchor="middle" class="title">Rank among honest scores</text>
+  <text x="783.5" y="455.0" text-anchor="middle" class="small">ties broken at random</text>
+  <text x="783.5" y="476.0" text-anchor="middle" class="small">gives a percentile from 0 to 1</text>
+  <path class="edge" d="M583.0,453.0 L629.0,453.0" marker-end="url(#arrow)"/>
+  <path class="edge" d="M783.5,316.0 L783.5,400.0" marker-end="url(#arrow)"/>
+  <rect class="frame" x="230.0" y="100.0" width="754.0" height="428.0" rx="10"/>
+  <text x="254.0" y="130.0" text-anchor="start"><tspan class="title">CalibratedMonitor</tspan><tspan class="small">   ranks the mean</tspan></text>
+  <rect class="frame" x="254.0" y="152.0" width="706.0" height="202.0" rx="10"/>
+  <text x="278.0" y="182.0" text-anchor="start"><tspan class="title">RepeatedMonitor</tspan><tspan class="small">   averages three calls</tspan></text>
+  <rect class="box" x="32.0" y="224.5" width="170.0" height="81.0" rx="6"/>
+  <text x="117.0" y="255.5" text-anchor="middle" class="title">Proposed step</text>
+  <text x="117.0" y="277.5" text-anchor="middle" class="small">and the transcript</text>
+  <path class="edge" d="M202.0,265.0 L276.0,265.0" marker-end="url(#arrow)"/>
+  <rect class="box" x="631.0" y="576.0" width="305.0" height="102.0" rx="6"/>
+  <text x="783.5" y="607.0" text-anchor="middle" class="title">Verdict</text>
+  <text x="783.5" y="629.0" text-anchor="middle" class="small">suspicion: an honest-run percentile</text>
+  <text x="783.5" y="650.0" text-anchor="middle" class="small">reason: the most suspicious call&#x27;s</text>
+  <path class="edge" d="M783.5,504.0 L783.5,574.0" marker-end="url(#arrow)"/>
+</svg>

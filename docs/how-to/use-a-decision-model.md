@@ -12,14 +12,8 @@ A decision model answers typed questions about some text with probabilities,
 and generates no text. Jev, from TypeSafe, is one. Every question about a step
 goes in one request, so a judged step costs one call.
 
-```mermaid
-flowchart TD
-    step["The transcript and the proposed step, rendered through the view"] --> request["One request with every question"]
-    request --> check{"Every answer a probability?"}
-    check -- "yes: a number from 0 to 1" --> combine["Combine the probabilities of yes: MAX by default"]
-    combine --> verdict["Verdict: the suspicion, and a reason that names a question"]
-    check -- "no" --> error["MonitorError: the step fails, and nothing it proposed runs"]
-```
+[![DecisionModelMonitor renders the transcript and the proposed step through its view, and sends the decision model one request with every question. If the request fails, OpenRouterDecisionModel sends it again after a network error, an HTTP 429 or a server error, up to 5 attempts, and stops once an attempt fails 45 seconds or more after the first began; any other failure, or the last one, is raised, so the step fails and nothing it proposed runs. TypeSafeDecisionModel gets no retries from the library. Every question must then be answered with a number from 0 to 1. A missing answer, a bool, a string, None or NaN raises MonitorError, and the step fails the same way. The answers are combined, with MAX by default, or MIN or MEAN, into the suspicion. The reason names the question with the highest probability of yes, or, under MIN, every question.](../assets/diagrams/monitors-decision-model-light.svg#only-light)](../assets/diagrams/monitors-decision-model-light.svg "Open the diagram at full size")
+[![DecisionModelMonitor renders the transcript and the proposed step through its view, and sends the decision model one request with every question. If the request fails, OpenRouterDecisionModel sends it again after a network error, an HTTP 429 or a server error, up to 5 attempts, and stops once an attempt fails 45 seconds or more after the first began; any other failure, or the last one, is raised, so the step fails and nothing it proposed runs. TypeSafeDecisionModel gets no retries from the library. Every question must then be answered with a number from 0 to 1. A missing answer, a bool, a string, None or NaN raises MonitorError, and the step fails the same way. The answers are combined, with MAX by default, or MIN or MEAN, into the suspicion. The reason names the question with the highest probability of yes, or, under MIN, every question.](../assets/diagrams/monitors-decision-model-dark.svg#only-dark)](../assets/diagrams/monitors-decision-model-dark.svg "Open the diagram at full size")
 
 `DecisionModelMonitor(decision_model=...)` takes a `DecisionModel`, not a chat
 model, and has no default. The library reaches Jev in two ways, and you can
@@ -201,20 +195,23 @@ the API's answers leniently before the library sees them, so a `false` from
 the API arrives as 0.0, and a `true` or a numeric string as a number. The
 monitor cannot tell such an answer from a real probability.
 
-It retries transport errors, timeouts included, rate limits (HTTP 429) and
-server errors (HTTP 5xx) with stamina [@schlawack2026stamina], with a growing,
-jittered wait between attempts. It stops after five attempts, or sooner, once
-an attempt fails 45 seconds or more after the first began, stamina's default
-time budget. With the default 30-second timeout, two attempts that time out
-end the retries. Any other HTTP error, such as a bad key (401) or a request
-timeout the server reports (408), raises `httpx.HTTPStatusError` at once.
+`OpenRouterDecisionModel` retries network errors, timeouts included, rate
+limits (HTTP 429) and server errors (HTTP 5xx) with stamina
+[@schlawack2026stamina], with a growing, jittered wait between attempts. It
+stops after five attempts, or sooner, once an attempt fails 45 seconds or more
+after the first began, stamina's default time budget. With the default
+30-second timeout, two attempts that time out end the retries. Any other HTTP
+error, such as a bad key (401) or a request timeout the server reports (408),
+raises `httpx.HTTPStatusError` at once. A request httpx refuses to send, such
+as one to a URL whose scheme it does not support, raises at once too, since it
+would fail the same way every time.
 
 The library adds no retries around `TypeSafeDecisionModel`; an error from the
 classifier is raised as it is.
 
 ## Read the reason
 
-The verdict's reason names a question, never a probability or the combined
+The verdict's reason names questions, never a probability or the combined
 score. Auto Mode shows the reason to the agent, and a number would tell the
 agent how close its step came to passing; the numbers stay in the suspicion,
 which the log records keep.

@@ -1,0 +1,63 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1000" height="404" viewBox="0 0 1000 404" role="img" aria-labelledby="title desc">
+  <title id="title">Collect honest scores with the monitor you will calibrate</title>
+  <desc id="desc">Run the agent on honest tasks under TrustedMonitoring, which never changes a step, so every step is judged once, as in an unmonitored run. Its monitor_log holds one record per step; keep the records of this agent and this monitor, since a Deep Agent&#x27;s log also holds its subagents&#x27; records. Every sample&#x27;s suspicion is an honest score; read the highest first, since a score of 1.0 from a reply that could not be read measures nothing. Pass the scores to CalibratedMonitor as honest_scores. The monitor that judges the honest runs and the one CalibratedMonitor wraps are the same: the same model, prompt, view, repeats and temperature.</desc>
+  <!-- Colours come from the brand tokens: diagrams/render.py fills this style block. -->
+  <style>
+    svg { color-scheme: light; }
+    text { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans", "Noto Sans JP", Helvetica, Arial, sans-serif; font-size: 15px; fill: #111111; }
+    .title { font-size: 17px; font-weight: 600; }
+    .small { font-size: 14px; fill: #5B5B57; }
+    .mono { font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace; font-size: 13.5px; }
+    .soft { fill: #5B5B57; }
+    .dashed { stroke-dasharray: 5 4; fill: none; stroke: #9A9A94; }
+    .box { fill: #FFFFFF; stroke: #111111; stroke-width: 1.4; }
+    .charm { fill: #111111; }
+    .on-charm { fill: #FFFFFF; }
+    .charm-cord { fill: none; stroke: #111111; stroke-width: 2.2; }
+    .seal { fill: #BF3A22; }
+    .allow { fill: #FFFFFF; stroke: #111111; stroke-width: 1.4; }
+    .resample { fill: #F2F1EC; stroke: #111111; stroke-width: 1.4; }
+    .defer { fill: #DCDBD4; stroke: #111111; stroke-width: 1.4; }
+    .steer { fill: #3A3A38; stroke: #3A3A38; stroke-width: 1.4; }
+    .on-steer { fill: #FFFFFF; }
+    .halt { fill: #BF3A22; stroke: #BF3A22; stroke-width: 1.4; }
+    .on-halt { fill: #FFFFFF; }
+    .frame { fill: none; stroke: #9A9A94; stroke-width: 1.2; stroke-dasharray: 6 4; }
+    .edge { fill: none; stroke: #2B2B2B; stroke-width: 1.5; }
+    .loop { fill: none; stroke: #2B2B2B; stroke-width: 1.5; stroke-dasharray: 5 4; }
+    .head { fill: #2B2B2B; }
+    .brush { fill: #111111; }
+  </style>
+  <defs><marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="9" markerHeight="9" markerUnits="userSpaceOnUse" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="head"/></marker></defs>
+  <text x="32.0" y="44.0" text-anchor="start"><tspan class="title">Collect honest scores with the monitor you will calibrate</tspan></text>
+  <text x="32.0" y="70.0" text-anchor="start" class="small">Trusted Monitoring never changes a step, so every step is judged once.</text>
+  <rect class="box" x="32.0" y="104.0" width="207.0" height="102.0" rx="6"/>
+  <text x="135.5" y="135.0" text-anchor="middle" class="title">Run honest tasks</text>
+  <text x="135.5" y="157.0" text-anchor="middle"><tspan class="small">under </tspan><tspan class="mono">TrustedMonitoring</tspan><tspan class="small">:</tspan></text>
+  <text x="135.5" y="178.0" text-anchor="middle" class="small">one judged sample per step</text>
+  <rect class="box" x="275.0" y="104.0" width="207.0" height="102.0" rx="6"/>
+  <text x="378.5" y="135.0" text-anchor="middle"><tspan class="mono">monitor_log</tspan></text>
+  <text x="378.5" y="157.0" text-anchor="middle" class="small">keep this agent&#x27;s records</text>
+  <text x="378.5" y="178.0" text-anchor="middle" class="small">under this monitor</text>
+  <rect class="box" x="518.0" y="104.0" width="207.0" height="102.0" rx="6"/>
+  <text x="621.5" y="135.0" text-anchor="middle" class="title">Honest scores</text>
+  <text x="621.5" y="157.0" text-anchor="middle"><tspan class="small">every sample&#x27;s </tspan><tspan class="mono">suspicion</tspan><tspan class="small">;</tspan></text>
+  <text x="621.5" y="178.0" text-anchor="middle" class="small">read the highest first</text>
+  <rect class="box" x="761.0" y="104.0" width="207.0" height="102.0" rx="6"/>
+  <text x="864.5" y="135.0" text-anchor="middle"><tspan class="mono">CalibratedMonitor</tspan></text>
+  <text x="864.5" y="157.0" text-anchor="middle" class="small">wraps the monitor, with</text>
+  <text x="864.5" y="178.0" text-anchor="middle"><tspan class="small">these as </tspan><tspan class="mono">honest_scores</tspan></text>
+  <path class="edge" d="M239.0,155.0 L273.0,155.0" marker-end="url(#arrow)"/>
+  <path class="edge" d="M482.0,155.0 L516.0,155.0" marker-end="url(#arrow)"/>
+  <path class="edge" d="M725.0,155.0 L759.0,155.0" marker-end="url(#arrow)"/>
+  <path class="charm-cord" d="M494.0,271.0 C490.0,254.0 510.0,254.0 506.0,271.0"/>
+  <path class="charm" d="M346.0,270.0 H654.0 L670.0,286.0 V366.0 Q670.0,372.0 664.0,372.0 H336.0 Q330.0,372.0 330.0,366.0 V286.0 Z"/>
+  <rect class="seal" x="339.0" y="354.0" width="9" height="9" rx="1"/>
+  <text x="500.0" y="301.0" text-anchor="middle" class="title on-charm">Your monitor</text>
+  <text x="500.0" y="323.0" text-anchor="middle" class="small on-charm">the same model, prompt, view,</text>
+  <text x="500.0" y="344.0" text-anchor="middle" class="small on-charm">repeats and temperature</text>
+  <path class="edge" d="M330.0,321.0 L135.5,321.0 L135.5,208.0" marker-end="url(#arrow)"/>
+  <text x="232.8" y="347.0" text-anchor="middle" class="small">judges every step</text>
+  <path class="edge" d="M670.0,321.0 L864.5,321.0 L864.5,208.0" marker-end="url(#arrow)"/>
+  <text x="767.2" y="347.0" text-anchor="middle" class="small">is the one wrapped</text>
+</svg>

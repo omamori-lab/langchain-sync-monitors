@@ -15,18 +15,8 @@ used. Here that review is a flag on the step's record, read after the step.
 
 ## How it works
 
-```mermaid
-flowchart TD
-    propose["The agent's model proposes a step"] --> judge["The monitor scores it"]
-    judge --> check{"Suspicion at or above defer_threshold?"}
-    check -- "no" --> allowed["The proposal runs: allowed"]
-    check -- "yes" --> trusted["The trusted model writes the step: deferred_to_trusted"]
-    allowed --> audit{"Suspicion at or above audit_threshold?"}
-    trusted --> audit
-    audit -- "yes" --> flagged["The record is flagged for review"]
-    audit -- "no" --> log[("One record in monitor_log")]
-    flagged --> log
-```
+[![The agent's model proposes one step, and the monitor, drawn as an omamori charm, reads it through its view and scores it from 0 to 1. Below defer_threshold, the proposal runs and the outcome is allowed. At or above defer_threshold, the trusted model writes the step instead, from the same request, and the outcome is deferred_to_trusted; the proposal's tool calls never run. Either way one record joins monitor_log, flagged for review when the score is at or above audit_threshold.](../assets/diagrams/protocol-defer-to-trusted-light.svg#only-light)](../assets/diagrams/protocol-defer-to-trusted-light.svg "Open the diagram at full size")
+[![The agent's model proposes one step, and the monitor, drawn as an omamori charm, reads it through its view and scores it from 0 to 1. Below defer_threshold, the proposal runs and the outcome is allowed. At or above defer_threshold, the trusted model writes the step instead, from the same request, and the outcome is deferred_to_trusted; the proposal's tool calls never run. Either way one record joins monitor_log, flagged for review when the score is at or above audit_threshold.](../assets/diagrams/protocol-defer-to-trusted-dark.svg#only-dark)](../assets/diagrams/protocol-defer-to-trusted-dark.svg "Open the diagram at full size")
 
 A rejected proposal's tool calls never run, and neither the agent nor the
 trusted model sees it. A provider's built-in tools in it, such as a web fetch,

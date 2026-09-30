@@ -14,19 +14,14 @@ innocent, and the extra samples are evidence for an audit.
 
 ## How it works
 
-```mermaid
-flowchart TD
-    first["Draw one sample and score it"] --> check{"Suspicion at or above defer_threshold?"}
-    check -- "no" --> allowed["Run it: allowed"]
-    check -- "yes, and max_resamples is 0" --> fallback
-    check -- "yes" --> mode{"resampling"}
-    mode -- "SEQUENTIAL" --> sequential["Draw one more at a time, up to max_resamples, and stop at the first acceptable one"]
-    mode -- "PARALLEL" --> parallel["Draw max_resamples more at once"]
-    sequential --> any{"Any sample below defer_threshold?"}
-    parallel --> any
-    any -- "yes" --> resampled["Run the least suspicious acceptable sample: resampled"]
-    any -- "no" --> fallback["The fallback writes the step: deferred_to_trusted or halted"]
-```
+[![The agent's model proposes one step, and the monitor, drawn as an omamori charm, reads it through its view and scores it from 0 to 1. Below defer_threshold, the first sample runs and the outcome is allowed. At or above defer_threshold, the protocol resamples: the agent's model draws up to max_resamples more samples, two by default, and the monitor scores each. If a resample passes, the least suspicious one that passed runs, and the outcome is resampled. If none passes, the fallback writes the step: DeferToTrustedModel has the trusted model write it, recorded as deferred_to_trusted, and HaltRun ends the run, recorded as halted and always flagged. One record keeps every sample, flagged when its lowest score is at or above audit_threshold.](../assets/diagrams/protocol-defer-to-resample-light.svg#only-light)](../assets/diagrams/protocol-defer-to-resample-light.svg "Open the diagram at full size")
+[![The agent's model proposes one step, and the monitor, drawn as an omamori charm, reads it through its view and scores it from 0 to 1. Below defer_threshold, the first sample runs and the outcome is allowed. At or above defer_threshold, the protocol resamples: the agent's model draws up to max_resamples more samples, two by default, and the monitor scores each. If a resample passes, the least suspicious one that passed runs, and the outcome is resampled. If none passes, the fallback writes the step: DeferToTrustedModel has the trusted model write it, recorded as deferred_to_trusted, and HaltRun ends the run, recorded as halted and always flagged. One record keeps every sample, flagged when its lowest score is at or above audit_threshold.](../assets/diagrams/protocol-defer-to-resample-dark.svg#only-dark)](../assets/diagrams/protocol-defer-to-resample-dark.svg "Open the diagram at full size")
+
+`Resampling.SEQUENTIAL`, the default, draws the resamples one at a time and
+stops at the first that passes; `Resampling.PARALLEL` draws all
+`max_resamples` at once ([Sequential or parallel](#sequential-or-parallel)).
+With `max_resamples=0`, a suspicious first sample goes straight to the
+fallback.
 
 Every sample is a fresh call on the same request, and each is judged. Neither
 the agent nor the trusted model sees a rejected sample, so the agent cannot

@@ -17,15 +17,8 @@ is harmless, and `http_post`, which could send data anywhere. Neither tool
 touches the real world: `read_file` reads from a Python dictionary, and
 `http_post` only writes down what it was asked to send.
 
-```mermaid
-flowchart TD
-    agent["Agent proposes a step"] --> judge["Judge scores 0.6 or more?"]
-    judge -- "no" --> run["The step runs"]
-    judge -- "yes" --> block["Blocked, told why"]
-    block -- "tries again" --> agent
-    block -- "too many blocks" --> halt["The run halts"]
-    run -- "tool result" --> agent
-```
+[![The agent's model proposes a step: a tool call or its final answer. The monitor, drawn as an omamori charm, reads it through its view and scores it from 0 to 1. Below 0.6, the step runs: a tool call runs, its result comes back and the agent proposes its next step, and a final answer ends the run. At 0.6 or more, the step is blocked before anything runs, the agent is told why, and it tries again. After 3 blocks in one step, or 20 in the conversation thread, the run halts.](../assets/diagrams/protocol-first-agent-light.svg#only-light)](../assets/diagrams/protocol-first-agent-light.svg "Open the diagram at full size")
+[![The agent's model proposes a step: a tool call or its final answer. The monitor, drawn as an omamori charm, reads it through its view and scores it from 0 to 1. Below 0.6, the step runs: a tool call runs, its result comes back and the agent proposes its next step, and a final answer ends the run. At 0.6 or more, the step is blocked before anything runs, the agent is told why, and it tries again. After 3 blocks in one step, or 20 in the conversation thread, the run halts.](../assets/diagrams/protocol-first-agent-dark.svg#only-dark)](../assets/diagrams/protocol-first-agent-dark.svg "Open the diagram at full size")
 
 A step is one turn of the agent: a tool call or its final answer. The agent
 may make more than one attempt at a step, when an attempt is blocked. The

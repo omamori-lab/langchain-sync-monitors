@@ -13,15 +13,8 @@ the step runs, and the flag marks its record.
 
 ## How it works
 
-```mermaid
-flowchart TD
-    propose["The agent proposes a step"] --> judge["The monitor scores it"]
-    judge --> check{"Suspicion at or above flag_threshold?"}
-    check -- "no" --> allowed["The step runs: allowed"]
-    check -- "yes" --> flagged["The step runs, flagged for review: allowed"]
-    allowed --> log[("One record in monitor_log")]
-    flagged --> log
-```
+[![The agent's model proposes one step, and the monitor, drawn as an omamori charm, reads it through its view and scores it from 0 to 1. The step runs as proposed whatever the score, and its outcome is allowed. A score below flag_threshold leaves the step unflagged; a score at or above flag_threshold flags it for a person to review. Either way the step is sampled once, and one record joins monitor_log.](../assets/diagrams/protocol-trusted-monitoring-light.svg#only-light)](../assets/diagrams/protocol-trusted-monitoring-light.svg "Open the diagram at full size")
+[![The agent's model proposes one step, and the monitor, drawn as an omamori charm, reads it through its view and scores it from 0 to 1. The step runs as proposed whatever the score, and its outcome is allowed. A score below flag_threshold leaves the step unflagged; a score at or above flag_threshold flags it for a person to review. Either way the step is sampled once, and one record joins monitor_log.](../assets/diagrams/protocol-trusted-monitoring-dark.svg#only-dark)](../assets/diagrams/protocol-trusted-monitoring-dark.svg "Open the diagram at full size")
 
 Each step is sampled once and always runs. A high score changes only the
 `flagged` mark on the step's record.

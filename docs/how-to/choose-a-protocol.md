@@ -12,16 +12,8 @@ can change one without touching the other.
 
 ## Decide in three questions
 
-```mermaid
-flowchart TD
-    start{"Stop suspicious steps, or only flag them for review?"}
-    start -- "only flag them" --> monitoring["Trusted Monitoring"]
-    start -- "stop them" --> steer{"Tell a blocked agent why, so it can take a safer route?"}
-    steer -- "yes" --> auto["Auto Mode"]
-    steer -- "no, it should not learn what the monitor catches" --> budget{"Pay for up to two more samples of a suspicious step?"}
-    budget -- "yes" --> resample["Defer to Resample"]
-    budget -- "no" --> trusted["Defer to Trusted"]
-```
+[![Three questions choose one of the four control protocols. First, stop suspicious steps, or only flag them for a person to review? To only flag them, use Trusted Monitoring. To stop them, ask second: tell a blocked agent why, so it can take a safer route? If yes, use Auto Mode. If the agent should not learn what the monitor catches, ask third: pay for up to two more samples of a suspicious step? If yes, use Defer to Resample; if no, use Defer to Trusted.](../assets/diagrams/protocol-choice-light.svg#only-light)](../assets/diagrams/protocol-choice-light.svg "Open the diagram at full size")
+[![Three questions choose one of the four control protocols. First, stop suspicious steps, or only flag them for a person to review? To only flag them, use Trusted Monitoring. To stop them, ask second: tell a blocked agent why, so it can take a safer route? If yes, use Auto Mode. If the agent should not learn what the monitor catches, ask third: pay for up to two more samples of a suspicious step? If yes, use Defer to Resample; if no, use Defer to Trusted.](../assets/diagrams/protocol-choice-dark.svg#only-dark)](../assets/diagrams/protocol-choice-dark.svg "Open the diagram at full size")
 
 1. **Stop or flag.** A flag marks a step's record for a person to review
    later. It never blocks: by the time anyone reads the log, the step has run.

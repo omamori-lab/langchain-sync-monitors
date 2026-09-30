@@ -3,15 +3,21 @@ name: Release
 # Publishes a release to PyPI when its GitHub Release is published;
 # scripts/release.sh tags a commit on main and creates that Release. The
 # workflow:
-#   1. checks that the tag is vX.Y.Z, names a commit on main, and agrees with
-#      __version__, CITATION.cff and CHANGELOG.md (scripts/check-release.sh);
+#   1. checks that the Release is not a pre-release, that the tag is vX.Y.Z
+#      and names a commit on main, and that it agrees with __version__,
+#      CITATION.cff and CHANGELOG.md (scripts/check-release.sh);
 #   2. runs the whole CI workflow on the tagged commit;
-#   3. builds the sdist and the wheel once, checks them with twine, and
-#      installs the wheel into fresh environments, with and without extras;
-#   4. waits for approval in the "pypi" environment, then publishes exactly
-#      those files through PyPI trusted publishing, so no token is stored;
+#   3. builds the sdist and the wheel once, records their SHA-256 digests,
+#      checks them with twine, and installs the wheel into fresh
+#      environments, with and without extras;
+#   4. waits for approval in the "pypi" environment, checks the files against
+#      the recorded digests, then publishes exactly those files through PyPI
+#      trusted publishing, so no token is stored;
 #   5. attaches the same files to the GitHub Release and deploys the tagged
 #      commit's documentation.
+# These checks guard against mistakes. Someone with write access could tag a
+# commit whose own copy of this file drops them, so the real controls are the
+# required reviewers on the "pypi" environment and the v* tag ruleset.
 # CONTRIBUTING.md lists the one-time setup and how to recover from a failure.
 
 on:
@@ -42,9 +48,16 @@ jobs:
     outputs:
       version: ${{ steps.version.outputs.version }}
     steps:
-      - name: Check that the tag is vX.Y.Z
+      - name: Check that the Release is not a pre-release, and the tag is vX.Y.Z
         id: version
+        env:
+          PRERELEASE: ${{ github.event.release.prerelease }}
         run: |
+          # A pre-release on GitHub would go to PyPI as a final version.
+          if [[ "${PRERELEASE}" == "true" ]]; then
+            echo "::error::The GitHub Release ${TAG} is marked as a pre-release, so nothing is published. Delete the Release, keeping the tag, and create it again without the pre-release mark; unticking the mark on this one does not start the workflow."
+            exit 1
+          fi
           if [[ ! "${TAG}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
             echo "::error::The tag ${TAG} is not of the form vX.Y.Z, so nothing is published."
             exit 1
@@ -87,6 +100,8 @@ jobs:
     name: Build the distributions
     needs: tag
     runs-on: ubuntu-latest
+    outputs:
+      digests: ${{ steps.digests.outputs.digests }}
     env:
       VERSION: ${{ needs.tag.outputs.version }}
     steps:
@@ -118,12 +133,19 @@ jobs:
         run: uvx --with "readme_renderer[md]" twine check --strict dist/*
 
       - name: Record the SHA-256 digest of each file
+        id: digests
         run: |
+          digests="$(cd dist && sha256sum -- *)"
+          {
+            echo "digests<<END_OF_DIGESTS"
+            echo "${digests}"
+            echo "END_OF_DIGESTS"
+          } >> "${GITHUB_OUTPUT}"
           {
             echo "## Built files"
             echo
             echo '```'
-            (cd dist && sha256sum -- *)
+            echo "${digests}"
             echo '```'
           } >> "${GITHUB_STEP_SUMMARY}"
 
@@ -208,8 +230,23 @@ jobs:
           name: distributions
           path: dist/
 
+      - name: Check the files against the digests the build recorded
+        env:
+          DIGESTS: ${{ needs.build.outputs.digests }}
+        run: |
+          cd dist
+          printf '%s\n' "${DIGESTS}" | sha256sum --check --strict -
+          recorded="$(printf '%s\n' "${DIGESTS}" | awk '{ print $2 }' | LC_ALL=C sort)"
+          present="$(find . -mindepth 1 ! -name '.*' -printf '%P\n' | LC_ALL=C sort)"
+          if [[ -z "${recorded}" || "${present}" != "${recorded}" ]]; then
+            echo "::error::dist/ holds ${present//$'\n'/, }, but the build recorded ${recorded//$'\n'/, }."
+            exit 1
+          fi
+
+      # Pinned to the commit of release v1.14.2, which cannot move as a tag or
+      # a branch can.
       - name: Publish to PyPI through trusted publishing
-        uses: pypa/gh-action-pypi-publish@release/v1
+        uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33 # v1.14.2
         with:
           print-hash: true
 

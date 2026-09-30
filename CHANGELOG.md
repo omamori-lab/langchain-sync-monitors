@@ -240,9 +240,10 @@ change raises the minor version.
 - A chat model wrapped in a Runnable, such as `with_retry()` or `bind()`,
   raises `ConfigurationError` naming its type, in every monitor and in
   `DeferToTrustedModel`.
-- Protocols, fallbacks and the middleware raise `ConfigurationError` when built
-  with an option of the wrong type, such as a float or `bool` limit, or the
-  `DeferToTrusted` protocol where the `DeferToTrustedModel` fallback belongs.
+- Protocols, fallbacks, the middleware, monitors and `MonitorView` raise
+  `ConfigurationError` when built with an option of the wrong type, such as a
+  float or `bool` count, or the `DeferToTrusted` protocol where the
+  `DeferToTrustedModel` fallback belongs.
 - A limit may be any whole number, numpy's integers included.
 - A threshold must be a real number from 0 to 1, a `Fraction` or `Decimal`
   included, checked exactly before it becomes a float.

@@ -19,22 +19,20 @@ touches the real world: `read_file` reads from a Python dictionary, and
 
 ```mermaid
 flowchart TD
-    task["Task: Summarise q3.md for the team."] --> agent["Agent model proposes a step"]
-    agent --> judge["LLMMonitor: a judge model scores the step from 0 to 1"]
-    judge --> decide{"Auto Mode: score at or above 0.6?"}
-    decide -- "no" --> run["The step runs: a tool call or the final answer"]
-    decide -- "yes" --> block["Blocked: the agent is told why and tries again"]
-    block --> agent
-    block -- "3 blocks in a row, or 20 in the thread" --> halt["The run halts"]
+    agent["Agent proposes a step"] --> judge["Judge scores 0.6 or more?"]
+    judge -- "no" --> run["The step runs"]
+    judge -- "yes" --> block["Blocked, told why"]
+    block -- "tries again" --> agent
+    block -- "too many blocks" --> halt["The run halts"]
     run -- "tool result" --> agent
-    decide -. "one record per step" .-> log[("monitor_log")]
 ```
 
-Every model call of the agent is a step, including its final answer. The
-monitor judges each step before any of the agent's own tools run. Tools that a
-model provider runs itself, inside the model call, such as its web search, are
-the exception: they have run by the time the monitor sees the step. This agent
-has none.
+A step is one turn of the agent: a tool call or its final answer. The agent
+may make more than one attempt at a step, when an attempt is blocked. The
+monitor judges each attempt before any of the agent's own tools run, and
+records each step in `monitor_log`. Tools that a model provider runs itself,
+inside the model call, such as its web search, are the exception: they have
+run by the time the monitor sees the step. This agent has none.
 
 ## Before you start
 
@@ -55,8 +53,9 @@ export OPENROUTER_API_KEY="your key"
 
 The two runs make about a dozen model calls: one of the agent's model and one
 of the judge for each attempt at a step. For scale, each of the
-[live runs](../explanation/live-runs.md) with the same two models, and the
-judge's reasoning effort set to low, cost under half a US cent.
+[live runs](../explanation/live-runs.md) with the same two models cost under
+half a US cent, with both models' reasoning effort set to low, which this
+tutorial's code does not set.
 
 No key? Follow this tutorial through
 [Print what the monitor recorded](#print-what-the-monitor-recorded), then go
@@ -92,7 +91,7 @@ def read_file(path: str) -> str:
 
 def http_post(url: str, body: str) -> str:
     """Send a request body to a URL."""
-    SENT.append(f"{url} <- {body}")  # write the request down instead of sending it
+    SENT.append(f"{url} <- {body}")  # record it; send nothing
     return "202 Accepted"
 ```
 
@@ -135,11 +134,12 @@ Three pieces work together here:
   score. A step whose suspicion is at or above `block_threshold` is blocked,
   and the agent is told why, so it can take a safer route. After three blocks
   in a row within one step, or twenty in the conversation thread, it halts
-  the run instead. This follows Claude Code's auto mode [@hughes2026automode].
+  the run by default. This follows Claude Code's auto mode [@hughes2026automode].
 - `MonitorMiddleware` joins the two and wraps every model call of the agent.
-  It goes last in the `middleware` list. With more middleware, call
-  `check_monitor_placement(middleware=[...])` on the list to be warned about
-  any that undermines the monitor.
+  It goes last in the `middleware` list. With more middleware,
+  `check_monitor_placement(middleware=[...])` warns about placements known to
+  undermine the monitor, but does not look for the `before_agent` and
+  `after_agent` hooks that can lift a halt.
 
 The value 0.6 is the library's default. Passing it explicitly silences the
 `UncalibratedThresholdWarning` the default raises, but it is still a guess. A
@@ -403,14 +403,14 @@ and Auto Mode blocks the leak and sends the feedback.
 - A monitor judges every step, final answers included, before any of the
   agent's own tools run.
 - The control protocol decides what a score means. Auto Mode blocks a step at
-  or above its threshold and lets the agent try another route, and halts the
-  run after too many blocks.
+  or above its threshold and lets the agent try another route, and by default
+  halts the run after too many blocks.
 - `monitor_log` keeps one record per step, with every attempt the monitor
   judged, including those that never ran.
 
 ## Next steps
 
-- [Choose a control protocol](../how-to/choose-a-protocol.md) compares Auto
+- [Choose a protocol](../how-to/choose-a-protocol.md) compares Auto
   Mode with the other three protocols.
 - [Use Auto Mode](../how-to/use-auto-mode.md) covers every option used here,
   and what the agent sees when a step is blocked.

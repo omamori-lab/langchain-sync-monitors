@@ -47,10 +47,15 @@ whether the library can reach it.
 - **Live:** two probes against the real services, on scripted models, with
   synthetic content, under `invoke()` and `ainvoke()`. The agent looks up a
   made-up fact, posts to a made-up paste site (judged 0.9, flagged) and
-  answers; a second agent's first step is halted. LangSmith traces are in
-  project `langchain-sync-monitors-docs-check` under tag `canon-408e439f`;
-  Langfuse traces are under tag `canon-2f1364fd`. No model provider was
-  called, so the spend is nil.
+  answers; a second agent's first step is halted. In LangSmith project
+  `langchain-sync-monitors-docs-check`, the probe's root runs are named after
+  `canon-408e439f`; in Langfuse, its traces are named after `canon-2f1364fd`.
+  A first Langfuse attempt stopped part-way, after writing traces and
+  `monitor_suspicion_during_run` scores whose name prefix was not recorded.
+- **Spend:** no model provider was called. The LangSmith probe sent feedback
+  with the SDK's default `extend_trace_retention=True`, so by LangSmith's rules
+  [@langsmith2026retention] its 4 traces were probably moved to extended
+  retention.
 - **Marks:** "(live)" is a result read back from a service, "(offline)" a run
   with no service, and "(source)" a reading of SDK or server code. Anything
   else comes from the tools' documentation.
@@ -105,7 +110,7 @@ whether the library can reach it.
 | Earlier open item | Result |
 |---|---|
 | Does `tree_filter` accept feedback fields? | Yes: `tree_filter='and(eq(feedback_key, "monitor_suspicion"), gte(feedback_score, 0.5))'` with `is_root=True` returned the 4 traces with a step judged 0.9 (live). |
-| Do Langfuse's `numberObject` metadata filters match floats stored as strings? | No, they are refused: `Invalid filter type 'numberObject' for column 'metadata'. Expected filter type 'stringObject'.` (live). |
+| Do Langfuse's `numberObject` metadata filters match floats stored as strings? | No, they are refused: `Invalid filter type 'numberObject' for column 'metadata'. Expected filter type 'stringObject'.` (live), although the SDK's docstring for the observations API lists `numberObject` for `metadata` (source). |
 | Can feedback be written while the step span is still open? | Yes: feedback sent from the decision span's start callback, before the step run had ended, was read back on the step run, with `feedback_stats` (live). |
 | Is `get_current_observation_id()` a way to learn our span's id? | No. Under `invoke()` it returned the decision observation, the last one the handler started, whose parent is the step; under `ainvoke()` it returned `None` (live). The handler attaches each observation to the OpenTelemetry context of the thread its callback runs in (source). |
 | Would server-side evaluators have to re-judge? | Not any more: code evaluators in both tools read a span's own outputs and write feedback or scores from them [@langsmith2026codeevaluators; @langfuse2026codeevaluators]. |
@@ -250,9 +255,10 @@ filters the guide documents, and gain nothing.
     `ls_agent_type`, `ls_message_view_exclude` and `ls_is_error_interrupt`,
     with `ls_run_depth` and `ls_method` set by the system
     [@langsmith2026metadataparameters]. None collapses a run in the trace tree.
-  - In the runs table and API, the filter language has no negation of tags:
+  - The filter language, as the API takes it, has no negation of tags:
     `neq(tags, "monitor")` is refused as `comparator=NEQ attribute='tags' ...
-    not accepted`, and `not(...)` does not parse (live).
+    not accepted`, and `not(...)` does not parse (live). The interface's
+    `is not` operator on tags was not tested.
   - What works is `neq(name, ...)` once per name, and
     `neq(metadata_key, "ls_message_view_exclude")`, which left out the
     monitor's calls (live).
@@ -332,7 +338,7 @@ and returned the expected runs.
 | Condition | Langfuse |
 |---|---|
 | Observations: `stringObject` metadata `monitor_flagged` `=` `"true"` | Accepted: the flagged decisions |
-| Observations: `numberObject` metadata `monitor_max_suspicion` `>=` 0.5 | Refused: metadata takes `stringObject` only |
+| Observations: `numberObject` metadata `monitor_max_suspicion` `>=` 0.5 | Refused: metadata takes `stringObject` only, though the SDK's docstring lists `numberObject` |
 | Observations: `stringOptions` `name` `none of` the span names | Accepted |
 | Observations: `stringOptions` `level` `none of` `["DEBUG"]` | Accepted |
 | Observations: `stringObject` metadata `ls_message_view_exclude` `does not contain` `"true"` | Accepted, returns nothing |
@@ -524,6 +530,7 @@ showed.
 | Code evaluators in both | No network call from the library; masking applies; retention opt-out per evaluator | Set-up per project; runs after ingestion, so feedback lags |
 | In-process in both | No set-up | Langfuse ids are exact only through private state or a user-seeded trace id; otherwise scores can land on another request's trace |
 | A post-hoc exporter in a `langfuse` extra | Exact through public APIs; no server feature needed | Needs a scheduled job and ingestion delays; more code to own |
+| A helper that installs the evaluator and its rule through the public API | One call instead of a pasted recipe: Langfuse has evaluator and rule endpoints in its SDK (source), and LangSmith's `/api/v1/runs/rules` takes `code_evaluators` and `extend_evaluator_trace_retention` | Writes persistent project configuration; needs a key allowed to; LangSmith's endpoint is outside the SDK's typed client |
 
 **D3. LangSmith retention against latency, for the in-process writer.**
 
@@ -581,6 +588,9 @@ configuration in the owner's accounts:
 - whether a LangSmith code evaluator can return a comment or a string value,
   and whether its filter selects child runs by name in practice;
 - how a Langfuse code evaluator reports a `None` it skips;
+- what `ctx.observation.output` holds for a LangChain `CHAIN` observation, an
+  object or a JSON string, and whether its metadata values arrive as strings,
+  as the handler stores them; the recipe depends on both;
 - whether Langfuse's trace view, with a minimum level set, hides a `DEBUG`
   span's `DEFAULT` children.
 

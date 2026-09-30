@@ -19,6 +19,10 @@ from langchain_sync_monitors.options import (
     check_name_part_option,
     describe_option_value,
 )
+from langchain_sync_monitors.placement import (
+    find_nested_placements,
+    warn_about_misplaced_middleware,
+)
 
 if TYPE_CHECKING:
     from deepagents import AsyncSubAgent, CompiledSubAgent, SubAgent
@@ -239,13 +243,20 @@ def build_declarative_specs(
 
 
 def build_monitored_spec(spec: SubAgent, *, middleware: MonitorMiddleware) -> SubAgent:
-    """Return a copy of the spec with the subagent's own monitor after its middleware."""
+    """Return a copy of the spec with the subagent's own monitor after its middleware.
+
+    A monitor already in the spec's middleware now wraps the new one, so the
+    stacked-monitor warnings of `check_monitor_placement` are raised here for
+    the new list. Its other checks are left to `check_monitor_placement`,
+    since they would warn about middleware the spec chose for itself.
+    """
     monitored = spec.copy()
     monitor = middleware.copy_for_subagent(subagent_name=spec["name"])
     monitored["middleware"] = append_subagent_middleware(
         spec.get("middleware", []),
         middleware=monitor,
     )
+    warn_about_misplaced_middleware(find_nested_placements(monitored["middleware"]))
     return monitored
 
 
@@ -291,6 +302,11 @@ def monitor_subagents(
     A compiled or remote subagent raises `ConfigurationError` too; monitor it
     in its own graph with `agent_name` set to its name and
     `task_author=TaskAuthor.PARENT_AGENT`.
+
+    The monitor goes after a spec's own middleware, so a monitor already
+    there, one this helper added in an earlier call included, wraps it. When
+    that stack loses or misjudges records, a `MonitorPlacementWarning` names
+    the monitor inside, as `check_monitor_placement` would.
 
     Every option is checked before Deep Agents is imported: `middleware` and
     each override must be a `MonitorMiddleware`, `overrides` a mapping keyed

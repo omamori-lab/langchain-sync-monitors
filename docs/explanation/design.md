@@ -86,6 +86,82 @@ Middleware instances are shared across parallel subagent runs, so the monitor
 keeps no per-run state on itself; everything a run needs lives in the graph
 state.
 
+### Two monitors in one agent
+
+A second `MonitorMiddleware` in the list, with its own `label`, sits inside
+the first: the outer monitor judges the step the inner one commits. The inner
+monitor returns its record as a command, and LangChain keeps only the commands
+of the last call of the outer monitor's handler, or piles up those of calls
+made at once [@langchain2026]. The inner protocol does not change this, so
+the outer protocol decides whether the inner records are sound:
+
+| Outer protocol | Inner monitor's records |
+|---|---|
+| `TrustedMonitoring` | Sound |
+| `DeferToResample(max_resamples=0, fallback=HaltRun())` | Sound |
+| `AutoMode` with `max_consecutive_blocks=1` or `max_total_blocks=1`, and `when_limit_reached=HaltRun()` | Sound |
+| `DeferToTrusted`, or `DeferToResample` with resamples or with `DeferToTrustedModel` | The judgement of each rejected sample is lost |
+| `AutoMode` that can block twice in a step, or with `DeferToTrustedModel` | The judgement of each blocked sample is lost |
+| `DeferToResample(resampling=Resampling.PARALLEL)` under `ainvoke()` | The first sample's judgement is lost, and the resamples drawn at once leave one record each under the same step number, so later numbers are skipped; if the trusted model then writes the step, only its record is kept |
+| A subclass of a protocol, a protocol of your own, or a fallback of your own, a `HaltRun` subclass included | Not known; `check_monitor_placement` warns |
+
+The first three call the model at most once per step, whatever message their
+`HaltRun` carries. Sound means the stack loses nothing of its own: as with one
+monitor, a middleware outside it that raises after a step returns leaves that
+step's records on `stream_mode="custom"` but out of `monitor_log`. Whatever the
+outer protocol, an inner monitor whose protocol blocks, such as `AutoMode`,
+must keep `FeedbackVisibility.HIDDEN`: with `IN_TRANSCRIPT` it commits its
+blocked attempts ahead of the step, and the outer monitor judges the first
+blocked proposal instead of the step that runs. In a sound stack each record
+holds its own monitor's decision, so when the outer monitor halts a step the
+inner one allowed, the inner record still marks its sample `executed` though
+nothing ran, and only the outer record says what ran.
+`check_monitor_placement` warns about each stack that loses or misjudges
+records, and about a middleware between two monitors inside one that can call
+the model again; `monitor_subagents` warns about the stacks it builds.
+
+To judge every sample with two monitors under a protocol that resamples, give
+one `MonitorMiddleware` a monitor that runs both and keeps the higher
+suspicion, so either can reject the step. The library has no such wrapper, and
+a few lines make one:
+
+```python
+import asyncio
+
+from langchain_sync_monitors import Monitor, MonitorInput, Verdict
+
+
+class HigherSuspicion(Monitor):
+    """Judge with both monitors and keep the more suspicious verdict."""
+
+    def __init__(self, *, first: Monitor, second: Monitor) -> None:
+        self.first = first
+        self.second = second
+
+    async def evaluate(self, monitor_input: MonitorInput) -> Verdict:
+        verdicts = await asyncio.gather(
+            self.first.evaluate(monitor_input),
+            self.second.evaluate(monitor_input),
+        )
+        return max(verdicts, key=lambda verdict: verdict.suspicion)
+
+    def evaluate_sync(self, monitor_input: MonitorInput) -> Verdict:
+        verdicts = [
+            self.first.evaluate_sync(monitor_input),
+            self.second.evaluate_sync(monitor_input),
+        ]
+        return max(verdicts, key=lambda verdict: verdict.suspicion)
+```
+
+The combined monitor flags every step either judge flags, so at a given
+threshold its honest runs are flagged more often than either judge's, up to
+the sum of the two rates: calibrate its thresholds on its own honest scores,
+as [Combine and calibrate
+monitors](../how-to/combine-and-calibrate-monitors.md) shows.
+`CascadeMonitor` does not do this. It calls the careful monitor only when the
+fast one finds the step suspicious, and the careful verdict then replaces the
+fast one, so the careful monitor can clear a step the fast one flagged.
+
 ## Four pieces
 
 The work is split so that what the monitor reads, how it scores, and what

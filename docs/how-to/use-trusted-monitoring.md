@@ -142,7 +142,9 @@ for record in result["monitor_log"]:
 - **Put the monitor last** in the `create_agent` middleware list. LangChain
   nests the first middleware outermost, so the last one sits directly around
   the model. `check_monitor_placement(middleware=[...])` warns about a list
-  that puts a middleware where it undermines the monitor.
+  that puts a middleware where it undermines the monitor. Trusted Monitoring
+  calls the model once per step, so a second monitor may sit inside it; see
+  [Two monitors in one agent](../explanation/design.md#two-monitors-in-one-agent).
 - **A failed call leaves no record.** If the agent's model or the monitor
   raises during a step, nothing is committed and the error propagates. The
   samples judged before the failure are logged as a warning and written to

@@ -229,7 +229,10 @@ sequenceDiagram
 - With `IN_TRANSCRIPT`, the blocked attempts and their feedback are committed
   before the accepted step, as Claude Code does. The agent remembers them on
   later steps, and so does the monitor, which reads earlier feedback as
-  `<monitor_feedback>`.
+  `<monitor_feedback>`. Keep `HIDDEN` for an Auto Mode monitor that sits
+  inside another monitor: a monitor outside it would judge the first blocked
+  attempt instead of the step that runs, and `check_monitor_placement` warns
+  about such a list.
 
 Every message the monitor inserts gets a fresh id of the form
 `monitor-<uuid4>`, because LangGraph replaces messages that share an id.
@@ -275,7 +278,11 @@ records' `blocked_count`.
   the fallback.
 - **Put the monitor last** in the `create_agent` middleware list, so no other
   middleware runs inside it and returns commands for attempts the monitor
-  blocks. `check_monitor_placement(middleware=[...])` warns about such a list.
+  blocks. A second monitor inside this one keeps sound records only when
+  `max_consecutive_blocks` or `max_total_blocks` is 1 and `when_limit_reached`
+  is a `HaltRun` (not a subclass), so that a step draws at most one sample; see
+  [Two monitors in one agent](../explanation/design.md#two-monitors-in-one-agent).
+  `check_monitor_placement(middleware=[...])` warns about such a list.
 - **A halt ends the run.** The middleware's `after_model` hook routes the
   agent to its end after a halt. The middleware's hooks cost two graph steps
   per model call, `before_model` and `after_model`, and two per run,

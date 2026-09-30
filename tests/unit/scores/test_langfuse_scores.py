@@ -7,6 +7,7 @@ cursor, and keeps each score by its id, so a score sent twice is stored once.
 from __future__ import annotations
 
 import json
+import logging
 from datetime import UTC, datetime, timedelta
 from uuid import uuid4
 
@@ -19,13 +20,21 @@ from langchain_sync_monitors.langfuse_scores import (
     MAX_OBSERVATION_PAGES,
     START_TIME_MARGIN,
     UNKNOWN_START_REACH,
+    IngestionAnswer,
+    IngestionEventStatus,
     LangfuseScoreSender,
+    ObservationPage,
     build_langfuse_sender,
+    match_observations,
     read_langfuse_credentials,
     read_step_start,
+    record_ingestion_answer,
 )
-from langchain_sync_monitors.scores import PendingScore, Tracer
+from langchain_sync_monitors.score_requests import REQUEST_TIMEOUT_SECONDS
+from langchain_sync_monitors.scores import DeliveryReport, PendingScore, Tracer
 from tests.support.score_services import FakeLangfuse, build_step_id, read_request_json
+
+SENDER_LOGGER = "langchain_sync_monitors.langfuse_scores"
 
 
 def build_score(*, value: float = 0.9, name: str = "monitor_suspicion") -> PendingScore:
@@ -297,6 +306,7 @@ def test_the_ingestion_answer_decides_whether_the_scores_wait_or_are_refused(
     answer: httpx.Response,
     fate: str,
     pause_seconds: float | None,
+    caplog: pytest.LogCaptureFixture,
 ) -> None:
     # Arrange: the lookup finds the step, and the ingestion request gets the answer
     service = FakeLangfuse()
@@ -305,9 +315,15 @@ def test_the_ingestion_answer_decides_whether_the_scores_wait_or_are_refused(
     service.queued_answers = [lookup, answer]
 
     # Act
-    report = build_sender(service).send([score])
+    with caplog.at_level(logging.WARNING, logger=SENDER_LOGGER):
+        report = build_sender(service).send([score])
 
     # Assert
+    assert [record.getMessage() for record in caplog.records] == (
+        ["score export: Langfuse's ingestion API answered in an unknown shape"]
+        if answer.content == b"not json"
+        else []
+    )
     assert {"waiting": report.waiting, "refused": report.refused}[fate] == [score]
     assert report.written == []
     assert report.pause_seconds == pause_seconds
@@ -317,23 +333,78 @@ def test_the_ingestion_answer_decides_whether_the_scores_wait_or_are_refused(
 
 
 @pytest.mark.parametrize(
-    "answer",
+    ("answer", "logged"),
     [
-        httpx.Response(401, json={"message": "unauthorised"}),
-        httpx.Response(200, json={"unexpected": True}),
+        (
+            httpx.Response(401, json={"message": "unauthorised"}),
+            "score export: Langfuse answered the step lookup with HTTP 401",
+        ),
+        (
+            httpx.Response(200, json={"unexpected": True}),
+            "score export: Langfuse's step lookup answered in an unknown shape",
+        ),
     ],
+    ids=["unauthorised", "unknown-shape"],
 )
-def test_a_lookup_that_fails_leaves_the_scores_waiting(answer: httpx.Response) -> None:
+def test_a_lookup_that_fails_leaves_the_scores_waiting_and_is_logged(
+    answer: httpx.Response,
+    logged: str,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
     # Arrange
     service = FakeLangfuse(queued_answers=[answer])
     score = build_score()
 
     # Act
-    report = build_sender(service).send([score])
+    with caplog.at_level(logging.WARNING, logger=SENDER_LOGGER):
+        report = build_sender(service).send([score])
 
     # Assert
     assert report.waiting == [score]
     assert report.pause_seconds is None
+    assert [record.getMessage() for record in caplog.records] == [logged]
+
+
+def test_an_unknown_event_in_the_answer_hides_none_of_the_events_after_it() -> None:
+    # Arrange
+    written, refused = build_score(), build_score()
+    events = {"event-written": written, "event-refused": refused}
+    answer = IngestionAnswer(
+        successes=[
+            IngestionEventStatus(id="another-event", status=201),
+            IngestionEventStatus(id="event-written", status=201),
+        ],
+        errors=[
+            IngestionEventStatus(id="another-event", status=400),
+            IngestionEventStatus(id="event-refused", status=400),
+        ],
+    )
+    report = DeliveryReport()
+
+    # Act
+    record_ingestion_answer(report, events=events, answer=answer)
+
+    # Assert
+    assert report.written == [written]
+    assert report.refused == [refused]
+    assert report.waiting == []
+
+
+def test_only_the_wanted_steps_match_among_the_observations_found() -> None:
+    # Arrange
+    service = FakeLangfuse()
+    wanted = str(build_step_id())
+    service.add_step(wanted)
+    service.add_step(str(build_step_id()))
+    service.add_step(str(build_step_id()))["metadata"] = {"monitor_name": "monitor"}
+    page = ObservationPage.model_validate({"data": service.observations})
+
+    # Act
+    matched = match_observations(page, wanted={wanted, str(build_step_id())})
+
+    # Assert
+    assert list(matched) == [wanted]
+    assert matched[wanted].id == service.observations[0]["id"]
 
 
 def test_an_observation_with_odd_metadata_does_not_void_the_page() -> None:
@@ -430,7 +501,24 @@ def test_the_base_url_defaults_to_langfuse_cloud(
     request = sender.http_client.build_request("GET", "/api/public/v2/observations")
     assert str(request.url) == f"{LANGFUSE_BASE_URL}/api/public/v2/observations"
     assert credentials.base_url == LANGFUSE_BASE_URL
+    assert isinstance(sender.http_client.auth, httpx.BasicAuth)
+    assert sender.http_client.timeout == httpx.Timeout(REQUEST_TIMEOUT_SECONDS)
     sender.close()
+
+
+def test_langfuse_base_url_comes_before_langfuse_host(monkeypatch: pytest.MonkeyPatch) -> None:
+    # Arrange
+    monkeypatch.setenv("LANGFUSE_PUBLIC_KEY", "pk-lf-test")
+    monkeypatch.setenv("LANGFUSE_SECRET_KEY", "sk-lf-test")
+    monkeypatch.setenv("LANGFUSE_BASE_URL", "https://eu.langfuse.example.test/")
+    monkeypatch.setenv("LANGFUSE_HOST", "https://us.langfuse.example.test")
+
+    # Act
+    credentials = read_langfuse_credentials()
+
+    # Assert
+    assert credentials is not None
+    assert credentials.base_url == "https://eu.langfuse.example.test"
 
 
 def test_a_secret_key_no_header_may_carry_is_refused(monkeypatch: pytest.MonkeyPatch) -> None:

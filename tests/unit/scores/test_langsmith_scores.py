@@ -7,6 +7,7 @@ yet, `409` for a feedback id it has already stored, and `429` with
 
 from __future__ import annotations
 
+import logging
 from uuid import UUID, uuid5
 
 import httpx
@@ -19,6 +20,7 @@ from langchain_sync_monitors.langsmith_scores import (
     build_langsmith_sender,
     read_langsmith_credentials,
 )
+from langchain_sync_monitors.score_requests import REQUEST_TIMEOUT_SECONDS
 from langchain_sync_monitors.scores import SCORE_ID_NAMESPACE, PendingScore, Tracer
 from tests.support.score_services import (
     PROJECT_ID,
@@ -86,7 +88,7 @@ def test_the_project_is_looked_up_once_for_many_scores_and_kept() -> None:
 
     # Assert
     [lookup] = service.find_requests("GET", "/sessions")
-    assert lookup.url.params["name"] == PROJECT_NAME
+    assert dict(lookup.url.params) == {"name": PROJECT_NAME, "limit": "1"}
     assert len(service.find_requests("POST", "/feedback")) == 4
 
 
@@ -107,6 +109,39 @@ def test_a_project_not_found_yet_leaves_its_scores_waiting_until_it_is() -> None
     assert posts_before_the_project == 0
     assert second.written == [score]
     assert len(service.find_requests("GET", "/sessions")) == 2
+
+
+def test_a_score_whose_project_is_not_found_waits_and_the_scores_after_it_are_sent() -> None:
+    # Arrange
+    service = FakeLangSmith()
+    unknown = build_score(project="a-project-not-made-yet")
+    known = build_score()
+
+    # Act
+    report = build_sender(service).send([unknown, known])
+
+    # Assert
+    assert report.waiting == [unknown]
+    assert report.written == [known]
+
+
+def test_a_project_lookup_that_fails_does_not_hold_up_the_other_projects() -> None:
+    # Arrange: the first lookup fails on both attempts, the second project is found
+    service = FakeLangSmith(
+        projects={PROJECT_NAME: PROJECT_ID, "b-project": "b-project-id"},
+        queued_answers=[httpx.Response(503), httpx.Response(503)],
+    )
+    stalled = build_score(project="a-project")
+    found = build_score(project="b-project")
+
+    # Act
+    report = build_sender(service).send([stalled, found])
+
+    # Assert
+    assert report.waiting == [stalled]
+    assert report.written == [found]
+    [post] = service.find_requests("POST", "/feedback")
+    assert read_request_json(post)["session_id"] == "b-project-id"
 
 
 def test_a_run_not_ingested_yet_waits_and_is_written_later() -> None:
@@ -210,16 +245,36 @@ def test_a_client_error_refuses_the_score_with_the_status(status: int) -> None:
     assert report.refusal == f"LangSmith answered HTTP {status}"
 
 
-def test_a_project_lookup_in_an_unknown_shape_leaves_the_scores_waiting() -> None:
+@pytest.mark.parametrize(
+    ("answer", "logged"),
+    [
+        (
+            httpx.Response(200, json={"unexpected": True}),
+            "score export: LangSmith's project lookup answered in an unknown shape",
+        ),
+        (
+            httpx.Response(401, json={"detail": "unauthorised"}),
+            "score export: LangSmith answered the project lookup with HTTP 401",
+        ),
+    ],
+    ids=["unknown-shape", "unauthorised"],
+)
+def test_a_project_lookup_that_fails_leaves_the_scores_waiting_and_is_logged(
+    answer: httpx.Response,
+    logged: str,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
     # Arrange
-    service = FakeLangSmith(queued_answers=[httpx.Response(200, json={"unexpected": True})])
+    service = FakeLangSmith(queued_answers=[answer])
     score = build_score()
 
     # Act
-    report = build_sender(service).send([score])
+    with caplog.at_level(logging.WARNING, logger="langchain_sync_monitors.langsmith_scores"):
+        report = build_sender(service).send([score])
 
     # Assert
     assert report.waiting == [score]
+    assert [record.getMessage() for record in caplog.records] == [logged]
 
 
 def test_the_credentials_come_from_the_variables_langsmith_reads(
@@ -301,6 +356,7 @@ def test_the_sender_authenticates_with_the_key_and_any_workspace(
     assert str(request.url) == "https://smith.example.test/api/v1/feedback"
     assert request.headers["x-api-key"] == "key-for-test"
     assert request.headers.get("X-Tenant-Id") == expected
+    assert sender.http_client.timeout == httpx.Timeout(REQUEST_TIMEOUT_SECONDS)
     sender.close()
 
 

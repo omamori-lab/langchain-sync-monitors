@@ -6,6 +6,7 @@ anything unreadable pauses for the default, and a date already past for nothing.
 
 from __future__ import annotations
 
+import logging
 from datetime import UTC, datetime, timedelta
 from email.utils import format_datetime
 
@@ -50,6 +51,17 @@ def test_a_retry_after_date_pauses_until_that_date() -> None:
 
     # Assert
     assert 85.0 <= pause <= 90.0
+
+
+def test_a_retry_after_date_without_a_zone_is_read_as_utc() -> None:
+    # Arrange: RFC 2822 writes an unknown zone as -0000, which Python reads as a naive time
+    moment = (datetime.now(UTC) + timedelta(seconds=60)).replace(tzinfo=None)
+
+    # Act
+    pause = read_pause_seconds(build_rate_limited(format_datetime(moment)))
+
+    # Assert
+    assert 55.0 <= pause <= 60.0
 
 
 def test_a_retry_after_date_in_the_past_asks_for_no_pause() -> None:
@@ -119,7 +131,9 @@ def test_only_transport_failures_and_server_errors_are_retried(
     assert retried is expected
 
 
-def test_a_server_error_is_retried_and_then_leaves_no_response() -> None:
+def test_a_server_error_is_retried_and_then_leaves_no_response(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
     # Arrange
     answers = [httpx.Response(502), httpx.Response(503)]
     seen: list[httpx.Request] = []
@@ -131,11 +145,19 @@ def test_a_server_error_is_retried_and_then_leaves_no_response() -> None:
     client = httpx.Client(transport=httpx.MockTransport(answer))
 
     # Act
-    response = send_request(client, request=client.build_request("GET", "https://service.test/"))
+    with caplog.at_level(logging.INFO, logger="langchain_sync_monitors.score_requests"):
+        response = send_request(
+            client, request=client.build_request("GET", "https://service.test/items")
+        )
 
-    # Assert
+    # Assert: the log names the path and the error, never a header
     assert response is None
     assert len(seen) == 2
+    assert [
+        record.getMessage()
+        for record in caplog.records
+        if record.name == "langchain_sync_monitors.score_requests"
+    ] == ["score export: GET /items failed with HTTPStatusError"]
 
 
 def test_a_server_error_then_a_success_returns_the_success() -> None:
@@ -173,13 +195,13 @@ def test_a_client_error_is_returned_without_a_retry() -> None:
 def test_a_variable_is_trimmed_as_the_sdks_trim_it(monkeypatch: pytest.MonkeyPatch) -> None:
     # Arrange
     monkeypatch.setenv("FIRST_NAME_TEST", "   ")
-    monkeypatch.setenv("SECOND_NAME_TEST", ' "value" ')
+    monkeypatch.setenv("SECOND_NAME_TEST", ' "X-value-X" ')
 
     # Act
     value = read_environment_value("FIRST_NAME_TEST", "SECOND_NAME_TEST")
 
     # Assert
-    assert value == "value"
+    assert value == "X-value-X"
 
 
 def test_a_variable_no_header_may_carry_is_refused_without_its_value(

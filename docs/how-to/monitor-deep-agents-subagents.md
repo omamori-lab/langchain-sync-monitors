@@ -229,11 +229,12 @@ new input from the user, every further step of the parent halts without a
 sample, and two paths through middleware listed before the monitor can lift
 it early; see [A halt stands](choose-a-protocol.md#a-halt-stands).
 
-Auto Mode's thread total can stop the parent under either value, whether or
-not the subagent was halted. When the parent runs Auto Mode, and blocks
-recorded under the same label inside subagents leave the thread at or over
-its `max_total_blocks`, the parent's next step goes to `when_limit_reached`
-without being sampled, which halts the run by default.
+Auto Mode's thread total acts under either value, whether or not the
+subagent was halted. When the parent runs Auto Mode, and blocks recorded
+under the same label inside subagents since the parent's last step leave the
+thread at or over its `max_total_blocks`, the total sends the parent's next
+step to its fallback, `when_limit_reached`, without a sample. The default
+fallback halts the run.
 
 ## Monitor a compiled subagent
 

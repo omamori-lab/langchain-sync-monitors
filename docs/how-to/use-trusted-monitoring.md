@@ -14,7 +14,7 @@ the step runs, and the flag marks its record.
 ## How it works
 
 ```mermaid
-flowchart LR
+flowchart TD
     propose["The agent proposes a step"] --> judge["The monitor scores it"]
     judge --> check{"Suspicion at or above flag_threshold?"}
     check -- "no" --> allowed["The step runs: allowed"]
@@ -58,7 +58,7 @@ agent = create_agent(
 
 task = {"messages": [{"role": "user", "content": "Summarise q3.md for the team."}]}
 result = agent.invoke(task)
-# One record per model call, each holding the one sample that ran.
+# One record per step, each holding the one sample that ran.
 for record in result["monitor_log"]:
     [sample] = record["samples"]
     print(record["step_number"], record["outcome"], record["flagged"], sample["suspicion"])
@@ -112,7 +112,7 @@ into ranks among honest-run scores.
 
 ## Read the outcome in `monitor_log`
 
-Every model call adds one record:
+Every step adds one record:
 
 | Field | Under Trusted Monitoring |
 |---|---|

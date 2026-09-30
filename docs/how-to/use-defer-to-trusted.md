@@ -5,7 +5,8 @@ to a trusted model.
 
 [TOC]
 
-The agent's own model proposes each step. When the monitor finds the proposal
+Use it when a capable trusted model exists and you want the simplest
+intervention. The agent's own model proposes each step. When the monitor finds the proposal
 suspicious, a model you trust writes the step instead, from the same request.
 The protocol comes from the AI control paper [@greenblatt2023aicontrol], where
 the trusted model is weaker than the untrusted one but trusted not to work
@@ -15,7 +16,7 @@ used. Here that review is a flag on the step's record, read after the step.
 ## How it works
 
 ```mermaid
-flowchart LR
+flowchart TD
     propose["The agent's model proposes a step"] --> judge["The monitor scores it"]
     judge --> check{"Suspicion at or above defer_threshold?"}
     check -- "no" --> allowed["The proposal runs: allowed"]
@@ -68,7 +69,7 @@ agent = create_agent(
 
 task = {"messages": [{"role": "user", "content": "Summarise q3.md for the team."}]}
 result = agent.invoke(task)
-# One record per model call, each holding the agent's one proposal.
+# One record per step, each holding the agent's one proposal.
 for record in result["monitor_log"]:
     [sample] = record["samples"]
     print(record["step_number"], record["outcome"], record["flagged"], sample["suspicion"])
@@ -107,7 +108,7 @@ see [Use Defer to Resample](use-defer-to-resample.md).
 
 ## Read the outcome in `monitor_log`
 
-Every model call adds one record.
+Every step adds one record.
 
 | `outcome` | What happened | Samples | The sample's `executed` |
 |---|---|---|---|

@@ -5,7 +5,9 @@ tells the agent why, and lets it try again.
 
 [TOC]
 
-An honest agent that overreached can then finish the task by a safer route.
+Use it when most suspicious steps are an honest agent overreaching, and a
+person would otherwise approve each step. An honest agent that overreached
+can then finish the task by a safer route.
 After three blocks in a row within one step, or twenty in the conversation
 thread, a fallback writes the step, and by default the run halts. The
 protocol follows Claude Code's auto mode [@hughes2026automode], which stops a
@@ -126,8 +128,9 @@ Two options of `MonitorMiddleware` matter here:
 | `label` | `"monitor"` | The name the thread total is counted under. Stacked monitors need distinct labels. |
 
 Each option is checked when the object is built, and a value of the wrong
-type raises `ConfigurationError`: a limit given as a float or a `bool`, a
-plain string for `feedback_visibility`. The threshold is a number from 0 to
+type raises `ConfigurationError`: a limit given as a float or a `bool`, other
+than `math.inf` for `max_total_blocks`, or a plain string for
+`feedback_visibility`. The threshold is a number from 0 to
 1; see [Thresholds](choose-a-protocol.md#thresholds). The other options of
 `MonitorMiddleware` are listed in
 [Middleware options](choose-a-protocol.md#middleware-options).
@@ -283,7 +286,7 @@ Every message the monitor inserts gets a fresh id of the form
 
 ## Read the outcome in `monitor_log`
 
-Every model call adds one record, which keeps every attempt the monitor
+Every step adds one record, which keeps every attempt the monitor
 judged.
 
 | `outcome` | What happened | `blocked_count` | Samples | Executed sample |

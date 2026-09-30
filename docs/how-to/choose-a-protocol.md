@@ -113,8 +113,9 @@ included, and its range is checked on the exact value before it becomes a
 float; `-0.0` reads as 0. A `bool`, a string such as `"0.6"`, NaN or a value
 outside the range raises `ConfigurationError` when the protocol is built. So
 does any other option of the wrong type: a limit given as a float or a
-`bool`, a plain string where an enum member belongs, or the `DeferToTrusted`
-protocol where the `DeferToTrustedModel` fallback belongs.
+`bool`, other than `math.inf` for Auto Mode's `max_total_blocks`, a plain
+string where an enum member belongs, or the `DeferToTrusted` protocol where
+the `DeferToTrustedModel` fallback belongs.
 
 ### A halt stands
 
@@ -172,11 +173,11 @@ when a model call receives one of the server tools it knows:
 It reads the tools of the model request. It also reads the tools bound on the
 model with `bind_tools` before the agent was built, but only for an agent with
 no tools of its own and no `response_format`: otherwise `create_agent` binds
-the model afresh, and those tools never reach it. It cannot see, and so never
-warns about:
+the model afresh, and those tools never reach it [@langchain2026]. It cannot
+see, and so never warns about:
 
 - a server-side feature switched on in the model's own settings, such as
-  OpenRouter's web plugin or an `:online` model;
+  OpenRouter's web plugin or an `:online` model [@langchainopenrouter2026];
 - a tool an integration has already turned into an object of its own SDK;
 - tools bound inside a wrapper such as `with_fallbacks(...)`;
 - tools queued with `bind_tools` on a configurable model from

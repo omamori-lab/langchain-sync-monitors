@@ -5,8 +5,9 @@ a suspicious step and runs the least suspicious acceptable one.
 
 [TOC]
 
-Only when every sample looks suspicious does a fallback write the step: a
-trusted model, or a halt. The protocol comes from Ctrl-Z [@bhatt2025ctrlz]. At
+Use it when you want to keep most of the stronger model's work and gather
+evidence from repeated samples. Only when every sample looks suspicious does
+a fallback write the step: a trusted model, or a halt. The protocol comes from Ctrl-Z [@bhatt2025ctrlz]. At
 the same deferral threshold it costs much less usefulness than deferring to a
 trusted model at once, since a fresh sample of an innocent step may look
 innocent, and the extra samples are evidence for an audit.
@@ -80,7 +81,7 @@ agent = create_agent(
 
 task = {"messages": [{"role": "user", "content": "Summarise q3.md for the team."}]}
 result = agent.invoke(task)
-# One record per model call, with every sample the monitor judged.
+# One record per step, with every sample the monitor judged.
 for record in result["monitor_log"]:
     scores = [round(sample["suspicion"], 2) for sample in record["samples"]]
     print(record["step_number"], record["outcome"], record["flagged"], scores)
@@ -148,7 +149,7 @@ A round is one call of the agent's model followed by one call of the monitor.
 
 ## Read the outcome in `monitor_log`
 
-Every model call adds one record, which keeps every sample the monitor judged.
+Every step adds one record, which keeps every sample the monitor judged.
 
 | `outcome` | What happened | Samples | Executed sample |
 |---|---|---|---|

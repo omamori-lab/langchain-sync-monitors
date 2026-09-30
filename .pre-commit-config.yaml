@@ -30,6 +30,11 @@ repos:
         language: system
         pass_filenames: false
         require_serial: true
+      - id: gitleaks
+        name: secrets (gitleaks)
+        entry: gitleaks git --pre-commit --staged --config .gitleaks.toml --redact --no-banner
+        language: system
+        pass_filenames: false
       - id: pytest
         name: unit tests
         entry: env REQUIRE_DOCS_GROUP=1 uv run --group dev --group docs pytest -q

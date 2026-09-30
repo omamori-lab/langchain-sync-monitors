@@ -36,6 +36,11 @@ uv sync --group dev --group docs --all-extras
 uvx pre-commit install
 ```
 
+The pre-commit hooks include a secrets scan, which needs
+[gitleaks](https://github.com/gitleaks/gitleaks) on your `PATH`, for example
+from `brew install gitleaks`. CI scans the whole history with the same
+`.gitleaks.toml`.
+
 Live tests call real model providers. They read `OPENROUTER_API_KEY` from the
 environment or from a local `.env` file, which git ignores. Run them with
 `uv run --group dev pytest -m live`.

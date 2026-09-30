@@ -207,10 +207,12 @@ class DecisionsRequestBody(TypedDict):
 
 
 class DecisionAnswer(BaseModel):
-    """One answer from the Decisions API: the probability of yes."""
+    """One answer from the Decisions API: the probability of yes, a JSON number from 0 to 1."""
 
     type: Literal["noul"]
-    noul: float = Field(ge=0.0, le=1.0)
+    # Strict, since pydantic's lax mode reads `true`, `false` and strings such as "0.5" as numbers
+    # [@pydantic2026], and `false` would pass as 0. A JSON integer such as 0 or 1 is still read.
+    noul: float = Field(strict=True, ge=0.0, le=1.0)
 
 
 class DecisionsResponse(BaseModel):

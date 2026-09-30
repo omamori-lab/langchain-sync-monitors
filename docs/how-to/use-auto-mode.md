@@ -18,24 +18,16 @@ does.
 
 ## How it works
 
-```mermaid
-flowchart TD
-    start{"New subagent blocks since the last step, and the thread at or over max_total_blocks?"}
-    start -- "yes" --> fallback
-    start -- "no" --> attempt["The agent proposes a step, seeing this step's blocked attempts and their feedback"]
-    attempt --> check{"The monitor's suspicion at or above block_threshold?"}
-    check -- "no, first attempt" --> allowed["Run it: allowed"]
-    check -- "no, after a block" --> steered["Run it, flagged: steered"]
-    check -- "yes" --> feedback["Block it and write the feedback"]
-    feedback --> limit{"A block limit reached?"}
-    limit -- "no" --> attempt
-    limit -- "yes" --> fallback["when_limit_reached writes the step, flagged: halted or deferred_to_trusted"]
-```
+[![A new step starts with the agent's model, which proposes an attempt, seeing the step's blocked attempts and their feedback. The monitor, drawn as an omamori charm, reads it through its view and scores it from 0 to 1. Below block_threshold the attempt runs: on the first attempt the outcome is allowed, and after a block it is steered and flagged. At or above block_threshold the attempt is blocked, and the feedback tells the agent why. If no limit is reached, the agent tries again. Once the step's blocks reach max_consecutive_blocks, 3 by default, or the thread's blocks reach max_total_blocks, 20 by default, when_limit_reached writes the step, flagged: by default HaltRun ends the run, recorded as halted, and DeferToTrustedModel has the trusted model write it instead, recorded as deferred_to_trusted. A step goes to when_limit_reached at once, with no attempt, when blocks inside subagents since this agent's last step leave the thread at or over max_total_blocks.](../assets/diagrams/protocol-auto-mode-light.svg#only-light)](../assets/diagrams/protocol-auto-mode-light.svg "Open the diagram at full size")
+[![A new step starts with the agent's model, which proposes an attempt, seeing the step's blocked attempts and their feedback. The monitor, drawn as an omamori charm, reads it through its view and scores it from 0 to 1. Below block_threshold the attempt runs: on the first attempt the outcome is allowed, and after a block it is steered and flagged. At or above block_threshold the attempt is blocked, and the feedback tells the agent why. If no limit is reached, the agent tries again. Once the step's blocks reach max_consecutive_blocks, 3 by default, or the thread's blocks reach max_total_blocks, 20 by default, when_limit_reached writes the step, flagged: by default HaltRun ends the run, recorded as halted, and DeferToTrustedModel has the trusted model write it instead, recorded as deferred_to_trusted. A step goes to when_limit_reached at once, with no attempt, when blocks inside subagents since this agent's last step leave the thread at or over max_total_blocks.](../assets/diagrams/protocol-auto-mode-dark.svg#only-dark)](../assets/diagrams/protocol-auto-mode-dark.svg "Open the diagram at full size")
 
 The block limits are `max_consecutive_blocks` within the step and
-`max_total_blocks` in the thread. A step goes to the fallback before any
-attempt only when blocks inside subagents since this agent's last step leave
-the thread at or over the total.
+`max_total_blocks` in the thread. At a limit, `when_limit_reached` writes the
+step, flagged: `HaltRun`, the default, ends the run as `halted`;
+`DeferToTrustedModel` instead has the trusted model write it as
+`deferred_to_trusted`.
+A step goes to the fallback before any attempt only when blocks inside
+subagents since this agent's last step leave the thread at or over the total.
 
 The tool calls of a blocked attempt never run. A provider's built-in tools in
 it, such as a web fetch, already ran inside the model call that drew it, once
@@ -258,26 +250,8 @@ A blocked attempt is answered in a way every provider accepts:
 
 `feedback_visibility` decides whether these stay in the conversation:
 
-```mermaid
-sequenceDiagram
-    participant Model as Agent's model
-    participant Middleware as Monitor middleware
-    participant Messages as Agent's messages
-    Middleware->>Model: the conversation so far
-    Model-->>Middleware: attempt 1, http_post with the key
-    Note over Middleware: suspicion 0.90, blocked
-    Middleware->>Model: the conversation, attempt 1 and an error result with the feedback
-    Model-->>Middleware: attempt 2, the final answer
-    Note over Middleware: suspicion 0.10, runs
-    %% Two one-branch blocks rather than alt/else: Material's Mermaid theme
-    %% leaves an else label black, unreadable on the dark page.
-    alt FeedbackVisibility.HIDDEN
-        Middleware->>Messages: attempt 2 only
-    end
-    alt FeedbackVisibility.IN_TRANSCRIPT
-        Middleware->>Messages: attempt 1, its feedback, then attempt 2
-    end
-```
+[![Inside one Auto Mode step, attempt 1 is drawn on the conversation so far. It calls http_post with the key, scores 0.90 and is blocked. Attempt 2 is drawn on the conversation so far, attempt 1, and attempt 1's feedback as an error tool result; it is the final answer, scores 0.10 and runs. Then the step is committed to the agent's messages. With FeedbackVisibility.HIDDEN, the default, they keep the conversation and attempt 2, and leave out attempt 1 and its feedback. With FeedbackVisibility.IN_TRANSCRIPT, they keep attempt 1, its feedback, then attempt 2. Either way, monitor_log keeps both attempts.](../assets/diagrams/protocol-feedback-visibility-light.svg#only-light)](../assets/diagrams/protocol-feedback-visibility-light.svg "Open the diagram at full size")
+[![Inside one Auto Mode step, attempt 1 is drawn on the conversation so far. It calls http_post with the key, scores 0.90 and is blocked. Attempt 2 is drawn on the conversation so far, attempt 1, and attempt 1's feedback as an error tool result; it is the final answer, scores 0.10 and runs. Then the step is committed to the agent's messages. With FeedbackVisibility.HIDDEN, the default, they keep the conversation and attempt 2, and leave out attempt 1 and its feedback. With FeedbackVisibility.IN_TRANSCRIPT, they keep attempt 1, its feedback, then attempt 2. Either way, monitor_log keeps both attempts.](../assets/diagrams/protocol-feedback-visibility-dark.svg#only-dark)](../assets/diagrams/protocol-feedback-visibility-dark.svg "Open the diagram at full size")
 
 - With `HIDDEN`, the default, only the retries within the step see the blocked
   attempts and their feedback. The agent's messages show the accepted step

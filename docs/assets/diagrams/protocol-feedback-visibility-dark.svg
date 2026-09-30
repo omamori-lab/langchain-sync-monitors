@@ -1,0 +1,74 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1000" height="771" viewBox="0 0 1000 771" role="img" aria-labelledby="title desc">
+  <title id="title">What the agent sees after a block</title>
+  <desc id="desc">Inside one Auto Mode step, attempt 1 is drawn on the conversation so far. It calls http_post with the key, scores 0.90 and is blocked. Attempt 2 is drawn on the conversation so far, attempt 1, and attempt 1&#x27;s feedback as an error tool result; it is the final answer, scores 0.10 and runs. Then the step is committed to the agent&#x27;s messages. With FeedbackVisibility.HIDDEN, the default, they keep the conversation and attempt 2, and leave out attempt 1 and its feedback. With FeedbackVisibility.IN_TRANSCRIPT, they keep attempt 1, its feedback, then attempt 2. Either way, monitor_log keeps both attempts.</desc>
+  <!-- Colours come from the brand tokens: diagrams/render.py fills this style block. -->
+  <style>
+    svg { color-scheme: dark; }
+    text { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans", "Noto Sans JP", Helvetica, Arial, sans-serif; font-size: 15px; fill: #ECEBE6; }
+    .title { font-size: 17px; font-weight: 600; }
+    .small { font-size: 14px; fill: #A9A8A2; }
+    .mono { font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace; font-size: 13.5px; }
+    .soft { fill: #A9A8A2; }
+    .dashed { stroke-dasharray: 5 4; fill: none; stroke: #6A6A66; }
+    .box { fill: #141414; stroke: #ECEBE6; stroke-width: 1.4; }
+    .charm { fill: #ECEBE6; }
+    .on-charm { fill: #111111; }
+    .charm-cord { fill: none; stroke: #ECEBE6; stroke-width: 2.2; }
+    .seal { fill: #E0563B; }
+    .allow { fill: #141414; stroke: #ECEBE6; stroke-width: 1.4; }
+    .resample { fill: #1F1F1E; stroke: #ECEBE6; stroke-width: 1.4; }
+    .defer { fill: #34332F; stroke: #ECEBE6; stroke-width: 1.4; }
+    .steer { fill: #D9D8D2; stroke: #D9D8D2; stroke-width: 1.4; }
+    .on-steer { fill: #111111; }
+    .halt { fill: #E0563B; stroke: #E0563B; stroke-width: 1.4; }
+    .on-halt { fill: #111111; }
+    .frame { fill: none; stroke: #6A6A66; stroke-width: 1.2; stroke-dasharray: 6 4; }
+    .edge { fill: none; stroke: #D6D5CF; stroke-width: 1.5; }
+    .loop { fill: none; stroke: #D6D5CF; stroke-width: 1.5; stroke-dasharray: 5 4; }
+    .head { fill: #D6D5CF; }
+    .brush { fill: #ECEBE6; }
+  </style>
+  <defs><marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="9" markerHeight="9" markerUnits="userSpaceOnUse" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="head"/></marker></defs>
+  <text x="40.0" y="44.0" text-anchor="start"><tspan class="title">What the agent sees after a block</tspan></text>
+  <rect class="frame" x="16.0" y="68.0" width="968.0" height="359.0" rx="10"/>
+  <text x="40.0" y="98.0" text-anchor="start"><tspan class="title">Inside one step</tspan><tspan class="small">   the retry is drawn with the blocked attempt in view</tspan></text>
+  <text x="40.0" y="144.0" text-anchor="start" class="title">Attempt 1 is drawn on</text>
+  <text x="532.0" y="144.0" text-anchor="start" class="title">Attempt 2 is drawn on</text>
+  <rect class="box" x="40.0" y="160.0" width="428.0" height="34" rx="6"/>
+  <text x="60.0" y="182.0" text-anchor="start" class="">the conversation so far</text>
+  <rect class="box" x="532.0" y="160.0" width="428.0" height="34" rx="6"/>
+  <text x="552.0" y="182.0" text-anchor="start" class="">the conversation so far</text>
+  <rect class="box" x="532.0" y="204.0" width="428.0" height="34" rx="6"/>
+  <text x="552.0" y="226.0" text-anchor="start"><tspan class="">attempt 1: </tspan><tspan class="mono">http_post</tspan><tspan class=""> with the key</tspan></text>
+  <rect class="box" x="532.0" y="248.0" width="428.0" height="34" rx="6"/>
+  <text x="552.0" y="270.0" text-anchor="start" class="">its feedback, an error tool result</text>
+  <rect class="steer" x="40.0" y="322.0" width="428.0" height="81.0" rx="6"/>
+  <text x="254.0" y="353.0" text-anchor="middle" class="title on-steer">Attempt 1 is blocked</text>
+  <text x="254.0" y="375.0" text-anchor="middle"><tspan class="mono on-steer">http_post</tspan><tspan class="small on-steer"> with the key, scored 0.90</tspan></text>
+  <rect class="allow" x="532.0" y="322.0" width="428.0" height="81.0" rx="6"/>
+  <text x="746.0" y="353.0" text-anchor="middle" class="title">Attempt 2 runs</text>
+  <text x="746.0" y="375.0" text-anchor="middle" class="small">the final answer, scored 0.10</text>
+  <path class="edge" d="M254.0,194.0 L254.0,320.0" marker-end="url(#arrow)"/>
+  <path class="edge" d="M746.0,282.0 L746.0,320.0" marker-end="url(#arrow)"/>
+  <path class="edge" d="M468.0,362.5 L500.0,362.5 L500.0,221.0 L530.0,221.0" marker-end="url(#arrow)"/>
+  <text x="40.0" y="483.0" text-anchor="start" class="title">What the agent&#x27;s messages keep</text>
+  <text x="40.0" y="513.0" text-anchor="start"><tspan class="mono">FeedbackVisibility.HIDDEN</tspan><tspan class="small">, the default</tspan></text>
+  <text x="532.0" y="513.0" text-anchor="start"><tspan class="mono">FeedbackVisibility.IN_TRANSCRIPT</tspan></text>
+  <rect class="box" x="40.0" y="529.0" width="428.0" height="34" rx="6"/>
+  <text x="60.0" y="551.0" text-anchor="start" class="">the conversation so far</text>
+  <rect class="box dashed" x="40.0" y="573.0" width="428.0" height="34" rx="6"/>
+  <text x="60.0" y="595.0" text-anchor="start"><tspan class="soft">attempt 1: </tspan><tspan class="mono soft">http_post</tspan><tspan class="soft"> with the key</tspan></text>
+  <rect class="box dashed" x="40.0" y="617.0" width="428.0" height="34" rx="6"/>
+  <text x="60.0" y="639.0" text-anchor="start"><tspan class="soft">its feedback, an error tool result</tspan></text>
+  <rect class="box" x="40.0" y="661.0" width="428.0" height="34" rx="6"/>
+  <text x="60.0" y="683.0" text-anchor="start" class="">attempt 2: the final answer</text>
+  <rect class="box" x="532.0" y="529.0" width="428.0" height="34" rx="6"/>
+  <text x="552.0" y="551.0" text-anchor="start" class="">the conversation so far</text>
+  <rect class="box" x="532.0" y="573.0" width="428.0" height="34" rx="6"/>
+  <text x="552.0" y="595.0" text-anchor="start"><tspan class="">attempt 1: </tspan><tspan class="mono">http_post</tspan><tspan class=""> with the key</tspan></text>
+  <rect class="box" x="532.0" y="617.0" width="428.0" height="34" rx="6"/>
+  <text x="552.0" y="639.0" text-anchor="start" class="">its feedback, an error tool result</text>
+  <rect class="box" x="532.0" y="661.0" width="428.0" height="34" rx="6"/>
+  <text x="552.0" y="683.0" text-anchor="start" class="">attempt 2: the final answer</text>
+  <text x="40.0" y="739.0" text-anchor="start"><tspan class="small">Either way, </tspan><tspan class="mono">monitor_log</tspan><tspan class="small"> keeps both attempts.</tspan></text>
+</svg>

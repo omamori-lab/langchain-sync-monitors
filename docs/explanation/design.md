@@ -192,18 +192,8 @@ three blocks within one step, or twenty in the conversation thread, the
 limits Claude Code uses within a session, `when_limit_reached` writes the
 step; by default `HaltRun` ends the run.
 
-```mermaid
-flowchart TD
-    step["A new step"] --> spent{"Subagents spent<br>the total?"}
-    spent -- "no" --> draw["Draw a sample"]
-    draw --> check{"Suspicious?"}
-    check -- "no" --> run["Run it"]
-    check -- "yes" --> block["Block it"]
-    block --> limit{"A limit<br>reached?"}
-    limit -- "no: retry<br>with feedback" --> draw
-    limit -- "yes" --> fallback["when_limit_reached<br>writes the step"]
-    spent -- "yes" --> fallback
-```
+[![A new step starts with the agent's model, which proposes an attempt, seeing the step's blocked attempts and their feedback. The monitor, drawn as an omamori charm, reads it through its view and scores it from 0 to 1. Below block_threshold the attempt runs: on the first attempt the outcome is allowed, and after a block it is steered and flagged. At or above block_threshold the attempt is blocked, and the feedback tells the agent why. If no limit is reached, the agent tries again. Once the step's blocks reach max_consecutive_blocks, 3 by default, or the thread's blocks reach max_total_blocks, 20 by default, when_limit_reached writes the step, flagged: by default HaltRun ends the run, recorded as halted, and DeferToTrustedModel has the trusted model write it instead, recorded as deferred_to_trusted. A step goes to when_limit_reached at once, with no attempt, when blocks inside subagents since this agent's last step leave the thread at or over max_total_blocks.](../assets/diagrams/protocol-auto-mode-light.svg#only-light)](../assets/diagrams/protocol-auto-mode-light.svg "Open the diagram at full size")
+[![A new step starts with the agent's model, which proposes an attempt, seeing the step's blocked attempts and their feedback. The monitor, drawn as an omamori charm, reads it through its view and scores it from 0 to 1. Below block_threshold the attempt runs: on the first attempt the outcome is allowed, and after a block it is steered and flagged. At or above block_threshold the attempt is blocked, and the feedback tells the agent why. If no limit is reached, the agent tries again. Once the step's blocks reach max_consecutive_blocks, 3 by default, or the thread's blocks reach max_total_blocks, 20 by default, when_limit_reached writes the step, flagged: by default HaltRun ends the run, recorded as halted, and DeferToTrustedModel has the trusted model write it instead, recorded as deferred_to_trusted. A step goes to when_limit_reached at once, with no attempt, when blocks inside subagents since this agent's last step leave the thread at or over max_total_blocks.](../assets/diagrams/protocol-auto-mode-dark.svg#only-dark)](../assets/diagrams/protocol-auto-mode-dark.svg "Open the diagram at full size")
 
 A sample accepted on the first try is `ALLOWED`, and one accepted after a
 block is `STEERED`. A sample blocked at a limit is recorded like any other

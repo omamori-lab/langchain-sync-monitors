@@ -29,14 +29,14 @@ from langchain_core.callbacks import AsyncCallbackManager, BaseCallbackManager, 
 from langchain_core.messages import AnyMessage, BaseMessage, ToolMessage, convert_to_messages
 from langchain_core.runnables import RunnableBinding, RunnableConfig
 from langchain_core.runnables.config import ensure_config, patch_config, var_child_runnable_config
-from langgraph.channels.binop import _get_overwrite
+from langgraph.channels import binop as langgraph_binop
 from langgraph.constants import TAG_NOSTREAM
 from langgraph.runtime import Runtime
 from langgraph.types import Command, Overwrite
 from pydantic import BaseModel, TypeAdapter, ValidationError
 
 from langchain_sync_monitors.contracts import Delegation, SampleRecord, StepRecord
-from langchain_sync_monitors.errors import ConfigurationError
+from langchain_sync_monitors.errors import ConfigurationError, MonitorError
 
 logger = logging.getLogger(__name__)
 
@@ -112,6 +112,17 @@ type WrittenMessages = list[BaseMessage] | Overwrite
 """What an update writes to `messages` once rewritten: messages, or an `Overwrite` of them."""
 
 
+OVERWRITE_KEY = "__overwrite__"
+"""The key that marks the two dictionary forms of an `Overwrite`."""
+
+
+def is_update_pairs(update: object) -> bool:
+    """Tell whether an update is pairs of key and value, as LangGraph tells it."""
+    return isinstance(update, list | tuple) and all(
+        isinstance(pair, tuple) and len(pair) == 2 and isinstance(pair[0], str) for pair in update
+    )
+
+
 def read_update_pairs(command: Command[Any]) -> UpdatePairs:
     """Return the pairs of key and value a command's update writes, as LangGraph reads them.
 
@@ -120,8 +131,53 @@ def read_update_pairs(command: Command[Any]) -> UpdatePairs:
     reads anything else as a value for a root channel. Its own reader,
     `Command._update_as_tuples`, is the one it writes the update with
     [@langgraph2026], so the monitor reads exactly what the graph writes.
+    That reader is private, so it is looked up when called. Should a release
+    remove it, a dict and pairs are still read here, and any other update
+    raises `MonitorError`, so no message it writes goes unread.
     """
-    return command._update_as_tuples()
+    reader = getattr(command, "_update_as_tuples", None)
+    if callable(reader):
+        return reader()
+    update = command.update
+    if update is None:
+        return []
+    if isinstance(update, dict):
+        return list(update.items())
+    if is_update_pairs(update):
+        return update
+    message = (
+        f"The monitor cannot read what a {type(update).__name__} update writes with this "
+        "LangGraph, so it refuses the tool's command. Return the update as a dict."
+    )
+    raise MonitorError(message)
+
+
+def read_overwrite_forms(value: UpdateValue) -> tuple[bool, UpdateValue]:
+    """Tell whether a value is an `Overwrite` in a form LangGraph reads, and return its value.
+
+    The forms are the typed `Overwrite`, `{"__overwrite__": value}`, and
+    `{"type": "__overwrite__", "value": value}`, which JSON leaves of the
+    typed one, as LangGraph reads them [@langgraph2026].
+    """
+    if isinstance(value, Overwrite):
+        return True, value.value
+    if isinstance(value, dict) and len(value) == 1 and OVERWRITE_KEY in value:
+        return True, value[OVERWRITE_KEY]
+    if isinstance(value, dict) and value.get("type") == OVERWRITE_KEY and "value" in value:
+        return True, value["value"]
+    return False, None
+
+
+def read_overwrite(value: UpdateValue) -> tuple[bool, UpdateValue]:
+    """Tell whether LangGraph reads a value as an `Overwrite`, and return what it writes.
+
+    LangGraph's own reader is private, so it is looked up when called, and
+    the forms `read_overwrite_forms` knows are read if a release removes it.
+    A form only a later release reads is then taken for messages, which
+    `convert_to_messages` refuses, so the tool call fails closed.
+    """
+    reader = getattr(langgraph_binop, "_get_overwrite", None)
+    return reader(value) if callable(reader) else read_overwrite_forms(value)
 
 
 def rewrite_messages_value(value: UpdateValue, *, rewrite: MessagesRewrite) -> WrittenMessages:
@@ -133,7 +189,7 @@ def rewrite_messages_value(value: UpdateValue, *, rewrite: MessagesRewrite) -> W
     forms, bypasses the reducer and replaces the conversation
     [@langgraph2026], so it stays an `Overwrite`, of the rewritten messages.
     """
-    is_overwrite, overwritten = _get_overwrite(value)
+    is_overwrite, overwritten = read_overwrite(value)
     written = overwritten if is_overwrite else value
     messages = rewrite(convert_to_messages(written if isinstance(written, list) else [written]))
     return Overwrite(messages) if is_overwrite else messages

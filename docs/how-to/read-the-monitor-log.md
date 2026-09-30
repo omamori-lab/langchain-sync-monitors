@@ -115,15 +115,10 @@ Records hold plain values only, so they pass through checkpointers and
 | `deferred_to_trusted` | Defer to Trusted, and any protocol whose fallback is `DeferToTrustedModel` | The trusted model's step | None |
 | `halted` | The `HaltRun` fallback, a subagent's halt under `SubagentHalt.STOP_WHOLE_RUN`, Auto Mode's thread total reached inside subagents, or an earlier halt that still stands | A final message that ends the run | None |
 
-A halt stands until a later run brings a message the monitor records as new
-input from the user: the count of recorded inputs must grow. Nothing written
-during a run lifts it: not a hook that sends the run back to the model, not a
-harness nudge, not an `unconfirmed_input` note. Two open paths remain, both
-through a middleware listed before the monitor: an untagged human message its
-`before_agent` hook writes, or one its `after_agent` hook writes without
-sending the run back to the model, counts as the user's input and lifts the
-halt. [A halt stands](../explanation/design.md#a-halt-stands) explains the
-rule.
+A halt stands until a later run brings new input from the user, so every
+further step halts again without a sample. Two paths through a middleware
+listed before the monitor can lift it early; see
+[A halt stands](choose-a-protocol.md#a-halt-stands).
 
 ### Tell apart the records without samples
 
@@ -276,7 +271,7 @@ streams differ in what they show:
 
 | Stream | What it shows |
 |---|---|
-| `stream_mode="messages"` | Only committed steps, each whole once the protocol commits it, not token by token. Rejected samples and the monitor's own calls never appear |
+| `stream_mode="messages"` | Only committed steps, each whole once the protocol commits it, not token by token. Rejected samples and the built-in monitors' calls never appear; a custom monitor's call made with its own `tags` does |
 | `stream_mode="custom"` | One `monitor_step` event per committed step and one `monitor_step_failed` event per failed one; a subagent's only with `subgraphs=True` |
 | `stream_mode="values"` | The whole state after each graph step: `monitor_log`, rejected samples included, and the monitor's private keys |
 | `stream_mode="updates"` | Each node's writes, the same keys included. A message the monitor tags as a note arrives twice: from the node that wrote it, and again, tagged, from the next node where the monitor runs, `model` when it commits a step or one of its hooks, such as `monitor[main].before_model` |

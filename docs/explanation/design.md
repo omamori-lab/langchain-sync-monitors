@@ -723,7 +723,7 @@ is attached. A span ends with an error when the step fails, and the step
 span ends with the `GraphInterrupt` when a middleware inside the monitor
 calls `interrupt()`.
 [See the monitor's decisions in LangSmith and Langfuse](../how-to/see-decisions-in-langsmith-and-langfuse.md)
-shows how to attach either tool and find the halted and flagged steps. Two
+shows how to attach either tool and find the halted and flagged steps. Three
 tracing limits remain ([what the records and streams miss](#what-the-records-and-streams-miss)).
 
 ## Graph steps
@@ -1018,5 +1018,8 @@ limit is linked from where it arises above.
   calls inside the hooks of middleware listed after the monitor. Under
   `ainvoke()`, Langfuse can put each such run in a trace of its own. The hook
   runs cause that split, not the spans.
+- **Trajectory view in subagents.** Inside a Deep Agents subagent, LangSmith
+  sets `ls_agent_type` to `subagent` on every run, the monitor's spans
+  included, so there they may show in the subagent's Trajectory view.
 
 ## References

@@ -44,7 +44,7 @@ def test_default_feedback_is_marked_and_asks_for_a_safer_route(verdict: Verdict)
     # Assert
     assert feedback.startswith("[Safety monitor]")
     assert "It sends a credential off-site." in feedback
-    assert "did not run" in feedback
+    assert "none of your tools ran it" in feedback
     assert "safer route" in feedback
     assert "Do not retry" in feedback
     assert "approval" in feedback

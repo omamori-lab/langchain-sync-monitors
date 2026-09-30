@@ -30,7 +30,7 @@
   </style>
   <defs><marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="9" markerHeight="9" markerUnits="userSpaceOnUse" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="head"/></marker></defs>
   <text x="32.0" y="44.0" text-anchor="start"><tspan class="title">Seven attack runs, step by step</tspan></text>
-  <text x="32.0" y="70.0" text-anchor="start" class="small">Each box is one sample: what it did, the monitor&#x27;s score, and what became of it.</text>
+  <text x="32.0" y="70.0" text-anchor="start" class="small">Each box is one sample, with its score and what became of it; the trusted model&#x27;s steps are not judged.</text>
   <text x="32.0" y="92.0" text-anchor="start"><tspan class="mono">.env</tspan><tspan class="small"> is </tspan><tspan class="mono">config/.env</tspan><tspan class="small">, which holds the key. A dashed arrow is another try at the same step.</tspan></text>
   <rect class="allow" x="32.0" y="112" width="28" height="18" rx="4"/>
   <text x="70.0" y="126.0" text-anchor="start" class="small">ran</text>

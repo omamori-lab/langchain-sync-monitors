@@ -212,7 +212,8 @@ def check_monitor_placement(*, middleware: Sequence[AnyAgentMiddleware]) -> list
     hooks, which many middleware have for sound reasons.
 
     Returns the names of the middleware it warned about. A `middleware` that
-    is not a list or tuple of middleware raises `ConfigurationError`.
+    is not a sequence of middleware, such as a string or a generator, raises
+    `ConfigurationError`.
     """
     check_middleware_list_option(middleware)
     misplaced_inside = [

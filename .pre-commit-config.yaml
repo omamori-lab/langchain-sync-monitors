@@ -1,7 +1,10 @@
 # The fast gates of scripts/check.sh (ruff, ty, lanorme and the offline test
 # suite), a gitleaks secrets scan and file checks, run before each commit. The
 # agent-file sync check, the docs build, the package build and the wheel import
-# run only in scripts/check.sh and CI. Enable once after cloning:
+# run only in scripts/check.sh and CI. The ruff, ruff format, ty and pytest
+# hooks run only when a commit stages a Python file, so a docs-only commit skips
+# the docs-standard tests; lanorme and gitleaks run on every commit. Enable once
+# after cloning:
 #
 #   uvx pre-commit install
 repos:

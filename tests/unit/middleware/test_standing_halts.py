@@ -23,7 +23,11 @@ from langgraph.graph.state import CompiledStateGraph
 from langgraph.runtime import Runtime
 
 from langchain_sync_monitors.contracts import OutcomeName, StepRecord, SubagentHalt
-from langchain_sync_monitors.halts import STANDING_HALT_MESSAGE, is_halt_standing
+from langchain_sync_monitors.halts import (
+    STANDING_HALT_MESSAGE,
+    build_standing_halt_decision,
+    is_halt_standing,
+)
 from langchain_sync_monitors.middleware import MonitorMiddleware
 from langchain_sync_monitors.protocols import DeferToResample, HaltRun
 from tests.support.agents import (
@@ -216,6 +220,19 @@ def test_a_hook_that_returns_to_the_model_after_a_halt_meets_a_halt_again(
     assert last.text == STANDING_HALT_MESSAGE
     assert (last.id or "").startswith("monitor-")
     assert not last.tool_calls
+
+
+def test_the_standing_halt_message_is_marked_as_the_monitor_s() -> None:
+    # Act
+    message = build_standing_halt_decision().response.result[0].text
+
+    # Assert
+    assert message == (
+        "[Safety monitor] This run is stopped: the safety monitor halted an earlier step, and "
+        "that halt stands until a later run brings new input the monitor can confirm. The "
+        "rejected steps are recorded in monitor_log for review."
+    )
+    assert message.startswith("[Safety monitor]")
 
 
 def test_a_hook_that_returns_to_the_model_after_an_allowed_step_is_sampled(

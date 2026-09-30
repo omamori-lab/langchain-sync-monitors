@@ -63,7 +63,9 @@ allow, and again without any extra.
 The pre-commit hooks run the fast gates only: ruff, ty, lanorme, the offline
 test suite, the gitleaks secrets scan and a few file checks. They skip the
 agent-file sync check, the docs build, the package build and the wheel import,
-so run `scripts/check.sh` before you push.
+and ruff, ty and the test suite run only when a commit stages a Python file,
+so a docs-only commit skips the docs-standard tests. Run `scripts/check.sh`
+before you push.
 
 lanorme needs Python 3.13, so the script runs it with `uvx --python 3.13`; it
 only parses the code, so it checks 3.12 source correctly. To see why a rule
@@ -74,12 +76,14 @@ fired, run `uvx --python 3.13 lanorme==0.21.0 rule CODE`.
 - A new way to score a step implements `Monitor` from `contracts.py`, with both
   `evaluate` and `evaluate_sync`.
 - A new way to act on scores implements `ControlProtocol`: one `decide`
-  coroutine that awaits only the `PendingStep`'s methods, so the same copy
-  runs under both `invoke()` and `ainvoke()`. Under `invoke()`, awaiting
-  anything else raises `SynchronousRunError`.
+  coroutine that awaits nothing that needs an event loop: the `PendingStep`'s
+  methods and coroutines built only on them, such as the built-in fallbacks'
+  `take_over` or a helper of your own. The same copy then runs under both
+  `invoke()` and `ainvoke()`. Under `invoke()`, awaiting work that needs an
+  event loop raises `SynchronousRunError`.
 - A new decision model implements `DecisionModel`, with both
   `estimate_probabilities` and `estimate_probabilities_sync`; a new fallback
-  implements `Fallback.take_over`.
+  implements `Fallback.take_over`, under the same rule as `decide`.
 - Keep no run state on the instance: one copy serves parallel subagent runs.
 - Keep every model a constructor parameter.
 - Cite the paper or codebase the idea comes from, and add a changelog entry.
@@ -114,11 +118,9 @@ marked `live` and skipped by default.
 Docs live under `docs/` in the Diataxis layout: tutorials, how-to guides,
 reference and explanation. Each page opens with a line that starts "This
 page", "This guide" or similar, uses British spelling, and avoids em dashes and
-emoji; lanorme checks all of this. The docs use no Mermaid: every diagram is
-an SVG figure in the project's brand, drawn by the maintainers with their own
-tooling. If a change needs a new or updated diagram, describe the figure in
-your pull request and a maintainer will draw it. Preview the site with
-`uv run --group docs mkdocs serve`.
+emoji; lanorme checks all of this. Do not add Mermaid: describe the figure you
+need in your pull request, and a maintainer draws it as a brand figure.
+Preview the site with `uv run --group docs mkdocs serve`.
 
 ## Sending a pull request
 

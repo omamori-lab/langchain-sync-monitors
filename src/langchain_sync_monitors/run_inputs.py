@@ -29,17 +29,14 @@ context note beside the kept turns, since the agent's model wrote it.
   the request alone, not in the state, is not followed.
 
 A kept input goes back just after the nearest of the three messages before
-it still there, else just before a message that took its id, unless a tool
-wrote that message, else at the start, before the summary that replaced it
-and its neighbours. `task_authorship` records the ids a tool writes under,
-since LangGraph adds a message under an id the state lacks at the end; a
-tool's rewrite in place keeps the input's neighbour, so the input still goes
-back there. It comes before the next input still there and any message under
-its id, and after the input before it, which wins where the two disagree, so
-the inputs put back keep their order. The inputs the state still holds are
-read where they stand: a tool that reorders them, by writing the whole
-history back in a new order or by removing an input and writing it back at
-the end in parallel calls, reorders them for the judge as for the agent.
+it still there, else before a message that took its id, unless a tool wrote
+it (`task_authorship` records those ids, since LangGraph adds a message under
+an absent id at the end), else at the start, before the summary. It comes
+before the next input still there and any message under its id, and after
+the input before it, which wins where they disagree, so the inputs put back
+keep their order. Inputs the state holds are read where they stand: a tool
+that reorders them, writing the history back in a new order or removing an
+input and writing it back in a parallel call, reorders them for the judge.
 
 The judge reads every input whole on every step, even one Deep Agents shows
 the agent only as a preview, over 50,000 tokens by default, so a very large

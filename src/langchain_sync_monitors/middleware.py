@@ -15,7 +15,11 @@ the last inner call, and mixes them when samples are drawn concurrently
 [@langchain2026].
 `check_monitor_placement` warns about such a list, about a middleware
 outside the monitor that retries failed model calls, and about a middleware
-that runs failed tool calls again or answers them with an error message.
+that runs failed tool calls again or answers them with an error message. It
+also warns about a second monitor inside one whose protocol can call the
+model more than once in a step, which keeps the record of the last call only,
+and about a monitor inside another that commits its blocked attempts with the
+step, since the outer monitor then judges the first blocked proposal.
 `halts` has what happens after a halted step.
 """
 

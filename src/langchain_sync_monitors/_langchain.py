@@ -25,6 +25,7 @@ from langchain.agents.middleware.types import (
 )
 from langchain.tools import ToolRuntime
 from langchain_core.callbacks import AsyncCallbackManager, BaseCallbackManager, CallbackManager
+from langchain_core.callbacks.base import BaseCallbackHandler
 from langchain_core.messages import AnyMessage, BaseMessage, ToolMessage, convert_to_messages
 from langchain_core.runnables import RunnableBinding, RunnableConfig
 from langchain_core.runnables.config import ensure_config, patch_config, var_child_runnable_config
@@ -283,11 +284,14 @@ class TracedRun:
     `outputs` end the span. `inputs_at_end`, when set, replace the inputs the
     span started with, for inputs that exist only once the block has run;
     LangSmith, Langfuse and `astream_events` all take inputs at the end
-    [@langchain2026].
+    [@langchain2026]. Once the span starts, `run_id` is its run's id and
+    `handlers` the handlers told of it; with no handler, nothing is traced.
     """
 
     outputs: TraceValues = field(default_factory=dict)
     inputs_at_end: TraceValues | None = None
+    run_id: UUID | None = None
+    handlers: Sequence[BaseCallbackHandler] = ()
 
     def build_end_arguments(self) -> dict[str, dict[str, TraceValue]]:
         """Return the keyword arguments that end the span: the late inputs, when there are any."""
@@ -555,6 +559,7 @@ def open_traced_run_sync(span: TraceSpan) -> Iterator[TracedRun]:
     run_manager = callback_manager.on_chain_start(
         None, dict(span.inputs), run_id=span.run_id, name=span.name
     )
+    traced_run.run_id, traced_run.handlers = run_manager.run_id, list(run_manager.handlers)
     token = var_child_runnable_config.set(patch_config(config, callbacks=run_manager.get_child()))
     try:
         yield traced_run
@@ -585,6 +590,7 @@ async def open_traced_run(span: TraceSpan) -> AsyncIterator[TracedRun]:
     run_manager = await callback_manager.on_chain_start(
         None, dict(span.inputs), run_id=span.run_id, name=span.name
     )
+    traced_run.run_id, traced_run.handlers = run_manager.run_id, list(run_manager.handlers)
     token = var_child_runnable_config.set(patch_config(config, callbacks=run_manager.get_child()))
     try:
         yield traced_run

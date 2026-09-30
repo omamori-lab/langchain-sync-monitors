@@ -242,6 +242,10 @@ change raises the minor version.
 - `CITATION.cff` for citing the software, a security policy with private
   vulnerability reporting, and issue forms for bug reports and feature
   requests.
+- `MonitorMiddleware(export_scores={Tracer.LANGSMITH, Tracer.LANGFUSE})`, off
+  by default, sends each step's highest suspicion as `<label>_suspicion`:
+  feedback in LangSmith and a numeric score in Langfuse, from a background
+  worker.
 
 ### Changed
 

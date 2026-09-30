@@ -1,0 +1,375 @@
+"""Suspicion scores as Langfuse scores on each step's observation, through Langfuse's public API."""
+
+from __future__ import annotations
+
+import json
+import logging
+from collections.abc import Sequence
+from dataclasses import dataclass
+from datetime import UTC, datetime, timedelta
+from typing import Final, Literal, TypedDict
+from uuid import UUID, uuid4
+
+import httpx
+from pydantic import BaseModel, ConfigDict, Field, SecretStr, ValidationError
+from pydantic import field_validator as validate_field
+
+from langchain_sync_monitors.score_requests import (
+    REQUEST_TIMEOUT_SECONDS,
+    is_rate_limited,
+    read_environment_value,
+    read_pause_seconds,
+    send_request,
+)
+from langchain_sync_monitors.scores import DeliveryReport, PendingScore
+
+logger = logging.getLogger(__name__)
+
+LANGFUSE_BASE_URL: Final = "https://cloud.langfuse.com"
+"""Langfuse's default base URL, as its SDK has it when neither variable is set."""
+
+STEP_SPAN_NAME: Final = "monitor step"
+"""The name of the span, and so of the observation, that each score goes on."""
+
+OBSERVATION_PAGE_SIZE: Final = 1000
+"""The most observations one page of Langfuse's observations API holds [@langfuse2026api]."""
+
+MAX_OBSERVATION_PAGES: Final = 5
+"""The most pages one window reads, each one request against the rate limit."""
+
+START_TIME_MARGIN: Final = timedelta(seconds=5)
+"""How far before the earliest waiting step's start the lookup reaches."""
+
+UNKNOWN_START_REACH: Final = timedelta(hours=1)
+"""How far back the lookup reaches for a step whose id does not say when it began."""
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class LangfuseCredentials:
+    """What reaches Langfuse's API: the project's key pair and the base URL."""
+
+    public_key: str
+    secret_key: SecretStr
+    base_url: str
+
+
+def read_langfuse_credentials() -> LangfuseCredentials | None:
+    """Read Langfuse's credentials from the variables its SDK reads, or None without both keys.
+
+    The keys are `LANGFUSE_PUBLIC_KEY` and `LANGFUSE_SECRET_KEY`, and the
+    base URL `LANGFUSE_BASE_URL`, or `LANGFUSE_HOST` [@langfuse2026].
+    """
+    public_key = read_environment_value("LANGFUSE_PUBLIC_KEY")
+    secret_key = read_environment_value("LANGFUSE_SECRET_KEY")
+    if public_key is None or secret_key is None:
+        return None
+    base_url = read_environment_value("LANGFUSE_BASE_URL", "LANGFUSE_HOST")
+    return LangfuseCredentials(
+        public_key=public_key,
+        secret_key=SecretStr(secret_key),
+        base_url=(base_url or LANGFUSE_BASE_URL).rstrip("/"),
+    )
+
+
+def read_step_start(step_id: UUID) -> datetime:
+    """Return when the step began, from its id, or an hour ago for an id that does not say.
+
+    A version 7 UUID begins with the milliseconds since the Unix epoch at
+    which it was made [@rfc9562]. The step's id is made before its span
+    starts, so the time is no later than the start Langfuse records.
+    """
+    if step_id.version == 7:
+        return datetime.fromtimestamp((step_id.int >> 80) / 1000, tz=UTC)
+    return datetime.now(UTC) - UNKNOWN_START_REACH
+
+
+class StepMetadata(BaseModel):
+    """The one metadata key the sender reads from a `monitor step` observation."""
+
+    monitor_step_id: str | None = None
+
+
+class LangfuseObservation(BaseModel):
+    """The part of a Langfuse observation the sender reads: ids, environment and step id."""
+
+    model_config = ConfigDict(populate_by_name=True)
+
+    id: str
+    trace_id: str = Field(alias="traceId")
+    environment: str | None = None
+    metadata: StepMetadata | None = None
+
+    @validate_field("metadata", mode="before")
+    @classmethod
+    def read_mapping_only(cls, value: object) -> object:
+        """Read metadata only when it is a mapping, so one odd observation cannot void a page."""
+        return value if isinstance(value, dict) else None
+
+
+class PageMeta(BaseModel):
+    """The cursor of the next page, absent on the last one."""
+
+    cursor: str | None = None
+
+
+class ObservationPage(BaseModel):
+    """One page of Langfuse's v2 observations API [@langfuse2026api; @pydantic2026]."""
+
+    data: list[LangfuseObservation]
+    meta: PageMeta = PageMeta()
+
+
+class IngestionEventStatus(BaseModel):
+    """What Langfuse's ingestion API says of one event: its id, status and any message."""
+
+    id: str
+    status: int
+    message: str | None = None
+
+
+class IngestionAnswer(BaseModel):
+    """The multi-status answer of Langfuse's ingestion API, per event [@langfuse2026api]."""
+
+    successes: list[IngestionEventStatus] = []
+    errors: list[IngestionEventStatus] = []
+
+
+class ObservationFilter(TypedDict):
+    """One condition of the observations API's `filter` parameter."""
+
+    type: Literal["string", "datetime"]
+    column: str
+    operator: Literal["=", ">="]
+    value: str
+
+
+class LangfuseScoreBody(BaseModel):
+    """A numeric score on one observation; its aliases are the field names of Langfuse's API."""
+
+    id: str
+    trace_id: str = Field(serialization_alias="traceId")
+    observation_id: str = Field(serialization_alias="observationId")
+    name: str
+    value: float
+    data_type: Literal["NUMERIC"] = Field(default="NUMERIC", serialization_alias="dataType")
+    environment: str | None = None
+
+
+class LangfuseScoreEvent(BaseModel):
+    """One `score-create` event of an ingestion batch; its `id` is new for every request."""
+
+    id: str = Field(default_factory=lambda: str(uuid4()))
+    timestamp: str = Field(default_factory=lambda: datetime.now(UTC).isoformat())
+    type: Literal["score-create"] = "score-create"
+    body: LangfuseScoreBody
+
+
+def build_step_filter(since: datetime) -> list[ObservationFilter]:
+    """Return the filter for the `monitor step` observations that started at `since` or later."""
+    return [
+        ObservationFilter(type="string", column="name", operator="=", value=STEP_SPAN_NAME),
+        ObservationFilter(
+            type="datetime", column="startTime", operator=">=", value=since.isoformat()
+        ),
+    ]
+
+
+def build_score_event(
+    score: PendingScore,
+    *,
+    observation: LangfuseObservation,
+) -> LangfuseScoreEvent:
+    """Return the event that writes the score on its step's observation, in its environment."""
+    body = LangfuseScoreBody(
+        id=str(score.score_id),
+        trace_id=observation.trace_id,
+        observation_id=observation.id,
+        name=score.name,
+        value=score.value,
+        environment=observation.environment or None,
+    )
+    return LangfuseScoreEvent(body=body)
+
+
+def read_observation_page(response: httpx.Response) -> ObservationPage | None:
+    """Return one page of observations, or None, logged, for an error or an unknown shape."""
+    if not response.is_success:
+        logger.warning(
+            "score export: Langfuse answered the step lookup with HTTP %d",
+            response.status_code,
+        )
+        return None
+    try:
+        return ObservationPage.model_validate_json(response.content)
+    except ValidationError:
+        logger.warning("score export: Langfuse's step lookup answered in an unknown shape")
+        return None
+
+
+def match_observations(
+    page: ObservationPage,
+    *,
+    wanted: set[str],
+) -> dict[str, LangfuseObservation]:
+    """Return the page's observations whose `monitor_step_id` is one of the wanted steps."""
+    matched: dict[str, LangfuseObservation] = {}
+    for observation in page.data:
+        step_id = observation.metadata.monitor_step_id if observation.metadata else None
+        if step_id is not None and step_id in wanted:
+            matched[step_id] = observation
+    return matched
+
+
+def read_ingestion_answer(response: httpx.Response) -> IngestionAnswer:
+    """Return the ingestion API's answer, or an empty one, which leaves every score waiting."""
+    try:
+        return IngestionAnswer.model_validate_json(response.content)
+    except ValidationError:
+        logger.warning("score export: Langfuse's ingestion API answered in an unknown shape")
+        return IngestionAnswer()
+
+
+def is_worth_sending_again(status: int) -> bool:
+    """Tell whether an event refused with this status may pass later: a `429` or a server error."""
+    return status == httpx.codes.TOO_MANY_REQUESTS or status >= httpx.codes.INTERNAL_SERVER_ERROR
+
+
+def record_ingestion_answer(
+    report: DeliveryReport,
+    *,
+    events: dict[str, PendingScore],
+    answer: IngestionAnswer,
+) -> None:
+    """Record each event's score by its status: written, waiting to be sent again, or refused."""
+    for success in answer.successes:
+        if success.id in events:
+            report.written.append(events.pop(success.id))
+    for error in answer.errors:
+        if error.id not in events:
+            continue
+        score = events.pop(error.id)
+        if is_worth_sending_again(error.status):
+            report.waiting.append(score)
+        else:
+            report.refused.append(score)
+            report.refusal = f"Langfuse answered HTTP {error.status} for a score"
+    # An event the answer leaves out is sent again; its fixed score id keeps one score.
+    report.waiting.extend(events.values())
+
+
+class LangfuseScoreSender:
+    """Finds each step's observation by its `monitor_step_id`, then writes the scores at once.
+
+    Langfuse gives observations random ids [@langfuse2026traceids], so each
+    step is found by the `monitor_step_id` its `monitor step` observation
+    carries, through `GET /api/public/v2/observations`, the only real-time
+    read path [@langfuse2026api]. One query serves every waiting step: the
+    observations named `monitor step` that started since the earliest
+    waiting step began, matched here by id, since the API filters metadata
+    on one value only. Pages follow the cursor, up to `MAX_OBSERVATION_PAGES`.
+
+    The scores found go in one `POST /api/public/ingestion`, as
+    `score-create` events, which is how Langfuse's own SDK sends scores
+    [@langfuse2026]; the endpoint keeps taking score events when it stops
+    taking any other on 16 November 2026 [@langfuse2026api]. The one-score
+    endpoint, `POST /api/public/scores`, would spend one request per score of
+    the general rate limit, 30 a minute on the Hobby plan, which the lookups
+    spend too [@langfuse2026apilimits]. Each score is `NUMERIC`, on the
+    step's trace and observation, in the observation's environment, with
+    the score's fixed id, so a score written twice is stored once. No text,
+    the judge's reason included, leaves the process.
+    """
+
+    def __init__(self, *, http_client: httpx.Client) -> None:
+        self.http_client = http_client
+
+    def send(self, scores: Sequence[PendingScore]) -> DeliveryReport:
+        """Find the waiting steps in one query, and write the scores found in one request."""
+        report = DeliveryReport()
+        observations, report.pause_seconds = self.find_observations(scores)
+        ready = [score for score in scores if str(score.step_id) in observations]
+        report.waiting.extend(score for score in scores if str(score.step_id) not in observations)
+        if report.pause_seconds is not None:
+            report.waiting.extend(ready)
+        elif ready:
+            self.write_scores(ready, observations=observations, report=report)
+        return report
+
+    def find_observations(
+        self,
+        scores: Sequence[PendingScore],
+    ) -> tuple[dict[str, LangfuseObservation], float | None]:
+        """Return the waiting steps' observations found, and the pause a `429` asks for, if any."""
+        wanted = {str(score.step_id) for score in scores}
+        since = min(read_step_start(score.step_id) for score in scores) - START_TIME_MARGIN
+        found: dict[str, LangfuseObservation] = {}
+        cursor: str | None = None
+        for _ in range(MAX_OBSERVATION_PAGES):
+            request = self.build_lookup(since=since, cursor=cursor)
+            response = send_request(self.http_client, request=request)
+            if response is not None and is_rate_limited(response):
+                return found, read_pause_seconds(response)
+            page = None if response is None else read_observation_page(response)
+            if page is None:
+                break
+            found.update(match_observations(page, wanted=wanted))
+            cursor = page.meta.cursor
+            if cursor is None or wanted <= found.keys():
+                break
+        return found, None
+
+    def build_lookup(self, *, since: datetime, cursor: str | None) -> httpx.Request:
+        """Return the request for one page of the `monitor step` observations since `since`."""
+        parameters = {
+            "fields": "core,basic,metadata",
+            "limit": str(OBSERVATION_PAGE_SIZE),
+            "filter": json.dumps(build_step_filter(since)),
+        }
+        if cursor is not None:
+            parameters["cursor"] = cursor
+        return self.http_client.build_request(
+            "GET", "/api/public/v2/observations", params=parameters
+        )
+
+    def write_scores(
+        self,
+        ready: Sequence[PendingScore],
+        *,
+        observations: dict[str, LangfuseObservation],
+        report: DeliveryReport,
+    ) -> None:
+        """Write the scores in one ingestion request, and record each by the answer to its event."""
+        batch = [
+            build_score_event(score, observation=observations[str(score.step_id)])
+            for score in ready
+        ]
+        events = {event.id: score for event, score in zip(batch, ready, strict=True)}
+        body = {
+            "batch": [
+                event.model_dump(mode="json", by_alias=True, exclude_none=True) for event in batch
+            ]
+        }
+        request = self.http_client.build_request("POST", "/api/public/ingestion", json=body)
+        response = send_request(self.http_client, request=request)
+        if response is None or is_rate_limited(response):
+            report.waiting.extend(ready)
+            report.pause_seconds = None if response is None else read_pause_seconds(response)
+        elif not response.is_success:
+            report.refused.extend(ready)
+            report.refusal = f"Langfuse answered HTTP {response.status_code}"
+        else:
+            record_ingestion_answer(report, events=events, answer=read_ingestion_answer(response))
+
+    def close(self) -> None:
+        """Close the sender's HTTP client."""
+        self.http_client.close()
+
+
+def build_langfuse_sender(credentials: LangfuseCredentials) -> LangfuseScoreSender:
+    """Return a sender that authenticates with the project's key pair."""
+    http_client = httpx.Client(
+        base_url=credentials.base_url,
+        auth=(credentials.public_key, credentials.secret_key.get_secret_value()),
+        timeout=REQUEST_TIMEOUT_SECONDS,
+    )
+    return LangfuseScoreSender(http_client=http_client)

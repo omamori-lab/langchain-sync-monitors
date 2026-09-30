@@ -74,6 +74,7 @@ from langchain_sync_monitors.protocols import (
     HaltRun,
     TrustedMonitoring,
 )
+from langchain_sync_monitors.scores import Tracer
 from langchain_sync_monitors.thresholds import (
     DefaultThreshold,
     UncalibratedThresholdWarning,
@@ -137,6 +138,7 @@ __all__ = [
     "SubagentHalt",
     "SynchronousRunError",
     "TaskAuthor",
+    "Tracer",
     "TrustedMonitoring",
     "TypeSafeDecisionModel",
     "UncalibratedThresholdWarning",

@@ -24,6 +24,7 @@ monitor then judges the first blocked proposal.
 `halts` has what happens after a halted step.
 """
 
+from collections.abc import Set as AbstractSet
 from dataclasses import dataclass, replace
 from typing import Self, override
 
@@ -85,6 +86,7 @@ from langchain_sync_monitors.run_inputs import (
     build_run_start_update,
     read_current_run_inputs,
 )
+from langchain_sync_monitors.score_export import Tracer, check_score_export, queue_step_score
 from langchain_sync_monitors.spans import (
     StepIdentity,
     open_step_span,
@@ -192,6 +194,9 @@ class MonitorMiddleware(AgentMiddleware[MonitorState, AgentContext, StructuredOu
 
     In LangChain tracers such as LangSmith and Langfuse, each step is a
     `monitor step` span, with the spans that `spans` describes nested in it.
+    `export_scores`, empty by default, names the tools that also get each
+    step's highest suspicion as a score, `<label>_suspicion`, from a
+    background worker; `score_export` has the rules.
 
     The instance holds configuration only, so it can be copied and pickled.
     Deep Agents runs parallel subagents through shared middleware instances,
@@ -205,6 +210,7 @@ class MonitorMiddleware(AgentMiddleware[MonitorState, AgentContext, StructuredOu
     task_author: TaskAuthor = TaskAuthor.USER
     feedback_visibility: FeedbackVisibility = FeedbackVisibility.HIDDEN
     when_subagent_halts: SubagentHalt = SubagentHalt.STOP_SUBAGENT_ONLY
+    export_scores: AbstractSet[Tracer] = frozenset()
 
     state_schema = MonitorState
     transformers = (InternalCallTransformer,)
@@ -246,6 +252,7 @@ class MonitorMiddleware(AgentMiddleware[MonitorState, AgentContext, StructuredOu
             option_type=SubagentHalt,
             parameter_name="when_subagent_halts",
         )
+        object.__setattr__(self, "export_scores", check_score_export(self.export_scores))
 
     @property
     @override
@@ -291,6 +298,9 @@ class MonitorMiddleware(AgentMiddleware[MonitorState, AgentContext, StructuredOu
                     step.close()
             record = prepared.identity.build_record(decision)
             trace_decision_sync(traced_step, record=record)
+            queue_step_score(
+                traced_step, record=record, label=self.label, tracers=self.export_scores
+            )
             return commit_step(
                 request,
                 decision=decision,
@@ -329,6 +339,9 @@ class MonitorMiddleware(AgentMiddleware[MonitorState, AgentContext, StructuredOu
                     raise
             record = prepared.identity.build_record(decision)
             await trace_decision(traced_step, record=record)
+            queue_step_score(
+                traced_step, record=record, label=self.label, tracers=self.export_scores
+            )
             return commit_step(
                 request,
                 decision=decision,

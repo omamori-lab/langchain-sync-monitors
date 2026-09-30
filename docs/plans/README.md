@@ -16,3 +16,4 @@ Start a new directory for each new feature rather than editing an old plan.
 | Feature | Status |
 |---|---|
 | [initial-implementation](initial-implementation/) | Built: monitors, protocols, middleware, Deep Agents support |
+| [monitor-scores](monitor-scores/) | Built for 0.2: each step's suspicion as LangSmith feedback and a Langfuse score (`export_scores`) |

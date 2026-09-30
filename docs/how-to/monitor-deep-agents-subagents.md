@@ -8,12 +8,16 @@ to the rest of the run.
 
 It also covers compiled subagents, which need their monitor added by hand,
 forked subagents, which cannot be monitored yet, and what the parent's log
-can miss. You need the `deepagents` extra; without it, `monitor_subagents`
-raises `MissingExtraError`, naming the install command:
+can miss. You need the `deepagents` extra, and the examples' `openrouter:`
+model strings need the `openrouter` extra:
 
 ```console
 pip install "langchain-sync-monitors[deepagents,openrouter]"
 ```
+
+Without `deepagents`, `monitor_subagents` raises `MissingExtraError` with the
+message `monitor_subagents needs Deep Agents. Install it with: pip install
+'langchain-sync-monitors[deepagents]'`.
 
 ## Why subagents need their own monitor
 
@@ -149,7 +153,8 @@ Every other option is copied as it is, `label`, `feedback_visibility` and
 `when_subagent_halts` included, so nested subagents behave the same way. An
 override keeps its own options. Its `label` decides its Auto Mode total: with
 a label of its own it counts apart, and built without one it keeps
-`"monitor"` and shares the parent's total.
+`"monitor"`, so it shares the parent's total when the parent keeps the
+default label too.
 
 The monitor goes after the middleware the spec already has. Deep Agents then
 places middleware of its own after it, which runs inside the monitor: prompt
@@ -298,8 +303,12 @@ agent = create_deep_agent(
 Both options matter:
 
 - `agent_name` must be the subagent's name. With the default, `"main"`, the
-  subagent's records count as the main agent's own, and the parent's monitor
-  never sees the subagent's halt, so `STOP_WHOLE_RUN` does not fire.
+  subagent's records come back labelled as the main agent's own, and number
+  the main agent's later steps after them. When the subagent halts, the
+  parent's monitor reads that halt as its own last step, so under either
+  `when_subagent_halts` value the parent halts before its next model call,
+  without a sample, with `STANDING_HALT_MESSAGE`, as if it had halted itself.
+  The thread goes on at the next message from the user.
 - `task_author=TaskAuthor.PARENT_AGENT` makes the monitor read the delegated
   task as the parent agent's words. With the default, it reads the task as the
   user's own authorisation, although the parent agent wrote it.
@@ -316,10 +325,12 @@ starting from the delegated task. The monitor does not support forks yet
 A fork inherits the main agent's middleware, so it runs under `monitor[main]`.
 That monitor reads the fork's task, which the parent agent wrote, as the
 user's words, and records the fork's steps under the main agent's name. Those
-records renumber the main agent's steps, and a halt inside the fork is hidden
-from `STOP_WHOLE_RUN`. This happens whenever a monitored agent has a fork,
-with or without `monitor_subagents`, so give a monitored agent only isolated
-subagents, the default.
+records renumber the main agent's steps. When the fork halts, the main agent
+reads the halt as its own last step, and halts before its next model call
+under either `when_subagent_halts` value, with `STANDING_HALT_MESSAGE`, until
+the next message from the user. This happens whenever a monitored agent has a
+fork, with or without `monitor_subagents`, so give a monitored agent only
+isolated subagents, the default.
 
 ## Read the parent's `monitor_log`
 

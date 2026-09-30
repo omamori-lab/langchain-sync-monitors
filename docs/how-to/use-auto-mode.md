@@ -278,9 +278,10 @@ records' `blocked_count`.
   the fallback.
 - **Put the monitor last** in the `create_agent` middleware list, so no other
   middleware runs inside it and returns commands for attempts the monitor
-  blocks. A second monitor inside this one keeps sound records only with
-  `max_consecutive_blocks=1` and the default `HaltRun()`; see [Two monitors
-  in one agent](../explanation/design.md#two-monitors-in-one-agent).
+  blocks. A second monitor inside this one keeps sound records only when
+  `max_consecutive_blocks` or `max_total_blocks` is 1 and the fallback is the
+  default `HaltRun()`, so that a step draws at most one sample; see [Two
+  monitors in one agent](../explanation/design.md#two-monitors-in-one-agent).
   `check_monitor_placement(middleware=[...])` warns about such a list.
 - **A halt ends the run.** The middleware's `after_model` hook routes the
   agent to its end after a halt. The middleware's hooks cost two graph steps

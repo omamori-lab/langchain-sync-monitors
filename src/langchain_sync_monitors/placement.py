@@ -28,6 +28,7 @@ from langchain_sync_monitors.protocols import (
     HaltRun,
     TrustedMonitoring,
 )
+from langchain_sync_monitors.thresholds import LIBRARY_DIRECTORY
 
 REQUEST_ONLY_MIDDLEWARE = frozenset(
     {
@@ -75,9 +76,6 @@ count too.
 RESAMPLING_PROTOCOLS = frozenset({DeferToResample, DeferToTrusted})
 """The protocol classes that reject a sample without telling the agent why."""
 
-DRAW_LIMITED_PROTOCOLS = frozenset({AutoMode, DeferToResample})
-"""The protocol classes that can be set to draw one sample per step, and then fall back."""
-
 LIBRARY_FALLBACKS = frozenset({DeferToTrustedModel, HaltRun})
 """The library's own fallbacks, which never add a blocked attempt to the step."""
 
@@ -87,14 +85,15 @@ class MonitorPlacementWarning(UserWarning):
 
     Inside a monitor, a middleware can return state updates for samples the
     monitor rejects. Inside a monitor whose protocol can call the model more
-    than once in a step, a second monitor keeps the record of its last call
-    only. A monitor inside another that commits its blocked attempts with the
-    step has the outer monitor judge a blocked proposal. Outside a monitor, a
-    middleware that retries failed model calls runs the whole step again, and
-    the samples judged before the failure never reach `monitor_log`. Anywhere
-    in the list, a middleware that runs failed tool calls again or answers
-    them lets a subagent's run fail without its blocks reaching Auto Mode's
-    thread total.
+    than once in a step, a second monitor loses the records of all but its
+    last call, or piles them up for calls drawn at once. A monitor inside
+    another that commits its blocked attempts with the step has the outer
+    monitor judge a blocked proposal. Outside a monitor, a middleware that
+    retries failed model calls runs the whole step again, and the samples
+    judged before the failure never reach `monitor_log`. Anywhere in the
+    list, a middleware that runs failed tool calls again or answers them lets
+    a subagent's run fail without its blocks reaching Auto Mode's thread
+    total.
     """
 
 
@@ -191,18 +190,21 @@ def is_single_call_protocol(protocol: ControlProtocol) -> bool:
     """Tell whether a protocol is known to call the rest of the stack at most once per step.
 
     Three settings are: `TrustedMonitoring`; `DeferToResample` with no
-    resamples and `HaltRun` as its fallback; and `AutoMode` that stops at the
-    first block and then halts. Every other protocol can draw again, or have
-    the trusted model write the step through the rest of the stack, and only
-    the exact classes count, since a subclass may call again.
+    resamples and `HaltRun` as its fallback; and `AutoMode` that stops at its
+    first block in a step, because `max_consecutive_blocks` or
+    `max_total_blocks` is 1, and then halts. Every other protocol can draw
+    again, or have the trusted model write the step through the rest of the
+    stack. Only the exact classes count, and the class is read before any
+    setting, since a subclass may call again or never set them.
     """
-    if isinstance(protocol, DeferToResample):
+    if type(protocol) is DeferToResample:
         draws_once, fallback = protocol.max_resamples == 0, protocol.fallback
-    elif isinstance(protocol, AutoMode):
-        draws_once, fallback = protocol.max_consecutive_blocks == 1, protocol.when_limit_reached
+    elif type(protocol) is AutoMode:
+        blocks_allowed = min(protocol.max_consecutive_blocks, protocol.max_total_blocks)
+        draws_once, fallback = blocks_allowed == 1, protocol.when_limit_reached
     else:
         return type(protocol) is TrustedMonitoring
-    return type(protocol) in DRAW_LIMITED_PROTOCOLS and draws_once and type(fallback) is HaltRun
+    return draws_once and type(fallback) is HaltRun
 
 
 def is_never_blocking_protocol(protocol: ControlProtocol) -> bool:
@@ -215,7 +217,8 @@ def is_never_blocking_protocol(protocol: ControlProtocol) -> bool:
     """
     if type(protocol) is TrustedMonitoring:
         return True
-    if isinstance(protocol, DeferToResample) and type(protocol) in RESAMPLING_PROTOCOLS:
+    # The class is read first, so a subclass that never set a fallback cannot raise here.
+    if type(protocol) in RESAMPLING_PROTOCOLS and isinstance(protocol, DeferToResample):
         return type(protocol.fallback) in LIBRARY_FALLBACKS
     return False
 
@@ -268,11 +271,13 @@ def build_repeated_call_reason(
             f"sits inside {around}, which can call the model more than once in a step. "
             f"LangChain keeps the commands of the last call only, so the samples "
             f"{middleware.name} judged in earlier calls never reach monitor_log, and calls "
-            "drawn at once under ainvoke() leave several records with one step number and "
-            "skip the next. Outside another monitor, use TrustedMonitoring, "
-            "DeferToResample(max_resamples=0, fallback=HaltRun()) or "
-            "AutoMode(max_consecutive_blocks=1), which call the model at most once, or "
-            "combine the two judges into one monitor, for example with CascadeMonitor."
+            "drawn at once under ainvoke() leave one record each under the same step number, "
+            "so later step numbers are skipped. As the outer monitor's protocol, use one "
+            "that calls the model at most once per step, such as TrustedMonitoring, "
+            "DeferToResample(max_resamples=0, fallback=HaltRun()), or AutoMode with "
+            "max_consecutive_blocks=1 or max_total_blocks=1 and when_limit_reached=HaltRun(). "
+            "Or judge with both monitors in one MonitorMiddleware, through a Monitor of your "
+            "own that runs both and keeps the higher suspicion."
         )
     return (
         f"wraps model calls inside {around}, which can call the model more than once in a "
@@ -365,10 +370,18 @@ def warn_about_placement(names: Sequence[str], *, reason: str) -> None:
 
 
 def warn_about_nested_placements(nested: Sequence[NestedPlacement]) -> list[str]:
-    """Warn once for each nested middleware, giving its own reason, and return their names."""
+    """Warn once for each nested middleware, giving its own reason, and return their names.
+
+    Both `check_monitor_placement` and `monitor_subagents` warn through here,
+    so the warning skips every frame of the library to point at their caller.
+    """
     for placement in nested:
-        # Level 3 skips this helper and `check_monitor_placement`, to point at their caller.
-        warnings.warn(f"{placement.name} {placement.reason}", MonitorPlacementWarning, stacklevel=3)
+        warnings.warn(
+            f"{placement.name} {placement.reason}",
+            MonitorPlacementWarning,
+            stacklevel=2,
+            skip_file_prefixes=(LIBRARY_DIRECTORY,),
+        )
     return [placement.name for placement in nested]
 
 
@@ -385,11 +398,12 @@ def check_monitor_placement(*, middleware: Sequence[AnyAgentMiddleware]) -> list
       step, another monitor, or such a middleware listed before the last
       monitor. A monitor returns its record as a command, so the inner monitor
       keeps the record of the last call only, and calls drawn at once under
-      `ainvoke()` leave several records with one step number. Only
-      `TrustedMonitoring`, `DeferToResample(max_resamples=0,
-      fallback=HaltRun())` and `AutoMode(max_consecutive_blocks=1)` with its
-      default `HaltRun()` call the model at most once, and only their exact
-      classes count;
+      `ainvoke()` leave one record each under the same step number. Of the
+      library's protocols, only `TrustedMonitoring`,
+      `DeferToResample(max_resamples=0, fallback=HaltRun())` and `AutoMode`
+      with `max_consecutive_blocks=1` or `max_total_blocks=1` and
+      `when_limit_reached=HaltRun()` call the model at most once, and only
+      their exact classes count;
     - inside another monitor, a monitor with
       `FeedbackVisibility.IN_TRANSCRIPT` whose protocol may block, such as
       `AutoMode`. The monitor outside it judges the first blocked proposal
@@ -416,7 +430,8 @@ def check_monitor_placement(*, middleware: Sequence[AnyAgentMiddleware]) -> list
     hooks, which many middleware have for sound reasons. Nor does it warn
     about a monitor inside one that calls the model at most once: each
     monitor's record holds its own decision, so when the outer monitor halts
-    or replaces the step, the outer record says what ran.
+    the step, only the outer record says what ran. `monitor_subagents` runs
+    the second and third checks on each subagent's middleware list.
 
     Returns the names of the middleware it warned about, once for each
     warning. Whatever the placement, the check only warns; a `middleware` that

@@ -85,10 +85,11 @@ guides say how to choose one.
 
 Whichever you choose, too, the library warns about a setup it cannot monitor
 in full. `check_monitor_placement(middleware=[...])` warns about middleware
-placed where it undermines the monitor, a second monitor included: only
-Trusted Monitoring, and Defer to Resample or Auto Mode set to draw one sample
-and halt, keep the records of a monitor inside them sound, as [Two monitors in
-one agent](../explanation/design.md#two-monitors-in-one-agent) explains. The
+placed where it undermines the monitor, a second monitor included: of the
+library's protocols, only Trusted Monitoring, and Defer to Resample or Auto
+Mode set to draw at most one sample per step and then halt, keep the records
+of a monitor inside them sound, as [Two monitors in one
+agent](../explanation/design.md#two-monitors-in-one-agent) explains. The
 middleware also emits a `ProviderToolWarning`, once, when the agent's model is
 given a tool its provider runs itself. The provider runs such a tool inside
 the model call, before the monitor judges the step and again for every

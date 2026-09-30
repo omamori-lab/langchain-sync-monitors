@@ -55,6 +55,20 @@ class TeamAutoMode(AutoMode):
     """A project's own Auto Mode, which could draw again after the first block."""
 
 
+class UnsetResample(DeferToResample):
+    """A project's own resampling that never calls `DeferToResample.__init__`."""
+
+    def __init__(self) -> None:
+        pass
+
+
+class UnsetAutoMode(AutoMode):
+    """A project's own Auto Mode that never calls `AutoMode.__init__`."""
+
+    def __init__(self) -> None:
+        pass
+
+
 def build_trusted_fallback() -> DeferToTrustedModel:
     return DeferToTrustedModel(trusted_model=ScriptedChatModel(responses=[AIMessage("safe")]))
 
@@ -75,11 +89,15 @@ def build_resampling(
 
 
 def build_auto_mode(
-    *, max_consecutive_blocks: int, when_limit_reached: HaltRun | DeferToTrustedModel
+    *,
+    max_consecutive_blocks: int,
+    when_limit_reached: HaltRun | DeferToTrustedModel,
+    max_total_blocks: int = 20,
 ) -> ControlProtocol:
     return AutoMode(
         block_threshold=THRESHOLD,
         max_consecutive_blocks=max_consecutive_blocks,
+        max_total_blocks=max_total_blocks,
         when_limit_reached=when_limit_reached,
     )
 
@@ -89,6 +107,9 @@ SINGLE_CALL_PROTOCOLS: dict[str, ProtocolBuilder] = {
     "resample-none-then-halt": lambda: build_resampling(fallback=HaltRun(), max_resamples=0),
     "auto-mode-one-block-then-halt": lambda: build_auto_mode(
         max_consecutive_blocks=1, when_limit_reached=HaltRun()
+    ),
+    "auto-mode-one-block-in-thread-then-halt": lambda: build_auto_mode(
+        max_consecutive_blocks=3, max_total_blocks=1, when_limit_reached=HaltRun()
     ),
 }
 """The settings that call the rest of the stack at most once per step."""
@@ -122,6 +143,14 @@ REPEATING_PROTOCOLS: dict[str, ProtocolBuilder] = {
     "auto-mode-subclass-one-block-then-halt": lambda: TeamAutoMode(
         block_threshold=THRESHOLD, max_consecutive_blocks=1, when_limit_reached=HaltRun()
     ),
+    "auto-mode-two-blocks-in-thread-then-halt": lambda: build_auto_mode(
+        max_consecutive_blocks=3, max_total_blocks=2, when_limit_reached=HaltRun()
+    ),
+    "auto-mode-one-block-in-thread-then-defer": lambda: build_auto_mode(
+        max_consecutive_blocks=3, max_total_blocks=1, when_limit_reached=build_trusted_fallback()
+    ),
+    "resample-subclass-without-settings": UnsetResample,
+    "auto-mode-subclass-without-settings": UnsetAutoMode,
     "own-protocol": AcceptFirst,
 }
 """The settings that may call the rest of the stack again, each next to a sound one."""
@@ -183,7 +212,31 @@ def test_a_monitor_inside_one_that_can_call_the_model_again_is_named(
     assert message.startswith("inner[main] sits inside outer[main]")
     assert f"({type(outer.protocol).__name__})" in message
     assert "never reach monitor_log" in message
-    assert "CascadeMonitor" in message
+
+
+def test_the_warning_for_a_monitor_inside_one_that_can_call_again_reads_in_full() -> None:
+    # Arrange
+    outer = build_monitor(build_resampling(fallback=HaltRun(), max_resamples=2), label="outer")
+    stack = [outer, build_monitor(build_trusted_monitoring(), label="inner")]
+
+    # Act
+    with pytest.warns(MonitorPlacementWarning) as caught:
+        check_monitor_placement(middleware=stack)
+
+    # Assert: it recommends the single-call settings and a combined monitor, never a cascade
+    [message] = [str(warning.message) for warning in caught]
+    assert message == (
+        "inner[main] sits inside outer[main] (DeferToResample), which can call the model "
+        "more than once in a step. LangChain keeps the commands of the last call only, so "
+        "the samples inner[main] judged in earlier calls never reach monitor_log, and calls "
+        "drawn at once under ainvoke() leave one record each under the same step number, so "
+        "later step numbers are skipped. As the outer monitor's protocol, use one that calls "
+        "the model at most once per step, such as TrustedMonitoring, "
+        "DeferToResample(max_resamples=0, fallback=HaltRun()), or AutoMode with "
+        "max_consecutive_blocks=1 or max_total_blocks=1 and when_limit_reached=HaltRun(). Or "
+        "judge with both monitors in one MonitorMiddleware, through a Monitor of your own "
+        "that runs both and keeps the higher suspicion."
+    )
 
 
 @pytest.mark.parametrize("build_protocol", REPEATING_PROTOCOLS.values(), ids=REPEATING_PROTOCOLS)
@@ -282,6 +335,60 @@ def test_a_middleware_between_two_monitors_is_named_inside_one_that_can_call_aga
     assert len(caught) == len(named)
 
 
+def test_the_warning_for_a_middleware_between_monitors_reads_in_full() -> None:
+    # Arrange: the middleware sits inside two monitors that can each call the model again
+    stack = [
+        build_monitor(build_resampling(fallback=HaltRun(), max_resamples=2), label="outer"),
+        build_monitor(
+            build_auto_mode(max_consecutive_blocks=3, when_limit_reached=HaltRun()),
+            label="middle",
+        ),
+        CommandingMiddleware(),
+        build_monitor(build_trusted_monitoring(), label="inner"),
+    ]
+
+    # Act
+    with pytest.warns(MonitorPlacementWarning) as caught:
+        named = check_monitor_placement(middleware=stack)
+
+    # Assert
+    assert named == ["middle[main]", "CommandingMiddleware", "inner[main]"]
+    [message] = [
+        str(warning.message)
+        for warning in caught
+        if str(warning.message).startswith("CommandingMiddleware")
+    ]
+    assert message == (
+        "CommandingMiddleware wraps model calls inside outer[main] (DeferToResample), "
+        "middle[main] (AutoMode), which can call the model more than once in a step, so a "
+        "state update it returns may come from a sample the protocol does not commit. List "
+        "it before outer[main]."
+    )
+
+
+def test_the_repeated_call_warnings_come_before_the_blocked_attempt_warnings() -> None:
+    # Arrange: the middle Auto Mode shows its blocks to the outer monitor and resamples the inner
+    stack = [
+        build_monitor(build_trusted_monitoring(), label="outer"),
+        build_monitor(
+            build_auto_mode(max_consecutive_blocks=3, when_limit_reached=HaltRun()),
+            label="middle",
+            feedback_visibility=FeedbackVisibility.IN_TRANSCRIPT,
+        ),
+        build_monitor(build_trusted_monitoring(), label="inner"),
+    ]
+
+    # Act
+    with pytest.warns(MonitorPlacementWarning) as caught:
+        named = check_monitor_placement(middleware=stack)
+
+    # Assert
+    assert named == ["inner[main]", "middle[main]"]
+    messages = [str(warning.message) for warning in caught]
+    assert messages[0].startswith("inner[main] sits inside middle[main] (AutoMode)")
+    assert messages[1].startswith("middle[main] commits its blocked attempts")
+
+
 @pytest.mark.parametrize(
     "build_inner",
     [
@@ -322,6 +429,8 @@ def test_an_inner_monitor_that_never_blocks_may_keep_feedback_in_the_transcript(
         lambda: TeamDeferToResample(
             fallback=HaltRun(), defer_threshold=THRESHOLD, audit_threshold=THRESHOLD
         ),
+        UnsetResample,
+        UnsetAutoMode,
         AcceptFirst,
     ],
     ids=[
@@ -330,6 +439,8 @@ def test_an_inner_monitor_that_never_blocks_may_keep_feedback_in_the_transcript(
         "resample-then-own-fallback",
         "trusted-monitoring-subclass",
         "resample-subclass",
+        "resample-subclass-without-settings",
+        "auto-mode-subclass-without-settings",
         "own-protocol",
     ],
 )
@@ -394,8 +505,8 @@ def test_an_inner_monitor_with_both_faults_is_named_for_each() -> None:
     # Assert
     assert named == ["inner[main]", "inner[main]"]
     messages = [str(warning.message) for warning in caught]
-    assert any("more than once in a step" in message for message in messages)
-    assert any("first blocked proposal" in message for message in messages)
+    assert "more than once in a step" in messages[0]
+    assert "first blocked proposal" in messages[1]
 
 
 def test_a_stacked_monitor_warning_points_at_the_code_that_checks_the_list() -> None:

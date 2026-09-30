@@ -180,9 +180,10 @@ for record in result["monitor_log"]:
   sample drawn is the one committed. Sequential resampling guarantees that
   whenever it accepts a sample; parallel resampling does not, and its
   concurrent calls pile up their commands. A second monitor inside this one
-  is such a middleware, and loses its judgement of every sample but the last;
-  see [Two monitors in one
-  agent](../explanation/design.md#two-monitors-in-one-agent).
+  is such a middleware: it loses its judgement of each rejected sample, and
+  under parallel resampling with `ainvoke()` it keeps one record per
+  resample drawn at once, all under the same step number; see [Two monitors
+  in one agent](../explanation/design.md#two-monitors-in-one-agent).
   `check_monitor_placement(middleware=[...])` warns about such a list.
 - **A flag never blocks.** The step has run, or been replaced, by the time
   anyone reads the log.

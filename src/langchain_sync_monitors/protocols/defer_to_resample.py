@@ -74,9 +74,9 @@ class DeferToResample(ControlProtocol):
     call. Parallel resampling may commit an earlier sample, and concurrent
     calls pile up their commands. Keep the monitor last in the middleware list.
     A second monitor placed inside this one is such a middleware: it returns
-    its record as a command, so it keeps the record of the last call only and
-    loses its judgement of every rejected sample, and parallel resampling under
-    `ainvoke()` leaves it two records with one step number.
+    its record as a command, so it loses its judgement of each rejected
+    sample, and parallel resampling under `ainvoke()` leaves it one record per
+    resample drawn at once, all under the same step number.
     `check_monitor_placement` warns about it unless `max_resamples=0` and the
     fallback is `HaltRun()`, which call the model at most once per step.
     """

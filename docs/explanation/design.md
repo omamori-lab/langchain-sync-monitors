@@ -99,23 +99,60 @@ the outer protocol decides whether the inner records are sound:
 |---|---|
 | `TrustedMonitoring` | Sound |
 | `DeferToResample(max_resamples=0, fallback=HaltRun())` | Sound |
-| `AutoMode(max_consecutive_blocks=1)`, which then halts | Sound |
-| `DeferToTrusted`, or `DeferToResample` with resamples or with `DeferToTrustedModel` | A rejected sample's judgement is lost |
-| `AutoMode` with more blocks per step, or with `DeferToTrustedModel` | A blocked sample's judgement is lost |
-| `DeferToResample(resampling=Resampling.PARALLEL)` under `ainvoke()` | A rejected sample's judgement is lost, two records share a step number, and the next number is skipped |
+| `AutoMode` with `max_consecutive_blocks=1` or `max_total_blocks=1`, and `when_limit_reached=HaltRun()` | Sound |
+| `DeferToTrusted`, or `DeferToResample` with resamples or with `DeferToTrustedModel` | The judgement of each rejected sample is lost |
+| `AutoMode` that can block twice in a step, or with `DeferToTrustedModel` | The judgement of each blocked sample is lost |
+| `DeferToResample(resampling=Resampling.PARALLEL)` under `ainvoke()` | The first sample's judgement is lost, and the resamples drawn at once leave one record each under the same step number, so later numbers are skipped; if the trusted model then writes the step, only its record is kept |
 
-The first three call the model at most once per step. Whatever the outer
-protocol, an inner monitor whose protocol blocks, such as `AutoMode`, must keep
+The first three call the model at most once per step. Sound means the stack
+loses nothing of its own: as with one monitor, a middleware outside it that
+raises after a step returns leaves that step's records on
+`stream_mode="custom"` but out of `monitor_log`. Whatever the outer protocol,
+an inner monitor whose protocol blocks, such as `AutoMode`, must keep
 `FeedbackVisibility.HIDDEN`: with `IN_TRANSCRIPT` it commits its blocked
 attempts ahead of the step, and the outer monitor judges the first blocked
 proposal instead of the step that runs. In a sound stack each record holds its
-own monitor's decision, so when the outer monitor halts or replaces a step the
-inner one allowed, only the outer record says what ran.
-`check_monitor_placement` warns about each stack that loses or misjudges
-records, and about a middleware between two monitors inside one that can call
-the model again. To
-judge every step with two monitors under a protocol that resamples, combine
-them into one monitor instead, for example with `CascadeMonitor`.
+own monitor's decision, so when the outer monitor halts a step the inner one
+allowed, the inner record still marks its sample `executed` though nothing
+ran, and only the outer record says what ran. `check_monitor_placement` warns
+about each stack that loses or misjudges records, and about a middleware
+between two monitors inside one that can call the model again;
+`monitor_subagents` warns about the stacks it builds.
+
+To judge every sample with two monitors under a protocol that resamples, give
+one `MonitorMiddleware` a monitor that runs both and keeps the higher
+suspicion, so either can reject the step. The library has no such wrapper, and
+a few lines make one:
+
+```python
+from langchain_sync_monitors import Monitor, MonitorInput, Verdict
+
+
+class HigherSuspicion(Monitor):
+    """Judge with both monitors and keep the more suspicious verdict."""
+
+    def __init__(self, *, first: Monitor, second: Monitor) -> None:
+        self.first = first
+        self.second = second
+
+    async def evaluate(self, monitor_input: MonitorInput) -> Verdict:
+        verdicts = [
+            await self.first.evaluate(monitor_input),
+            await self.second.evaluate(monitor_input),
+        ]
+        return max(verdicts, key=lambda verdict: verdict.suspicion)
+
+    def evaluate_sync(self, monitor_input: MonitorInput) -> Verdict:
+        verdicts = [
+            self.first.evaluate_sync(monitor_input),
+            self.second.evaluate_sync(monitor_input),
+        ]
+        return max(verdicts, key=lambda verdict: verdict.suspicion)
+```
+
+`CascadeMonitor` does not do this. It calls the careful monitor only when the
+fast one finds the step suspicious, and the careful verdict then replaces the
+fast one, so the careful monitor can clear a step the fast one flagged.
 
 ## Four pieces
 

@@ -26,6 +26,7 @@ from langgraph.runtime import Runtime
 
 from langchain_sync_monitors.middleware import MonitorMiddleware
 from langchain_sync_monitors.placement import MonitorPlacementWarning, check_monitor_placement
+from langchain_sync_monitors.protocols import TrustedMonitoring
 from tests.support.chat_models import ScriptedChatModel
 from tests.support.monitors import KeywordMonitor
 from tests.support.protocols import AcceptFirst
@@ -118,12 +119,16 @@ def test_request_only_and_hook_only_middleware_are_safe_inside_the_monitor(
     assert misplaced == []
 
 
-def test_only_middleware_after_the_last_monitor_is_checked(
-    monitor_middleware: MonitorMiddleware,
-) -> None:
-    # Arrange
-    inner_monitor = monitor_middleware.copy_for_subagent(subagent_name="inner")
-    stack = [monitor_middleware, CommandingMiddleware(), inner_monitor]
+def test_middleware_inside_a_monitor_that_calls_the_model_once_is_not_named() -> None:
+    # Arrange: Trusted Monitoring calls the rest of the stack once per step
+    outer = MonitorMiddleware(
+        monitor=KeywordMonitor(), protocol=TrustedMonitoring(flag_threshold=0.5), label="outer"
+    )
+    stack = [
+        outer,
+        CommandingMiddleware(),
+        MonitorMiddleware(monitor=KeywordMonitor(), protocol=AcceptFirst()),
+    ]
 
     # Act
     with warnings.catch_warnings():

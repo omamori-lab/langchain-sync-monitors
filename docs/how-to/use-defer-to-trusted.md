@@ -128,7 +128,9 @@ for record in result["monitor_log"]:
   agent's model sees that reply as its own on the next step.
 - **Put the monitor last** in the `create_agent` middleware list, so no other
   middleware runs inside it. `check_monitor_placement(middleware=[...])` warns
-  about a list that does not.
+  about a list that does not. A second monitor inside this one loses its
+  judgement of every step that is deferred; see [Two monitors in one
+  agent](../explanation/design.md#two-monitors-in-one-agent).
 - **A failed call leaves no record.** If the agent's model, the monitor or the
   trusted model raises, nothing is committed and the error propagates. The
   step is written to `stream_mode="custom"` as a `monitor_step_failed`

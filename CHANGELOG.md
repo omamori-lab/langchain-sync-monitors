@@ -25,6 +25,10 @@ change raises the minor version.
   could return commands, when a middleware that retries or falls back sits
   outside it, and when one that retries or answers failed tool calls, such as
   `ToolRetryMiddleware`, sits anywhere in the list.
+- `check_monitor_placement` warns when a monitor sits inside another whose
+  protocol can call the model more than once in a step, which loses or
+  duplicates the inner monitor's records, or when a monitor inside another
+  commits its blocked attempts with `FeedbackVisibility.IN_TRANSCRIPT`.
 - Only committed steps reach `stream_mode="messages"`, each whole once the
   protocol has decided; rejected samples, blocked attempts with hidden
   feedback and the monitor's own model calls never stream.

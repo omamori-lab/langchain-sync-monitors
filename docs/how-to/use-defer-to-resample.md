@@ -177,10 +177,13 @@ for record in result["monitor_log"]:
 - **Put the monitor last** in the `create_agent` middleware list. If a
   middleware inside the monitor returns commands, only those of the last
   model call survive, and they match the committed step only when the last
-  sample drawn is the one committed. Sequential resampling guarantees that;
-  parallel resampling does not, and its concurrent calls pile up their
-  commands. `check_monitor_placement(middleware=[...])` warns about such a
-  list.
+  sample drawn is the one committed. Sequential resampling guarantees that
+  whenever it accepts a sample; parallel resampling does not, and its
+  concurrent calls pile up their commands. A second monitor inside this one
+  is such a middleware, and loses its judgement of every sample but the last;
+  see [Two monitors in one
+  agent](../explanation/design.md#two-monitors-in-one-agent).
+  `check_monitor_placement(middleware=[...])` warns about such a list.
 - **A flag never blocks.** The step has run, or been replaced, by the time
   anyone reads the log.
 - **A failed call leaves no record.** If a sample, a monitor call or the

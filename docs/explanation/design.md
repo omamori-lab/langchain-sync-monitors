@@ -86,6 +86,37 @@ Middleware instances are shared across parallel subagent runs, so the monitor
 keeps no per-run state on itself; everything a run needs lives in the graph
 state.
 
+### Two monitors in one agent
+
+A second `MonitorMiddleware` in the list, with its own `label`, sits inside
+the first: the outer monitor judges the step the inner one commits. The inner
+monitor returns its record as a command, and LangChain keeps only the commands
+of the last call of the outer monitor's handler, or piles up those of calls
+made at once [@langchain2026]. The inner protocol does not change this, so
+the outer protocol decides whether the inner records are sound:
+
+| Outer protocol | Inner monitor's records |
+|---|---|
+| `TrustedMonitoring` | Sound |
+| `DeferToResample(max_resamples=0, fallback=HaltRun())` | Sound |
+| `AutoMode(max_consecutive_blocks=1)`, which then halts | Sound |
+| `DeferToTrusted`, or `DeferToResample` with resamples or with `DeferToTrustedModel` | A rejected sample's judgement is lost |
+| `AutoMode` with more blocks per step, or with `DeferToTrustedModel` | A blocked sample's judgement is lost |
+| `DeferToResample(resampling=Resampling.PARALLEL)` under `ainvoke()` | A rejected sample's judgement is lost, two records share a step number, and the next number is skipped |
+
+The first three call the model at most once per step. Whatever the outer
+protocol, an inner monitor whose protocol blocks, such as `AutoMode`, must keep
+`FeedbackVisibility.HIDDEN`: with `IN_TRANSCRIPT` it commits its blocked
+attempts ahead of the step, and the outer monitor judges the first blocked
+proposal instead of the step that runs. In a sound stack each record holds its
+own monitor's decision, so when the outer monitor halts or replaces a step the
+inner one allowed, only the outer record says what ran.
+`check_monitor_placement` warns about each stack that loses or misjudges
+records, and about a middleware between two monitors inside one that can call
+the model again. To
+judge every step with two monitors under a protocol that resamples, combine
+them into one monitor instead, for example with `CascadeMonitor`.
+
 ## Four pieces
 
 The work is split so that what the monitor reads, how it scores, and what

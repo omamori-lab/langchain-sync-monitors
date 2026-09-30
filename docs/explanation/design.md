@@ -205,9 +205,10 @@ guard against a forged approval:
   whether the tool returns a `Command`, a list of commands and tool
   messages, or messages as dictionaries, and whether a command's update is
   a dict, pairs of key and value, a dataclass, a pydantic model or another
-  shape LangGraph accepts [@langgraph2026]. A message a tool writes back wholly
-  unchanged, with the id of one already in the state, as a tool that
-  rewrites the history does, keeps its author. One the tool changed in any
+  shape LangGraph accepts [@langgraph2026]. A dict comes back a dict, and
+  any other update as the pairs LangGraph writes. A message a tool writes
+  back wholly unchanged, with the id of one already in the state, as a tool
+  that rewrites the history does, keeps its author. One the tool changed in any
   field does not, its metadata included, since metadata can change what a
   message says: Deep Agents' `FilesystemMiddleware` shows a human message
   that carries `additional_kwargs["lc_evicted_to"]` as a stub that names

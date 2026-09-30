@@ -13,8 +13,7 @@ import logging
 from collections.abc import AsyncIterator, Awaitable, Callable, Iterator, Mapping, Sequence
 from contextlib import asynccontextmanager, contextmanager
 from contextvars import ContextVar
-from copy import copy
-from dataclasses import dataclass, field, fields, is_dataclass, replace
+from dataclasses import dataclass, field, replace
 from typing import Any, Literal, NotRequired, TypedDict, cast
 from uuid import UUID
 
@@ -33,7 +32,7 @@ from langgraph.channels import binop as langgraph_binop
 from langgraph.constants import TAG_NOSTREAM
 from langgraph.runtime import Runtime
 from langgraph.types import Command, Overwrite
-from pydantic import BaseModel, TypeAdapter, ValidationError
+from pydantic import TypeAdapter, ValidationError
 
 from langchain_sync_monitors.contracts import Delegation, SampleRecord, StepRecord
 from langchain_sync_monitors.errors import ConfigurationError, MonitorError
@@ -214,73 +213,23 @@ def rewrite_update_pairs(pairs: UpdatePairs, *, rewrite: MessagesRewrite) -> Upd
     return rewritten
 
 
-def rebuild_update(update: object, *, pairs: UpdatePairs, rewritten: UpdatePairs) -> object | None:
-    """Return the update in its own shape, writing the rewritten pairs, or None if it cannot be.
-
-    Pairs, a dict, a pydantic model and a dataclass with a `messages` field
-    are rebuilt as copies, without calling the update's own code: a
-    pydantic copy is not validated again, and a dataclass copy does not run
-    its `__init__` or `__post_init__` again, which could add to the messages.
-    Any other object LangGraph reads by its annotated keys, such as a
-    NamedTuple, has no such copy.
-    """
-    if update is pairs:
-        return tuple(rewritten) if isinstance(update, tuple) else list(rewritten)
-    messages = next(value for key, value in rewritten if key == MESSAGES_KEY)
-    if isinstance(update, dict):
-        return {**update, MESSAGES_KEY: messages}
-    if isinstance(update, BaseModel):
-        return update.model_copy(update={MESSAGES_KEY: messages})
-    return copy_dataclass_with_messages(update, messages=messages)
-
-
-def copy_dataclass_with_messages(update: object, *, messages: UpdateValue) -> object | None:
-    """Return a copy of a dataclass update that holds these messages, or None for any other.
-
-    The copy is made as `copy.copy` makes one, without the class's
-    `__init__`, and the field is set as a frozen dataclass sets its own.
-    """
-    if not is_dataclass(update) or isinstance(update, type):
-        return None
-    if all(item.name != MESSAGES_KEY for item in fields(update)):
-        return None
-    rebuilt = copy(update)
-    object.__setattr__(rebuilt, MESSAGES_KEY, messages)
-    return rebuilt
-
-
-def is_read_back(command: Command[Any], *, rewritten: UpdatePairs) -> bool:
-    """Tell whether LangGraph reads from the command's update exactly the rewritten messages."""
-    expected = [value for key, value in rewritten if key == MESSAGES_KEY]
-    read = [value for key, value in read_update_pairs(command) if key == MESSAGES_KEY]
-    return len(read) == len(expected) and all(
-        found is wanted for found, wanted in zip(read, expected, strict=True)
-    )
-
-
 def rewrite_update_messages(command: Command[Any], *, rewrite: MessagesRewrite) -> Command[Any]:
     """Return the command with every value its update writes to `messages` rewritten.
 
-    The update keeps its shape when it is a dict, pairs, a pydantic model or
-    a dataclass with a `messages` field. Any other shape LangGraph accepts,
-    such as a NamedTuple or another class that annotates its keys, becomes
-    the pairs LangGraph reads from it, with the messages rewritten, so the
-    state receives the same writes. So does a rebuilt update from which
-    LangGraph would not read the rewritten messages back, as when a
-    descriptor on a dataclass's `messages` field copies what it is given. A
-    command whose update writes no messages is returned as it is. That
-    includes an update LangGraph reads as a value for a root channel, which
-    an agent's state does not have, so it writes nothing to the state.
+    A dict stays a dict, the shape LangChain's and Deep Agents' middleware
+    read. Any other shape LangGraph accepts, such as pairs, a dataclass or a
+    pydantic model, becomes a tuple of the pairs LangGraph reads from it,
+    with the messages rewritten, so the state receives the same writes and
+    none of the update's own code runs again. A command whose update writes
+    no messages is returned as it is. That includes an update LangGraph reads
+    as a value for a root channel, which an agent's state does not have.
     """
     pairs = read_update_pairs(command)
     if all(key != MESSAGES_KEY for key, _ in pairs):
         return command
     rewritten = rewrite_update_pairs(pairs, rewrite=rewrite)
-    rebuilt = rebuild_update(command.update, pairs=pairs, rewritten=rewritten)
-    if rebuilt is not None:
-        rebuilt_command = replace(command, update=rebuilt)
-        if is_read_back(rebuilt_command, rewritten=rewritten):
-            return rebuilt_command
+    if isinstance(command.update, dict):
+        return replace(command, update=dict(rewritten))
     return replace(command, update=tuple(rewritten))
 
 

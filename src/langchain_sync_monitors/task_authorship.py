@@ -334,11 +334,12 @@ def relabel_tool_command(
     its keys, such as a dataclass or a pydantic model, and converted as its
     message reducer converts them, whether one message or a list, given as
     messages, dictionaries, tuples or strings, or wrapped in an `Overwrite`
-    [@langgraph2026]. The update keeps its shape where the monitor can
-    rebuild it without calling the tool's own code, and otherwise becomes
-    the pairs LangGraph would write, so the state receives the same writes
-    with the messages relabelled. A command that writes no messages, such as
-    one with only a `goto`, is returned as it is.
+    [@langgraph2026]. A dict stays a dict, and any other update becomes the
+    pairs LangGraph would write, so the state receives the same writes with
+    the messages relabelled. A command that writes no messages, such as one
+    with only a `goto`, is returned as it is. The reader is private to
+    LangGraph; without it, an update other than a dict or pairs raises
+    `MonitorError`.
     """
     return rewrite_update_messages(
         command,

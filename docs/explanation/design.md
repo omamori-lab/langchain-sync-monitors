@@ -258,12 +258,15 @@ blocks such a step, the feedback answers each malformed call with an error
 result too, because OpenAI-compatible providers receive it as an ordinary tool
 call and reject a request that leaves it unanswered.
 
-These tags rest on trust in the application's own middleware. Only the model
-node writes the monitor's feedback, so a message a tool writes loses any
-`lc_source="monitor"` tag, and a human message becomes a note. A middleware can
-still set the tag on a message it writes, and the monitor then reads it as its
-own feedback. Middleware code is trusted here, as it is everywhere else in the
-agent. What the monitor distrusts is the content that code carries, such as a
+These tags rest on trust in the application's own middleware. Only the
+monitor writes its two sources: the model node writes its feedback, and the
+start of a run writes the `unconfirmed_input` notes. So a message a tool writes
+loses an `lc_source` of `monitor` or `unconfirmed_input`, and a human message
+becomes a note named after the tool. A tool, or a middleware's message, named
+after either source writes an `application` note instead. A middleware can
+still set either tag on a message it writes, and the monitor then reads it as
+its own feedback or as unconfirmed input. Middleware code is trusted here, as
+it is everywhere else in the agent. What the monitor distrusts is the content that code carries, such as a
 web page, a file or an argument the agent chose, which is escaped and never
 read as a tag.
 

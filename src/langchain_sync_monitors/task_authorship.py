@@ -15,7 +15,8 @@ context note, in the state as well as in what the monitor reads.
   records the untagged human messages then in the state as seen, under
   `SEEN_HUMAN_MESSAGES_KEY`, and writes each one that is not a run's input
   back, by id, tagged as a note, so a replayed history keeps the tag.
-- A human message a tool writes is tagged where it is written.
+- A human message a tool writes is tagged where it is written, and no
+  message a tool writes keeps a source only the monitor writes.
 - `RUN_OPEN_KEY` is set at the start of a run and of each step, and cleared
   when the run reaches the monitor's `after_agent` hook. A run that starts
   while it is still set follows one that stopped early, or a fork from a
@@ -64,6 +65,9 @@ UNCONFIRMED_INPUT_SOURCE = "unconfirmed_input"
 """The source of a note made from a human message that may be a run's input, but cannot be told
 from one an earlier run that stopped early left behind."""
 
+RESERVED_SOURCES = frozenset({MONITOR_FEEDBACK_SOURCE, UNCONFIRMED_INPUT_SOURCE})
+"""The sources only the monitor writes: its feedback, and input it cannot confirm."""
+
 
 def merge_message_ids(  # lanorme: ignore[KWARG-001]
     recorded: list[str],
@@ -94,15 +98,20 @@ def find_untagged_human_message_ids(messages: Iterable[BaseMessage]) -> list[str
 
 
 def tag_as_context_note(message: HumanMessage, *, source: str) -> HumanMessage:
-    """Return a copy of a human message with an `lc_source` tag, which makes it a context note.
-
-    The source comes from a tool's or a message's name, which the monitor
-    does not choose, so the monitor's own source becomes `application`: a
-    tool called `monitor` must not write the monitor's feedback.
-    """
-    note_source = APPLICATION_SOURCE if source == MONITOR_FEEDBACK_SOURCE else source
-    additional_kwargs = {**message.additional_kwargs, "lc_source": note_source}
+    """Return a copy of a human message with an `lc_source` tag, which makes it a context note."""
+    additional_kwargs = {**message.additional_kwargs, "lc_source": source}
     return message.model_copy(update={"additional_kwargs": additional_kwargs})
+
+
+def build_note_source(name: str) -> str:
+    """Return the source of a note named after a tool or a message's name.
+
+    The monitor does not choose those names, so one of its own sources
+    becomes `application`: a tool called `monitor` must not write the
+    monitor's feedback, nor one called `unconfirmed_input` a note that may be
+    the user's.
+    """
+    return APPLICATION_SOURCE if name in RESERVED_SOURCES else name
 
 
 def mark_context_note(message: HumanMessage) -> HumanMessage:
@@ -111,7 +120,9 @@ def mark_context_note(message: HumanMessage) -> HumanMessage:
     The note's source is the message's `name`, as Deep Agents' Nemotron
     profile names its nudges [@deepagents2026], or else `application`.
     """
-    return tag_as_context_note(message, source=message.name or APPLICATION_SOURCE)
+    return tag_as_context_note(
+        message, source=build_note_source(message.name or APPLICATION_SOURCE)
+    )
 
 
 def is_note_to_mark(message: BaseMessage, *, task_message_ids: Collection[str]) -> bool:
@@ -252,14 +263,15 @@ def build_run_end_update(state: object) -> AgentStateUpdate:
 def relabel_tool_written_message(message: BaseMessage, *, tool_name: str) -> BaseMessage:
     """Return a message a tool wrote so that it speaks neither as the task author nor the monitor.
 
-    A human message becomes a note named after the tool. Only the model node
-    writes the monitor's feedback, so any other message a tool tags with the
-    monitor's source loses the tag.
+    A human message becomes a note named after the tool. Only the monitor
+    writes its own sources, its feedback in the model node and unconfirmed
+    input at the start of a run, so any other message a tool tags with one of
+    them loses the tag.
     """
     source = read_message_source(message)
-    if isinstance(message, HumanMessage) and source in {None, MONITOR_FEEDBACK_SOURCE}:
-        return tag_as_context_note(message, source=tool_name)
-    if source != MONITOR_FEEDBACK_SOURCE:
+    if isinstance(message, HumanMessage) and (source is None or source in RESERVED_SOURCES):
+        return tag_as_context_note(message, source=build_note_source(tool_name))
+    if source not in RESERVED_SOURCES:
         return message
     additional_kwargs = {
         key: value for key, value in message.additional_kwargs.items() if key != "lc_source"
@@ -322,7 +334,7 @@ def relabel_tool_result(
         return relabel_tool_command(
             result, tool_name=tool_name, existing_messages=existing_messages
         )
-    if read_message_source(result) != MONITOR_FEEDBACK_SOURCE or is_unchanged_write_back(
+    if read_message_source(result) not in RESERVED_SOURCES or is_unchanged_write_back(
         result, existing_messages=existing_messages
     ):
         return result
@@ -336,7 +348,7 @@ def mark_tool_written_notes(
     tool_name: str,
     state: object,
 ) -> ToolCallResults:
-    """Tag the new human messages a tool writes as notes, and strip the monitor's source.
+    """Tag the new human messages a tool writes as notes, and strip the monitor's own sources.
 
     A tool can return a tool message, a `Command`, or a list of both, which
     LangGraph's tool node accepts [@langgraph2026]. Tagged where it is

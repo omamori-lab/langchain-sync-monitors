@@ -50,18 +50,29 @@ as `RepeatedMonitor` multiplies the monitor's calls.
 |---|---|---|---|---|
 | What runs | The agent's step, always | The agent's step, or the trusted model's when it is suspicious | The least suspicious acceptable sample, or the fallback's step when none is acceptable | The first acceptable attempt, or the fallback's step once a block limit is reached |
 | Model calls, ordinary step | 2: agent and monitor | 2 | 2 | 2 |
-| Model calls, suspicious step | 2 | 3: adds the trusted model | Up to 6: three samples and three judgements, plus the fallback's call | 2 per attempt, up to 3 attempts, plus the fallback's call |
+| Model calls, suspicious step, with the defaults | 2 | 3: adds the trusted model | Up to 6: three samples and three judgements; 7 when the trusted model writes the step | Up to 6: three attempts and three judgements; 7 when the trusted model writes the step |
 | Latency, suspicious step | No extra | One trusted call | Up to two more rounds in sequence, or one in parallel, plus the fallback's call | One more round per attempt, plus the fallback's call |
-| What the agent sees | Its own step | The trusted step, as if it were its own | The chosen sample, or the fallback's step; never a rejected sample | Each retry sees the step's blocked attempts and their feedback; afterwards only the accepted step, unless `feedback_visibility=IN_TRANSCRIPT`; at a limit, the fallback's step |
-| Outcomes in the log | `allowed` | `allowed`, `deferred_to_trusted` | `allowed`, `resampled`, `deferred_to_trusted`, `halted` | `allowed`, `steered`, `deferred_to_trusted`, `halted` |
-| Flagged when | Suspicion at or above `flag_threshold` | Suspicion at or above `audit_threshold` | The lowest suspicion across the samples is at or above `audit_threshold`, or the step halted | An attempt was blocked, or the fallback wrote the step |
+| What the agent sees | Its own step | The trusted step, as if it were its own | The chosen sample, or the fallback's step; never a rejected sample | Each retry sees the step's blocked attempts and their feedback; afterwards, only the accepted step unless feedback stays in the transcript; at a limit, the fallback's step |
 | Use it when | You want to observe, calibrate or audit, and blocking honest work costs more than catching a bad step late | A capable trusted model exists and you want the simplest intervention | You want to keep most of the stronger model's work and gather evidence from repeated samples | Most suspicious steps are an honest agent overreaching, and a person would otherwise approve each step |
 
-A round is one call of the agent's model followed by one call of the monitor.
-The fallback's call is one call of the trusted model when the fallback is
-`DeferToTrustedModel`, and none for `HaltRun`. Parallel resampling saves time
-only under `ainvoke()`; under `invoke()` the samples are drawn one after
-another.
+The defaults are `max_resamples=2` for Defer to Resample and
+`max_consecutive_blocks=3` for Auto Mode. A round is one call of the agent's
+model followed by one call of the monitor. The fallback's call is one call of
+the trusted model when the fallback is `DeferToTrustedModel`, and none for
+`HaltRun`. Parallel resampling saves time only under `ainvoke()`; under
+`invoke()` the samples are drawn one after another. Auto Mode keeps blocked
+attempts and their feedback in the agent's messages only with
+`feedback_visibility=FeedbackVisibility.IN_TRANSCRIPT`.
+
+Each protocol records its steps with these outcomes, and flags them for review
+as follows:
+
+| Protocol | Outcomes in the log | Flagged when |
+|---|---|---|
+| Trusted Monitoring | `allowed` | The suspicion is at or above `flag_threshold` |
+| Defer to Trusted | `allowed`, `deferred_to_trusted` | The suspicion is at or above `audit_threshold` |
+| Defer to Resample | `allowed`, `resampled`, `deferred_to_trusted`, `halted` | The lowest suspicion across the samples is at or above `audit_threshold`, or the step halted |
+| Auto Mode | `allowed`, `steered`, `deferred_to_trusted`, `halted` | An attempt was blocked, or the fallback wrote the step |
 
 Any protocol can also log `halted`. With
 `when_subagent_halts=SubagentHalt.STOP_WHOLE_RUN`, a monitor halts its agent
@@ -84,17 +95,24 @@ once a subagent was halted, and records a flagged step with no samples; see
   every sample is above it. At the same deferral threshold it costs much less
   usefulness than deferring at once, because a fresh sample of an innocent
   step may look innocent. In Ctrl-Z's BashBench setting it reached 83.2%
-  safety at 95% usefulness, against 72.7% for Defer to Trusted. The same
-  resampling gives text aimed at the monitor several tries, which turns an
-  injection that works only sometimes into a best-of-n attack
+  safety at 95% usefulness, against 72.7% for Defer to Trusted. Those figures
+  come from protocols in which a person audits the most suspicious actions,
+  and a caught attack ends the episode; this library's flag stops nothing. With stronger models, and attacks the
+  untrusted model designs itself, Terekhov et al. found that Defer to Resample
+  performs similarly to Defer to Trusted even without prompt injection, and
+  that resampling gives text aimed at the monitor several tries, which turns
+  an injection that works only sometimes into a best-of-n attack
   [@terekhov2025adaptive].
-- **Auto Mode** follows Claude Code's auto mode [@hughes2026automode]. A
-  classifier reviews each action before it runs, a blocked action goes back to
-  the agent with the reason, and a session that reaches three denials in a row
-  or twenty in all is stopped and handed to a person. The library keeps both
-  limits, counts the total per conversation thread rather than per session,
-  and hands the step to a fallback instead of a person: by default, the run
-  halts.
+- **Auto Mode** follows Claude Code's auto mode [@hughes2026automode]. There
+  a classifier reviews, before it runs, each action that neither an allowlist
+  of safe tools, the user's own allow rules nor the rule for file edits inside
+  the project already allows.
+  A blocked action goes back to the agent with the reason, and a session that
+  reaches three denials in a row or twenty in all is stopped and handed to a
+  person, or, in headless mode, ended. Here the monitor judges every step. The
+  library keeps both limits, counts the total per conversation thread rather
+  than per session, and hands the step to a fallback. The default fallback,
+  `HaltRun`, ends the run, as headless mode does.
 
 ## What every protocol shares
 
@@ -214,7 +232,7 @@ Each enum option must be a member of its enum; a plain string raises
 
 | Topic | What happens |
 |---|---|
-| Graph steps | The middleware's hooks add two graph steps per model call, `before_model` and `after_model`, and two per run, `before_agent` and `after_agent`. `create_agent` and `create_deep_agent` set a `recursion_limit` of 9,999. If you pass a limit of your own, add two for each model call and two for the run: an agent that makes three model calls and two rounds of tool calls needs a limit of at least 6 without a monitor, and 14 with one. |
+| Graph steps | The middleware's hooks add two graph steps per agent step, `before_model` and `after_model`, however many samples or model calls the step draws, and two per run, `before_agent` and `after_agent`. `create_agent` and `create_deep_agent` set a `recursion_limit` of 9,999. If you pass a limit of your own, an agent that takes N steps needs 2N without a monitor and 4N + 2 with one: three steps need 6 and 14. |
 | Streams | `stream_mode="messages"` shows only committed steps, each whole once the protocol has decided. Rejected samples and the monitor's own calls never stream; Auto Mode with `FeedbackVisibility.IN_TRANSCRIPT` commits its blocked attempts with the step, so those do. [Read the monitor log](read-the-monitor-log.md) covers the other stream modes. |
 | A failed step | If a sample, a monitor call or the fallback raises, nothing is committed and the error propagates. The step is written to `stream_mode="custom"` as a `monitor_step_failed` event with the samples judged so far, and logged as a warning when there were any. A middleware outside the monitor that retries failed model calls, such as `ModelRetryMiddleware`, runs the whole step again with fresh samples. |
 | Placement | The monitor goes last in the `create_agent` middleware list. `check_monitor_placement(middleware=[...])` warns about a middleware placed where it undermines the monitor. |

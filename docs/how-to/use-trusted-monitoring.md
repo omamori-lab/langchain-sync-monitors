@@ -150,8 +150,10 @@ for record in result["monitor_log"]:
 - **Steps stream whole.** Nothing reaches `stream_mode="messages"` until the
   protocol has decided, so a monitored agent streams each step at once rather
   than token by token. The monitor's own calls never stream.
-- **The graph takes one more step per model call.** The middleware's
-  `after_model` hook counts towards an explicit `recursion_limit`.
+- **The graph takes more steps.** The middleware's hooks add two graph steps
+  per model call, `before_model` and `after_model`, and two per run,
+  `before_agent` and `after_agent`, all of which count towards an explicit
+  `recursion_limit`.
 
 ## Related guides
 

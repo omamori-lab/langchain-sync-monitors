@@ -22,6 +22,13 @@ context note, in the state as well as in what the monitor reads.
   checkpoint inside a run, and the state may hold messages the monitor never
   saw. The monitor cannot tell them from the new input, so it reads all of
   them as notes.
+
+Two paths stay open, both through another middleware listed before the
+monitor. Its `before_agent` hook runs before the monitor's own, so an untagged
+human message it writes counts as the run's input. Its `after_agent` hook runs
+after the monitor's own, since LangChain runs those hooks in reverse order
+[@langchain2026], so an untagged human message it writes counts as the next
+run's input, unless the hook sends the run back to the model.
 """
 
 from __future__ import annotations

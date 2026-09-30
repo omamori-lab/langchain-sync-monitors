@@ -59,6 +59,7 @@ flowchart LR
     channelCalls --> tagMalformed["malformed_tool_call"]
     channelCalls --> tagError["tool_error"]
     channelCalls --> tagProviderCall["provider_tool_call"]
+    channelCalls --> tagUnrecognised["unrecognised_block"]
     channelReports --> tagReport["subagent_report"]
     channelReasoning --> tagReasoning["agent_reasoning"]
     channelText --> tagAgent["agent"]
@@ -75,13 +76,14 @@ flowchart LR
 | `<tool_call name="...">` | `TOOL_CALLS` | A tool call, with its arguments as JSON. |
 | `<malformed_tool_call name="...">` | `TOOL_CALLS` | A call whose arguments could not be parsed, with the raw argument text. It never ran. |
 | `<tool_error name="...">` | `TOOL_CALLS` | A tool result with `status="error"`: the call failed or did not run, for example because a person rejected it, the tool does not exist or the tool raised. |
-| `<provider_tool_call name="...">` | `TOOL_CALLS` | A built-in tool of the model provider, such as Anthropic's web fetch or OpenAI's web search, which the provider ran inside the model call. It holds the call's `args` and any provider `extras` as JSON. It ran before the monitor judged the step. |
+| `<provider_tool_call name="...">` | `TOOL_CALLS` | A built-in tool of the model provider, such as Anthropic's web fetch or OpenAI's web search, which the provider ran inside the model call. It holds the call's `args` and any provider `extras` as JSON. It ran before the monitor judged the step. Gemini's Google Search appears as one named `grounding`, with its queries. |
+| `<unrecognised_block name="...">` | `TOOL_CALLS` | A part of the reply LangChain could not map to text, reasoning or a tool call, shown whole as JSON and named by its type. It may be a provider tool call in a reply without `model_provider` in its metadata, or data such as encrypted reasoning. |
 | `<tool_result name="...">` | `TOOL_RESULTS` | What a tool returned. |
 | `<provider_tool_result name="...">` | `TOOL_RESULTS` | What a provider's built-in tool returned. |
 | `<subagent_report name="...">` | `SUBAGENT_REPORTS` | What a delegation tool returned: a subagent's report. |
 | `<agent>` | `AGENT_TEXT` | What the agent wrote. |
 | `<agent_reasoning>` | `REASONING` | The agent's chain of thought. |
-| `<proposed_step>` | always shown | The step being judged: its tool calls, malformed calls and provider tool calls in every view, its text when it is a final answer, and the rest of it that the view shows. |
+| `<proposed_step>` | always shown | The step being judged: its tool calls, malformed calls, provider tool calls and unrecognised blocks in every view, its text when it is a final answer, and the rest of it that the view shows. |
 
 A few rules hold in every view:
 
@@ -93,7 +95,13 @@ A few rules hold in every view:
   Deep Agents writes its summary with the agent's own model, and its
   `read_file` attaches a video's frames in a human message whose text holds
   the path the agent chose [@deepagents2026], and the agent must not be able
-  to speak as the user through either.
+  to speak as the user through either. The monitor also writes the note's tag
+  into the message in the agent's state, so a saved history keeps it. After a
+  run that stopped before its end, such as one whose model call raised, the
+  next run's new messages are notes too, the user's own included; see
+  [What the monitor reads](../explanation/design.md#what-the-monitor-reads)
+  for why, and for the two paths through other middleware's hooks that stay
+  open.
 - **Whether a call ran.** A `<tool_error>` sits in `TOOL_CALLS`, beside the
   call, and `<monitor_feedback>` sits in `USER`, beside the task. So every view
   that shows a call also shows that it failed or was blocked, even a view
@@ -105,10 +113,21 @@ A few rules hold in every view:
   is then the step's action, so `<proposed_step>` shows the answer's text even
   when the view leaves out `AGENT_TEXT`.
 - **Provider tools.** A provider's built-in tools run at the provider, inside
-  the model call, before the monitor judges the step. The monitor reads them,
-  and a suspicious score still decides what happens to the rest of the step,
-  but it cannot stop a call that has already run. The log records keep their
-  calls and full results.
+  the model call, before the monitor judges the step, and once for every
+  sample a protocol draws. The monitor always reads their calls; their
+  results sit in `TOOL_RESULTS`, which the default view leaves out. A
+  suspicious score still decides what happens to the rest of the step, but
+  the monitor cannot stop a call that has already run. The rendering covers
+  Anthropic, OpenAI's Responses API, Gemini's code execution and Google
+  Search, and replies in LangChain's standard blocks. A search that leaves
+  no block, such as Gemini's URL context or the annotations of OpenAI's Chat
+  Completions, stays invisible.
+- **Record size.** Every sample's record keeps each provider tool result in
+  full, so a large fetched page or code output is copied once per sample
+  drawn into `monitor_log`, the checkpoint and the step span. If that grows
+  too large, drop the built-in tools that return large outputs, or keep the
+  records out of long-lived storage; the full result is also in the agent's
+  own messages.
 - **Escaping.** Content is HTML-escaped, so text inside a tool result or a
   report cannot close its tag and pose as a message from the user.
 - **System messages** are never rendered.

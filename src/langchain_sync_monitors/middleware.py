@@ -185,17 +185,19 @@ class MonitorMiddleware(AgentMiddleware[MonitorState, AgentContext, StructuredOu
 
     Only the untagged human messages a run receives as its input are read as
     the task author's. The middleware's `before_agent` hook records them in
-    the graph state, each step records the other human messages it sees, a
-    human message a tool writes is tagged as a context note where it is
-    written, and the monitor reads every human message not recorded as input
-    as a note.
+    the graph state. Its `before_model` and `after_agent` hooks, and each
+    commit, tag every other untagged human message in the state as a context
+    note, and a human message a tool writes is tagged where it is written.
+    After a run that stopped before reaching `after_agent`, the next run's
+    new messages are notes too, since the monitor cannot tell them from what
+    the stopped run left; `task_authorship` has the rule and its limits.
 
     A halted step ends the run. The middleware's `after_model` hook routes the
     agent to its end, since the halt message alone does not end an agent that
-    loops until it has a structured response. The hook adds one graph step per
-    model call, and the `before_agent` hook one per run, which count towards an
-    explicit `recursion_limit`; on a halted step the `after_model` hook skips
-    the `after_model` hooks that would run after it.
+    loops until it has a structured response. On a halted step it skips the
+    `after_model` hooks that would run after it. The hooks add two graph steps
+    per model call and two per run, which count towards an explicit
+    `recursion_limit`.
 
     If a call inside a step raises before the protocol decides, the step is
     not committed. The samples the monitor had judged are logged as a warning
@@ -411,7 +413,7 @@ class MonitorMiddleware(AgentMiddleware[MonitorState, AgentContext, StructuredOu
         return build_run_end_update(state)
 
     @override
-    async def aafter_agent(
+    async def aafter_agent(  # lanorme: ignore[NAMING-011]
         self,
         state: MonitorState,
         runtime: AgentRuntime,

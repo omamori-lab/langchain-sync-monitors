@@ -149,13 +149,28 @@ protocol gates.
 
 A provider's built-in tools, such as Anthropic's web fetch or OpenAI's web
 search, run at the provider inside the model call, so they have run before the
-monitor sees the step. LangChain gives them to every provider as standard
-`server_tool_call` and `server_tool_result` blocks [@langchaincore2026], which
-the monitor renders as `<provider_tool_call>` beside the tool calls and
-`<provider_tool_result>` beside the tool results. The judge reads them and the
-audit record keeps them, and a suspicious score still decides what happens to
-the rest of the step, but a synchronous monitor cannot stop a call that has
-already run.
+monitor sees the step. LangChain's translators give them as standard
+`server_tool_call` and `server_tool_result` blocks for Anthropic, OpenAI's
+Responses API and Gemini's code execution, and a reply in LangChain's own
+standard blocks already holds them [@langchaincore2026]. The monitor renders
+each call as `<provider_tool_call>` beside the tool calls and each result as
+`<provider_tool_result>` beside the tool results. Gemini's Google Search leaves
+its queries only in the reply's `grounding_metadata`, so the monitor renders
+those queries as a `<provider_tool_call name="grounding">` and the sources
+found as its result. A block LangChain cannot map, such as one in a reply
+without `model_provider` in its metadata, is rendered whole as
+`<unrecognised_block>` beside the tool calls, so it is shown rather than
+dropped. Other searches that leave no block stay invisible: Gemini's URL
+context, whose metadata langchain-google-genai does not keep, and the search
+annotations of OpenAI's Chat Completions or OpenRouter's web plugin.
+
+The judge always reads the provider tool calls of the step it judges. Their
+results sit in `TOOL_RESULTS`, so under the default view it reads the call and
+not what it returned. The audit record keeps both, the result in full. A suspicious score
+still decides what happens to the rest of the step, but a synchronous monitor
+cannot stop a call that has already run. It runs once for every sample drawn,
+so each resample of Defer to Resample and each retry of Auto Mode runs it
+again, in samples that are then rejected too.
 
 Only the task author's own words authorise an action, so three kinds of entry
 guard against a forged approval:
@@ -177,18 +192,34 @@ guard against a forged approval:
 
   So the monitor records, in the graph state, which human messages were a
   run's input. A `before_agent` hook records each untagged human message the
-  monitor has not seen before, and every step records the untagged human
-  messages then in the state as seen, so a message written during a run is
-  never taken for the next run's input. Before a monitor judges a step, every
-  untagged human message whose id is not recorded as input is tagged as a note
-  in the monitor's copy of the history, named after its `name`, or else
-  `application`. The monitor also tags the new untagged human messages a
-  tool writes through a `Command`, where they are written and with the tool's
-  name as their source, so they stay notes even when the run fails before the
-  next step, and in a history the application stores and replays. A message
-  a tool writes back with the id of one already in the state, as a tool that
-  rewrites the history does, keeps its author. Both lists are private state,
-  so a subagent starts with neither and returns neither.
+  monitor has not seen before. A `before_model` hook, each commit and an
+  `after_agent` hook record every untagged human message then in the state as
+  seen, and write each one that is not a run's input back, by its id, tagged
+  as a note named after its `name`, or else `application`. The tag is thus
+  part of the message, and a history the application saves or replays keeps
+  it. The monitor's `wrap_tool_call` tags the new human messages a tool
+  writes where they are written, with the tool's name as their source,
+  whether the tool returns a `Command`, a list of commands and tool
+  messages, or messages as dictionaries. A message a tool writes back with
+  the id of one already in the state, as a tool that rewrites the history
+  does, keeps its author. Before a monitor judges a step, every untagged
+  human message whose id is not recorded as input is tagged as a note in the
+  monitor's copy of the model request, which can hold messages the state
+  lacks. The two lists and the flag below are private state, so a subagent
+  starts with none of them and returns none of them.
+
+  A run can stop before its end: a model, monitor or fallback call raises,
+  it hits its recursion limit, or the application answers an interrupt with
+  new input rather than a resume. A fork from a checkpoint inside a run is
+  in the same position. Messages written after the monitor's last look may
+  then sit in the state unseen, and the monitor cannot tell them from the new
+  input. So a private flag is set when a run and each of its steps start, and
+  cleared when the run reaches the monitor's `after_agent` hook. A run that
+  starts while it is set reads every new human message as a note, and logs a
+  warning, including the user's own new message, whose approvals and
+  restrictions then carry no authority for that run. The run after it is read
+  normally. A final answer, a halt, a structured response and a
+  `return_direct` tool all end at `after_agent`, so they leave the flag clear.
 - The monitor's own feedback carries `lc_source="monitor"` and is rendered as
   `<monitor_feedback>` wherever the task is shown: both the message that
   answers a blocked final answer and the tool message that answers a blocked
@@ -208,24 +239,40 @@ blocks such a step, the feedback answers each malformed call with an error
 result too, because OpenAI-compatible providers receive it as an ordinary tool
 call and reject a request that leaves it unanswered.
 
-These tags rest on trust in the application's own code. A tool or a middleware
-can set `lc_source="monitor"` on a message it returns, and the monitor then
-reads it as its own feedback. Tool and middleware code is trusted here, as it
-is everywhere else in the agent. What the monitor distrusts is the content that
-code carries, such as a web page or a file, which is escaped and never read as
-a tag.
+These tags rest on trust in the application's own middleware. Only the model
+node writes the monitor's feedback, so a message a tool writes loses any
+`lc_source="monitor"` tag, and a human message becomes a note. A middleware can
+still set the tag on a message it writes, and the monitor then reads it as its
+own feedback. Middleware code is trusted here, as it is everywhere else in the
+agent. What the monitor distrusts is the content that code carries, such as a
+web page, a file or an argument the agent chose, which is escaped and never
+read as a tag.
 
-Telling a run's input from the rest has limits, and each one comes from
-middleware or application code, not from a tool the agent calls. An untagged
-human message that another middleware's `before_agent` hook writes is written
-before the monitor's own hook runs, so it counts as input. So does one that
-another middleware's `after_model` or `after_agent` hook writes after the
-monitor's last step of a run, when no later step sees it before the next run
-starts. A middleware's untagged message is recorded only in the graph state,
-not in the message, so an application that replays a history without a
-checkpointer, or a thread started before the monitor was added, has it count
-as input. The other way round, a human message added to a run that resumes,
-through `Command(update=...)`, is never recorded as input, so it is a note.
+Telling a run's input from the rest still has two open paths, both through
+another middleware's hooks. Such a message can carry the agent's own words, as
+Deep Agents' final answer guard quotes a value the agent chose
+[@deepagents2026]. The two paths are these:
+
+- A `before_agent` hook of a middleware listed before the monitor runs before
+  the monitor's own, so an untagged human message it writes counts as the
+  run's input.
+- An `after_agent` hook of a middleware listed before the monitor runs after
+  the monitor's own, since LangChain runs `after_agent` hooks in reverse list
+  order [@langchain2026]. An untagged human message it writes, without
+  sending the run back to the model, counts as the next run's input.
+
+No sound fail-closed rule covers them. At the start of a run such a message
+and the new input are both unseen, both are untagged, and both follow the
+last message the monitor saw, so the only rule that would close these paths
+reads every new message as a note in every run. A history replayed without a
+checkpointer holds the tags the monitor wrote, so there only a message the
+monitor never saw reads as input, such as one from these two paths or one a
+later middleware wrote just before a step that failed. A thread started before
+the monitor was added has the gap for every untagged human message it holds. The other way round, a human
+message added to a run that resumes, through `Command(update=...)` or
+`update_state`, is never recorded as input, so it is a note. That fails
+closed, but a restriction the user adds that way, such as "do not send
+anything", then carries no authority with the judge either.
 
 When the view keeps only recent entries, every message from the task author is
 kept anyway, in order: the first states the task, and a later one can narrow or
@@ -399,8 +446,10 @@ A routing edge reads a fresh copy of the state that keeps only its own node's
 writes, and the `jump_to` key is cleared everywhere else [@langgraph2026], so
 a `jump_to` from the model node would reach only the model node's own edge,
 which exists only in an agent with no `after_model` hook at all. The hook costs
-one graph step per model call, and the `before_agent` hook that records a run's
-input one per run; both count towards an explicit `recursion_limit`.
+one graph step per model call. The hooks that record who wrote each human
+message add one more per model call, `before_model`, and two per run,
+`before_agent` and `after_agent`. All of them count towards an explicit
+`recursion_limit`.
 
 A fallback must not escalate to a person by calling LangGraph's `interrupt()`.
 The fallback runs inside the model node, and on resume LangGraph runs the whole

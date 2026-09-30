@@ -49,11 +49,12 @@ ones Deep Agents adds, wrap each sample in hook runs of their own, so in
 LangSmith a sample sits one level below `monitor step` for each of them that
 wraps the model call.
 
-Every tracer also shows the monitor's two graph nodes beside `model`, as it
-shows every node of the graph: `monitor[main].before_agent` once per run,
-where the monitor records which human messages were the run's input, and
-`monitor[main].after_model` after each model call. Neither opens a span of its
-own.
+Every tracer also shows the monitor's four graph nodes beside `model`, as it
+shows every node of the graph: `monitor[main].before_agent` and
+`monitor[main].after_agent` once per run, and `monitor[main].before_model` and
+`monitor[main].after_model` around each model call. The first three record
+which human messages were the run's input and tag the others as notes; the
+last ends a halted run. None opens a span of its own.
 
 ## Know what each span holds
 

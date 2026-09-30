@@ -330,11 +330,9 @@ class MonitorMiddleware(AgentMiddleware[MonitorState, AgentContext, StructuredOu
         """Run a tool call under `invoke()`, handing any subagent it starts its delegation.
 
         Every new or changed message the tool writes loses a source only the
-        monitor writes, and a human message left without a source becomes a
-        context note named after the tool, whether the tool returns a tool
-        message, a `Command` whose update takes any shape LangGraph accepts,
-        or a list of both. A message written back unchanged under its id
-        keeps its author; `mark_tool_written_notes` has the rule.
+        monitor writes, and a human message left without one becomes a note
+        named after the tool, whatever the shape of the result or of a
+        `Command`'s update; `mark_tool_written_notes` has the rule.
         """
         result = handler(add_delegation(request, agent=self.agent_name))
         return cast_to_tool_call_result(
@@ -354,11 +352,9 @@ class MonitorMiddleware(AgentMiddleware[MonitorState, AgentContext, StructuredOu
         """Run a tool call under `ainvoke()`, handing any subagent it starts its delegation.
 
         Every new or changed message the tool writes loses a source only the
-        monitor writes, and a human message left without a source becomes a
-        context note named after the tool, whether the tool returns a tool
-        message, a `Command` whose update takes any shape LangGraph accepts,
-        or a list of both. A message written back unchanged under its id
-        keeps its author; `mark_tool_written_notes` has the rule.
+        monitor writes, and a human message left without one becomes a note
+        named after the tool, whatever the shape of the result or of a
+        `Command`'s update; `mark_tool_written_notes` has the rule.
         """
         result = await handler(add_delegation(request, agent=self.agent_name))
         return cast_to_tool_call_result(

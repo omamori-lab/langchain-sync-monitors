@@ -230,19 +230,20 @@ def build_tool_request_with_delegation(
 
 
 def read_bound_tools(model: object) -> list[object]:
-    """Return the tools bound on a chat model before the agent was built.
+    """Return the tools a chat model was bound to before the agent was built.
 
     `bind_tools` returns a `RunnableBinding` that keeps the tools among its
-    keyword arguments [@langchaincore2026], and a model can sit inside several
-    bindings, so each one is read. A model with no binding has none.
+    keyword arguments [@langchaincore2026]. A model can sit inside several
+    bindings, and each passes its own keyword arguments over those of the one
+    inside it, so the tools of the outermost binding that sets them are the
+    ones the model receives. A model with no binding has none.
     """
-    tools: list[object] = []
     while isinstance(model, RunnableBinding):
         bound: object = model.kwargs.get("tools")
         if isinstance(bound, list):
-            tools.extend(bound)
+            return list(bound)
         model = model.bound
-    return tools
+    return []
 
 
 def build_request_with_messages(

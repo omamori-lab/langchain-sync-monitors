@@ -22,23 +22,31 @@ OpenAI's computer use and patch tools. So are the tool search of Anthropic
 and of OpenAI, and Anthropic's advisor, which run at the provider but act on
 nothing outside it.
 
-Detection reads the tools of the model request and the tools bound on the
-model before the agent was built, with `bind_tools`, as dictionaries. It
-cannot see a server-side feature switched on in the model's own settings,
-such as OpenRouter's web plugin or an `:online` model
-[@langchainopenrouter2026], nor a tool an integration has already turned into
-an object of its own SDK; those run the same way without a warning.
+Detection reads the tools of the model request. It also reads the tools
+bound on the model with `bind_tools` before the agent was built, but only for
+an agent with no tools of its own and no `response_format`: in every other
+case `create_agent` binds the model's tools afresh, which drops the ones
+bound before [@langchain2026]. It cannot see a server-side feature switched on
+in the model's own settings, such as OpenRouter's web plugin or an `:online`
+model [@langchainopenrouter2026], nor a tool an integration has already
+turned into an object of its own SDK, nor tools bound inside a wrapper such
+as `with_fallbacks(...)`, nor tools queued with `bind_tools` on a
+configurable model from `init_chat_model(..., configurable_fields=...)`;
+those run the same way without a warning.
 """
 
 from __future__ import annotations
 
 import warnings
 import weakref
-from collections import OrderedDict
 from collections.abc import Mapping, Sequence
 from typing import Final
 
-from langchain_sync_monitors._langchain import AgentModelRequest, read_bound_tools
+from langchain_sync_monitors._langchain import (
+    AgentModelRequest,
+    AnyAgentMiddleware,
+    read_bound_tools,
+)
 from langchain_sync_monitors.errors import ProviderToolWarning
 from langchain_sync_monitors.thresholds import LIBRARY_DIRECTORY
 
@@ -66,17 +74,6 @@ It holds ids, so it never hashes a middleware, which a subclass may make
 unhashable, and it lives outside the middleware, which stays configuration
 only and can be copied and pickled. A finaliser removes each id when its
 instance is collected, so a later instance at the same address still warns.
-"""
-
-UNREFERENCEABLE_LIMIT: Final = 256
-"""How many middleware instances that cannot be weak-referenced are kept alive at most."""
-
-kept_unreferenceable: Final[OrderedDict[int, object]] = OrderedDict()
-"""The warned instances that cannot be weak-referenced, kept alive while their ids count.
-
-No finaliser can watch such an instance, so it is kept, which keeps its id its
-own. Past `UNREFERENCEABLE_LIMIT` the oldest is released and its id dropped,
-so it may warn again, but nothing grows without bound.
 """
 
 
@@ -116,34 +113,46 @@ def render_provider_tool_warning(*, middleware_name: str, provider_tools: Sequen
     )
 
 
-def mark_warned(middleware: object) -> None:
-    """Record that a middleware instance has shown its warning, without hashing it."""
+def mark_warned(middleware: AnyAgentMiddleware) -> None:
+    """Record that a middleware instance has shown its warning, without hashing it.
+
+    Every LangChain middleware can be weak-referenced, since `AgentMiddleware`
+    keeps a `__weakref__` slot, so a finaliser can always drop the id.
+    """
     key = id(middleware)
     warned_middleware_ids.add(key)
-    try:
-        weakref.finalize(middleware, warned_middleware_ids.discard, key)
-    except TypeError:
-        kept_unreferenceable[key] = middleware
-        if len(kept_unreferenceable) > UNREFERENCEABLE_LIMIT:
-            released_key, _ = kept_unreferenceable.popitem(last=False)
-            warned_middleware_ids.discard(released_key)
+    weakref.finalize(middleware, warned_middleware_ids.discard, key)
+
+
+def read_tools_reaching_the_model(request: AgentModelRequest) -> list[object]:
+    """Return the tools the model call receives: the request's, or those bound on the model.
+
+    `create_agent` binds the request's tools, and a `response_format`'s, with
+    the model's `bind_tools`, which on a model bound in advance binds the
+    model underneath afresh. Only an agent with neither keeps the tools bound
+    before, since then the model is bound with its settings alone
+    [@langchain2026].
+    """
+    if request.tools or request.response_format is not None:
+        return list(request.tools)
+    return read_bound_tools(request.model)
 
 
 def warn_about_provider_tools(
     request: AgentModelRequest,
     *,
-    middleware: object,
+    middleware: AnyAgentMiddleware,
     middleware_name: str,
 ) -> None:
-    """Emit a `ProviderToolWarning` when a model request carries tools the provider runs itself.
+    """Emit a `ProviderToolWarning` when a model call receives tools the provider runs itself.
 
-    Each middleware instance warns once, at the first step whose request holds
-    such tools, among its tools or those bound on its model. Two steps racing
-    in parallel runs may both warn, which is harmless.
+    Each middleware instance warns once, at the first step whose model call
+    receives such tools. Two steps racing in parallel runs may both warn,
+    which is harmless.
     """
     if id(middleware) in warned_middleware_ids:
         return
-    provider_tools = find_provider_tools([*request.tools, *read_bound_tools(request.model)])
+    provider_tools = find_provider_tools(read_tools_reaching_the_model(request))
     if not provider_tools:
         return
     mark_warned(middleware)

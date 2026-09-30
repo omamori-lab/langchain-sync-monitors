@@ -86,8 +86,9 @@ judges each step, and the trusted model writes a step when every sample looks
 suspicious. Each is a parameter, and any LangChain chat model works; the
 library picks none for you. Thresholds share one scale from 0 to 1 and warn
 until you set them; calibrate them on honest runs of your own agent. Put the
-monitor last in the middleware list; `check_monitor_placement` warns about a
-list that undermines it.
+monitor last in the middleware list; call
+`check_monitor_placement(middleware=[...])` with your list to be warned about
+middleware that undermines it.
 
 ## Limits
 

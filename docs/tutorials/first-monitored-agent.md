@@ -137,8 +137,9 @@ Three pieces work together here:
   in a row within one step, or twenty in the conversation thread, it halts
   the run instead. This follows Claude Code's auto mode [@hughes2026automode].
 - `MonitorMiddleware` joins the two and wraps every model call of the agent.
-  It goes last in the `middleware` list; with more middleware,
-  `check_monitor_placement` warns about a list that undermines the monitor.
+  It goes last in the `middleware` list. With more middleware, call
+  `check_monitor_placement(middleware=[...])` on the list to be warned about
+  any that undermines the monitor.
 
 The value 0.6 is the library's default. Passing it explicitly silences the
 `UncalibratedThresholdWarning` the default raises, but it is still a guess. A

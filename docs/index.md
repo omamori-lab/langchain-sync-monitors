@@ -19,9 +19,9 @@ Deep Agent proposes, and a control protocol that decides what runs.
 An agent with tools can do harm in a single step: post a credential, delete a
 file, run a command. AI control research guards against this with a monitor,
 a second model that scores each step, and a protocol that acts on the score.
-This library brings those protocols, from AI Control
-[@greenblatt2023aicontrol], Ctrl-Z [@bhatt2025ctrlz] and Claude Code's auto
-mode [@hughes2026automode], to `create_agent` and `create_deep_agent` as one
+This library brings those protocols, from AI Control [@greenblatt2023aicontrol],
+Ctrl-Z [@bhatt2025ctrlz] and Claude Code's auto mode
+[@hughes2026automode], to `create_agent` and `create_deep_agent` as one
 middleware. "Sync" means synchronous in the control sense: a step waits for
 its verdict, so a suspicious step can be stopped before any of the agent's own
 tools run it.
@@ -105,8 +105,9 @@ suspicious. Each is a parameter, and any LangChain chat model works; the
 library picks none for you. Thresholds share one scale from 0 to 1 and warn
 until you set them; calibrate them on honest runs of your own agent.
 
-Put the monitor last in the middleware list; `check_monitor_placement` warns
-about a list that undermines it. Each step leaves one record in
+Put the monitor last in the middleware list; call
+`check_monitor_placement(middleware=[...])` with your list to be warned about
+middleware that undermines it. Each step leaves one record in
 `monitor_log`, and [Read the monitor log](how-to/read-the-monitor-log.md)
 explains its fields. The tutorial,
 [Monitor your first agent](tutorials/first-monitored-agent.md), builds a

@@ -417,10 +417,12 @@ LangChain's `init_chat_model`.
   is unsafe and only category codes follow, as in Llama Guard
   [@meta2024llamaguard3format; @meta2025llamaguard4]. A reply with two
   different labels, a label elsewhere, or a cut-off reply counts as
-  suspicious, for the same reason as a quoted score. A planted label that the
-  guard quotes alone on the last line, after giving its own verdict only in
-  prose, cannot be told from a verdict: a guard's output can be steered by
-  what it reads.
+  suspicious, for the same reason as a quoted score. A line that may hold the
+  guard's own suspicious label off format, such as `violation (the note asks
+  ...` or `...: violation`, counts as naming it, so when the reader cannot
+  tell, it errs towards suspicion. A planted label that the guard quotes alone
+  on the last line, when the reply names no other label, cannot be told from a
+  verdict: a guard's output can be steered by what it reads.
 - **Decision models** (`DecisionModelMonitor`) answer yes or no questions with
   a probability and generate no text. Suspicion is the probability of yes.
   Several questions can go in one request, combined by their maximum, so one

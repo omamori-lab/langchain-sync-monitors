@@ -10,7 +10,6 @@ This keeps the protocol logic free of I/O, the sans-I/O pattern
 
 from __future__ import annotations
 
-import asyncio
 import logging
 import re
 from abc import ABC, abstractmethod
@@ -23,6 +22,7 @@ from langchain_core.messages import AIMessage, BaseMessage
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.runnables import Runnable
 
+from langchain_sync_monitors.concurrency import run_concurrently
 from langchain_sync_monitors.contracts import Monitor, MonitorInput, MonitorView, Verdict
 from langchain_sync_monitors.errors import ConfigurationError
 from langchain_sync_monitors.model_calls import build_internal_call_config, resolve_chat_model
@@ -42,8 +42,18 @@ REASONING_PATTERN = re.compile(
 )
 FINAL_SCORE_PATTERN = re.compile(r"\s*<score>(?P<score>[^<]*)</score>\s*", flags=re.IGNORECASE)
 
-STOP_REASON_KEYS = ("finish_reason", "native_finish_reason", "stop_reason")
-"""Where providers put why a reply stopped: OpenAI, OpenRouter and Gemini, then Anthropic."""
+STOP_REASON_KEYS = (
+    "finish_reason",
+    "native_finish_reason",
+    "stop_reason",
+    "stopReason",
+    "done_reason",
+)
+"""Where providers put why a reply stopped.
+
+OpenAI, OpenRouter and Gemini use the first two, Anthropic the third,
+Bedrock Converse the fourth and Ollama the last.
+"""
 
 CUT_OFF_STOP_REASONS = ("length", "max_tokens", "max_output_tokens", "context_window_exceeded")
 """Stop reasons that mean the reply hit a length limit before the model finished it."""
@@ -171,14 +181,11 @@ class ChatModelMonitor(Monitor, ABC):
         return run_verdict_plan_sync(plan, request_replies=self.request_replies_sync)
 
     async def request_replies(self, request: ReplyRequest) -> list[AIMessage]:
-        """Draw the requested replies concurrently."""
-        replies = await asyncio.gather(
-            *(
-                request.model.ainvoke(list(request.messages), config=self.call_config)
-                for _ in range(request.count)
-            ),
+        """Draw the requested replies concurrently; one failed call cancels the others."""
+        return await run_concurrently(
+            request.model.ainvoke(list(request.messages), config=self.call_config)
+            for _ in range(request.count)
         )
-        return list(replies)
 
     def request_replies_sync(self, request: ReplyRequest) -> list[AIMessage]:
         """Draw the requested replies one after another."""
@@ -195,7 +202,11 @@ def is_reply_cut_off(reply: AIMessage) -> bool:
     `finish_reason: "MAX_TOKENS"`, Anthropic `stop_reason: "max_tokens"` or
     `"model_context_window_exceeded"`, and OpenRouter keeps the upstream value
     in `native_finish_reason`; the OpenAI Responses API reports
-    `incomplete_details: {"reason": "max_output_tokens"}`. Merging streamed
+    `incomplete_details: {"reason": "max_output_tokens"}`. `ChatBedrockConverse`
+    keeps the Converse response's `stopReason`, `"max_tokens"` or
+    `"model_context_window_exceeded"` [@langchainaws2026; @aws2026converse],
+    and `ChatOllama` keeps Ollama's `done_reason: "length"`
+    [@langchainollama2026]. Merging streamed
     chunks can repeat a value, as in `"MAX_TOKENSMAX_TOKENS"`, so a stop
     reason counts when it contains a cut-off reason.
     """
@@ -240,10 +251,17 @@ def read_judge_reply(text: str) -> JudgeReply | None:
 
 
 def parse_score(score_text: str, *, lowest_score: int, highest_score: int) -> int | None:
-    """Read the score as an integer, or return `None` if it is not an integer in range."""
+    """Read the score as an integer, or return `None` if it is not an integer in range.
+
+    Python refuses to convert an integer of more than 4,300 digits, by
+    default; such a score is no integer in range either.
+    """
     if not INTEGER_PATTERN.fullmatch(score_text):
         return None
-    score = int(score_text)
+    try:
+        score = int(score_text)
+    except ValueError:
+        return None
     return score if lowest_score <= score <= highest_score else None
 
 

@@ -21,10 +21,12 @@ It covers `**`, `__`, `_`, backticks, quotes, brackets, spaces, a heading's
 `#`, a quote's `>` and a bullet's `-`, `*` or `+`. The underscore is a word
 character, so it is named apart from the non-word characters.
 """
-LIST_MARKER = r"\d++[.)]"
-"""A numbered list marker, as in `1.` or `2)`; a bullet such as `- ` is markup already.
+LIST_MARKER = r"(?:\d++|[A-Za-z]|[ivxIVX]{2,5}+)[.)]"
+"""An ordered list marker, as in `1.`, `a)` or `iv.`; a bullet such as `- ` is markup already.
 
-No space need follow it, so `1.Label:` counts as a list item as `1. Label:` does.
+It is a number, one letter or a roman numeral up to five letters, then a full
+stop or a bracket. No space need follow it, so `1.Label:` counts as a list
+item as `1. Label:` does.
 """
 LINE_OPENING = rf"{MARKUP}(?:{LIST_MARKER}{MARKUP})?"
 """The start of a line before its key or label: markup, then maybe a list marker and markup."""
@@ -80,10 +82,11 @@ the policy ...`, so both are read as naming the label.
 UNKEYED_LABEL_START_PATTERN = re.compile(rf"{MARKUP}{LABEL}\s*+{MARK}")
 """A line that opens with a label and then a mark, as in `violation (the note asks ...`."""
 LISTED_LABEL_START_PATTERN = re.compile(rf"{MARKUP}{LIST_MARKER}{MARKUP}{LABEL}\s*+{MARK}")
-"""The same after a numbered list marker, as in `1. violation (the note asks ...`.
+"""The same after an ordered list marker, as in `1. violation (the note asks ...`.
 
 It is read besides `UNKEYED_LABEL_START_PATTERN`, not instead of it, since a
-guard whose labels are digits may open a line with its label and a full stop.
+guard whose labels are digits or letters may open a line with its label and a
+full stop.
 """
 LABEL_AFTER_COLON_PATTERN = re.compile(rf"{MARKUP}{LABEL}{MARKUP}")
 """What may follow a line's last colon when the line ends on a label, as in `...: violation`."""

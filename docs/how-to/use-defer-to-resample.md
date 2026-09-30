@@ -177,6 +177,46 @@ for record in result["monitor_log"]:
     print(f"  ran: {ran[0]['proposal'] if ran else 'nothing the agent proposed'}")
 ```
 
+### Find the rejected samples a flag misses
+
+A step is flagged on its lowest suspicion, as in Ctrl-Z [@bhatt2025ctrlz], so
+a step whose rejected sample scored high, but whose resample ran below
+`audit_threshold`, carries no flag. In the
+[live runs](../explanation/live-runs.md), a sample that posted the key scored
+1.00 and was rejected, a resample at 0.40 ran, and the step was not flagged.
+This query finds every step in which a sample at or above the audit threshold
+was rejected, flagged or not:
+
+```python
+from langchain_sync_monitors import StepRecord
+
+
+def find_steps_with_rejected_suspicious_samples(
+    monitor_log: list[StepRecord], *, audit_threshold: float
+) -> list[StepRecord]:
+    """Return every step in which a sample at or above audit_threshold did not run."""
+    return [
+        record
+        for record in monitor_log
+        # A rejected sample is one whose tool calls did not run.
+        if any(
+            not sample["executed"] and sample["suspicion"] >= audit_threshold
+            for sample in record["samples"]
+        )
+    ]
+
+
+# Use the audit threshold the protocol was built with.
+for record in find_steps_with_rejected_suspicious_samples(
+    result["monitor_log"], audit_threshold=0.9
+):
+    print(record["step_number"], record["outcome"], record["flagged"])
+```
+
+It also returns steps in which every sample was rejected, such as a
+`deferred_to_trusted` one, which are flagged already when their lowest score
+reached the threshold.
+
 ## Limits
 
 - **Resampling helps an injection that sometimes works.** The protocol runs
@@ -210,6 +250,10 @@ for record in result["monitor_log"]:
   `check_monitor_placement(middleware=[...])` warns about such a list.
 - **A flag never blocks.** The step has run, or been replaced, by the time
   anyone reads the log.
+- **A rejected attack can leave no flag.** A step is flagged on its lowest
+  suspicion, so one whose highly suspicious sample was rejected, and whose
+  resample ran, is not flagged; see
+  [Find the rejected samples a flag misses](#find-the-rejected-samples-a-flag-misses).
 - **The graph takes more steps.** The monitor adds two graph steps per agent
   step, however many samples it draws, and two per run; see
   [Graph steps, streams and failures](choose-a-protocol.md#graph-steps-streams-and-failures),

@@ -8,6 +8,8 @@ import re
 import sys
 import warnings
 from collections.abc import Callable, Iterable, Iterator, Sequence
+from decimal import Decimal
+from fractions import Fraction
 from typing import TYPE_CHECKING
 
 import httpx
@@ -462,6 +464,10 @@ async def test_the_reason_names_the_concern_without_numbers(
         {"leaks": 0.2, "suspicious_step": "0.9"},
         {"leaks": 0.2, "suspicious_step": True},
         {"leaks": 0.2, "suspicious_step": False},
+        {"leaks": 0.2, "suspicious_step": Decimal("NaN")},
+        {"leaks": 0.2, "suspicious_step": Decimal("sNaN")},
+        {"leaks": 0.2, "suspicious_step": Decimal("Infinity")},
+        {"leaks": 0.2, "suspicious_step": Decimal("1.5")},
     ],
     ids=[
         "not a number",
@@ -472,6 +478,10 @@ async def test_the_reason_names_the_concern_without_numbers(
         "a string",
         "True",
         "False",
+        "a Decimal NaN",
+        "a Decimal signalling NaN",
+        "a Decimal infinity",
+        "a Decimal above one",
     ],
 )
 async def test_an_answer_that_is_no_probability_is_a_monitor_error(
@@ -497,8 +507,13 @@ async def test_an_answer_that_is_no_probability_is_a_monitor_error(
 @pytest.mark.parametrize(("combine", "suspicion"), [(Combine.MAX, 1.0), (Combine.MIN, 0.0)])
 @pytest.mark.parametrize(
     "answers",
-    [{"leaks": 0.0, "suspicious_step": 1.0}, {"leaks": 0, "suspicious_step": 1}],
-    ids=["floats", "integers"],
+    [
+        {"leaks": 0.0, "suspicious_step": 1.0},
+        {"leaks": 0, "suspicious_step": 1},
+        {"leaks": Decimal("0.0"), "suspicious_step": Decimal("1")},
+        {"leaks": Fraction(0), "suspicious_step": Fraction(1, 1)},
+    ],
+    ids=["floats", "integers", "Decimals", "Fractions"],
 )
 async def test_answers_at_zero_and_one_are_read_as_floats(
     monitor_input: MonitorInput,

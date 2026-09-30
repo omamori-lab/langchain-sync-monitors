@@ -174,10 +174,12 @@ The library adds no retries around `TypeSafeDecisionModel`; an error from the
 classifier is raised as it is.
 
 `DecisionModelMonitor` checks every answer, whichever `DecisionModel` gave it,
-your own included. A skipped question, or an answer that is not a real number
-from 0 to 1, raises `MonitorError`, as an unreadable Decisions API response
-does. That covers NaN, `None`, a string, and `True` or `False`, which Python
-counts as numbers but which are no probability.
+your own included. An answer may be an `int`, a `float`, a `Decimal` or
+another real number, such as a `Fraction`, from 0 to 1, and is read as a
+float. A skipped question, or any other answer, raises `MonitorError`, as an
+unreadable Decisions API response does. That covers NaN and infinity, `None`,
+a string, and `True` or `False`, which Python counts as numbers but which are
+no probability.
 
 A decision model never fails closed with a score. When its call fails for
 good, the error is raised, the step is not committed, and nothing the agent

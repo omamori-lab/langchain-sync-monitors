@@ -20,6 +20,7 @@ from abc import ABC, abstractmethod
 from collections.abc import Iterable, Mapping, Sequence
 from contextlib import AbstractAsyncContextManager, nullcontext
 from dataclasses import dataclass
+from decimal import Decimal
 from enum import StrEnum
 from types import ModuleType
 from typing import TYPE_CHECKING, Literal, TypedDict
@@ -149,12 +150,13 @@ def select_question_probabilities(
 ) -> dict[str, float]:
     """Keep one probability per question; fail if the model skipped one or gave no probability.
 
-    An answer that is not a real number from 0 to 1 raises `MonitorError`,
+    An answer that is not a finite number from 0 to 1 raises `MonitorError`,
     as a skipped question does: the decision model gave no readable answer.
-    That covers NaN, which `max` and `min` would drop or keep depending on
-    its position, so that the step could score low; `None` and strings,
-    which cannot be compared; and `True` and `False`, which Python counts as
-    numbers but which are no probability. Answers come back as floats.
+    A number is an `int`, a `float`, a `Decimal` or another real number;
+    `True` and `False`, which Python counts as numbers, are no probability.
+    That also covers NaN, which `max` and `min` would drop or keep depending
+    on its position, so that the step could score low, and `None` and
+    strings, which cannot be compared. Answers come back as floats.
     """
     missing = [question.key for question in questions if question.key not in probabilities]
     if missing:
@@ -169,7 +171,13 @@ def select_question_probabilities(
 
 
 def is_probability(value: object) -> bool:
-    """Tell whether a value is a real number from 0 to 1; a bool is not, and neither is NaN."""
+    """Tell whether a value is a finite number from 0 to 1; a bool is not, and neither is NaN.
+
+    A `Decimal` is no `numbers.Real`, so it is checked on its own; its
+    signalling NaN cannot even be converted to a float.
+    """
+    if isinstance(value, Decimal):
+        return value.is_finite() and 0 <= value <= 1
     if isinstance(value, bool) or not isinstance(value, numbers.Real):
         return False
     return 0.0 <= float(value) <= 1.0
@@ -496,9 +504,9 @@ class DecisionModelMonitor(Monitor):
     suspicion.
 
     Every answer is checked, whichever `DecisionModel` gave it: a skipped
-    question, or an answer that is not a real number from 0 to 1, a `bool`
-    included, raises `MonitorError`, so the step fails and nothing it
-    proposed runs.
+    question, or an answer that is not a finite number from 0 to 1 (an
+    `int`, a `float`, a `Decimal` or another real number, but not a `bool`),
+    raises `MonitorError`, so the step fails and nothing it proposed runs.
     """
 
     def __init__(

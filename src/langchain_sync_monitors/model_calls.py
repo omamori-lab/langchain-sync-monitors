@@ -78,12 +78,15 @@ the monitor's calls by name, beside the spans in `spans`
 def build_internal_call_config(*, source: str) -> RunnableConfig:
     """Tag a model call the library makes itself, such as a monitor's call.
 
-    The run is named `MONITOR_CALL_NAME`. The model still shows as the
-    call's model and in the ``ls_model_name`` metadata, which the chat model
-    adds itself. The name goes to the outermost run the config reaches, so a
-    Runnable that wraps the model, such as one from ``with_retry()``, takes
-    the name, and the calls it makes keep their own. ``source`` goes into
-    the ``lc_source`` metadata.
+    The run is named `MONITOR_CALL_NAME`, which replaces any name the model
+    was given, so a judge built with ``name="security judge"`` shows as
+    ``monitor call`` too. The model still shows as the call's model and in
+    the ``ls_model_name`` metadata, which the chat model adds itself, and the
+    judgement span around the call names the monitor. The name goes to the
+    outermost run the config reaches, so a Runnable that wraps the model,
+    such as one from ``with_retry()``, takes the name, and the calls it makes
+    keep their own; they still carry this metadata. ``source`` goes into the
+    ``lc_source`` metadata.
 
     The metadata drops the call from the experimental
     ``stream_events(version="v3")`` projection, through LangChain's

@@ -128,6 +128,26 @@ def test_a_chat_judge_s_calls_are_named_monitor_call(run_mode: RunMode) -> None:
         assert judgement.read_child_names() == [MONITOR_CALL]
 
 
+def test_a_judge_s_own_name_gives_way_to_the_fixed_name(run_mode: RunMode) -> None:
+    # Arrange: a name given to the model would otherwise be its run's name.
+    judge = NamedFakeChatModel(
+        messages=itertools.repeat(AIMessage(CALM_JUDGE_REPLY)),
+        name="security judge",
+    )
+    agent = build_agent(monitor=LLMMonitor(model=judge))
+
+    # Act
+    _, tracer = run_traced_agent(agent, mode=run_mode)
+
+    # Assert: the model is still named in its metadata, and the judgement names the monitor.
+    assert tracer.find_runs("security judge") == []
+    calls = find_monitor_calls(tracer)
+    assert len(calls) == 2
+    assert all(call.metadata["ls_model_name"] == JUDGE_MODEL_NAME for call in calls)
+    judgements = tracer.find_runs(JUDGEMENT)
+    assert all(judgement.inputs["monitor"] == "LLMMonitor" for judgement in judgements)
+
+
 def test_a_guard_s_calls_are_named_monitor_call_on_both_its_paths(run_mode: RunMode) -> None:
     # Arrange: the first call asks for log-probabilities through a bound model, and gets
     # none, so the guard falls back to one more sample from the model itself.
@@ -195,7 +215,8 @@ def test_a_wrapped_typesafe_classifier_names_only_its_wrapper(
     # Act
     _, tracer = run_traced_agent(agent, mode=run_mode)
 
-    # Assert: the wrapper is the monitor call, and the classifier inside keeps its own name.
+    # Assert: the wrapper is the monitor call, and the classifier inside keeps its own name,
+    # so the five names miss it, but it still carries the key LangSmith can filter out.
     wrappers = find_monitor_calls(tracer)
     assert len(wrappers) == 2
     for wrapper in wrappers:
@@ -203,6 +224,7 @@ def test_a_wrapped_typesafe_classifier_names_only_its_wrapper(
         [inner_call] = wrapper.children
         assert (inner_call.name, inner_call.run_type) == ("TypeSafeClassifier", "llm")
         assert inner_call.metadata["ls_model_name"] == TYPESAFE_MODEL
+        assert inner_call.metadata["ls_message_view_exclude"] is True
 
 
 def test_the_trusted_model_s_step_keeps_its_model_s_name(run_mode: RunMode) -> None:

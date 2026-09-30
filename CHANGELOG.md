@@ -79,7 +79,7 @@ change raises the minor version.
   or flagged step.
 - The monitors' own model calls are named `monitor call` in traces, with their
   model still shown, so a filter on five names hides the monitor's spans and
-  calls.
+  calls, except the attempts inside a classifier wrapped in `with_retry()`.
 - Flat `monitor_` metadata on every span naming the step, with the delegation
   id inside a subagent that a monitored agent started.
 - The spans add no tag or metadata to the LangChain runs inside them, model

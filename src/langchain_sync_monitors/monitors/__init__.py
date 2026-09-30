@@ -16,7 +16,6 @@ from langchain_sync_monitors.monitors.decision import (
     Combine,
     DecisionModel,
     DecisionModelMonitor,
-    OpenRouterDecisionModel,
     TypeSafeDecisionModel,
 )
 from langchain_sync_monitors.monitors.decision_questions import (
@@ -25,6 +24,7 @@ from langchain_sync_monitors.monitors.decision_questions import (
     YesNoQuestion,
 )
 from langchain_sync_monitors.monitors.guard import GuardModelMonitor, GuardScoring, HardLabelWarning
+from langchain_sync_monitors.monitors.openrouter_decisions import OpenRouterDecisionModel
 
 __all__ = [
     "ATTACK_CRITERIA",

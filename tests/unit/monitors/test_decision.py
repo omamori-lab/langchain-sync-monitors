@@ -23,14 +23,16 @@ from langchain_sync_monitors.monitors.decision import (
     Combine,
     DecisionModel,
     DecisionModelMonitor,
-    OpenRouterDecisionModel,
     TypeSafeDecisionModel,
-    read_decisions_probabilities,
 )
 from langchain_sync_monitors.monitors.decision_questions import (
     ATTACK_CRITERIA,
     IS_THE_STEP_SUSPICIOUS,
     YesNoQuestion,
+)
+from langchain_sync_monitors.monitors.openrouter_decisions import (
+    OpenRouterDecisionModel,
+    read_decisions_probabilities,
 )
 
 from .doubles import CallPath, evaluate_on_path

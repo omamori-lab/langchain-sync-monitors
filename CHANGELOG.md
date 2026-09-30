@@ -240,10 +240,14 @@ change raises the minor version.
 - A chat model wrapped in a Runnable, such as `with_retry()` or `bind()`,
   raises `ConfigurationError` naming its type, in every monitor and in
   `DeferToTrustedModel`.
-- Protocols, fallbacks, the middleware, monitors and `MonitorView` raise
-  `ConfigurationError` when built with an option of the wrong type, such as a
-  float or `bool` count, or the `DeferToTrusted` protocol where the
+- Protocols, fallbacks, the middleware, monitors, `MonitorView`,
+  `DefaultThreshold`, `monitor_subagents` and `check_monitor_placement` raise
+  `ConfigurationError` for an option of the wrong type, such as a float or
+  `bool` count, or the `DeferToTrusted` protocol where the
   `DeferToTrustedModel` fallback belongs.
+- `MonitorMiddleware`'s `label` and `agent_name`, and each subagent name, must
+  be non-blank strings without `:` or `|`, which LangGraph refuses in node
+  names.
 - A limit may be any whole number, numpy's integers included.
 - A threshold must be a real number from 0 to 1, a `Fraction` or `Decimal`
   included, checked exactly before it becomes a float.

@@ -39,8 +39,10 @@ and that the bumped tree is ready, before it commits:
 
 The Release workflow checks the tagged commit again before it publishes:
 
-1. The GitHub Release is not marked as a pre-release, the tag is `vX.Y.Z` and
-   names a commit on `main`, and the tree passes `scripts/check-release.sh`.
+1. The GitHub Release is not marked as a pre-release, the `pypi` environment
+   has a required-reviewer rule that administrators cannot bypass, the tag is
+   `vX.Y.Z` and names a commit on `main`, and the tree passes
+   `scripts/check-release.sh`.
 2. The whole CI workflow: the gates on Python 3.12, 3.13 and 3.14, the offline
    suite at the lowest allowed dependency versions, and without any extra.
 3. One build of the sdist and the wheel, whose names must carry the version,
@@ -49,7 +51,8 @@ The Release workflow checks the tagged commit again before it publishes:
    with and without the extras, imports and reports the version.
 5. A maintainer approves the `pypi` environment. The publish job then checks
    the files against the recorded digests, and only then publishes exactly
-   those files.
+   those files. The attach job checks them again before it adds them to the
+   GitHub Release.
 
 These workflow checks catch mistakes, not a determined insider: they run from
 the tagged commit's own copy of `release.yml`, which anyone with write access
@@ -159,16 +162,23 @@ Before 1.0:
 - The workflow runs from the workflow file at the tagged commit. A fix to
   `release.yml` reaches a release only through a new commit on `main`.
 - A GitHub Release created with the workflow token, `GITHUB_TOKEN`, starts no
-  workflow. Create it with your own `gh`, as the script does. A Release published
-  from the GitHub web page also starts the workflow, and passes the same checks.
+  workflow. Create it with your own `gh`, as the script does.
+- A Release published from the GitHub web page also starts the workflow, and
+  passes the workflow's checks, the `pypi` environment check included. It skips
+  everything `scripts/release.sh` does on your machine: the gates on the bumped
+  tree, the build and twine check, and the version bump itself, so the
+  workflow's version checks refuse it unless the tag's commit already carries
+  `X.Y.Z`.
 - A Release marked as a pre-release is refused, because its `vX.Y.Z` would go to
   PyPI as a final version. Unticking the mark afterwards fires `released`, not
   `published`, so it starts nothing: delete the Release with
   `gh release delete vX.Y.Z --yes`, which keeps the tag, and create it again as
   "Finish a half-done release" shows.
-- The approval is the gate that holds: `scripts/release.sh` refuses until the
-  `pypi` environment has a required reviewer whom administrators cannot
-  bypass, and the `v*` tag ruleset keeps other people from tagging releases.
+- The approval is the gate that holds. `scripts/release.sh` and the workflow's
+  first job both refuse until the `pypi` environment has a required reviewer
+  whom administrators cannot bypass, and the `v*` tag ruleset keeps other
+  people from tagging releases. The workflow's copy of that check can be edited
+  away like its other checks; the environment's own rule cannot.
 - The PyPI page links pages and diagrams at the tag `vX.Y.Z`, through
   hatch-fancy-pypi-readme's `$HFPR_VERSION`. They resolve once the tag is
   pushed, which happens before anything is published.
@@ -177,6 +187,9 @@ Before 1.0:
 - The Release workflow runs only in `omamori-lab/langchain-sync-monitors`, so
   a fork never tries to publish. If the repository is renamed or moved, update
   the `if:` of its first job, or every run is skipped: grey, not red.
+- `pypa/gh-action-pypi-publish` is pinned to a commit SHA, with its version in a
+  comment. Dependabot (`.github/dependabot.yml`) proposes updates to it and to
+  the other actions every week; nothing else moves the pin.
 - setup-uv turns its cache off on release events, so the Release run is slower
   than CI. That is on purpose: it keeps a poisoned cache out of a publishing
   run.
@@ -188,8 +201,13 @@ Before 1.0:
 - **The script fails before the commit** (a check, a gate, the build or twine):
   it restores `__init__.py`, `CITATION.cff` and `uv.lock`. Fix the cause in a
   pull request, then run it again.
+- **The script fails at the commit itself**, for example because a pre-commit
+  hook or commit signing fails: it restores the three files from `HEAD`, which
+  also unstages them. Fix the cause and run it again.
 - **The script fails after the commit** (a rejected push, or `gh`): see
   "Finish a half-done release".
+- **The workflow's first job finds no reviewer on `pypi`**: nothing ran after
+  it. Fix the environment, then re-run the workflow.
 - **The Release workflow fails before publishing** (the tag checks, CI, the
   build or the install check): nothing is on PyPI. Delete the Release and the
   tag with `gh release delete vX.Y.Z --cleanup-tag --yes` and

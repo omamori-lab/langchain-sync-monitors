@@ -129,8 +129,9 @@ A repository administrator does this once, before the first release:
 3. Create the `pypi` environment (Settings, Environments). Add the maintainers
    as required reviewers, untick "Allow administrators to bypass configured
    protection rules", and limit its deployment branches and tags to the tag
-   pattern `v*`. `scripts/release.sh` refuses to release until the
-   environment has a required reviewer whom administrators cannot bypass.
+   pattern `v*`. `scripts/release.sh` and the Release workflow both refuse
+   until the environment has a required reviewer whom administrators cannot
+   bypass.
 4. Enable GitHub Pages with "GitHub Actions" as the source (Settings, Pages).
    That creates the `github-pages` environment. Limit its deployment branches
    and tags to `main` and the tag pattern `v*`: the docs deploy from the
@@ -175,6 +176,9 @@ Before it publishes anything, the workflow:
 
 - refuses a GitHub Release marked as a pre-release, which would otherwise go
   to PyPI as a final version;
+- refuses unless the `pypi` environment has a required reviewer whom
+  administrators cannot bypass, so a Release published from the web page,
+  which skips `scripts/release.sh`, still waits for approval;
 - checks that the tag is `vX.Y.Z`, names a commit on `main`, and agrees with
   `__version__`, `CITATION.cff` and a dated CHANGELOG section, and that
   `README.md` and `docs/index.md` hold no pre-release text
@@ -188,9 +192,11 @@ Before it publishes anything, the workflow:
   with and without the extras, and imports it.
 
 Once approved, it checks the files against the recorded digests, publishes
-exactly those files to PyPI through trusted publishing, attaches the same
-files to the GitHub Release, and deploys the tagged commit's documentation to
-GitHub Pages.
+exactly those files to PyPI through trusted publishing, checks them again and
+attaches them to the GitHub Release, and deploys the tagged commit's
+documentation to GitHub Pages. A Release published from the web page skips
+what `scripts/release.sh` runs on the maintainer's machine, so release with
+the script.
 
 ### Recovering from a failed release
 

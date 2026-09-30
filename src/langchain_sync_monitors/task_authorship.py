@@ -17,8 +17,9 @@ context note, in the state as well as in what the monitor reads.
   back, by id, tagged as a note, so a replayed history keeps the tag.
 - A human message a tool writes is tagged where it is written, and no
   message a tool writes keeps a source only the monitor writes, whatever
-  shape the tool's update takes; a message the tool writes back unchanged,
-  under its id, is left as it was.
+  shape the tool's update takes, a command it raises as a `ParentCommand`
+  included; a message the tool writes back unchanged, under its id, is left
+  as it was.
 - `RUN_OPEN_KEY` is set at the start of a run and of each step, and cleared
   when the run reaches the monitor's `after_agent` hook. A run that starts
   while it is still set follows one that stopped early, or a fork from a
@@ -44,6 +45,7 @@ from collections.abc import Collection, Iterable, Mapping, Sequence
 from typing import TypeGuard
 
 from langchain_core.messages import BaseMessage, HumanMessage, ToolMessage
+from langgraph.errors import ParentCommand
 from langgraph.types import Command
 
 from langchain_sync_monitors._langchain import (
@@ -369,6 +371,29 @@ def relabel_tool_result(
     return relabelled if isinstance(relabelled, ToolMessage) else result
 
 
+def read_existing_messages(state: object) -> dict[str, BaseMessage]:
+    """Return the messages in the state by id, leaving out any without an id."""
+    return {message.id: message for message in read_state_messages(state) if message.id}
+
+
+def relabel_parent_command(bubble: ParentCommand, *, tool_name: str, state: object) -> None:
+    """Relabel, in place, what the command in a `ParentCommand` a tool call raises writes.
+
+    A tool can raise one, or call a graph whose node returns a command for
+    its parent graph, and LangGraph applies that command as the tools node's
+    own writes, or hands it on to the graph it names [@langgraph2026]. Its
+    messages are relabelled as a returned command's are, and it keeps its
+    `graph`, `goto` and `resume`. The command is replaced in the exception,
+    as LangGraph itself replaces it on the way up.
+    """
+    [command] = bubble.args
+    existing_messages = read_existing_messages(state)
+    relabelled = relabel_tool_command(
+        command, tool_name=tool_name, existing_messages=existing_messages
+    )
+    bubble.args = (relabelled,)
+
+
 def mark_tool_written_notes(
     results: ToolCallResults,
     *,
@@ -379,7 +404,8 @@ def mark_tool_written_notes(
 
     A tool can return a tool message, a `Command`, or a list of both, which
     LangGraph's tool node accepts [@langgraph2026], and a `Command`'s update
-    can take any shape LangGraph accepts; `relabel_tool_command` reads each.
+    can take any shape LangGraph accepts; `relabel_tool_command` reads each,
+    and `relabel_parent_command` a command the tool raises instead.
     Every new or changed message the tool writes loses a source only the
     monitor writes, and a human message left without a source becomes a
     note named after the tool, or `application` for a tool named after one
@@ -389,9 +415,7 @@ def mark_tool_written_notes(
     that starts before the monitor has seen it, and in a history the
     application stores and replays.
     """
-    existing_messages = {
-        message.id: message for message in read_state_messages(state) if message.id
-    }
+    existing_messages = read_existing_messages(state)
     if isinstance(results, list):
         return [
             relabel_tool_result(result, tool_name=tool_name, existing_messages=existing_messages)

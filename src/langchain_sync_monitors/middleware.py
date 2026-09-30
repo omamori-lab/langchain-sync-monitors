@@ -32,7 +32,7 @@ from langchain.agents.middleware.types import (
     ToolCallRequest,
     hook_config,
 )
-from langgraph.errors import GraphBubbleUp
+from langgraph.errors import GraphBubbleUp, ParentCommand
 from langgraph.types import Command
 
 from langchain_sync_monitors._langchain import (
@@ -108,6 +108,7 @@ from langchain_sync_monitors.task_authorship import (
     build_step_start_update,
     mark_tool_written_notes,
     read_message_ids,
+    relabel_parent_command,
 )
 
 logger = logging.getLogger(__name__)
@@ -331,17 +332,18 @@ class MonitorMiddleware(AgentMiddleware[MonitorState, AgentContext, StructuredOu
 
         Every new or changed message the tool writes loses a source only the
         monitor writes, and a human message left without one becomes a note
-        named after the tool, whatever the shape of the result or of a
-        `Command`'s update; `mark_tool_written_notes` has the rule.
+        named after the tool, whatever the shape of the result, of a
+        `Command`'s update or of a `ParentCommand` the call raises;
+        `mark_tool_written_notes` has the rule.
         """
-        result = handler(add_delegation(request, agent=self.agent_name))
-        return cast_to_tool_call_result(
-            mark_tool_written_notes(
-                result,
-                tool_name=request.tool_call["name"],
-                state=request.state,
-            ),
-        )
+        tool_name = request.tool_call["name"]
+        try:
+            result = handler(add_delegation(request, agent=self.agent_name))
+        except ParentCommand as bubble:
+            relabel_parent_command(bubble, tool_name=tool_name, state=request.state)
+            raise
+        written = mark_tool_written_notes(result, tool_name=tool_name, state=request.state)
+        return cast_to_tool_call_result(written)
 
     @override
     async def awrap_tool_call(
@@ -353,17 +355,18 @@ class MonitorMiddleware(AgentMiddleware[MonitorState, AgentContext, StructuredOu
 
         Every new or changed message the tool writes loses a source only the
         monitor writes, and a human message left without one becomes a note
-        named after the tool, whatever the shape of the result or of a
-        `Command`'s update; `mark_tool_written_notes` has the rule.
+        named after the tool, whatever the shape of the result, of a
+        `Command`'s update or of a `ParentCommand` the call raises;
+        `mark_tool_written_notes` has the rule.
         """
-        result = await handler(add_delegation(request, agent=self.agent_name))
-        return cast_to_tool_call_result(
-            mark_tool_written_notes(
-                result,
-                tool_name=request.tool_call["name"],
-                state=request.state,
-            ),
-        )
+        tool_name = request.tool_call["name"]
+        try:
+            result = await handler(add_delegation(request, agent=self.agent_name))
+        except ParentCommand as bubble:
+            relabel_parent_command(bubble, tool_name=tool_name, state=request.state)
+            raise
+        written = mark_tool_written_notes(result, tool_name=tool_name, state=request.state)
+        return cast_to_tool_call_result(written)
 
     @override
     def before_agent(self, state: MonitorState, runtime: AgentRuntime) -> AgentStateUpdate | None:

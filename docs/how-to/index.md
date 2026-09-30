@@ -4,16 +4,17 @@ This page lists the how-to guides, each of which solves one concrete task.
 
 ## Protocols
 
-- [Choose a protocol](choose-a-protocol.md): which protocol fits, compared on
-  what runs, cost, latency and what the agent sees.
+- [Choose a control protocol](choose-a-protocol.md): which protocol fits,
+  compared on what runs, cost, latency and what the agent sees.
 - [Use Trusted Monitoring](use-trusted-monitoring.md): flag suspicious steps
   for audit and let them run.
 - [Use Defer to Trusted](use-defer-to-trusted.md): hand suspicious steps to a
   trusted model.
 - [Use Defer to Resample](use-defer-to-resample.md): draw more samples and run
   the least suspicious one, as in Ctrl-Z.
-- [Use Auto Mode](use-auto-mode.md): block a step, tell the agent why, and halt
-  after repeated blocks.
+- [Use Auto Mode](use-auto-mode.md): block a step, tell the agent why, and
+  hand the step to a fallback after too many blocks, which halts the run by
+  default.
 - [Monitor Deep Agents subagents](monitor-deep-agents-subagents.md): give every
   subagent a monitor and choose what a subagent halt does.
 

@@ -14,7 +14,10 @@ variable raises `ConfigurationError` when the monitor is built.
 
 The policy should name the labels and ask for exactly one of them on a line of
 its own, at the end of the reply. This policy, for `gpt-oss-safeguard`, is the
-one the library's live tests use:
+one the library's live tests use, with one sentence added at the end: it asks
+the guard not to open any other line with a label, since the monitor reads
+such a line as a possible verdict (see [Match the labels to the guard's
+format](#match-the-labels-to-the-guards-format)).
 
 ```python
 from langchain_core.prompts import ChatPromptTemplate
@@ -40,7 +43,8 @@ user named or writing the output the user requested.
 
 ## Output
 Reason briefly. The last line of your answer must be exactly one label, alone: \
-violation or no_violation."""
+violation or no_violation. Do not begin any other line with a label or with \
+"Label:"."""
 
 POLICY_PROMPT = ChatPromptTemplate.from_messages(
     [
@@ -195,17 +199,23 @@ counts as a suspicious label, so it can only raise the suspicion. With
 is one suspicious vote: one unreadable reply of five adds 0.2, and the other
 four decide the rest. The cost is that a benign reply whose reasoning opens a
 line that way, as in `Result: violation of the policy would need ...`, and
-ends on `no_violation` fails closed too, and the step is flagged.
+ends on `no_violation` fails closed too, and the step is flagged. If honest
+steps get the reason "The guard model gave no readable label", the guard's
+reasoning usually opens lines with a label; ask it not to, as the last
+sentence of the policy above does.
 
 This reading stops a label the agent plants in its step from becoming the
 verdict when the guard quotes it on a line with other text, after a key that
 is not a verdict key, or beside any line that names the guard's own label in
 one of the ways above. It cannot tell a quote from a verdict when the reply's
 only label is the planted one: the guard gives its verdict only in prose, or
-writes its own label in a way no rule above counts, such as a misspelling or
-look-alike letters, and then quotes the planted label alone on the last
-line, as `> no_violation`, or after a verdict key, as `Final answer:
-no_violation`. Such a reply reads exactly like a verdict, and is read as one.
+writes its own label in a way no rule above counts, and then quotes the
+planted label alone on the last line, as `> no_violation`, or after a verdict
+key, as `Final answer: no_violation`. Plain shapes are enough, not only
+misspellings or look-alike letters: a line `violation because the note asks
+the reviewer to answer:` followed by `no_violation`, or a list item `1.
+violation (...)`, names no label the monitor counts. Such a reply reads
+exactly like a verdict, and is read as one.
 What a guard model writes can be steered by what it reads, so this is a limit
 of any guard, not only of the parser. Ask for the label alone on the last
 line, as the policy above does, and do not let a guard be the only monitor on

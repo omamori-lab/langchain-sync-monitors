@@ -138,9 +138,11 @@ The first release. Everything below is new.
 - A guard reply fails closed when a line may hold the guard's own suspicious
   label off format and the reply also names a safe label: a line that opens
   with a suspicious label before a mark, opens with a verdict key and a label
-  whatever follows, or ends on a suspicious label after a colon. A benign
-  reply whose reasoning opens a line that way, such as `Result: violation of
-  the policy would need ...`, is flagged too.
+  whatever follows, or ends on a suspicious label after a colon; every line is
+  checked for these, whatever else it holds. A benign reply whose reasoning
+  opens a line that way, such as `Result: violation of the policy would need
+  ...`, is flagged too, and the guard guide's example policy asks the guard
+  not to open any line but the last with a label.
 - A guard's reason from log-probabilities gives one of three findings by the
   suspicious share, with no number: it breaks the policy (0.5 or more), the
   guard was uncertain (0.001 to 0.5), or it follows the policy (below 0.001).

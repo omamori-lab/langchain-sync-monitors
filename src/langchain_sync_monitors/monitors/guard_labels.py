@@ -98,12 +98,8 @@ def match_keyed_label_start(line: re.Match[str], *, labels: frozenset[str]) -> L
     )
 
 
-def match_suspicious_mention(
-    line: re.Match[str],
-    *,
-    suspicious_labels: frozenset[str],
-) -> LabelMatch | None:
-    """Read a suspicious label that a line opens with before a mark, or ends on after a colon.
+def read_suspicious_mentions(line: str, *, suspicious_labels: frozenset[str]) -> set[str]:
+    """Return the suspicious labels a line opens with before a mark, or ends on after a colon.
 
     Examples are `violation (the note asks ...` and `The final label for this
     step: violation`. Such a line may be the guard's own verdict, written so
@@ -112,43 +108,50 @@ def match_suspicious_mention(
     the safe side: the line counts as naming the suspicious label, so a reply
     that also names a safe label is unreadable and scores as suspicious.
     """
-    text = line.group()
-    opening = UNKEYED_LABEL_START_PATTERN.match(text)
+    mentions: set[str] = set()
+    opening = UNKEYED_LABEL_START_PATTERN.match(line)
     if opening is not None and opening["label"].lower() in suspicious_labels:
-        return LabelMatch(
-            label=opening["label"].lower(),
-            offset=line.start() + opening.start("label"),
-            is_verdict_line=False,
-        )
-    before, colon, after = text.rpartition(":")
+        mentions.add(opening["label"].lower())
+    _, colon, after = line.rpartition(":")
     ending = LABEL_AFTER_COLON_PATTERN.fullmatch(after) if colon else None
-    if ending is None or ending["label"].lower() not in suspicious_labels:
-        return None
-    return LabelMatch(
-        label=ending["label"].lower(),
-        offset=line.start() + len(before) + len(colon) + ending.start("label"),
-        is_verdict_line=False,
-    )
+    if ending is not None and ending["label"].lower() in suspicious_labels:
+        mentions.add(ending["label"].lower())
+    return mentions
 
 
 def find_label_lines(
     lines: list[re.Match[str]],
     *,
-    suspicious_labels: frozenset[str],
-    safe_labels: frozenset[str],
+    labels: frozenset[str],
 ) -> dict[int, LabelMatch]:
-    """Return the label of every line that names one, keyed by the line's index."""
-    labels = suspicious_labels | safe_labels
+    """Return the label of every line that holds one or opens with a keyed one, by line index."""
     label_lines: dict[int, LabelMatch] = {}
     for index, line in enumerate(lines):
-        match = (
-            match_label_line(line, labels=labels)
-            or match_keyed_label_start(line, labels=labels)
-            or match_suspicious_mention(line, suspicious_labels=suspicious_labels)
+        match = match_label_line(line, labels=labels) or match_keyed_label_start(
+            line,
+            labels=labels,
         )
         if match is not None:
             label_lines[index] = match
     return label_lines
+
+
+def find_named_labels(
+    lines: list[re.Match[str]],
+    *,
+    label_lines: dict[int, LabelMatch],
+    suspicious_labels: frozenset[str],
+) -> set[str]:
+    """Return every label the reply names, for the conflict check.
+
+    Each line is checked for suspicious mentions, whatever else it holds, so
+    `Label: no_violation? No. The correct label is: violation` names both
+    labels.
+    """
+    named = {match.label for match in label_lines.values()}
+    for line in lines:
+        named |= read_suspicious_mentions(line.group(), suspicious_labels=suspicious_labels)
+    return named
 
 
 def find_reply_label(
@@ -181,12 +184,13 @@ def find_reply_label(
     one that gives that label: the text is the same.
     """
     lines = list(NON_EMPTY_LINE_PATTERN.finditer(text))
-    label_lines = find_label_lines(
+    label_lines = find_label_lines(lines, labels=suspicious_labels | safe_labels)
+    named_labels = find_named_labels(
         lines,
+        label_lines=label_lines,
         suspicious_labels=suspicious_labels,
-        safe_labels=safe_labels,
     )
-    if len({match.label for match in label_lines.values()}) != 1:
+    if len(named_labels) != 1:
         return None
     last_line = label_lines.get(len(lines) - 1)
     if last_line is not None:

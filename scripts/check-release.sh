@@ -12,8 +12,9 @@
 #   - CHANGELOG.md has a non-empty "## [X.Y.Z] - YYYY-MM-DD" section and an
 #     "[X.Y.Z]: " link reference;
 #   - CITATION.cff has version X.Y.Z and date-released equal to that date;
-#   - README.md and docs/index.md hold no pre-release text: "not on PyPI", or
-#     a development version such as 0.1.0.dev0.
+#   - README.md and docs/index.md hold no pre-release text: no release-check
+#     comment, which marks text written for an unreleased package, and none
+#     of the phrases such text uses, even wrapped across lines.
 #
 # It reports every problem it finds and exits 1 if there was any. Otherwise it
 # prints the CHANGELOG section, without its heading, to standard output: the
@@ -83,12 +84,23 @@ if [[ -n "${release_date}" && "${citation_date}" != "${release_date}" ]]; then
   report "CITATION.cff has date-released '${citation_date}', not ${release_date} as in CHANGELOG.md."
 fi
 
-pre_release_text="$(grep -n -i -E 'not on PyPI|[0-9]+\.[0-9]+\.[0-9]+\.dev[0-9]+' README.md docs/index.md || true)"
-if [[ -n "${pre_release_text}" ]]; then
-  while IFS= read -r line; do
-    report "pre-release text left in ${line}"
-  done <<<"${pre_release_text}"
-fi
+# The pages mark text written for an unreleased package with a release-check
+# comment, which the release pull request rewrites the text and deletes. The
+# phrases catch such text written without the comment. Each page is read as
+# one line, so a phrase wrapped across lines is found too.
+pre_release_phrases='not on PyPI|pre-release|may still change before|until the first release|install it from GitHub|[0-9]+\.[0-9]+\.[0-9]+\.dev[0-9]+'
+for page in README.md docs/index.md; do
+  marker_lines="$(grep -n 'release-check:' "${page}" | cut -d: -f1 | paste -s -d, - || true)"
+  if [[ -n "${marker_lines}" ]]; then
+    report "${page} still has a release-check comment, at line(s) ${marker_lines}: rewrite the text it marks for the release, then delete it."
+  fi
+  flattened="$(tr -s ' \t\n' ' ' <"${page}")"
+  while IFS= read -r phrase; do
+    if [[ -n "${phrase}" ]]; then
+      report "${page} still says \"${phrase}\"."
+    fi
+  done <<<"$(grep -o -i -E "${pre_release_phrases}" <<<"${flattened}" | sort -u || true)"
+done
 
 if [[ "${problems}" -gt 0 ]]; then
   echo "check-release: ${problems} problem(s); ${version} is not ready to release." >&2

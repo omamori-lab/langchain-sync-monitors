@@ -24,6 +24,8 @@ so a suspicious step can be stopped before it runs.
 pip install "langchain-sync-monitors[openrouter,deepagents]"
 ```
 
+<!-- release-check: the text below describes an unreleased package. scripts/check-release.sh refuses a release while this comment is here; rewrite that text for the release, then delete this comment. -->
+
 The package is not on PyPI yet. Until the first release, install it from
 GitHub:
 
@@ -179,6 +181,8 @@ credits every source and what it contributed, and the
 library in research, please cite the original authors.
 
 ## Status and licence
+
+<!-- release-check: the text below describes an unreleased package. scripts/check-release.sh refuses a release while this comment is here; rewrite that text for the release, then delete this comment. -->
 
 Pre-release, version 0.1.0.dev0, and not on PyPI yet. The monitors,
 protocols, middleware and Deep Agents support are built and tested offline,

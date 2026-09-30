@@ -42,11 +42,13 @@ def read_general_purpose_subagent() -> SubAgent:
         )
     except ImportError as error:
         raise MissingExtraError(INSTALL_HINT) from error
+    # A copy, so setting its skills leaves Deep Agents' own constant untouched.
     return GENERAL_PURPOSE_SUBAGENT.copy()
 
 
 def is_declarative_subagent(spec: SubagentSpec) -> TypeGuard[SubAgent]:
     """Tell whether a spec is declarative, so Deep Agents builds it and can add middleware."""
+    # A compiled subagent carries its `runnable`, and a remote one the `graph_id` it runs.
     return "runnable" not in spec and "graph_id" not in spec
 
 

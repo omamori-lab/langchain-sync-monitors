@@ -166,6 +166,8 @@ class CalibratedMonitor(Monitor):
     def build_calibrated_verdict(self, verdict: Verdict, *, monitor_input: MonitorInput) -> Verdict:
         """Replace the raw suspicion with its smoothed conformal rank among the honest scores."""
         scores = self.sorted_honest_scores
+        # A conformal rank with ties: every honest score below counts, and the tied ones count
+        # for a random share.
         below = bisect_left(scores, verdict.suspicion)
         tied = bisect_right(scores, verdict.suspicion) - below
         tie_share = self.draw_tie_share(monitor_input)

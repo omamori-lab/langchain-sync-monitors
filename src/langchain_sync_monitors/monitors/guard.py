@@ -345,6 +345,7 @@ class GuardModelMonitor(ChatModelMonitor):
             return verdict
         if self.scoring is GuardScoring.LOG_PROBABILITIES:
             return build_unlocated_label_verdict()
+        # The first reply counts as a sample, so with `samples=1` no more are drawn.
         remaining = self.samples - 1
         more_replies = yield ReplyRequest(model=self.model, messages=messages, count=remaining)
         return self.build_sample_verdict([first_reply, *more_replies])
@@ -426,6 +427,8 @@ class GuardModelMonitor(ChatModelMonitor):
         """
         if self.classify_label(written_label) == kind:
             return written_label
+        # Neither search below comes up empty: `kind` is asked for only when the share gives it
+        # some probability, which a token beginning a label of that kind carries.
         alternatives = collect_alternatives(position)
         likeliest_token = max(
             (token for token in alternatives if self.classify_token(token) == kind),
@@ -494,6 +497,7 @@ class GuardModelMonitor(ChatModelMonitor):
         labels = [self.read_reply_label(reply) for reply in replies]
         readable_labels = [label for label in labels if label is not None]
         suspicious_labels = [label for label in readable_labels if label in self.suspicious_labels]
+        # Every unreadable reply is a suspicious vote, so the count fails closed.
         suspicious_count = len(labels) - len(readable_labels) + len(suspicious_labels)
         if suspicious_labels:
             reason = self.build_label_reason(suspicious_labels[0])

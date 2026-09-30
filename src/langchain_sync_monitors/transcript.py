@@ -123,6 +123,7 @@ def wrap_in_tag(
     source: str | None = None,
 ) -> str:
     """Wrap escaped content in a tag, with optional escaped `name` and `source` attributes."""
+    # Quotes are escaped only in attributes, where one could end the value; content keeps them.
     attributes = "".join(
         f' {attribute}="{html.escape(value)}"'
         for attribute, value in (("name", name), ("source", source))
@@ -367,6 +368,7 @@ def build_tool_entry(
     shows that it did not complete, and why.
     """
     tool_name = message.name or tool_names_by_call.get(message.tool_call_id, "unknown")
+    # The monitor's own rejections carry the error status too, so they are told apart first.
     if is_monitor_feedback(message):
         return build_monitor_feedback_entry(message, name=tool_name)
     if message.status == "error":
@@ -458,6 +460,7 @@ def build_transcript_entries(
     tool_names_by_call: dict[str, str] = {}
     entries: list[TranscriptEntry] = []
     for message in history:
+        # A tool result may name its call by id alone, so the AI messages before it supply names.
         if isinstance(message, AIMessage):
             tool_names_by_call.update(read_tool_names_by_call(message))
         entries.extend(

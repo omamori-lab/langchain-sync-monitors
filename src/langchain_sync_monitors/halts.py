@@ -100,6 +100,7 @@ def read_run_inputs_at_halt(state: Mapping[str, object], *, monitor: str) -> int
         if isinstance(entry, Mapping) and entry.get("monitor") == monitor
     ]
     latest = counts[-1] if counts else None
+    # A count that is missing or not an integer reads as None, which keeps a halt standing.
     return latest if isinstance(latest, int) else None
 
 

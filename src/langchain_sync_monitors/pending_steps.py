@@ -125,6 +125,8 @@ def run_synchronously[ResultT](coroutine: Coroutine[object, object, ResultT]) ->
     protocol scheduled is cancelled before it starts.
     """
     loop = read_running_loop()
+    # Read before the protocol runs, so only the tasks it schedules are cancelled, never
+    # those already on the loop.
     earlier_tasks = asyncio.all_tasks(loop) if loop is not None else set()
     try:
         coroutine.send(None)
@@ -139,6 +141,8 @@ def run_synchronously[ResultT](coroutine: Coroutine[object, object, ResultT]) ->
             raise
         cancel_tasks_started_since(loop, earlier_tasks=earlier_tasks)
         raise SynchronousRunError(SYNCHRONOUS_RUN_MESSAGE) from error
+    # The protocol suspended on work only an event loop can finish. Closing it runs its
+    # cleanup now, rather than whenever the coroutine is collected.
     coroutine.close()
     cancel_tasks_started_since(loop, earlier_tasks=earlier_tasks)
     raise SynchronousRunError(SYNCHRONOUS_RUN_MESSAGE)
@@ -146,6 +150,8 @@ def run_synchronously[ResultT](coroutine: Coroutine[object, object, ResultT]) ->
 
 def find_proposal(response: AgentModelResponse) -> AIMessage:
     """Return the step a model call proposes: the first AI message of its response."""
+    # With structured output through a tool, the result also holds tool messages, so the loop
+    # skips anything that is not an AI message.
     for message in response.result:
         if isinstance(message, AIMessage):
             return message
@@ -253,6 +259,7 @@ class MonitoredStep(PendingStep):
     blocks_in_thread: int = 0
     new_subagent_blocks: int = 0
     judged_samples: list[Sample] = field(default_factory=list)
+    # The blocked attempts each draw of this step was shown, so a repeated request is spotted.
     sampled_attempts: list[tuple[BlockedAttempt, ...]] = field(default_factory=list)
     sample_numbers: Iterator[int] = field(default_factory=lambda: itertools.count(1))
 

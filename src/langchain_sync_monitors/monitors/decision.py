@@ -367,6 +367,7 @@ class OpenRouterDecisionModel(DecisionModel):
         """POST the request, retrying transient failures, and return the response body."""
         async with self.open_async_client() as client:
             response = await client.post(self.endpoint, json=body, headers=self.build_headers())
+        # httpx reads the body before `post` returns, so the response outlives its client.
         response.raise_for_status()
         return response.content
 

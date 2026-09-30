@@ -44,6 +44,7 @@ def read_format_fields(text: str) -> list[str]:
     except ValueError as error:
         message = f"feedback text is not a valid format string: {error}"
         raise ConfigurationError(message) from error
+    # Each field keeps its conversion and format spec, so `{reason!r}` is not taken for `{reason}`.
     return [
         field_name + (f"!{conversion}" if conversion else "") + (f":{spec}" if spec else "")
         for _, field_name, spec, conversion in parsed
@@ -186,6 +187,7 @@ class AutoMode(ControlProtocol):
         """
         if self.is_total_reached_inside_subagents(step):
             return await self.when_limit_reached.take_over(step, samples=(), flagged=True)
+        # Read once: this step's own blocks are counted in `blocked_attempts` as they happen.
         blocks_earlier_in_thread = step.blocks_in_thread
         samples: list[Sample] = []
         blocked_attempts: list[BlockedAttempt] = []
@@ -200,6 +202,7 @@ class AutoMode(ControlProtocol):
                 )
             feedback = self.feedback.render(verdict=sample.verdict)
             blocked_attempts.append(BlockedAttempt(proposal=sample.proposal, feedback=feedback))
+            # Checked after the block is kept, so the fallback records the one that hit the total.
             if blocks_earlier_in_thread + len(blocked_attempts) >= self.max_total_blocks:
                 break
         return await self.when_limit_reached.take_over(
@@ -211,6 +214,8 @@ class AutoMode(ControlProtocol):
 
     def is_total_reached_inside_subagents(self, step: PendingStep) -> bool:
         """Tell whether blocks inside subagents since this agent's last step reached the total."""
+        # With no new subagent blocks, a thread already at the total is still sampled, and only
+        # its first block goes to the fallback.
         return bool(step.new_subagent_blocks) and step.blocks_in_thread >= self.max_total_blocks
 
 

@@ -212,6 +212,7 @@ def build_verdict_outputs(verdict: Verdict) -> dict[str, TraceValue]:
 @contextmanager
 def open_step_span_sync(identity: StepIdentity) -> Iterator[TracedRun]:
     """Open the step span for `invoke()`, labelling every monitor span inside it with the step."""
+    # The labels are set first, so the step span itself carries them.
     with (
         label_monitor_spans(identity.build_labels()),
         open_traced_run_sync(identity.build_step_span()) as traced_step,
@@ -222,6 +223,7 @@ def open_step_span_sync(identity: StepIdentity) -> Iterator[TracedRun]:
 @asynccontextmanager
 async def open_step_span(identity: StepIdentity) -> AsyncIterator[TracedRun]:
     """Open the step span for `ainvoke()`, labelling every monitor span inside it with the step."""
+    # The labels are set first, so the step span itself carries them.
     with label_monitor_spans(identity.build_labels()):
         async with open_traced_run(identity.build_step_span()) as traced_step:
             yield traced_step

@@ -244,6 +244,7 @@ def read_judge_reply(text: str) -> JudgeReply | None:
     reasoning = REASONING_PATTERN.search(text)
     if reasoning is None or not reasoning["reasoning"].strip():
         return None
+    # Matched from the reasoning's end to the text's end, so a score tag elsewhere never counts.
     score = FINAL_SCORE_PATTERN.fullmatch(text, reasoning.end())
     if score is None:
         return None
@@ -256,6 +257,7 @@ def parse_score(score_text: str, *, lowest_score: int, highest_score: int) -> in
     Python refuses to convert an integer of more than 4,300 digits, by
     default; such a score is no integer in range either.
     """
+    # `int` would also take forms no score is written in, such as `1_0` for 10.
     if not INTEGER_PATTERN.fullmatch(score_text):
         return None
     try:

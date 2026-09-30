@@ -189,7 +189,9 @@ agent = create_deep_agent(
 )
 ```
 
-`skills` takes a list; a plain string raises `ConfigurationError`.
+`skills` takes a list of skill sources, each a path or a `(path, label)` pair
+of strings, as Deep Agents' skills middleware takes them; a plain string
+raises `ConfigurationError`.
 
 To change the subagent's description, prompt, skills or middleware, pass your
 own spec named `general-purpose`. It is kept and monitored instead of the

@@ -214,9 +214,10 @@ tools, come back as tool calls, which the monitor judges before they run.
 
 - `label`, `"monitor"` by default, and `agent_name`, `"main"` by default,
   name the monitor `label[agent_name]`, `monitor[main]` by default, and its
-  records. Stacked monitors need distinct labels, a subclass that names
-  itself otherwise raises `ConfigurationError`, and Auto Mode counts its
-  thread total per label.
+  records. Each must be a non-blank string without `:` or `|`, which
+  LangGraph refuses in a node name. Stacked monitors need distinct labels, a
+  subclass that names itself otherwise raises `ConfigurationError`, and Auto
+  Mode counts its thread total per label.
 - `task_author`, `TaskAuthor.USER` by default, says who wrote the task the
   monitor reads; it is `TaskAuthor.PARENT_AGENT` inside a subagent.
 - `feedback_visibility`, `FeedbackVisibility.HIDDEN` by default, decides

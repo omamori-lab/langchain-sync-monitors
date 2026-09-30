@@ -71,8 +71,8 @@ inside them reads through its view.
 | Field | Default | What it sets |
 |---|---|---|
 | `channels` | `Channel.ACTIONS` | The channels the monitor reads of the history |
-| `most_recent_entries` | `None`, every entry | How many of the latest entries to keep; below 1 raises `ConfigurationError` |
-| `delegation_tools` | `frozenset({"task"})` | The tools whose results are subagent reports |
+| `most_recent_entries` | `None`, every entry | How many of the latest entries to keep, a whole number of at least 1; anything else raises `ConfigurationError` |
+| `delegation_tools` | `frozenset({"task"})` | The tools whose results are subagent reports; a set of strings, since a plain string raises `ConfigurationError` |
 
 ## Read the tags
 

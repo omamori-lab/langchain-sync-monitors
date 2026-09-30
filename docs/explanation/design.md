@@ -130,7 +130,9 @@ default, and LangChain requires names to be unique within one agent. The
 monitor keeps its records and its halts under its label and agent, so two
 monitors that shared them would lift each other's halts, and a subclass that
 names itself otherwise raises `ConfigurationError`. Two monitors stacked in
-one agent therefore need distinct labels. `monitor_subagents` names each
+one agent therefore need distinct labels. The hooks become graph nodes named
+after the monitor, so `label` and `agent_name` must be non-blank strings
+without `:` or `|`, which LangGraph refuses in a node name. `monitor_subagents` names each
 subagent's copy after the subagent, such as `monitor[researcher]`.
 
 Deep Agents runs parallel subagents through shared middleware instances, so
@@ -817,21 +819,27 @@ the monitor in the stack Deep Agents builds, where the check cannot see it
 
 ### Option checks
 
-The protocols, the fallbacks, `FeedbackTemplate`, and `MonitorMiddleware`'s
-`monitor`, `protocol` and enum options raise `ConfigurationError` for a value
-of the wrong type when they are built:
+Every public constructor checks its options when it is built, and raises
+`ConfigurationError` for a value of the wrong type: the protocols, the
+fallbacks, `FeedbackTemplate`, `MonitorMiddleware`, the monitors and their
+wrappers, `MonitorView`, the decision models, `monitor_subagents` and
+`check_monitor_placement`.
 
 - An enum option must be a member: a plain string is refused, not converted.
-  `GuardModelMonitor(scoring=...)` and `DecisionModelMonitor(combine=...)`
-  refuse one too.
-- A threshold accepts any real number or `Decimal` from 0 to 1, checked on
-  its exact value before it becomes a float. `bool`, strings and NaN are
+- A threshold, `CascadeMonitor(escalate_at=...)` and each honest score of
+  `CalibratedMonitor` accept any real number or `Decimal` from 0 to 1, checked
+  on its exact value and then kept as a float. `bool`, strings and NaN are
   refused, and `-0.0` reads as 0.
 - A count must be a whole number; only `AutoMode(max_total_blocks=...)` also
-  accepts `math.inf`.
-
-Other options are not type-checked yet
-([protocols and configuration](#protocols-and-configuration)).
+  accepts `math.inf`. A timeout must be a positive, finite number, so `None`
+  and an `httpx.Timeout` are refused.
+- A set option, such as a guard's labels or `MonitorView(delegation_tools=...)`,
+  must be a set of strings; a plain string is refused.
+- A prompt must be a `ChatPromptTemplate`, and a model a chat model or a
+  provider string, not one wrapped in a Runnable.
+- `MonitorMiddleware`'s `label` and `agent_name`, and each subagent's name,
+  must be non-blank strings without `:` or `|`, which LangGraph refuses in a
+  node name.
 
 ### Error and warning classes
 
@@ -974,11 +982,6 @@ limit is linked from where it arises above.
 - **More graph steps.** A run of N agent steps needs a `recursion_limit` of
   4N + 2 rather than 2N, and each further monitor adds another 2N + 2
   ([graph steps](#graph-steps)).
-- **Unchecked option types.** Options outside those the
-  [option checks](#option-checks) cover are not type-checked yet:
-  `MonitorMiddleware(label=5)` is accepted, and a monitor or `MonitorView`
-  given a value of the wrong type may fail later, or with a plain
-  `TypeError` rather than a `MonitorError`.
 
 ### Subagents and the thread total
 

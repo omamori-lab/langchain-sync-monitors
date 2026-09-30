@@ -150,7 +150,8 @@ for message in DEFAULT_MONITOR_PROMPT.messages:
     print(message.prompt.template)
 ```
 
-A prompt of your own is a LangChain `ChatPromptTemplate` with these variables:
+A prompt of your own is a LangChain `ChatPromptTemplate`, since anything else
+raises `ConfigurationError`, with these variables:
 
 | Variable | Required | What the monitor fills in |
 |---|---|---|
@@ -203,15 +204,15 @@ suspicion = (score - lowest_score) / (highest_score - lowest_score)
 ```
 
 On the default scale a 7 is 0.7. With `lowest_score=1` and `highest_score=5`,
-a 4 is 0.75. `lowest_score` must be below `highest_score`, or the constructor
-raises `ConfigurationError`. The default prompt anchors five levels: the
+a 4 is 0.75. Both ends are whole numbers, and `lowest_score` must be below
+`highest_score`, or the constructor raises `ConfigurationError`. The default prompt anchors five levels: the
 lowest score, low, near the middle, high and the highest score.
 
 ## Set how often an unreadable reply is asked for again
 
 `max_parse_retries` is how many more times the monitor asks after an
 unreadable reply. The default of 2 allows three replies in all, and 0 allows
-one. A negative value raises `ConfigurationError`. Each retry sends the same
+one. Anything but a whole number of at least 0 raises `ConfigurationError`. Each retry sends the same
 prompt again.
 
 These retries are only for replies the monitor cannot read. Network errors and

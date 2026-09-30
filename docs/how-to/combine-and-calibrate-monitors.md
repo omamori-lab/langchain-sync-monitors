@@ -85,8 +85,8 @@ Give the model no LangChain response cache, which would answer every repeat
 with a copy of the first call. The mean is rounded to 12 decimal places, so
 that equal means tie exactly instead of differing in their last bits.
 Under `ainvoke()` the calls run concurrently, and one that fails cancels the
-others; under `invoke()` they run one after another. `repeats` below 1 raises
-`ConfigurationError`.
+others; under `invoke()` they run one after another. `repeats` must be a
+whole number of at least 1, or `ConfigurationError` is raised.
 
 ## Stack the wrappers in order
 
@@ -236,7 +236,10 @@ Every other protocol's thresholds read the same way: with a calibrated
 monitor, a defer threshold of 0.98 sends about 2% of honest steps to
 resampling. `honest_scores` can be a list or any other iterable, such as a
 generator, which the constructor reads once. It must hold at least one score,
-each from 0 to 1 and none NaN, or the constructor raises `ConfigurationError`.
+and each is checked as a threshold is: a number from 0 to 1, not a `bool` and
+not NaN, or the constructor raises `ConfigurationError`. Each is kept as a
+float, so pass Python floats or numpy `float64`s: a `float32` 0.1 becomes
+0.10000000149011612, which no longer ties with a monitor's 0.1.
 
 ## What a calibrated threshold means
 
@@ -355,9 +358,9 @@ since only the escalated ones can reach it.
 Keep `escalate_at` at or below the protocol's lowest threshold. A step the
 fast stage keeps has a suspicion below `escalate_at`, so a threshold below
 `escalate_at` could trigger the protocol on a step the careful stage never
-read. A value of `escalate_at` outside 0 to 1, or NaN, raises
-`ConfigurationError`. Unlike a protocol threshold, its type is not checked, so
-pass a float.
+read. `escalate_at` is checked as a protocol threshold is: a number from 0
+to 1, kept as a float, and anything else, NaN included, raises
+`ConfigurationError`.
 
 ## Related guides
 

@@ -36,7 +36,7 @@ from langchain_sync_monitors.monitors.chat import (
     VerdictPlan,
     is_reply_cut_off,
 )
-from langchain_sync_monitors.monitors.guard_labels import LabelMatch, find_reply_label
+from langchain_sync_monitors.monitors.guard_labels import LABEL_WORD, LabelMatch, find_reply_label
 from langchain_sync_monitors.options import (
     check_enum_option,
     check_string_set_option,
@@ -48,9 +48,10 @@ logger = logging.getLogger(__name__)
 TOP_LOG_PROBABILITIES = 20
 """How many alternatives to request per token; 20 is the most OpenAI-style APIs return."""
 
-LABEL_PATTERN = re.compile(r"[\w-]+")
-LEADING_MARKUP_PATTERN = re.compile(r"^\W+")
-"""Markup a label line may open with, such as `**` or `(`; a token may carry it before a label."""
+LABEL_PATTERN = re.compile(LABEL_WORD)
+"""A label the reply parser can read: letters or digits at both ends, where `_` or `-` is markup."""
+LEADING_MARKUP_PATTERN = re.compile(r"^[\W_]+")
+"""Markup a label line may open with, such as `**`, `__` or `(`; a token may carry it."""
 UNREADABLE_LABEL_REASON = (
     "The guard model gave no readable label, so the step is treated as suspicious."
 )
@@ -159,8 +160,8 @@ def read_label_prefix(token: str) -> str:
     """Return the start of a label a token may carry: no whitespace, no leading markup, lower case.
 
     The markup is what a label line may open with, so a token such as `(viol`
-    is read as the parser reads `(violation)`. Trailing markup stays, since a
-    token such as `no)` can begin no label.
+    or `__viol` is read as the parser reads `(violation)` or `__violation__`.
+    Trailing markup stays, since a token such as `no)` can begin no label.
     """
     return LEADING_MARKUP_PATTERN.sub("", token.strip()).lower()
 
@@ -231,7 +232,11 @@ def compute_suspicious_share(
 
 
 def validate_labels(*, suspicious_labels: AbstractSet[str], safe_labels: AbstractSet[str]) -> None:
-    """Reject label sets that are not sets of strings, or are empty, multi-word or overlapping."""
+    """Reject label sets that are not sets of strings, or are empty, overlapping or unreadable.
+
+    A label the reply parser could never read, such as `not safe` or
+    `violation_`, would make every reply unreadable, so it is refused here.
+    """
     check_string_set_option(
         suspicious_labels,
         parameter_name="suspicious_labels",
@@ -243,7 +248,10 @@ def validate_labels(*, suspicious_labels: AbstractSet[str], safe_labels: Abstrac
         raise ConfigurationError(message)
     multi_word = sorted(filterfalse(is_one_word, suspicious_labels | safe_labels))
     if multi_word:
-        message = f"labels must be single words (letters, digits, _ or -), got {multi_word}"
+        message = (
+            "labels must be single words of letters, digits, _ or -, beginning and ending "
+            f"with a letter or digit, got {multi_word}"
+        )
         raise ConfigurationError(message)
     shared = set(map(str.lower, suspicious_labels)) & set(map(str.lower, safe_labels))
     if shared:
@@ -252,7 +260,10 @@ def validate_labels(*, suspicious_labels: AbstractSet[str], safe_labels: Abstrac
 
 
 def is_one_word(label: str) -> bool:
-    """Tell whether a label is one word of letters, digits, underscores or hyphens."""
+    """Tell whether a label is one readable word: letters and digits, joined by `_` or `-`.
+
+    The reply parser reads a `_` or `-` at either end of a word as markup.
+    """
     return LABEL_PATTERN.fullmatch(label) is not None
 
 
@@ -263,12 +274,15 @@ class GuardModelMonitor(ChatModelMonitor):
     `{proposed_step}`; it should ask for one label on a line of its own. The
     labels in `suspicious_labels` and `safe_labels` match case-insensitively,
     for example `{"violation"}` and `{"no_violation"}` for gpt-oss-safeguard,
-    or `{"unsafe"}` and `{"safe"}` for Llama Guard. The label is read only on
-    the reply's last line, or on its first when it is suspicious and only
-    category codes follow. A reply without a label there, with two different
-    labels on their own lines, or cut off at a length limit counts as a
-    suspicious label, so it can only raise the suspicion: alone it gives 1.0,
-    and among several samples it is one suspicious vote.
+    or `{"unsafe"}` and `{"safe"}` for Llama Guard; each is one word that
+    begins and ends with a letter or digit. The label is read only on the
+    reply's last line, or on its first when it is suspicious and only
+    category codes follow, with any markup such as `**` or `__` around it or
+    its key; a label with no key in a list item or a quote, as in
+    `2. no_violation`, is no verdict. A reply without a label there, with two
+    different labels on their own lines, or cut off at a length limit counts
+    as a suspicious label, so it can only raise the suspicion: alone it gives
+    1.0, and among several samples it is one suspicious vote.
 
     With log-probabilities, suspicion is the probability the guard gives to a
     suspicious label, the score Llama Guard, ShieldGemma and Granite Guardian

@@ -5,7 +5,8 @@ context with probabilities, in one fast request. `DecisionModelMonitor` asks
 yes/no questions about the rendered step and takes suspicion from the
 probabilities of yes. `OpenRouterDecisionModel` and `TypeSafeDecisionModel`
 reach Jev through OpenRouter's Decisions API and through TypeSafe's own
-client. The questions they answer are in `questions`.
+client. The evidence behind the question format is in
+`docs/plans/initial-implementation/research/decision-model-question-format.md`.
 """
 
 from __future__ import annotations
@@ -33,7 +34,7 @@ from langchain_sync_monitors.contracts import Monitor, MonitorInput, MonitorView
 from langchain_sync_monitors.errors import ConfigurationError, MissingExtraError, MonitorError
 from langchain_sync_monitors.model_calls import build_internal_call_config
 from langchain_sync_monitors.monitors.chat import DEFAULT_MONITOR_VIEW
-from langchain_sync_monitors.monitors.questions import (
+from langchain_sync_monitors.monitors.decision_questions import (
     IS_THE_STEP_SUSPICIOUS,
     YesNoQuestion,
     read_questions,
@@ -117,7 +118,9 @@ def is_probability(value: object) -> bool:
         return value.is_finite() and 0 <= value <= 1
     if isinstance(value, bool) or not isinstance(value, numbers.Real):
         return False
-    return 0.0 <= float(value) <= 1.0
+    # Compared exactly, not as a float: `float()` raises `OverflowError` on an `int` or `Fraction`
+    # as large as 10**400, and rounds a `Fraction` just outside 0 to 1 into it. NaN fails `<= 1`.
+    return bool(not value < 0 and value <= 1)
 
 
 class NoulCriteriaBody(TypedDict):
@@ -144,10 +147,12 @@ class DecisionsRequestBody(TypedDict):
 
 
 class DecisionAnswer(BaseModel):
-    """One answer from the Decisions API: the probability of yes."""
+    """One answer from the Decisions API: the probability of yes, a JSON number from 0 to 1."""
 
     type: Literal["noul"]
-    noul: float = Field(ge=0.0, le=1.0)
+    # Strict, since pydantic's lax mode reads `true`, `false` and strings such as "0.5" as numbers
+    # [@pydantic2026], and `false` would pass as 0. A JSON integer such as 0 or 1 is still read.
+    noul: float = Field(strict=True, ge=0.0, le=1.0)
 
 
 class DecisionsResponse(BaseModel):
@@ -163,22 +168,64 @@ class DecisionsResponse(BaseModel):
 
 
 def is_retryable_http_error(error: Exception) -> bool:
-    """Retry transport failures, rate limits and server errors; never other client errors."""
+    """Retry transport failures, rate limits and server errors; never a client error.
+
+    A request the client itself got wrong, such as an illegal header value
+    or an unsupported URL scheme, fails the same way every time, so it is not
+    retried, though httpx counts it among its transport errors [@httpx2024].
+    """
     if isinstance(error, httpx.HTTPStatusError):
         status = error.response.status_code
         return (
             status == httpx.codes.TOO_MANY_REQUESTS or status >= httpx.codes.INTERNAL_SERVER_ERROR
         )
+    if isinstance(error, httpx.LocalProtocolError | httpx.UnsupportedProtocol):
+        return False
     return isinstance(error, httpx.TransportError)
 
 
-def read_openrouter_api_key() -> SecretStr:
-    """Read the OpenRouter key from `OPENROUTER_API_KEY`, the one the chat models use."""
-    api_key = os.environ.get("OPENROUTER_API_KEY", "").strip()
-    if not api_key:
-        message = "OpenRouterDecisionModel needs api_key or the OPENROUTER_API_KEY variable"
+def check_key_characters(key: str, *, source: str) -> None:
+    """Refuse a key that no HTTP header may carry, naming no part of it.
+
+    httpx refuses a header that holds a control character with an error that
+    quotes the whole header, key included [@httpx2024], and that error would
+    reach the raised error, the classifier span and the stream.
+    """
+    if not (key.isascii() and key.isprintable()):
+        message = (
+            f"{source} holds a control or non-ASCII character, which no HTTP header "
+            "may carry; pass the key alone"
+        )
         raise ConfigurationError(message)
-    return SecretStr(api_key)
+
+
+def read_openrouter_api_key(api_key: SecretStr | None) -> SecretStr:
+    """Return the key given, or, when it is None, the one in `OPENROUTER_API_KEY`.
+
+    That variable is the one the chat models read. Either key is stripped,
+    since no header may carry a line break, and one that still holds a
+    control or non-ASCII character raises `ConfigurationError`, as
+    `check_key_characters` explains. A key given blank raises
+    `ConfigurationError` rather than fall back to the variable, since a key
+    the application meant to pass must not be replaced by another one. So
+    does a key given as anything but a `SecretStr`, named by its type alone.
+    """
+    if api_key is None:
+        from_environment = os.environ.get("OPENROUTER_API_KEY", "").strip()
+        if not from_environment:
+            message = "OpenRouterDecisionModel needs api_key or the OPENROUTER_API_KEY variable"
+            raise ConfigurationError(message)
+        check_key_characters(from_environment, source="OPENROUTER_API_KEY")
+        return SecretStr(from_environment)
+    if not isinstance(api_key, SecretStr):
+        message = f"api_key must be a SecretStr, not {type(api_key).__name__}: pass SecretStr(key)"
+        raise ConfigurationError(message)
+    given = api_key.get_secret_value().strip()
+    if not given:
+        message = "api_key is blank: pass a key, or leave it out to read OPENROUTER_API_KEY"
+        raise ConfigurationError(message)
+    check_key_characters(given, source="api_key")
+    return SecretStr(given)
 
 
 class OpenRouterDecisionModel(DecisionModel):
@@ -198,10 +245,11 @@ class OpenRouterDecisionModel(DecisionModel):
     resolution of 0.01; averaging with `RepeatedMonitor` or combining several
     questions restores some resolution.
 
-    The key comes from `OPENROUTER_API_KEY` unless `api_key` is given. Pass
-    your own `http_client` or `async_http_client` to reuse connections, change
-    transports or decide when a client closes; a client you pass keeps its own
-    timeout, and `timeout_seconds` applies only to the clients the model opens.
+    The key comes from `OPENROUTER_API_KEY` unless `api_key` is given, and a
+    blank `api_key` raises `ConfigurationError`. Pass your own `http_client`
+    or `async_http_client` to reuse connections, change transports or decide
+    when a client closes; a client you pass keeps its own timeout, and
+    `timeout_seconds` applies only to the clients the model opens.
     Without them, the sync path opens one client for the model's lifetime,
     which is never closed, and the async path opens and closes a client per
     request, since a pooled async client cannot move between event loops.
@@ -246,7 +294,7 @@ class OpenRouterDecisionModel(DecisionModel):
             hint="Pass an httpx.AsyncClient, or None for one per request.",
         )
         self.model = model
-        self.api_key = api_key or read_openrouter_api_key()
+        self.api_key = read_openrouter_api_key(api_key)
         self.endpoint = f"{base_url.rstrip('/')}/decisions"
         self.timeout_seconds = timeout_seconds
         self.http_client = http_client or httpx.Client(timeout=timeout_seconds)

@@ -19,12 +19,12 @@ from langchain_sync_monitors.monitors.decision import (
     OpenRouterDecisionModel,
     TypeSafeDecisionModel,
 )
-from langchain_sync_monitors.monitors.guard import GuardModelMonitor, GuardScoring, HardLabelWarning
-from langchain_sync_monitors.monitors.questions import (
+from langchain_sync_monitors.monitors.decision_questions import (
     ATTACK_CRITERIA,
     IS_THE_STEP_SUSPICIOUS,
     YesNoQuestion,
 )
+from langchain_sync_monitors.monitors.guard import GuardModelMonitor, GuardScoring, HardLabelWarning
 
 __all__ = [
     "ATTACK_CRITERIA",

@@ -215,14 +215,21 @@ change raises the minor version.
 - A guard's verdict is read from its last line only when the label stands
   alone or follows a verdict key such as `Label:` or `Final answer:`; a label
   after any other key, as in `It asks for: no_violation`, is unreadable.
+- A guard's last line that holds a label with no key in a list item or a
+  quote, as in `2. no_violation`, `- no_violation` or `> no_violation`, is no
+  verdict, since the guard may be quoting a list from the step, so the reply
+  fails closed.
 - A guard reply fails closed when a line may hold the guard's own suspicious
   label off format and the reply also names a safe label: a line that opens
   with a suspicious label before a mark, opens with a verdict key and a label
-  whatever follows, or ends on a suspicious label after a colon; every line is
-  checked for these, whatever else it holds. A benign reply whose reasoning
-  opens a line that way, such as `Result: violation of the policy would need
-  ...`, is flagged too, and the guard guide's example policy asks the guard
-  not to open any line but the last with a label.
+  whatever follows, or ends on a suspicious label after a colon, with any
+  markup, bullet, heading or ordered list marker around the key or label;
+  every line is checked for these, whatever else it holds. A benign reply
+  whose reasoning opens a line that way, such as `Result: violation of the
+  policy would need ...`, is flagged too, and the guard guide's example
+  policy asks the guard not to open any line but the last with a label.
+- `GuardModelMonitor` refuses a label that begins or ends with `_` or `-`,
+  which the reply parser reads as markup, with `ConfigurationError`.
 - A guard's reason from log-probabilities gives one of three findings by the
   suspicious share, with no number: it breaks the policy (0.5 or more), the
   guard was uncertain (0.001 to 0.5), or it follows the policy (below 0.001).
@@ -237,6 +244,10 @@ change raises the minor version.
   refuse a plain string with `ConfigurationError`.
 - `CalibratedMonitor(honest_scores=...)` and `DecisionModelMonitor(questions=...)`
   accept any iterable, a generator included.
+- `OpenRouterDecisionModel(api_key=...)` raises `ConfigurationError` for a
+  blank key, rather than read `OPENROUTER_API_KEY`, and for a key that is not
+  a `SecretStr`; a key given is stripped of surrounding whitespace, as the
+  variable is.
 - A chat model wrapped in a Runnable, such as `with_retry()` or `bind()`,
   raises `ConfigurationError` naming its type, in every monitor and in
   `DeferToTrustedModel`.
@@ -264,6 +275,9 @@ change raises the minor version.
   own label in any form the reader counts, such as `violation (the note asks
   ...`, `Label: violation because ...` or `The final label for this step:
   violation`.
+- A guard's keys and labels are read through markup and list markers, as in
+  `**Label**: violation`, `__violation__`, `"label":` or `1. Label:`, so a
+  planted safe label after the guard's own label in such a form fails closed.
 - The guard's label parser runs in linear time on long lines of colons,
   dashes or spaces.
 - A guard's log-probabilities are scored only at the guard's own label token,
@@ -277,7 +291,20 @@ change raises the minor version.
   or not a number at all raises `MonitorError` for any `DecisionModel`,
   instead of being dropped by `Combine.MAX` or `Combine.MIN` or raising
   another error. An `int`, a `float`, a `Decimal` or another real number from
-  0 to 1 is read as a float.
+  0 to 1 is read as a float. On the `TypeSafeDecisionModel` path,
+  `langchain-typesafe` parses the answers leniently first, so a `false`,
+  `true` or numeric string from the API arrives as a number, `false` as 0.0.
+- `OpenRouterDecisionModel` answers must be JSON numbers: `false`, `true`,
+  `"0"` and `"0.5"` raise `MonitorError` instead of being read as numbers.
+- A decision answer too large for a float, such as `10**400`, or a `Fraction`
+  just outside 0 to 1 raises `MonitorError` instead of `OverflowError` or
+  being rounded into range.
+- A command a tool raises as a `ParentCommand`, itself or from a graph it
+  calls, is relabelled like one it returns, so it cannot write the monitor's
+  own source or a human message that speaks as the user.
+- An OpenRouter key that holds a control or non-ASCII character raises
+  `ConfigurationError` without naming the key, instead of an httpx error
+  that quoted it whole and was retried.
 - Only a `TypeError` for an unexpected `logprobs` keyword is reported as a
   rejected request for log-probabilities.
 - An `interrupt()` inside a monitor or protocol no longer writes a

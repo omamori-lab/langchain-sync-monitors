@@ -10,11 +10,12 @@ import warnings
 from collections.abc import Callable, Iterable, Iterator, Sequence
 from decimal import Decimal
 from fractions import Fraction
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 import httpx
 import pytest
 import stamina
+from pydantic import SecretStr
 
 from langchain_sync_monitors.contracts import Channel, MonitorInput, MonitorView
 from langchain_sync_monitors.errors import ConfigurationError, MonitorError
@@ -24,8 +25,9 @@ from langchain_sync_monitors.monitors.decision import (
     DecisionModelMonitor,
     OpenRouterDecisionModel,
     TypeSafeDecisionModel,
+    read_decisions_probabilities,
 )
-from langchain_sync_monitors.monitors.questions import (
+from langchain_sync_monitors.monitors.decision_questions import (
     ATTACK_CRITERIA,
     IS_THE_STEP_SUSPICIOUS,
     YesNoQuestion,
@@ -62,12 +64,16 @@ class DecisionsServer:
         return self.responders[len(self.requests) - 1](request)
 
     def build_model(
-        self, *, base_url: str = "https://decisions.test/api/alpha"
+        self,
+        *,
+        base_url: str = "https://decisions.test/api/alpha",
+        api_key: SecretStr | None = None,
     ) -> OpenRouterDecisionModel:
         """Return a decision model whose sync and async clients reach this server."""
         transport = httpx.MockTransport(self.respond)
         return OpenRouterDecisionModel(
             model="typesafe/jev-1.13",
+            api_key=api_key,
             base_url=base_url,
             http_client=httpx.Client(transport=transport),
             async_http_client=httpx.AsyncClient(transport=transport),
@@ -115,6 +121,37 @@ def answer_with(probabilities: dict[str, float], *, status_code: int = 200) -> R
         "provider": "TypeSafe",
     }
     return lambda _request: httpx.Response(status_code, json=body)
+
+
+def build_raw_answer_body(raw_answer: str) -> bytes:
+    """Build a Decisions API response body whose one answer is `raw_answer`, as JSON text."""
+    return f'{{"answers": {{"leaks": {{"type": "noul", "noul": {raw_answer}}}}}}}'.encode()
+
+
+def answer_with_raw(raw_answer: str) -> Responder:
+    """Build a responder whose one answer is `raw_answer`, sent as it is written."""
+    body = build_raw_answer_body(raw_answer)
+    headers = {"content-type": "application/json"}
+    return lambda _request: httpx.Response(200, content=body, headers=headers)
+
+
+REFUSED_RAW_ANSWERS = [
+    pytest.param("false", id="false"),
+    pytest.param("true", id="true"),
+    pytest.param('"0"', id="the string 0"),
+    pytest.param('"0.5"', id="the string 0.5"),
+    pytest.param("1.5", id="above one"),
+    pytest.param("-0.1", id="below zero"),
+    pytest.param("null", id="null"),
+    pytest.param("NaN", id="NaN"),
+]
+"""Answers that are no JSON number from 0 to 1; read leniently, `false` would be a 0."""
+READ_RAW_ANSWERS = [
+    pytest.param("0", 0.0, id="the integer 0"),
+    pytest.param("1", 1.0, id="the integer 1"),
+    pytest.param("0.5", 0.5, id="a half"),
+]
+"""JSON numbers from 0 to 1, integers included, and the probability each is read as."""
 
 
 def fail_with(status_code: int) -> Responder:
@@ -212,6 +249,33 @@ async def test_a_client_error_is_not_retried(call_path: CallPath) -> None:
     assert len(server.requests) == 1
 
 
+def refuse_the_request_locally(request: httpx.Request) -> httpx.Response:
+    """Fail the way httpx fails a request with an illegal header value, quoting the header."""
+    message = f"Illegal header value {request.headers['Authorization']!r}"
+    raise httpx.LocalProtocolError(message)
+
+
+def refuse_the_scheme(_request: httpx.Request) -> httpx.Response:
+    """Fail the way httpx fails a URL whose scheme it cannot send to."""
+    message = "Request URL has an unsupported protocol 'ftp://'."
+    raise httpx.UnsupportedProtocol(message)
+
+
+@pytest.mark.usefixtures("three_attempts")
+@pytest.mark.parametrize("refusal", [refuse_the_request_locally, refuse_the_scheme])
+async def test_a_request_the_client_refuses_is_not_retried(
+    call_path: CallPath,
+    refusal: Responder,
+) -> None:
+    # Arrange
+    server = DecisionsServer(responders=[refusal, answer_with({"leaks": 0.1})])
+
+    # Act and Assert
+    with pytest.raises(httpx.TransportError):
+        await estimate_on_path(server.build_model(), questions=[LEAK_QUESTION], call_path=call_path)
+    assert len(server.requests) == 1
+
+
 def test_a_response_in_an_unexpected_shape_is_a_monitor_error() -> None:
     # Arrange
     server = DecisionsServer(responders=[lambda _request: httpx.Response(200, json={"a": 1})])
@@ -257,6 +321,68 @@ def test_a_probability_outside_zero_to_one_is_rejected() -> None:
         server.build_model().estimate_probabilities_sync(context="x", questions=[LEAK_QUESTION])
 
 
+@pytest.mark.parametrize("raw_answer", REFUSED_RAW_ANSWERS)
+def test_a_decisions_answer_that_is_no_json_number_from_zero_to_one_is_refused(
+    raw_answer: str,
+) -> None:
+    # Arrange
+    content = build_raw_answer_body(raw_answer)
+
+    # Act and Assert
+    with pytest.raises(MonitorError, match="unexpected shape"):
+        read_decisions_probabilities(content, questions=[LEAK_QUESTION])
+
+
+@pytest.mark.parametrize(("raw_answer", "probability"), READ_RAW_ANSWERS)
+def test_a_decisions_answer_that_is_a_json_number_from_zero_to_one_is_read(
+    raw_answer: str,
+    probability: float,
+) -> None:
+    # Arrange
+    content = build_raw_answer_body(raw_answer)
+
+    # Act
+    probabilities = read_decisions_probabilities(content, questions=[LEAK_QUESTION])
+
+    # Assert
+    assert probabilities == {"leaks": probability}
+    assert type(probabilities["leaks"]) is float
+
+
+@pytest.mark.parametrize("raw_answer", REFUSED_RAW_ANSWERS)
+async def test_the_monitor_fails_on_a_decisions_answer_that_is_no_json_number(
+    monitor_input: MonitorInput,
+    call_path: CallPath,
+    raw_answer: str,
+) -> None:
+    # Arrange: the step fails, so nothing it proposed runs.
+    server = DecisionsServer(responders=[answer_with_raw(raw_answer)])
+    monitor = DecisionModelMonitor(decision_model=server.build_model(), questions=[LEAK_QUESTION])
+
+    # Act and Assert
+    with pytest.raises(MonitorError, match="unexpected shape"):
+        await evaluate_on_path(monitor, monitor_input, call_path=call_path)
+
+
+@pytest.mark.parametrize(("raw_answer", "suspicion"), READ_RAW_ANSWERS)
+async def test_the_monitor_scores_a_decisions_answer_that_is_a_json_number(
+    monitor_input: MonitorInput,
+    call_path: CallPath,
+    raw_answer: str,
+    suspicion: float,
+) -> None:
+    # Arrange
+    server = DecisionsServer(responders=[answer_with_raw(raw_answer)])
+    monitor = DecisionModelMonitor(decision_model=server.build_model(), questions=[LEAK_QUESTION])
+
+    # Act
+    verdict = await evaluate_on_path(monitor, monitor_input, call_path=call_path)
+
+    # Assert
+    assert verdict.suspicion == suspicion
+    assert type(verdict.suspicion) is float
+
+
 async def test_a_question_left_unanswered_is_a_monitor_error() -> None:
     # Arrange
     server = DecisionsServer(responders=[answer_with({"other": 0.5})])
@@ -266,13 +392,113 @@ async def test_a_question_left_unanswered_is_a_monitor_error() -> None:
         await server.build_model().estimate_probabilities(context="x", questions=[LEAK_QUESTION])
 
 
-def test_a_missing_key_fails_at_construction(monkeypatch: pytest.MonkeyPatch) -> None:
+@pytest.mark.parametrize("environment_key", [None, " \n"], ids=["unset", "blank"])
+def test_a_missing_key_fails_at_construction(
+    monkeypatch: pytest.MonkeyPatch,
+    environment_key: str | None,
+) -> None:
     # Arrange
-    monkeypatch.delenv("OPENROUTER_API_KEY")
+    if environment_key is None:
+        monkeypatch.delenv("OPENROUTER_API_KEY")
+    else:
+        monkeypatch.setenv("OPENROUTER_API_KEY", environment_key)
 
     # Act and Assert
     with pytest.raises(ConfigurationError, match="OPENROUTER_API_KEY"):
         OpenRouterDecisionModel(model="typesafe/jev-1.13")
+
+
+async def test_the_key_in_the_environment_is_sent_stripped(
+    monkeypatch: pytest.MonkeyPatch,
+    call_path: CallPath,
+) -> None:
+    # Arrange
+    monkeypatch.setenv("OPENROUTER_API_KEY", " environment-key\n")
+    server = DecisionsServer(responders=[answer_with({"leaks": 0.5})])
+    model = server.build_model()
+
+    # Act
+    await estimate_on_path(model, questions=[LEAK_QUESTION], call_path=call_path)
+
+    # Assert
+    (request,) = server.requests
+    assert request.headers["Authorization"] == "Bearer environment-key"
+
+
+@pytest.mark.parametrize("given_key", ["given-key", " given-key\n"], ids=["bare", "padded"])
+async def test_a_key_given_is_sent_stripped_in_place_of_the_one_in_the_environment(
+    call_path: CallPath,
+    given_key: str,
+) -> None:
+    # Arrange: OPENROUTER_API_KEY holds another key
+    server = DecisionsServer(responders=[answer_with({"leaks": 0.5})])
+    model = server.build_model(api_key=SecretStr(given_key))
+
+    # Act
+    await estimate_on_path(model, questions=[LEAK_QUESTION], call_path=call_path)
+
+    # Assert
+    (request,) = server.requests
+    assert request.headers["Authorization"] == "Bearer given-key"
+
+
+@pytest.mark.parametrize("blank_key", ["", "  "], ids=["empty", "whitespace"])
+def test_a_blank_key_given_fails_rather_than_fall_back_to_the_environment(blank_key: str) -> None:
+    # Arrange: OPENROUTER_API_KEY holds a key the model must not fall back to
+    api_key = SecretStr(blank_key)
+
+    # Act and Assert
+    with pytest.raises(ConfigurationError, match="api_key is blank"):
+        OpenRouterDecisionModel(model="typesafe/jev-1.13", api_key=api_key)
+
+
+UNSENDABLE_KEYS = {
+    "given-newline": ("given", "\n"),
+    "given-return": ("given", "\r"),
+    "given-null": ("given", "\x00"),
+    "given-e-acute": ("given", "\u00e9"),
+    "environment-newline": ("environment", "\n"),
+    "environment-return": ("environment", "\r"),
+    "environment-e-acute": ("environment", "\u00e9"),
+}
+"""Where a key comes from, and the character inside it that no header may carry. No
+environment variable can hold a null byte, so only a key given can."""
+
+
+@pytest.mark.parametrize(
+    ("source", "character"), UNSENDABLE_KEYS.values(), ids=UNSENDABLE_KEYS.keys()
+)
+def test_a_key_no_header_may_carry_fails_without_showing_the_key(
+    monkeypatch: pytest.MonkeyPatch,
+    source: str,
+    character: str,
+) -> None:
+    # Arrange: the character sits inside the key, where stripping leaves it
+    key = f"sk-secret{character}tail"
+    if source == "environment":
+        monkeypatch.setenv("OPENROUTER_API_KEY", key)
+    api_key = SecretStr(key) if source == "given" else None
+
+    # Act
+    with pytest.raises(ConfigurationError, match="control or non-ASCII") as raised:
+        OpenRouterDecisionModel(model="typesafe/jev-1.13", api_key=api_key)
+
+    # Assert
+    message = str(raised.value)
+    assert "secret" not in message
+    assert "tail" not in message
+
+
+def test_a_key_given_as_a_plain_string_fails_without_showing_the_key() -> None:
+    # Arrange
+    api_key = cast("SecretStr", "sk-plain-key")
+
+    # Act
+    with pytest.raises(ConfigurationError, match="must be a SecretStr") as raised:
+        OpenRouterDecisionModel(model="typesafe/jev-1.13", api_key=api_key)
+
+    # Assert
+    assert "sk-plain-key" not in str(raised.value)
 
 
 def build_typesafe_classifier(
@@ -487,6 +713,10 @@ async def test_the_reason_names_the_concern_without_numbers(
         {"leaks": 0.2, "suspicious_step": Decimal("sNaN")},
         {"leaks": 0.2, "suspicious_step": Decimal("Infinity")},
         {"leaks": 0.2, "suspicious_step": Decimal("1.5")},
+        {"leaks": 0.2, "suspicious_step": 10**400},
+        {"leaks": 0.2, "suspicious_step": Fraction(10**400, 1)},
+        {"leaks": 0.2, "suspicious_step": Fraction(10**400 + 1, 10**400)},
+        {"leaks": 0.2, "suspicious_step": Fraction(-1, 10**400)},
     ],
     ids=[
         "not a number",
@@ -501,6 +731,10 @@ async def test_the_reason_names_the_concern_without_numbers(
         "a Decimal signalling NaN",
         "a Decimal infinity",
         "a Decimal above one",
+        "an integer too large for a float",
+        "a Fraction too large for a float",
+        "a Fraction a float would round down to one",
+        "a Fraction a float would round up to zero",
     ],
 )
 async def test_an_answer_that_is_no_probability_is_a_monitor_error(
@@ -531,8 +765,9 @@ async def test_an_answer_that_is_no_probability_is_a_monitor_error(
         {"leaks": 0, "suspicious_step": 1},
         {"leaks": Decimal("0.0"), "suspicious_step": Decimal("1")},
         {"leaks": Fraction(0), "suspicious_step": Fraction(1, 1)},
+        {"leaks": Fraction(1, 10**400), "suspicious_step": Fraction(10**400 - 1, 10**400)},
     ],
-    ids=["floats", "integers", "Decimals", "Fractions"],
+    ids=["floats", "integers", "Decimals", "Fractions", "Fractions a float rounds to 0 and 1"],
 )
 async def test_answers_at_zero_and_one_are_read_as_floats(
     monitor_input: MonitorInput,

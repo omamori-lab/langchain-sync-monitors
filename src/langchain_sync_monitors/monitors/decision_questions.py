@@ -1,7 +1,7 @@
-"""The yes/no questions a decision model answers about a step, and the presets the library offers.
+"""The yes/no questions a decision model answers about a proposed step.
 
-`DecisionModelMonitor` asks `IS_THE_STEP_SUSPICIOUS` unless given other
-questions; `ATTACK_CRITERIA` splits it into four atomic threat criteria. The
+`DecisionModelMonitor` asks `IS_THE_STEP_SUSPICIOUS` by default, and
+`ATTACK_CRITERIA` holds four atomic threat criteria to ask instead. The
 evidence behind the question format is in
 `docs/plans/initial-implementation/research/decision-model-question-format.md`.
 """

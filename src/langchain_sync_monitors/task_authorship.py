@@ -16,7 +16,10 @@ context note, in the state as well as in what the monitor reads.
   `SEEN_HUMAN_MESSAGES_KEY`, and writes each one that is not a run's input
   back, by id, tagged as a note, so a replayed history keeps the tag.
 - A human message a tool writes is tagged where it is written, and no
-  message a tool writes keeps a source only the monitor writes.
+  message a tool writes keeps a source only the monitor writes, whatever
+  shape the tool's update takes, a command it raises as a `ParentCommand`
+  included; a message the tool writes back unchanged, under its id, is left
+  as it was.
 - `RUN_OPEN_KEY` is set at the start of a run and of each step, and cleared
   when the run reaches the monitor's `after_agent` hook. A run that starts
   while it is still set follows one that stopped early, or a fork from a
@@ -39,13 +42,18 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Collection, Iterable, Mapping, Sequence
-from dataclasses import replace
 from typing import TypeGuard
 
-from langchain_core.messages import BaseMessage, HumanMessage, ToolMessage, convert_to_messages
+from langchain_core.messages import BaseMessage, HumanMessage, ToolMessage
+from langgraph.errors import ParentCommand
 from langgraph.types import Command
 
-from langchain_sync_monitors._langchain import AgentStateUpdate, ToolCallResult, ToolCallResults
+from langchain_sync_monitors._langchain import (
+    AgentStateUpdate,
+    ToolCallResult,
+    ToolCallResults,
+    rewrite_update_messages,
+)
 from langchain_sync_monitors.transcript import MONITOR_FEEDBACK_SOURCE, read_message_source
 
 logger = logging.getLogger(__name__)
@@ -300,29 +308,44 @@ def is_unchanged_write_back(
     return existing is not None and existing == message
 
 
+def relabel_unless_written_back(
+    message: BaseMessage,
+    *,
+    tool_name: str,
+    existing_messages: Mapping[str, BaseMessage],
+) -> BaseMessage:
+    """Relabel a message a tool writes, unless the tool writes it back unchanged."""
+    if is_unchanged_write_back(message, existing_messages=existing_messages):
+        return message
+    return relabel_tool_written_message(message, tool_name=tool_name)
+
+
 def relabel_tool_command(
     command: Command,
     *,
     tool_name: str,
     existing_messages: Mapping[str, BaseMessage],
 ) -> Command:
-    """Relabel the new or changed messages in a tool's `Command` update.
+    """Relabel the new or changed messages a tool's `Command` writes, in any update shape.
 
-    Messages given as dictionaries, tuples or strings, one or a list, are
-    converted first, as LangGraph's message reducer would convert them
-    [@langgraph2026].
+    The messages are read as LangGraph writes them, from an update given as
+    a dict, as pairs of key and value, or as an object whose class annotates
+    its keys, such as a dataclass or a pydantic model, and converted as its
+    message reducer converts them, whether one message or a list, given as
+    messages, dictionaries, tuples or strings, or wrapped in an `Overwrite`
+    [@langgraph2026]. A dict stays a dict, and any other update becomes the
+    pairs LangGraph would write, so the state receives the same writes with
+    the messages relabelled. A command that writes no messages, such as one
+    with only a `goto`, is returned as it is. The reader is private to
+    LangGraph; without it, an update other than a dict or pairs raises
+    `MonitorError`.
     """
-    if not isinstance(command.update, dict) or "messages" not in command.update:
-        return command
-    written = command.update["messages"]
-    messages = convert_to_messages(written if isinstance(written, list) else [written])
-    relabelled = [
-        message
-        if is_unchanged_write_back(message, existing_messages=existing_messages)
-        else relabel_tool_written_message(message, tool_name=tool_name)
-        for message in messages
-    ]
-    return replace(command, update={**command.update, "messages": relabelled})
+    return rewrite_update_messages(
+        command,
+        rewrite=lambda message: relabel_unless_written_back(
+            message, tool_name=tool_name, existing_messages=existing_messages
+        ),
+    )
 
 
 def relabel_tool_result(
@@ -345,23 +368,51 @@ def relabel_tool_result(
     return relabelled if isinstance(relabelled, ToolMessage) else result
 
 
+def read_existing_messages(state: object) -> dict[str, BaseMessage]:
+    """Return the messages in the state by id, leaving out any without an id."""
+    return {message.id: message for message in read_state_messages(state) if message.id}
+
+
+def relabel_parent_command(bubble: ParentCommand, *, tool_name: str, state: object) -> None:
+    """Relabel, in place, what the command in a `ParentCommand` a tool call raises writes.
+
+    A tool can raise one, or call a graph whose node returns a command for
+    its parent graph, and LangGraph applies that command as the tools node's
+    own writes, or hands it on to the graph it names [@langgraph2026]. Its
+    messages are relabelled as a returned command's are, and it keeps its
+    `graph`, `goto` and `resume`. The command is replaced in the exception,
+    as LangGraph itself replaces it on the way up.
+    """
+    [command] = bubble.args
+    existing_messages = read_existing_messages(state)
+    relabelled = relabel_tool_command(
+        command, tool_name=tool_name, existing_messages=existing_messages
+    )
+    bubble.args = (relabelled,)
+
+
 def mark_tool_written_notes(
     results: ToolCallResults,
     *,
     tool_name: str,
     state: object,
 ) -> ToolCallResults:
-    """Tag the new human messages a tool writes as notes, and strip the monitor's own sources.
+    """Tag the human messages a tool writes as notes, and strip the monitor's own sources.
 
     A tool can return a tool message, a `Command`, or a list of both, which
-    LangGraph's tool node accepts [@langgraph2026]. Tagged where it is
-    written, with the tool's name as its source, a human message stays a note
-    in every later run, even one that starts before the monitor has seen it,
-    and in a history the application stores and replays.
+    LangGraph's tool node accepts [@langgraph2026], and a `Command`'s update
+    can take any shape LangGraph accepts; `relabel_tool_command` reads each,
+    and `relabel_parent_command` a command the tool raises instead.
+    Every new or changed message the tool writes loses a source only the
+    monitor writes, and a human message left without a source becomes a
+    note named after the tool, or `application` for a tool named after one
+    of the monitor's sources. A message the tool writes back under its id,
+    unchanged in every field, keeps its author and its source. Tagged where
+    it is written, a human message stays a note in every later run, even one
+    that starts before the monitor has seen it, and in a history the
+    application stores and replays.
     """
-    existing_messages = {
-        message.id: message for message in read_state_messages(state) if message.id
-    }
+    existing_messages = read_existing_messages(state)
     if isinstance(results, list):
         return [
             relabel_tool_result(result, tool_name=tool_name, existing_messages=existing_messages)

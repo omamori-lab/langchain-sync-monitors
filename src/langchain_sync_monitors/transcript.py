@@ -13,17 +13,17 @@ revision request [@langchain2026; @deepagents2026], and those are rendered as
 context notes that authorise nothing. Deep Agents leaves others untagged, such
 as the frames of a video that `read_file` attaches, with the agent's own path
 in their text [@deepagents2026]. So the middleware passes a monitor only the
-human messages that arrived as a run's input untagged; `mark_context_notes`
-tags every other one in the monitor's copy of the history.
+human messages that arrived as a run's input untagged, and `task_authorship`
+tags every other one.
 """
 
 from __future__ import annotations
 
 import html
 import json
-from collections.abc import Collection, Iterable, Iterator, Mapping, Sequence
+from collections.abc import Iterator, Mapping, Sequence
 from dataclasses import dataclass
-from typing import NotRequired, TypedDict, TypeGuard
+from typing import NotRequired, TypedDict
 
 from langchain_core.messages import (
     AIMessage,
@@ -31,6 +31,7 @@ from langchain_core.messages import (
     ContentBlock,
     HumanMessage,
     InvalidToolCall,
+    NonStandardContentBlock,
     ServerToolCall,
     ServerToolCallChunk,
     ServerToolResult,
@@ -45,8 +46,8 @@ MONITOR_FEEDBACK_SOURCE = "monitor"
 
 TASK_AUTHOR_TAGS = {TaskAuthor.USER: "user", TaskAuthor.PARENT_AGENT: "delegator"}
 
-APPLICATION_SOURCE = "application"
-"""The source of a context note made from a human message that names no source of its own."""
+GROUNDING_QUERY_KEYS = ("web_search_queries", "image_search_queries")
+"""The keys of Gemini's `grounding_metadata` that hold the searches its built-in tools ran."""
 
 
 class ProviderToolCallDetails(TypedDict):
@@ -173,6 +174,22 @@ def render_provider_tool_result(block: ServerToolResult, *, tool_name: str) -> s
     return wrap_in_tag(tag="provider_tool_result", content=content, name=tool_name)
 
 
+def render_unrecognised_block(block: NonStandardContentBlock) -> str:
+    """Render a part of a reply that LangChain could not map to a standard block, whole.
+
+    The block's own `type`, when it has one, is its name. It may be a tool
+    call the provider ran, in a reply without `model_provider` in its
+    metadata, so it is shown rather than dropped.
+    """
+    value = block.get("value", {})
+    block_type = value.get("type") if isinstance(value, Mapping) else None
+    return wrap_in_tag(
+        tag="unrecognised_block",
+        content=render_json(value),
+        name=block_type if isinstance(block_type, str) else None,
+    )
+
+
 def build_provider_tool_entries(
     blocks: Sequence[ContentBlock],
     *,
@@ -181,10 +198,13 @@ def build_provider_tool_entries(
     """Yield the built-in tool calls the provider ran inside a model call, and their results.
 
     Tools such as Anthropic's web fetch or OpenAI's web search run at the
-    provider, before the reply reaches the monitor, and LangChain gives them
-    to every provider as standard `server_tool_call` and `server_tool_result`
-    blocks [@langchaincore2026]. A call sits with the tool calls and a result
-    with the tool results, each in a tag that says the provider ran it.
+    provider, before the reply reaches the monitor. LangChain's translators
+    give them as standard `server_tool_call` and `server_tool_result` blocks
+    for Anthropic, OpenAI's Responses API and Gemini's code execution, and in
+    a reply already in LangChain's standard blocks [@langchaincore2026]. A
+    call sits with the tool calls and a result with the tool results, each in
+    a tag that says the provider ran it. A block LangChain could not map sits
+    with the tool calls too, so it is never dropped unseen.
     """
     for block in blocks:
         if block["type"] == "server_tool_call" or block["type"] == "server_tool_call_chunk":
@@ -193,11 +213,46 @@ def build_provider_tool_entries(
                 text=render_provider_tool_call(block),
             )
         elif block["type"] == "server_tool_result":
-            tool_name = tool_names_by_call.get(block["tool_call_id"], "unknown")
+            tool_name = tool_names_by_call.get(block.get("tool_call_id", ""), "unknown")
             yield TranscriptEntry(
                 channel=Channel.TOOL_RESULTS,
                 text=render_provider_tool_result(block, tool_name=tool_name),
             )
+        elif block["type"] == "non_standard":
+            yield TranscriptEntry(
+                channel=Channel.TOOL_CALLS,
+                text=render_unrecognised_block(block),
+            )
+
+
+def build_grounding_entries(message: AIMessage) -> Iterator[TranscriptEntry]:
+    """Yield the searches of Gemini's built-in grounding tools as a provider tool call and result.
+
+    langchain-google-genai keeps the queries of Gemini's Google Search only
+    in the reply's `grounding_metadata`, which LangChain's Gemini translator
+    reads for citations [@langchaincore2026], with no `server_tool_call`
+    block. The queries are the call, and the sources found are its result.
+    """
+    metadata = message.response_metadata.get("grounding_metadata")
+    if not isinstance(metadata, Mapping):
+        return
+    queries = {key: metadata[key] for key in GROUNDING_QUERY_KEYS if metadata.get(key)}
+    if queries:
+        details = ProviderToolCallDetails(args=queries)
+        yield TranscriptEntry(
+            channel=Channel.TOOL_CALLS,
+            text=wrap_in_tag(
+                tag="provider_tool_call", content=render_json(details), name="grounding"
+            ),
+        )
+    sources = metadata.get("grounding_chunks")
+    if sources:
+        yield TranscriptEntry(
+            channel=Channel.TOOL_RESULTS,
+            text=wrap_in_tag(
+                tag="provider_tool_result", content=render_json(sources), name="grounding"
+            ),
+        )
 
 
 def build_agent_entries(
@@ -220,6 +275,7 @@ def build_agent_entries(
         message.content_blocks,
         tool_names_by_call=tool_names_by_call,
     )
+    yield from build_grounding_entries(message)
     if message.text.strip():
         yield TranscriptEntry(
             channel=Channel.AGENT_TEXT,
@@ -305,8 +361,8 @@ def build_human_entry(message: HumanMessage, *, task_author: TaskAuthor) -> Tran
     A human message tagged with any `lc_source` other than the monitor's was
     written by another part of the application, often with the agent's own
     model, so it becomes a `context_note` that names its source and
-    authorises nothing. Inside an agent, `mark_context_notes` has already
-    tagged every human message that did not arrive as a run's input.
+    authorises nothing. Inside an agent, `task_authorship` has already tagged
+    every human message that did not arrive as a run's input.
     """
     source = read_message_source(message)
     if source is None:
@@ -320,59 +376,6 @@ def build_human_entry(message: HumanMessage, *, task_author: TaskAuthor) -> Tran
     return TranscriptEntry(
         channel=Channel.USER,
         text=wrap_in_tag(tag="context_note", content=message.text, source=source),
-    )
-
-
-def is_untagged_human_message(message: BaseMessage) -> TypeGuard[HumanMessage]:
-    """Tell whether a message is a human message that no part of the application tagged."""
-    return isinstance(message, HumanMessage) and read_message_source(message) is None
-
-
-def find_untagged_human_message_ids(messages: Iterable[BaseMessage]) -> list[str]:
-    """Return the ids of the untagged human messages, in order, leaving out any without an id."""
-    return [message.id for message in messages if is_untagged_human_message(message) and message.id]
-
-
-def tag_as_context_note(message: HumanMessage, *, source: str) -> HumanMessage:
-    """Return a copy of a human message with an `lc_source` tag, which makes it a context note.
-
-    The source comes from a tool's or a message's name, which the monitor
-    does not choose, so the monitor's own source becomes `application`: a
-    tool called `monitor` must not write the monitor's feedback.
-    """
-    note_source = APPLICATION_SOURCE if source == MONITOR_FEEDBACK_SOURCE else source
-    additional_kwargs = {**message.additional_kwargs, "lc_source": note_source}
-    return message.model_copy(update={"additional_kwargs": additional_kwargs})
-
-
-def mark_context_note(message: HumanMessage) -> HumanMessage:
-    """Return a copy of a human message tagged as a context note.
-
-    The note's source is the message's `name`, as Deep Agents' Nemotron
-    profile names its nudges [@deepagents2026], or else `application`.
-    """
-    return tag_as_context_note(message, source=message.name or APPLICATION_SOURCE)
-
-
-def mark_context_notes(
-    history: Sequence[BaseMessage],
-    *,
-    task_message_ids: Collection[str],
-) -> tuple[BaseMessage, ...]:
-    """Tag every untagged human message the task author did not write as a context note.
-
-    `task_message_ids` holds the ids of the human messages that arrived as a
-    run's input. Any other untagged human message was written during a run,
-    by a tool, a middleware or the application, and a tool can put the
-    agent's own words in it, so it must not speak as the user. The tagged
-    copies exist only in what the monitor reads; the agent's conversation is
-    unchanged. A message without an id is never the task author's.
-    """
-    return tuple(
-        mark_context_note(message)
-        if is_untagged_human_message(message) and message.id not in task_message_ids
-        else message
-        for message in history
     )
 
 

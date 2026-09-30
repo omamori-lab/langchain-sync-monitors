@@ -18,7 +18,6 @@ from langchain_core.messages import AIMessage, HumanMessage
 
 from langchain_sync_monitors.halts import STANDING_HALT_MESSAGE
 from langchain_sync_monitors.middleware import MonitorMiddleware
-from langchain_sync_monitors.placement import MonitorPlacementWarning, check_monitor_placement
 from langchain_sync_monitors.protocols import DeferToResample, HaltRun
 from tests.support.agents import (
     RunMode,
@@ -100,35 +99,3 @@ def test_a_rubric_that_grades_a_halted_run_unmet_meets_a_halt_again(run_mode: Ru
         record["outcome"] == "halted" and record["samples"] == [] for record in main_records[1:]
     )
     assert result["messages"][-1].text == STANDING_HALT_MESSAGE
-
-
-def test_the_placement_check_trusts_the_rubric_to_tag_its_messages() -> None:
-    # Arrange
-    rubric = build_rubric(ScriptedChatModel(responses=[]))
-
-    # Act
-    with warnings.catch_warnings():
-        warnings.simplefilter("error")
-        warned = check_monitor_placement(middleware=[rubric, build_monitor()])
-
-    # Assert
-    assert warned == []
-
-
-def test_the_placement_check_names_a_subclass_of_the_rubric() -> None:
-    # Arrange
-    class HouseRubric(RubricMiddleware):
-        """A project's own grader, which may add messages of its own."""
-
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore")
-        house_rubric = HouseRubric(model=ScriptedChatModel(responses=[]))
-
-    # Act
-    with warnings.catch_warnings(record=True) as caught:
-        warnings.simplefilter("always")
-        warned = check_monitor_placement(middleware=[house_rubric, build_monitor()])
-
-    # Assert
-    assert warned == [house_rubric.name]
-    assert [warning.category for warning in caught] == [MonitorPlacementWarning]

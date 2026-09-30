@@ -177,57 +177,17 @@ class ReturningToModelMiddleware(AgentMiddleware[Any, Any, Any]):
         return None
 
 
-class AsyncReturningToModelMiddleware(AgentMiddleware[Any, Any, Any]):
-    """Declares the jump back to the model on its async `after_agent` hook only."""
-
-    @hook_config(can_jump_to=["model"])
-    async def aafter_agent(
-        self,
-        state: AgentState[Any],
-        runtime: Runtime[Any],
-    ) -> dict[str, Any] | None:
-        return None
-
-
-class EndingMiddleware(AgentMiddleware[Any, Any, Any]):
-    """An `after_agent` hook that can only end the run."""
-
-    @hook_config(can_jump_to=["end"])
-    def after_agent(self, state: AgentState[Any], runtime: Runtime[Any]) -> dict[str, Any] | None:
-        return None
-
-
-@pytest.mark.parametrize(
-    "returning",
-    [ReturningToModelMiddleware(), AsyncReturningToModelMiddleware()],
-    ids=["sync", "async"],
-)
 @pytest.mark.parametrize("position", ["outside", "inside"])
-def test_a_middleware_that_can_send_the_run_back_to_the_model_is_named_in_a_warning(
+def test_a_middleware_that_can_send_the_run_back_to_the_model_is_not_named(
     monitor_middleware: MonitorMiddleware,
-    returning: AgentMiddleware[Any, Any, Any],
     position: str,
 ) -> None:
-    # Arrange
+    # Arrange: a halt stands against such a hook, whatever human message it adds
+    returning = ReturningToModelMiddleware()
     if position == "outside":
         stack = [returning, monitor_middleware]
     else:
         stack = [monitor_middleware, returning]
-
-    # Act
-    with pytest.warns(MonitorPlacementWarning, match="lifts the halt") as caught:
-        misplaced = check_monitor_placement(middleware=stack)
-
-    # Assert
-    assert misplaced == [returning.name]
-    assert "lc_source" in str(caught[0].message)
-
-
-def test_an_after_agent_hook_that_cannot_return_to_the_model_is_not_named(
-    monitor_middleware: MonitorMiddleware,
-) -> None:
-    # Arrange
-    stack = [EndingMiddleware(), monitor_middleware]
 
     # Act
     with warnings.catch_warnings():
@@ -325,7 +285,7 @@ def test_a_middleware_named_like_a_tool_retry_that_wraps_no_tool_call_is_not_nam
 def test_a_stack_without_a_monitor_has_nothing_to_check() -> None:
     # Act
     misplaced = check_monitor_placement(
-        middleware=[CommandingMiddleware(), ToolRetryMiddleware(), ReturningToModelMiddleware()],
+        middleware=[CommandingMiddleware(), ToolRetryMiddleware()],
     )
 
     # Assert

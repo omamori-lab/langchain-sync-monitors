@@ -287,6 +287,17 @@ sequenceDiagram
   agent remembers them on later steps, and so does the monitor, which reads
   earlier feedback as `<monitor_feedback>`.
 
+`HIDDEN` has a cost. Once a step is over, the agent no longer sees what was
+blocked in it, so at a later step it may propose the same blocked action
+again. Each repeat is blocked again: it spends a block towards that step's
+`max_consecutive_blocks` and the thread's `max_total_blocks`, and costs a
+call of the agent's model and one of the monitor. In the
+[live runs](../explanation/live-runs.md), Auto Mode with the chat judge
+blocked a read of the credential file, and the agent proposed the same read
+at the next step. Where repeated attempts matter, use `IN_TRANSCRIPT`, which
+keeps each blocked attempt and its feedback in the conversation, so it grows
+with every block.
+
 Every message the monitor inserts gets a fresh id of the form
 `monitor-<uuid4>`, because LangGraph replaces messages that share an id.
 
@@ -334,6 +345,9 @@ blocks_in_thread = sum(record["blocked_count"] for record in records)
   fallback. Parallel subagents can together pass the total, and a failed
   subagent's blocks are missed; see
   [Thresholds and limits](#thresholds-and-limits).
+- **Hidden feedback is forgotten at the next step.** With `HIDDEN`, the
+  default, the agent may propose a blocked action again at a later step,
+  spending blocks and model calls; see [What the agent sees](#what-the-agent-sees).
 - **Put the monitor last** in the `create_agent` middleware list, so no other
   middleware runs inside it and returns commands for attempts the monitor
   blocks. `check_monitor_placement(middleware=[...])` warns about such a list.

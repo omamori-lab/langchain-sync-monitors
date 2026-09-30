@@ -86,11 +86,7 @@ markdown_extensions:
       toc_depth: "2-3"
   - pymdownx.highlight
   - pymdownx.inlinehilite
-  - pymdownx.superfences:
-      custom_fences:
-        - name: mermaid
-          class: mermaid
-          format: !!python/name:pymdownx.superfences.fence_code_format
+  - pymdownx.superfences
 
 # Report a link to a missing anchor as a warning, so --strict fails on it. A line
 # that Markdown mistakes for a footnote definition shows up this way.

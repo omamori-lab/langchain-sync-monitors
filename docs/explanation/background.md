@@ -210,7 +210,8 @@ the tests.
 
 These pages are built with MkDocs [@mkdocs2024] and Material for MkDocs
 [@mkdocsmaterial2026], with PyMdown Extensions [@pymdownextensions2026] for
-the Markdown and Mermaid [@mermaid2026] for the diagrams. mkdocstrings
+the Markdown. The diagrams are the lab's own figures, SVGs drawn in its house
+style in a light and a dark version. mkdocstrings
 [@mkdocstrings2026] renders the API reference from the docstrings, and
 mkdocs-bibtex [@mkdocsbibtex2025] turns the citations into footnotes.
 

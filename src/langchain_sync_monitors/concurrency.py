@@ -31,6 +31,7 @@ async def run_concurrently[ResultT](
         first_failure, *other_failures = failures.exceptions
         for other_failure in other_failures:
             logger.warning("A concurrent call also failed: %r", other_failure)
+    # Raised outside the `except`, so the error is not chained onto the exception group.
     if first_failure is not None:
         raise first_failure
     return [task.result() for task in tasks]

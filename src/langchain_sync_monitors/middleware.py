@@ -270,6 +270,7 @@ class MonitorMiddleware(AgentMiddleware[MonitorState, AgentContext, StructuredOu
         """Decide this step under `invoke()`, driving the protocol without an event loop."""
         prepared = self.prepare_step(request)
         with open_step_span_sync(prepared.identity) as traced_step:
+            # A halt found before sampling decides the step, and the protocol never runs.
             decision = prepared.halt
             if decision is None:
                 step = SyncPendingStep(handler=handler, **prepared.options)
@@ -277,6 +278,7 @@ class MonitorMiddleware(AgentMiddleware[MonitorState, AgentContext, StructuredOu
                     with hide_model_calls_from_message_stream():
                         decision = run_synchronously(self.protocol.decide(step))
                 except GraphBubbleUp:
+                    # LangGraph's own control flow, such as an interrupt, is not a failed step.
                     raise
                 except BaseException as error:
                     self.report_failed_step(
@@ -284,6 +286,8 @@ class MonitorMiddleware(AgentMiddleware[MonitorState, AgentContext, StructuredOu
                     )
                     raise
                 finally:
+                    # A task the protocol left on a running loop may run after the step.
+                    # Once closed, the step refuses it the model.
                     step.close()
             record = prepared.identity.build_record(decision)
             trace_decision_sync(traced_step, record=record)
@@ -298,6 +302,7 @@ class MonitorMiddleware(AgentMiddleware[MonitorState, AgentContext, StructuredOu
         """Decide this step under `ainvoke()`, awaiting the protocol."""
         prepared = self.prepare_step(request)
         async with open_step_span(prepared.identity) as traced_step:
+            # A halt found before sampling decides the step, and the protocol never runs.
             decision = prepared.halt
             if decision is None:
                 step = AsyncPendingStep(handler=handler, **prepared.options)
@@ -305,6 +310,7 @@ class MonitorMiddleware(AgentMiddleware[MonitorState, AgentContext, StructuredOu
                     with hide_model_calls_from_message_stream():
                         decision = await self.protocol.decide(step)
                 except GraphBubbleUp:
+                    # LangGraph's own control flow, such as an interrupt, is not a failed step.
                     raise
                 except BaseException as error:
                     self.report_failed_step(
@@ -383,6 +389,7 @@ class MonitorMiddleware(AgentMiddleware[MonitorState, AgentContext, StructuredOu
         """Record and tag the human messages so far, and open a step, under `ainvoke()`."""
         return build_step_start_update(state)
 
+    # Without `can_jump_to`, `create_agent` gives the hook a plain edge and ignores `jump_to`.
     @hook_config(can_jump_to=["end"])
     @override
     def after_model(self, state: MonitorState, runtime: AgentRuntime) -> AgentStateUpdate | None:
@@ -520,6 +527,8 @@ class MonitorMiddleware(AgentMiddleware[MonitorState, AgentContext, StructuredOu
         )
         update = {
             MONITOR_LOG_KEY: [record],
+            # A middleware listed after the monitor runs its `before_model` hook after the
+            # monitor's own, so a human message it wrote is first seen here.
             **build_note_update(request.state),
             **build_halt_inputs_update(record, state=request.state, monitor=self.name),
         }

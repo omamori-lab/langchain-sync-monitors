@@ -26,7 +26,8 @@ monitor = DecisionModelMonitor(
 - **Key.** The key comes from `OPENROUTER_API_KEY`, the variable OpenRouter's
   chat models read, unless you pass `api_key=SecretStr(...)`. It is read when
   the model is built, so a missing key raises `ConfigurationError` at once,
-  not at the first step.
+  not at the first step. A blank `api_key` raises too, rather than fall back
+  to the variable.
 - **Endpoint.** Requests go to `{base_url}/decisions`, and `base_url` defaults
   to `https://openrouter.ai/api/alpha`. The Decisions API is in alpha.
 - **Timeout.** `timeout_seconds` defaults to 30. It applies only to the

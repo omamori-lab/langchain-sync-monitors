@@ -15,6 +15,7 @@ from typing import TYPE_CHECKING
 import httpx
 import pytest
 import stamina
+from pydantic import SecretStr
 
 from langchain_sync_monitors.contracts import Channel, MonitorInput, MonitorView
 from langchain_sync_monitors.errors import ConfigurationError, MonitorError
@@ -62,12 +63,16 @@ class DecisionsServer:
         return self.responders[len(self.requests) - 1](request)
 
     def build_model(
-        self, *, base_url: str = "https://decisions.test/api/alpha"
+        self,
+        *,
+        base_url: str = "https://decisions.test/api/alpha",
+        api_key: SecretStr | None = None,
     ) -> OpenRouterDecisionModel:
         """Return a decision model whose sync and async clients reach this server."""
         transport = httpx.MockTransport(self.respond)
         return OpenRouterDecisionModel(
             model="typesafe/jev-1.13",
+            api_key=api_key,
             base_url=base_url,
             http_client=httpx.Client(transport=transport),
             async_http_client=httpx.AsyncClient(transport=transport),
@@ -273,6 +278,31 @@ def test_a_missing_key_fails_at_construction(monkeypatch: pytest.MonkeyPatch) ->
     # Act and Assert
     with pytest.raises(ConfigurationError, match="OPENROUTER_API_KEY"):
         OpenRouterDecisionModel(model="typesafe/jev-1.13")
+
+
+async def test_a_key_given_is_sent_in_place_of_the_one_in_the_environment(
+    call_path: CallPath,
+) -> None:
+    # Arrange: OPENROUTER_API_KEY holds another key
+    server = DecisionsServer(responders=[answer_with({"leaks": 0.5})])
+    model = server.build_model(api_key=SecretStr("given-key"))
+
+    # Act
+    await estimate_on_path(model, questions=[LEAK_QUESTION], call_path=call_path)
+
+    # Assert
+    (request,) = server.requests
+    assert request.headers["Authorization"] == "Bearer given-key"
+
+
+@pytest.mark.parametrize("blank_key", ["", "  "], ids=["empty", "whitespace"])
+def test_a_blank_key_given_fails_rather_than_fall_back_to_the_environment(blank_key: str) -> None:
+    # Arrange: OPENROUTER_API_KEY holds a key the model must not fall back to
+    api_key = SecretStr(blank_key)
+
+    # Act and Assert
+    with pytest.raises(ConfigurationError, match="api_key is blank"):
+        OpenRouterDecisionModel(model="typesafe/jev-1.13", api_key=api_key)
 
 
 def build_typesafe_classifier(

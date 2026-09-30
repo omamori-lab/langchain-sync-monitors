@@ -166,13 +166,23 @@ def is_retryable_http_error(error: Exception) -> bool:
     return isinstance(error, httpx.TransportError)
 
 
-def read_openrouter_api_key() -> SecretStr:
-    """Read the OpenRouter key from `OPENROUTER_API_KEY`, the one the chat models use."""
-    api_key = os.environ.get("OPENROUTER_API_KEY", "").strip()
-    if not api_key:
+def read_openrouter_api_key(api_key: SecretStr | None) -> SecretStr:
+    """Return the key given, or, when it is None, the one in `OPENROUTER_API_KEY`.
+
+    That variable is the one the chat models read. A key given blank raises
+    `ConfigurationError` rather than fall back to the variable, since a key
+    the application meant to pass must not be replaced by another one.
+    """
+    if api_key is not None:
+        if not api_key.get_secret_value().strip():
+            message = "api_key is blank: pass a key, or leave it out to read OPENROUTER_API_KEY"
+            raise ConfigurationError(message)
+        return api_key
+    from_environment = os.environ.get("OPENROUTER_API_KEY", "").strip()
+    if not from_environment:
         message = "OpenRouterDecisionModel needs api_key or the OPENROUTER_API_KEY variable"
         raise ConfigurationError(message)
-    return SecretStr(api_key)
+    return SecretStr(from_environment)
 
 
 class OpenRouterDecisionModel(DecisionModel):
@@ -192,10 +202,11 @@ class OpenRouterDecisionModel(DecisionModel):
     resolution of 0.01; averaging with `RepeatedMonitor` or combining several
     questions restores some resolution.
 
-    The key comes from `OPENROUTER_API_KEY` unless `api_key` is given. Pass
-    your own `http_client` or `async_http_client` to reuse connections, change
-    transports or decide when a client closes; a client you pass keeps its own
-    timeout, and `timeout_seconds` applies only to the clients the model opens.
+    The key comes from `OPENROUTER_API_KEY` unless `api_key` is given, and a
+    blank `api_key` raises `ConfigurationError`. Pass your own `http_client`
+    or `async_http_client` to reuse connections, change transports or decide
+    when a client closes; a client you pass keeps its own timeout, and
+    `timeout_seconds` applies only to the clients the model opens.
     Without them, the sync path opens one client for the model's lifetime,
     which is never closed, and the async path opens and closes a client per
     request, since a pooled async client cannot move between event loops.
@@ -217,7 +228,7 @@ class OpenRouterDecisionModel(DecisionModel):
     ) -> None:
         """Configure the model; the key is read here, so a missing key fails at once."""
         self.model = model
-        self.api_key = api_key or read_openrouter_api_key()
+        self.api_key = read_openrouter_api_key(api_key)
         self.endpoint = f"{base_url.rstrip('/')}/decisions"
         self.timeout_seconds = timeout_seconds
         self.http_client = http_client or httpx.Client(timeout=timeout_seconds)

@@ -454,8 +454,9 @@ reads:
   request, which can hold messages the state lacks.
 
 Two sources belong to the monitor alone: `monitor`, on its feedback, and
-`unconfirmed_input`, below. A message a tool writes loses either tag, and a
-note that would be named after either is named `application` instead.
+`unconfirmed_input`, below. A message a tool writes loses either tag, except
+in a `Send` payload ([who speaks as the user](#who-speaks-as-the-user)), and
+a note that would be named after either is named `application` instead.
 Middleware code is trusted, as it is everywhere else in the agent, so a
 middleware can still set either tag on a message it writes
 ([who speaks as the user](#who-speaks-as-the-user)). What the monitor
@@ -895,9 +896,14 @@ limit is linked from where it arises above.
   no block LangChain keeps is invisible to the judge: Gemini's URL context,
   whose metadata langchain-google-genai does not keep, and the search of
   OpenRouter's web plugin.
-- **The task after summarisation.** Once summarisation has replaced the
-  earlier messages of the model request, the original task may be gone from
-  what the monitor reads, and the summary is a note.
+- **The task after summarisation** (issue #46). Once summarisation has
+  replaced the earlier messages of the model request, the original task may
+  be gone from what the monitor reads, and the summary is a note.
+- **The task after a tool removes it** (issue #74). A tool can write
+  `RemoveMessage(id=...)` for the message that holds the task, then a new
+  message under that id. LangGraph's reducer deletes the task, and any
+  restriction in it, from the history, so the judge reads no `<user>` entry;
+  the new message is a note from the tool.
 
 ### Who speaks as the user
 
@@ -945,6 +951,12 @@ limit is linked from where it arises above.
 - **Middleware is trusted.** A middleware can set the `monitor` or
   `unconfirmed_input` tag on a message it writes, and the monitor then reads
   it as its own feedback or as unconfirmed input.
+- **A tool's `Send` payload** (issue #76). A tool that returns
+  `Command(goto=Send("model", {"messages": [...]}))` hands the model node a
+  conversation of its own, and the monitor reads it without relabelling what
+  the tool wrote: a message the tool tags with the monitor's source reads as
+  `<monitor_feedback>`, and a task the payload leaves out is not read at all.
+  Nothing in the payload reaches the state.
 
 ### Reading a guard's label
 

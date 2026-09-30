@@ -151,6 +151,10 @@ flowchart TD
   the model, counts as the next run's input. [Who speaks as the
   user](../explanation/design.md#who-speaks-as-the-user) explains why no rule
   closes them.
+- **A tool's `Send` payload** (issue #76). A tool that returns
+  `Command(goto=Send("model", {...}))` hands the model node messages of its
+  own, which the monitor reads without relabelling them, so one the tool tags
+  as the monitor's reads as `<monitor_feedback>`.
 
 ## Know what provider tools have done
 
@@ -236,7 +240,11 @@ view = MonitorView(most_recent_entries=1)
 ```
 
 After summarisation has replaced the earlier messages, the original task may
-be gone from what the monitor reads, left only as a context note.
+be gone from what the monitor reads, left only as a context note (issue #46).
+
+A tool that removes the task message by id, and writes a new message under
+that id, removes the task from what the monitor reads too, and the new
+message is a note from the tool (issue #74).
 
 ## Name your delegation tools
 

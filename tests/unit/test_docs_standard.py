@@ -60,9 +60,8 @@ jobs, the tests that render are skipped; ``scripts/check.sh`` sets
 ``REQUIRE_DOCS_GROUP=1``, which turns that skip into a failure. The plans under
 ``docs/plans/`` are working notes, not pages.
 
-The pages do not comply yet, so the page check is expected to fail until the
-docs pass brings every page in line and removes its ``xfail`` mark. Run
-``pytest tests/unit/test_docs_standard.py --runxfail`` to list what is left.
+Every page complies, so the page check fails the run on the first page that
+breaks the standard, and its message lists every violation.
 """
 
 from __future__ import annotations
@@ -460,7 +459,6 @@ def test_the_docs_hold_pages_to_check() -> None:
     assert not any(page.startswith("plans/") for page in pages)
 
 
-@pytest.mark.xfail(strict=True, raises=AssertionError, reason="enabled by the docs pass")
 def test_every_docs_page_meets_the_docs_standard() -> None:
     # Arrange
     pages = read_docs_pages()
@@ -479,16 +477,15 @@ def test_every_docs_page_meets_the_docs_standard() -> None:
     assert violations == [], "Pages that break the docs standard:\n" + "\n".join(violations)
 
 
-def test_the_page_check_expects_only_a_failed_assertion() -> None:
-    # Arrange: a crash in the checker, such as a page it cannot decode, must fail the run.
-    marks = vars(test_every_docs_page_meets_the_docs_standard)["pytestmark"]
+def test_the_page_check_is_never_expected_to_fail() -> None:
+    # Arrange: every page complies, so a violation must fail the run, not pass as expected.
+    marks = vars(test_every_docs_page_meets_the_docs_standard).get("pytestmark", [])
 
     # Act
-    xfail = next(mark for mark in marks if mark.name == "xfail")
+    names = {mark.name for mark in marks}
 
     # Assert
-    assert xfail.kwargs["strict"] is True
-    assert xfail.kwargs["raises"] is AssertionError
+    assert not names & {"xfail", "skip", "skipif"}
 
 
 # The docs group: skipped where it is missing, required by the gate -------------

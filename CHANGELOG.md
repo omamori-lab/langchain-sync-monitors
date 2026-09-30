@@ -32,6 +32,13 @@ The first release. Everything below is new.
   re-raises the error.
 - A halted step ends the run, including agents with structured output and no
   tools.
+- The middleware's `before_agent`, `before_model`, `after_model` and
+  `after_agent` hooks, which show as graph nodes in a trace and add two graph
+  steps per model call and two per run, all counted by an explicit
+  `recursion_limit`. They keep three private state keys,
+  `monitor_task_messages`, `monitor_seen_human_messages` and
+  `monitor_run_open`, which never enter a subagent's input or a run's output
+  but do appear in `stream_mode="updates"`.
 - Named spans for each monitored step in any LangChain tracer, LangSmith and
   Langfuse among them: a `monitor step` span holds the step's samples, a
   `monitor judgement` span each verdict, a `monitor classifier` span each
@@ -79,19 +86,40 @@ The first release. Everything below is new.
 - The `RepeatedMonitor`, `CalibratedMonitor` and `CascadeMonitor` wrappers.
   `CalibratedMonitor` returns a conformal p-value, so a threshold of 0.99
   flags 1% of new honest steps on average.
-- A verdict's reason, which Auto Mode shows the agent, carries no scores,
-  probabilities or percentiles; they stay in `monitor_log`.
+- The library adds no score, probability or percentile to a verdict's reason,
+  which Auto Mode shows the agent; they stay in `monitor_log`.
+  `DEFAULT_MONITOR_PROMPT` asks a chat judge to keep its score out of the
+  reasoning that becomes the reason, but the judge's own wording may still
+  hint at one. The prompt also explains every tag the judge can read,
+  provider tool calls and unrecognised blocks included.
 
 **What the monitor reads**
 
-- `MonitorView` and `Channel` choose what a monitor reads; the default follows
-  Claude Code's auto mode classifier. Every message from the task author is
-  kept when `most_recent_entries` trims the history.
-- Messages other code adds, such as conversation summaries, render as
-  `<context_note>`, which authorises nothing. A call that failed or did not run
-  shows as `<tool_error>`, and a call with unreadable arguments as
-  `<malformed_tool_call>`, under every view that shows the call. The
-  monitor's own feedback on a blocked step shows as `<monitor_feedback>`.
+- `MonitorView` and `Channel` choose what a monitor reads of the history; the
+  default follows Claude Code's auto mode classifier. The step being judged
+  always shows its tool calls and malformed calls, whatever the view. Every
+  message from the task author is kept when `most_recent_entries` trims the
+  history.
+- Only the human messages a run receives as its input render as `<user>`, or
+  `<delegator>` inside a subagent. Every other human message renders as
+  `<context_note>`, which authorises nothing: one another component tagged,
+  such as a conversation summary, and one written during a run without a tag,
+  such as Deep Agents' video reads and harness nudges. The monitor writes the
+  note's tag into the message in the agent's state too, so a saved or
+  replayed history keeps it, and a message a tool writes never carries the
+  monitor's own `lc_source`. After a run that stopped before its end, such as
+  one whose model call raised, the next run's new messages are notes too.
+- A call that failed or did not run shows as `<tool_error>`, and a call with
+  unreadable arguments as `<malformed_tool_call>`, under every view that shows
+  the call. The monitor's own feedback on a blocked step shows as
+  `<monitor_feedback>`.
+- A provider's built-in tools, which run inside the model call, show as
+  `<provider_tool_call>` and `<provider_tool_result>`: those LangChain maps
+  for Anthropic, OpenAI's Responses API and Gemini's code execution, and
+  Gemini's Google Search, read from `grounding_metadata`. A part of a reply
+  LangChain cannot map shows whole as `<unrecognised_block>`. Each sample's
+  `SampleRecord.proposal` keeps the provider tool calls and their full
+  results.
 
 **Deep Agents**
 

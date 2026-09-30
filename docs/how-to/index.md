@@ -4,8 +4,8 @@ This page lists the how-to guides, each of which solves one concrete task.
 
 ## Protocols
 
-- [Choose a control protocol](choose-a-protocol.md): which protocol fits,
-  compared on what runs, cost, latency and what the agent sees.
+- [Choose a protocol](choose-a-protocol.md): which protocol fits, compared on
+  what runs, cost, latency and what the agent sees.
 - [Use Trusted Monitoring](use-trusted-monitoring.md): flag suspicious steps
   for audit and let them run.
 - [Use Defer to Trusted](use-defer-to-trusted.md): hand suspicious steps to a

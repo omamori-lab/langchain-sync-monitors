@@ -108,7 +108,8 @@ The first release. Everything below is new.
   note's tag into the message in the agent's state too, so a saved or
   replayed history keeps it, and a message a tool writes never carries the
   monitor's own `lc_source`. After a run that stopped before its end, such as
-  one whose model call raised, the next run's new messages are notes too.
+  one whose model call raised, the next run's new messages are notes too,
+  the user's own included, for the rest of the thread.
 - A call that failed or did not run shows as `<tool_error>`, and a call with
   unreadable arguments as `<malformed_tool_call>`, under every view that shows
   the call. The monitor's own feedback on a blocked step shows as

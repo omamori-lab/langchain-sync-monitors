@@ -350,12 +350,14 @@ def test_a_message_written_before_a_failed_step_never_speaks_as_the_user(
     run_messages(agent, [HumanMessage(NEXT_TURN)], mode=run_mode, config=config)
     run_messages(agent, [HumanMessage(THIRD_TURN)], mode=run_mode, config=config)
 
-    # Assert: after the failed run nothing new is the user; the turn after is again
+    # Assert: after the failed run nothing new is the user, and that turn stays a note;
+    # the turn after it is the user again
     after_failure, recovered = read_http_post_transcripts(monitor)
     assert read_tagged_entries(after_failure, tag="user") == [TASK]
     assert read_tagged_entries(after_failure, tag="context_note") == [case.planted_text, NEXT_TURN]
     assert read_tagged_entries(recovered, tag="user") == [TASK, THIRD_TURN]
-    assert case.planted_text in read_tagged_entries(recovered, tag="context_note")
+    recovered_notes = read_tagged_entries(recovered, tag="context_note")
+    assert {case.planted_text, NEXT_TURN} <= set(recovered_notes)
 
 
 SAVED_HISTORY_CASES = {

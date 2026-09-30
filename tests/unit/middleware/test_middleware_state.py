@@ -206,13 +206,14 @@ def test_the_message_ids_the_monitor_records_are_private(
 
 
 def test_two_monitors_on_one_agent_record_each_message_id_once(run_mode: RunMode) -> None:
-    # Arrange
+    # Arrange: the nudge is written after both monitors' before_model hooks, so both
+    # monitors record it when they commit, in the same model node
     guard = MonitorMiddleware(
         monitor=build_keyword_monitor(), protocol=AcceptFirst(), label="guard"
     )
     judge = MonitorMiddleware(monitor=build_keyword_monitor(), protocol=AcceptFirst())
     model = ScriptedChatModel(responses=[AIMessage("first"), AIMessage("second")])
-    middleware: list[AgentMiddleware[Any, Any, Any]] = [NudgingMiddleware(), guard, judge]
+    middleware: list[AgentMiddleware[Any, Any, Any]] = [guard, judge, NudgingMiddleware()]
     agent = create_agent(model, middleware=middleware, checkpointer=InMemorySaver())
     config = build_thread_config(f"stacked-ids-{run_mode}")
     run_agent(agent, mode=run_mode, config=config)

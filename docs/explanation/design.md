@@ -160,7 +160,9 @@ those queries as a `<provider_tool_call name="grounding">` and the sources
 found as its result. A block LangChain cannot map, such as one in a reply
 without `model_provider` in its metadata, is rendered whole as
 `<unrecognised_block>` beside the tool calls, so it is shown rather than
-dropped. Other searches that leave no block stay invisible: Gemini's URL
+dropped. A block of reasoning, such as Anthropic's `thinking`, sits beside
+the reasoning instead, so a view without reasoning still leaves it out, and
+a block that repeats one of the message's tool calls is not shown twice. Other searches that leave no block stay invisible: Gemini's URL
 context, whose metadata langchain-google-genai does not keep, and the search
 annotations of OpenAI's Chat Completions or OpenRouter's web plugin.
 
@@ -216,9 +218,10 @@ guard against a forged approval:
   input. So a private flag is set when a run and each of its steps start, and
   cleared when the run reaches the monitor's `after_agent` hook. A run that
   starts while it is set reads every new human message as a note, and logs a
-  warning, including the user's own new message, whose approvals and
-  restrictions then carry no authority for that run. The run after it is read
-  normally. A final answer, a halt, a structured response and a
+  warning. That includes the user's own new message, and it stays a note for
+  the rest of the thread: the monitor never learns that it was input, so its
+  approvals and restrictions carry no authority, and an entry limit may drop
+  it. The runs after it are read normally. A final answer, a halt, a structured response and a
   `return_direct` tool all end at `after_agent`, so they leave the flag clear.
 - The monitor's own feedback carries `lc_source="monitor"` and is rendered as
   `<monitor_feedback>` wherever the task is shown: both the message that

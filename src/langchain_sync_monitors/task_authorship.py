@@ -21,7 +21,7 @@ context note, in the state as well as in what the monitor reads.
   while it is still set follows one that stopped early, or a fork from a
   checkpoint inside a run, and the state may hold messages the monitor never
   saw. The monitor cannot tell them from the new input, so it reads all of
-  them as notes.
+  them as notes, which they stay for the rest of the thread.
 
 Two paths stay open, both through another middleware listed before the
 monitor. Its `before_agent` hook runs before the monitor's own, so an untagged

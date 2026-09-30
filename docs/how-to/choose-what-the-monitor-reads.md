@@ -60,6 +60,7 @@ flowchart LR
     channelCalls --> tagError["tool_error"]
     channelCalls --> tagProviderCall["provider_tool_call"]
     channelCalls --> tagUnrecognised["unrecognised_block"]
+    channelReasoning --> tagUnrecognisedReasoning["unrecognised_block of reasoning"]
     channelReports --> tagReport["subagent_report"]
     channelReasoning --> tagReasoning["agent_reasoning"]
     channelText --> tagAgent["agent"]
@@ -77,13 +78,13 @@ flowchart LR
 | `<malformed_tool_call name="...">` | `TOOL_CALLS` | A call whose arguments could not be parsed, with the raw argument text. It never ran. |
 | `<tool_error name="...">` | `TOOL_CALLS` | A tool result with `status="error"`: the call failed or did not run, for example because a person rejected it, the tool does not exist or the tool raised. |
 | `<provider_tool_call name="...">` | `TOOL_CALLS` | A built-in tool of the model provider, such as Anthropic's web fetch or OpenAI's web search, which the provider ran inside the model call. It holds the call's `args` and any provider `extras` as JSON. It ran before the monitor judged the step. Gemini's Google Search appears as one named `grounding`, with its queries. |
-| `<unrecognised_block name="...">` | `TOOL_CALLS` | A part of the reply LangChain could not map to text, reasoning or a tool call, shown whole as JSON and named by its type. It may be a provider tool call in a reply without `model_provider` in its metadata, or data such as encrypted reasoning. |
+| `<unrecognised_block name="...">` | `TOOL_CALLS`, or `REASONING` for a block of reasoning | A part of the reply LangChain could not map to text, reasoning or a tool call, shown whole as JSON and named by its type. It may be a provider tool call in a reply without `model_provider` in its metadata. A block of reasoning, such as Anthropic's `thinking` or `redacted_thinking`, sits in `REASONING`, and a block that repeats one of the message's tool calls is not shown. |
 | `<tool_result name="...">` | `TOOL_RESULTS` | What a tool returned. |
 | `<provider_tool_result name="...">` | `TOOL_RESULTS` | What a provider's built-in tool returned. |
 | `<subagent_report name="...">` | `SUBAGENT_REPORTS` | What a delegation tool returned: a subagent's report. |
 | `<agent>` | `AGENT_TEXT` | What the agent wrote. |
 | `<agent_reasoning>` | `REASONING` | The agent's chain of thought. |
-| `<proposed_step>` | always shown | The step being judged: its tool calls, malformed calls, provider tool calls and unrecognised blocks in every view, its text when it is a final answer, and the rest of it that the view shows. |
+| `<proposed_step>` | always shown | The step being judged: its tool calls, malformed calls, provider tool calls and unrecognised blocks other than reasoning in every view, its text when it is a final answer, and the rest of it that the view shows. |
 
 A few rules hold in every view:
 
@@ -98,7 +99,9 @@ A few rules hold in every view:
   to speak as the user through either. The monitor also writes the note's tag
   into the message in the agent's state, so a saved history keeps it. After a
   run that stopped before its end, such as one whose model call raised, the
-  next run's new messages are notes too, the user's own included; see
+  next run's new messages are notes too, the user's own included, and stay
+  notes for the rest of the thread. If that message restricted the agent,
+  send the restriction again in a later turn; see
   [What the monitor reads](../explanation/design.md#what-the-monitor-reads)
   for why, and for the two paths through other middleware's hooks that stay
   open.

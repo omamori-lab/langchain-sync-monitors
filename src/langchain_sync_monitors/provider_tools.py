@@ -82,6 +82,7 @@ def is_provider_tool(tool: Mapping[str, object]) -> bool:
     tool_type = tool.get("type")
     if isinstance(tool_type, str):
         return tool_type in SERVER_TOOL_TYPES or tool_type.startswith(SERVER_TOOL_TYPE_PREFIXES)
+    # A Gemini built-in tool has no `type`: the key it sits under names it.
     return bool(GEMINI_SERVER_TOOL_KEYS & tool.keys())
 
 

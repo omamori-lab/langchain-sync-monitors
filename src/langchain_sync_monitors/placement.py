@@ -82,6 +82,9 @@ def is_model_call_wrapper(middleware: AnyAgentMiddleware) -> bool:
 
 def is_unsafe_inside_monitor(middleware: AnyAgentMiddleware) -> bool:
     """Tell whether a middleware wraps model calls and is not known to only rewrite the request."""
+    # Only the class's own name counts, not its ancestors': a subclass may return updates the
+    # original never does, so it is warned about. The retry checks read every ancestor, since a
+    # subclass still retries. Both lean towards a warning.
     is_request_only = type(middleware).__name__ in REQUEST_ONLY_MIDDLEWARE
     return is_model_call_wrapper(middleware) and not is_request_only
 
@@ -152,6 +155,7 @@ def find_middleware_handling_tool_failures(
 def warn_about_placement(names: Sequence[str], *, reason: str) -> None:
     """Warn once for each named middleware, giving the reason its placement matters."""
     for name in names:
+        # Level 3 skips this helper and `check_monitor_placement`, to point at their caller.
         warnings.warn(f"{name} {reason}", MonitorPlacementWarning, stacklevel=3)
 
 

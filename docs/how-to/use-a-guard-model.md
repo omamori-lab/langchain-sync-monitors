@@ -162,8 +162,9 @@ cancels the others; under `invoke()` they are drawn one after another.
 
 Guard models tend to be overconfident, and are markedly miscalibrated under
 jailbreak prompts [@liu2025guardcalibration], so honest steps tend to pile up
-at 0 and tie. Set thresholds on honest-run percentiles with `CalibratedMonitor`; see
-[Combine and calibrate monitors](combine-and-calibrate-monitors.md).
+at 0 and tie. Set thresholds on honest-run percentiles with
+`CalibratedMonitor`; see [Combine and calibrate
+monitors](combine-and-calibrate-monitors.md).
 
 ## Know how the label is read
 
@@ -204,7 +205,7 @@ flowchart TD
   it errs on the safe side: a reply whose lines name two different labels is
   unreadable. The cost falls on honest steps too: a benign reply whose
   reasoning opens a line as `Result: violation of the policy would need ...`
-  and ends on `no_violation` fails closed, and the step is flagged. If honest
+  and ends on `no_violation` fails closed, and counts as suspicious. If honest
   steps get the reason "The guard model gave no readable label", ask the guard
   not to open any line but the last with a label, as the policy above does.
 

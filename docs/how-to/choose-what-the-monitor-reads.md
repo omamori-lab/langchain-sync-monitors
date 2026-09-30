@@ -129,9 +129,9 @@ flowchart TD
   [@langchain2026; @deepagents2026]. Deep Agents writes its summary with the
   agent's own model, and its `read_file` attaches a video's frames in an
   untagged human message that holds a path the agent chose [@deepagents2026],
-  so the agent must not be able to speak as the user through either. The monitor writes a
-  note's tag into the message in the agent's state too, so a saved history
-  keeps it.
+  so the agent must not be able to speak as the user through either. The
+  monitor writes a note's tag into the message in the agent's state too, so a
+  saved history keeps it.
 - **`unconfirmed_input`.** A run that stopped before its end, for example
   because its model call raised or its client cancelled it, may leave messages
   the monitor never saw. The next run cannot tell them from its own input, so

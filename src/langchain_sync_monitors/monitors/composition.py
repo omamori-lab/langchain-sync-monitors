@@ -36,13 +36,14 @@ class RepeatedMonitor(Monitor):
 
     A single call of a chat judge gives an integer score, and integer scores tie
     so often that a low audit budget cannot be set: the budget falls inside a
-    group of tied steps. Averaging repeated calls adds resolution, which is why
-    Ctrl-Z averages 4 calls, BashArena 3 and LinuxArena 2
-    [@bhatt2025ctrlz; @kaufman2025basharena; @tracy2026linuxarena]; a plain mean
-    works as well as more elaborate aggregators [@koran2026ensemble]. The calls
-    only differ when the wrapped monitor samples, so its model needs a
-    temperature above zero (Ctrl-Z used 1.1), and no LangChain response cache,
-    which would answer every repeat with a copy of the first call.
+    group of tied steps. Averaging repeated calls adds resolution
+    [@kaufman2025basharena]. BashArena averages three calls and LinuxArena
+    two, and Ctrl-Z samples its monitor several times at temperature 1.1
+    [@kaufman2025basharena; @tracy2026linuxarena; @bhatt2025ctrlz]; a plain
+    mean works as well as more elaborate aggregators [@koran2026ensemble]. The
+    calls only differ when the wrapped monitor samples, so its model needs a
+    temperature above zero, and no LangChain response cache, which would
+    answer every repeat with a copy of the first call.
 
     The reason is the most suspicious call's own reason, since that is the one
     an auditor needs to read. `evaluate` makes the calls concurrently, and one

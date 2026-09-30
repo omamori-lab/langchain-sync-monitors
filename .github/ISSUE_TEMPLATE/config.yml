@@ -1,0 +1,8 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Report a vulnerability
+    url: https://github.com/omamori-lab/langchain-sync-monitors/security/policy
+    about: Report a way to get a step past a monitor, or any other vulnerability, privately as SECURITY.md describes. Please do not open a public issue.
+  - name: Read the documentation
+    url: https://omamori-lab.github.io/langchain-sync-monitors/
+    about: Tutorials, how-to guides, the API reference and explanations.

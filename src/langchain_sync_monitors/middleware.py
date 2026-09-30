@@ -528,7 +528,7 @@ class MonitorMiddleware(AgentMiddleware[MonitorState, AgentContext, StructuredOu
         update = {
             MONITOR_LOG_KEY: [record],
             # A middleware listed after the monitor runs its `before_model` hook after the
-            # monitor's own, so a human message it wrote is first seen here.
+            # monitor's own, so a human message it wrote is first recorded here.
             **build_note_update(request.state),
             **build_halt_inputs_update(record, state=request.state, monitor=self.name),
         }

@@ -289,9 +289,9 @@ sequenceDiagram
 
 `HIDDEN` has a cost. Once a step is over, the agent no longer sees what was
 blocked in it, so at a later step it may propose the same blocked action
-again. Each repeat is blocked again: it spends a block towards that step's
-`max_consecutive_blocks` and the thread's `max_total_blocks`, and costs a
-call of the agent's model and one of the monitor. In the
+again. A repeat the monitor blocks again spends a block towards that step's
+`max_consecutive_blocks` and the thread's `max_total_blocks`, and costs at
+least one call of the agent's model and one of the monitor. In the
 [live runs](../explanation/live-runs.md), Auto Mode with the chat judge
 blocked a read of the credential file, and the agent proposed the same read
 at the next step. Where repeated attempts matter, use `IN_TRANSCRIPT`, which

@@ -3,6 +3,7 @@
   <desc id="desc">What each protocol does with a step the monitor finds suspicious; a step below the threshold runs unchanged under every protocol. Trusted Monitoring lets the step run and flags it for a person to review. Defer to Trusted has the trusted model write the step instead. Defer to Resample draws up to two fresh samples; if one passes, the least suspicious runs, and if none passes, the fallback writes the step, usually the trusted model. Auto Mode blocks the step and tells the agent why, and the agent tries again; after three blocks in a row, or twenty in the thread with subagents&#x27; blocks included, the fallback takes over, which by default halts the run.</desc>
   <!-- Colours come from the brand tokens: diagrams/render.py fills this style block. -->
   <style>
+    svg { color-scheme: dark; }
     text { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans", "Noto Sans JP", Helvetica, Arial, sans-serif; font-size: 15px; fill: #ECEBE6; }
     .title { font-size: 17px; font-weight: 600; }
     .small { font-size: 14px; fill: #A9A8A2; }

@@ -4,7 +4,7 @@
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/assets/diagrams/monitored-step-dark.svg">
-  <img alt="The untrusted model proposes a step. The monitor, drawn as an omamori charm, reads it through its view and scores its suspicion from 0 to 1. The control protocol chooses one of five outcomes, from the lightest touch to the strongest: allow it, resample it, defer to the trusted model, block it and tell the agent why, or halt. All of this happens inside the middleware, before any of the agent's tools run; a brushed line marks that boundary. A committed step reaches the tools and a halted run ends, and either way one record joins monitor_log. Tool results come back, and the next model call is a new step." src="docs/assets/diagrams/monitored-step-light.svg">
+  <img alt="The untrusted model proposes a step. The monitor, drawn as an omamori charm, reads it through its view and scores its suspicion from 0 to 1. The control protocol chooses one of five outcomes, from the lightest touch to the strongest: allow it, resample it, defer to the trusted model, block it and tell the agent why, or halt. All of this happens inside the middleware, before any of the agent's own tools run; a brushed line marks that boundary. A provider's built-in tools, such as web search, run inside the model call, above that line. A committed step reaches the tools and a halted run ends, and either way one record joins monitor_log. Tool results come back, and the next model call is a new step." src="docs/assets/diagrams/monitored-step-light.svg">
 </picture>
 
 ## Why this exists
@@ -118,7 +118,7 @@ them.
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/assets/diagrams/monitor-view-dark.svg">
-  <img alt="Every entry of the transcript belongs to one channel. The default view, Channel.ACTIONS, reads USER (the task, context notes and feedback), TOOL_CALLS (tool calls and errors) and SUBAGENT_REPORTS (what subagents report), and leaves out REASONING, AGENT_TEXT and TOOL_RESULTS, each one flag away. The proposed step is always shown in full, its text and its tool calls, whatever the view. A MonitorView chooses the channels, can keep only the most recent entries, and names the tools whose results are subagent reports. The monitor reads the chosen entries as escaped, tagged text ending with the proposed step, then scores the step." src="docs/assets/diagrams/monitor-view-light.svg">
+  <img alt="Every entry of the transcript belongs to one channel. The default view, Channel.ACTIONS, reads USER (the task, context notes and feedback), TOOL_CALLS (tool calls and errors) and SUBAGENT_REPORTS (what subagents report), and leaves out REASONING, AGENT_TEXT and TOOL_RESULTS, each one flag away. The proposed step's tool calls are always shown, and its text when it is a final answer; the rest of the step follows the view. A MonitorView chooses the channels, can keep only the most recent entries, and names the tools whose results are subagent reports. The monitor reads the chosen entries as escaped, tagged text ending with the proposed step, then scores the step." src="docs/assets/diagrams/monitor-view-light.svg">
 </picture>
 
 By default a monitor reads the user's messages, the tool calls and the

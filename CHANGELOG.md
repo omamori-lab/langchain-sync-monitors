@@ -33,6 +33,17 @@ change raises the minor version.
   them as a warning and re-raises the error.
 - A halted step ends the run, including in agents with structured output and
   no tools.
+- A halt stands until a later run brings new input: when a hook such as Deep
+  Agents' `RubricMiddleware` sends a halted run back to the model, each further
+  step halts again without calling the untrusted model, and its `halted`
+  record holds no samples.
+- No human message written during a run lifts a halt, a harness nudge or a note
+  from `unconfirmed_input` included; only a message recorded as a later run's
+  input does.
+- `ProviderToolWarning`, raised once per middleware when the model request
+  holds a server tool that Anthropic, OpenAI or Gemini runs itself, before the
+  monitor can judge the step; a server-side feature set on the model itself,
+  such as OpenRouter's web plugin, is not detected.
 - The middleware's `before_agent`, `before_model`, `after_model` and
   `after_agent` hooks, which show as graph nodes in a trace and add two graph
   steps per model call and two per run, all counted by an explicit
@@ -78,6 +89,7 @@ change raises the minor version.
 - A flag marks a step for audit and never blocks it.
 - `CachedResampleWarning`, raised when a response cache would turn resamples
   into copies of the first sample.
+- `AutoMode(max_total_blocks=math.inf)` turns the total block limit off.
 - Monitors for three model families: `LLMMonitor` for chat judges, with
   `DEFAULT_MONITOR_PROMPT`; `GuardModelMonitor` for guard models, scored from
   log-probabilities or sampling; and `DecisionModelMonitor` for decision
@@ -214,6 +226,10 @@ change raises the minor version.
 - A chat model wrapped in a Runnable, such as `with_retry()` or `bind()`,
   raises `ConfigurationError` naming its type, in every monitor and in
   `DeferToTrustedModel`.
+- Protocols, fallbacks and the middleware raise `ConfigurationError` when built
+  with an option of the wrong type, such as a float or `bool` limit, or the
+  `DeferToTrusted` protocol where the `DeferToTrustedModel` fallback belongs;
+  numpy integers count as whole numbers.
 
 ### Fixed
 
@@ -239,6 +255,13 @@ change raises the minor version.
   0 to 1 is read as a float.
 - Only a `TypeError` for an unexpected `logprobs` keyword is reported as a
   rejected request for log-probabilities.
+- An `interrupt()` inside a monitor or protocol no longer writes a
+  `monitor_step_failed` event; monitors, protocols and fallbacks still must not
+  call it, since a resume samples and judges the step afresh.
+- `SynchronousRunError` names the monitor, not the protocol, when a monitor's
+  `evaluate_sync` needs an event loop.
+- `check_monitor_placement` names subclasses of `ModelRetryMiddleware` and
+  `ModelFallbackMiddleware` too.
 - The guides state how a wrapped or sampled monitor counts an unreadable reply,
   and the decision model's retry budget, its handling of HTTP 408, the
   lifetime of its client and when `timeout_seconds` applies.

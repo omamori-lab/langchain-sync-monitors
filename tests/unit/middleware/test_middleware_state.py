@@ -246,7 +246,12 @@ def test_two_monitors_on_one_agent_count_their_own_steps(run_mode: RunMode) -> N
 
 @pytest.mark.parametrize(
     "key",
-    ["monitor_task_messages", "monitor_seen_human_messages", "monitor_inputs_at_halt"],
+    [
+        "monitor_task_messages",
+        "monitor_seen_human_messages",
+        "monitor_run_inputs",
+        "monitor_inputs_at_halt",
+    ],
 )
 def test_the_message_ids_and_halt_counts_the_monitor_records_are_private(
     middleware: MonitorMiddleware,
@@ -284,6 +289,7 @@ def test_two_monitors_on_one_agent_record_each_message_id_once(run_mode: RunMode
     )
     assert state["monitor_task_messages"] == [first_task, second_task]
     assert state["monitor_seen_human_messages"] == [first_task, nudge, second_task]
+    assert [entry["id"] for entry in state["monitor_run_inputs"]] == [first_task, second_task]
 
 
 def test_names_are_unique_per_agent_and_subagent_copies_trust_the_parent_less(

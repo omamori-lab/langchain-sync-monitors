@@ -46,6 +46,7 @@ from langchain_sync_monitors.contracts import (
 )
 from langchain_sync_monitors.errors import MonitorError, SynchronousRunError
 from langchain_sync_monitors.feedback import build_feedback_messages
+from langchain_sync_monitors.run_inputs import RunInput, restore_run_inputs
 from langchain_sync_monitors.spans import (
     StepIdentity,
     build_judgement_span,
@@ -217,6 +218,7 @@ class PendingStepOptions(TypedDict):
     monitor: Monitor
     task_author: TaskAuthor
     task_message_ids: frozenset[str]
+    run_inputs: tuple[RunInput, ...]
     previous_records: tuple[StepRecord, ...]
     blocks_in_thread: int
     new_subagent_blocks: int
@@ -245,8 +247,10 @@ class MonitoredStep(PendingStep):
     or, inside a subagent, from earlier steps of its current delegation.
     `task_message_ids` holds the ids of the human messages that arrived as a
     run's input; the monitor reads every other human message as a context
-    note. The middleware counts `blocks_in_thread` and `new_subagent_blocks`
-    from the log and from the agent's `Delegation`.
+    note. `run_inputs` holds the text of each of them, which the monitor
+    reads even once the request no longer holds it. The middleware counts
+    `blocks_in_thread` and `new_subagent_blocks` from the log and from the
+    agent's `Delegation`.
     `judged_samples` collects every sample the monitor has judged so far, in
     the order the verdicts arrived, so the middleware can report them if the
     step fails before it is committed. `sample_numbers` numbers the samples
@@ -258,6 +262,7 @@ class MonitoredStep(PendingStep):
     monitor: Monitor
     task_author: TaskAuthor
     task_message_ids: frozenset[str] = frozenset()
+    run_inputs: tuple[RunInput, ...] = ()
     previous_records: tuple[StepRecord, ...] = ()
     blocks_in_thread: int = 0
     new_subagent_blocks: int = 0
@@ -291,9 +296,13 @@ class MonitoredStep(PendingStep):
 
         In the monitor's copy of the conversation, every untagged human
         message that did not arrive as a run's input is tagged as a context
-        note, so it cannot speak as the task author.
+        note, so it cannot speak as the task author, and every run's input is
+        there verbatim, even one the request no longer holds.
         """
-        history = mark_context_notes(conversation, task_message_ids=self.task_message_ids)
+        marked = mark_context_notes(conversation, task_message_ids=self.task_message_ids)
+        history = restore_run_inputs(
+            marked, run_inputs=self.run_inputs, task_message_ids=self.task_message_ids
+        )
         return MonitorInput(history=history, proposal=proposal, task_author=self.task_author)
 
     def keep_judged_sample(self, sample: Sample) -> Sample:

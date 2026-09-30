@@ -61,8 +61,8 @@ change raises the minor version.
   `after_agent` hooks, which show as graph nodes in a trace and add two graph
   steps per model call and two per run, all counted by an explicit
   `recursion_limit`.
-- Four private state keys, `monitor_task_messages`,
-  `monitor_seen_human_messages`, `monitor_run_open` and
+- Five private state keys, `monitor_task_messages`,
+  `monitor_seen_human_messages`, `monitor_run_inputs`, `monitor_run_open` and
   `monitor_inputs_at_halt`, which never enter a subagent's input or a run's
   output but do appear in `stream_mode="values"`, `stream_mode="updates"` and
   `get_state`.
@@ -136,6 +136,10 @@ change raises the minor version.
   the history.
 - Only the human messages a run receives as its input render as `<user>`, or
   `<delegator>` inside a subagent.
+- Every run's input reaches the judge verbatim and in order even after
+  summarisation or a tool has taken it out of the model request, since
+  `monitor_run_inputs` keeps its text, which grows the state by the size of
+  the user's turns.
 - Every other human message renders as `<context_note>`, which authorises
   nothing: one another component tagged, such as a conversation summary, and
   one written during a run without a tag, such as Deep Agents' video reads and

@@ -24,11 +24,13 @@ so a suspicious step can be stopped before it runs.
 pip install "langchain-sync-monitors[openrouter,deepagents]"
 ```
 
+<!-- release-check: the text below describes an unreleased package. scripts/check-release.sh refuses a release while this comment is here; rewrite that text for the release, then delete this comment. -->
+
 The package is not on PyPI yet. Until the first release, install it from
 GitHub:
 
 ```console
-pip install "langchain-sync-monitors[openrouter,deepagents] @ git+https://github.com/Antonio-Tresol/langchain-sync-monitors"
+pip install "langchain-sync-monitors[openrouter,deepagents] @ git+https://github.com/omamori-lab/langchain-sync-monitors"
 ```
 
 | Extra | Adds | Needed for |
@@ -180,9 +182,11 @@ library in research, please cite the original authors.
 
 ## Status and licence
 
+<!-- release-check: the text below describes an unreleased package. scripts/check-release.sh refuses a release while this comment is here; rewrite that text for the release, then delete this comment. -->
+
 Pre-release, version 0.1.0.dev0, and not on PyPI yet. The monitors,
 protocols, middleware and Deep Agents support are built and tested offline,
 and the API may still change before 0.1.0; the
-[changelog](https://github.com/Antonio-Tresol/langchain-sync-monitors/blob/main/CHANGELOG.md)
+[changelog](https://github.com/omamori-lab/langchain-sync-monitors/blob/main/CHANGELOG.md)
 records each change. The library is released under the
-[MIT licence](https://github.com/Antonio-Tresol/langchain-sync-monitors/blob/main/LICENSE).
+[MIT licence](https://github.com/omamori-lab/langchain-sync-monitors/blob/main/LICENSE).

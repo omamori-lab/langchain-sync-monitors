@@ -8,6 +8,7 @@ from typing import Annotated, Any
 
 import pytest
 from langchain.agents import create_agent
+from langchain.agents.middleware import AgentMiddleware
 from langchain_core.messages import AIMessage, ToolMessage
 from langchain_core.tools import BaseTool, InjectedToolCallId, tool
 from langgraph.channels.binop import BinaryOperatorAggregate
@@ -26,6 +27,7 @@ from tests.support.agents import (
 )
 from tests.support.chat_models import ScriptedChatModel, build_tool_call_message
 from tests.support.protocols import AcceptFirst
+from tests.support.written_human_messages import NudgingMiddleware
 
 SUBAGENT_HALT = StepRecord(
     agent="researcher",
@@ -187,6 +189,45 @@ def test_two_monitors_on_one_agent_count_their_own_steps(run_mode: RunMode) -> N
     ]
     assert [len(records) for records in inner_protocol.seen_previous_records] == [0, 1]
     assert all(record["monitor"] == "monitor" for record in inner_protocol.seen_previous_records[1])
+
+
+@pytest.mark.parametrize("key", ["monitor_task_messages", "monitor_seen_human_messages"])
+def test_the_message_ids_the_monitor_records_are_private(
+    middleware: MonitorMiddleware,
+    key: str,
+) -> None:
+    # Act
+    agent = create_agent(ScriptedChatModel(responses=[]), middleware=[middleware])
+
+    # Assert
+    assert key in agent.channels
+    assert key not in agent.get_input_jsonschema()["properties"]
+    assert key not in agent.get_output_jsonschema()["properties"]
+
+
+def test_two_monitors_on_one_agent_record_each_message_id_once(run_mode: RunMode) -> None:
+    # Arrange: the nudge is written after both monitors' before_model hooks, so both
+    # monitors record it when they commit, in the same model node
+    guard = MonitorMiddleware(
+        monitor=build_keyword_monitor(), protocol=AcceptFirst(), label="guard"
+    )
+    judge = MonitorMiddleware(monitor=build_keyword_monitor(), protocol=AcceptFirst())
+    model = ScriptedChatModel(responses=[AIMessage("first"), AIMessage("second")])
+    middleware: list[AgentMiddleware[Any, Any, Any]] = [guard, judge, NudgingMiddleware()]
+    agent = create_agent(model, middleware=middleware, checkpointer=InMemorySaver())
+    config = build_thread_config(f"stacked-ids-{run_mode}")
+    run_agent(agent, mode=run_mode, config=config)
+
+    # Act
+    run_agent(agent, mode=run_mode, config=config)
+
+    # Assert
+    state = agent.get_state(config).values
+    first_task, nudge, second_task = (
+        message.id for message in state["messages"] if message.type == "human"
+    )
+    assert state["monitor_task_messages"] == [first_task, second_task]
+    assert state["monitor_seen_human_messages"] == [first_task, nudge, second_task]
 
 
 def test_names_are_unique_per_agent_and_subagent_copies_trust_the_parent_less(

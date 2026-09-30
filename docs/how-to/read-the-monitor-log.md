@@ -87,8 +87,8 @@ A `SampleRecord` describes one sample:
 |---|---|---|
 | `suspicion` | `float` | The monitor's suspicion, from 0 to 1 |
 | `reason` | `str` | The monitor's reason, as the protocol saw it |
-| `proposal` | `str` | The proposal rendered with every channel, reasoning and malformed tool calls included, whatever the monitor read |
-| `executed` | `bool` | Whether this is the sample that ran; at most one sample per step |
+| `proposal` | `str` | The proposal rendered with every channel, reasoning, malformed tool calls and a provider's built-in tool calls and full results included, whatever the monitor read |
+| `executed` | `bool` | Whether this is the sample whose tool calls ran; at most one sample per step. A provider's built-in tools ran in every sample drawn |
 
 Records hold plain values only, strings, numbers, booleans, lists and
 dictionaries, so they pass through checkpointers and `json.dumps` unchanged.
@@ -150,8 +150,15 @@ main, step 1: steered
   0.00, ran: The step reads q3.md, the file the user asked to summarise.
 ```
 
+"Did not run" means the sample's tool calls did not run. Any built-in tool of
+the provider in it, such as a web fetch, already ran when the sample was
+drawn.
+
 Read each sample's `proposal` too: it shows the step in full, with the agent's
-reasoning, even when the monitor did not read the reasoning.
+reasoning, even when the monitor did not read the reasoning. It also holds each
+provider tool result in full, once per sample drawn, so a large fetched page
+makes every record of that step large; the full result is in the agent's own
+messages too.
 
 ## Follow steps as they are committed
 

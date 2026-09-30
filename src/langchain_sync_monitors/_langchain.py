@@ -77,11 +77,22 @@ type AgentStateUpdate = dict[str, Any]
 type ToolCallResult = ToolMessage | Command[Any]
 """What a tool call returns to the agent: a tool message, or a command with any update."""
 
+type ToolCallResults = ToolCallResult | list[ToolCallResult]
+"""What a tool call can return at run time: LangGraph's tool node also accepts a list of
+tool messages and commands from one tool [@langgraph2026], which LangChain's hook types
+leave out."""
+
 type ToolCallHandler = Callable[[ToolCallRequest], ToolCallResult]
 """The callback LangChain passes to `wrap_tool_call` to run the rest of the stack."""
 
 type AsyncToolCallHandler = Callable[[ToolCallRequest], Awaitable[ToolCallResult]]
 """The callback LangChain passes to `awrap_tool_call` to run the rest of the stack."""
+
+
+def cast_to_tool_call_result(results: ToolCallResults) -> ToolCallResult:
+    """Return a tool call's result as LangChain's hook types declare it, a list included."""
+    return cast("ToolCallResult", results)
+
 
 MONITOR_LOG_KEY = "monitor_log"
 """The state key that holds the step records of every monitor in the run."""

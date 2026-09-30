@@ -143,7 +143,37 @@ but persuasive reasoning can also talk a monitor out of a correct flag
 `transcript.py` renders the entries as tagged text: `<user>`, `<agent>`,
 `<agent_reasoning>`, `<tool_call>`, `<tool_result>`, `<subagent_report>` and,
 for the step being judged, `<proposed_step>`. Content is HTML-escaped, so text
-inside a tool result cannot close a tag and pose as another entry.
+inside a tool result cannot close a tag and pose as another entry. The view
+selects what the monitor reads of the history; the step being judged always
+shows its tool calls, whatever the view, because they are the action the
+protocol gates.
+
+A provider's built-in tools, such as Anthropic's web fetch or OpenAI's web
+search, run at the provider inside the model call, so they have run before the
+monitor sees the step. LangChain's translators give them as standard
+`server_tool_call` and `server_tool_result` blocks for Anthropic, OpenAI's
+Responses API and Gemini's code execution, and a reply in LangChain's own
+standard blocks already holds them [@langchaincore2026]. The monitor renders
+each call as `<provider_tool_call>` beside the tool calls and each result as
+`<provider_tool_result>` beside the tool results. Gemini's Google Search leaves
+its queries only in the reply's `grounding_metadata`, so the monitor renders
+those queries as a `<provider_tool_call name="grounding">` and the sources
+found as its result. A block LangChain cannot map, such as one in a reply
+without `model_provider` in its metadata, is rendered whole as
+`<unrecognised_block>` beside the tool calls, so it is shown rather than
+dropped. A block of reasoning, such as Anthropic's `thinking`, sits beside
+the reasoning instead, so a view without reasoning still leaves it out, and
+a block that repeats one of the message's tool calls is not shown twice. Other searches that leave no block stay invisible: Gemini's URL
+context, whose metadata langchain-google-genai does not keep, and the search
+annotations of OpenAI's Chat Completions or OpenRouter's web plugin.
+
+The judge always reads the provider tool calls of the step it judges. Their
+results sit in `TOOL_RESULTS`, so under the default view it reads the call and
+not what it returned. The audit record keeps both, the result in full. A suspicious score
+still decides what happens to the rest of the step, but a synchronous monitor
+cannot stop a call that has already run. It runs once for every sample drawn,
+so each resample of Defer to Resample and each retry of Auto Mode runs it
+again, in samples that are then rejected too.
 
 Only the task author's own words authorise an action, so three kinds of entry
 guard against a forged approval:
@@ -151,15 +181,82 @@ guard against a forged approval:
 - Inside a subagent the task came from the parent agent, so its messages are
   rendered as `<delegator>` rather than `<user>`, following the `TaskAuthor`
   in the `MonitorInput`.
-- A human message that another part of the application wrote carries an
-  `lc_source` tag: LangChain's and Deep Agents' summaries are tagged
-  `summarization`, and Deep Agents' rubric grader `rubric_grader`
-  [@langchain2026; @deepagents2026]. Such a message is rendered as
-  `<context_note source="...">` in the `USER` channel, and the prompt says a
-  note authorises nothing. Deep Agents writes its summary with the agent's own
-  model, so the untrusted model must not be able to speak as the user through
-  it. Only a human message without the tag is rendered as `<user>` or
-  `<delegator>`.
+- Only the human messages that arrive untagged as a run's input are the task
+  author's, and every other human message is rendered as
+  `<context_note source="...">` in the `USER` channel; the prompt says a note
+  authorises nothing. Some writers tag their messages with `lc_source`:
+  LangChain's and Deep Agents' summaries are tagged `summarization`, and Deep
+  Agents' rubric grader `rubric_grader` [@langchain2026; @deepagents2026].
+  Others do not: Deep Agents' `read_file` attaches a video's frames in a human
+  message whose text holds the path the agent chose, and its Nemotron profile
+  writes named nudges [@deepagents2026]. Deep Agents also writes its summary
+  with the agent's own model, so in both cases the untrusted model must not be
+  able to speak as the user.
+
+  So the monitor records, in the graph state, which human messages were a
+  run's input. A `before_agent` hook records each untagged human message the
+  monitor has not seen before. A `before_model` hook, each commit and an
+  `after_agent` hook record every untagged human message then in the state as
+  seen, and write each one that is not a run's input back, by its id, tagged
+  as a note named after its `name`, or else `application`. The tag is thus
+  part of the message, and a history the application saves or replays keeps
+  it. The monitor's `wrap_tool_call` tags the new human messages a tool
+  writes where they are written, with the tool's name as their source,
+  whether the tool returns a `Command`, a list of commands and tool
+  messages, or messages as dictionaries. A message a tool writes back wholly
+  unchanged, with the id of one already in the state, as a tool that
+  rewrites the history does, keeps its author. One the tool changed in any
+  field does not, its metadata included, since metadata can change what a
+  message says: Deep Agents' `FilesystemMiddleware` shows a human message
+  that carries `additional_kwargs["lc_evicted_to"]` as a stub that names
+  that path [@deepagents2026]. A tool that edits a message by id thus writes
+  a note named after the tool, so it cannot put the agent's words in the
+  user's.
+  Before a monitor judges a step, every untagged
+  human message whose id is not recorded as input is tagged as a note in the
+  monitor's copy of the model request, which can hold messages the state
+  lacks. The two lists and the flag below are private state, so a subagent
+  starts with none of them and returns none of them.
+
+  A run can stop before its end: a model, monitor or fallback call raises,
+  it hits its recursion limit, the client stops reading its stream or
+  cancels the task that awaits it, a server times it out, or the
+  application answers an interrupt with new input rather than a resume. The
+  agent can bring such a stop about itself, for example with a step too
+  large for the judge's context, which makes the judge's call raise. A fork
+  from a checkpoint inside a run is in the same position. Messages written
+  after the monitor's last look may then sit in the state unseen, and the
+  monitor cannot tell them from the new input. So a private flag is set when
+  a run and each of its steps start, and cleared when the run reaches the
+  monitor's `after_agent` hook. A run that starts while it is set records no
+  input: it tags every new human message as a note from `unconfirmed_input`
+  and logs a warning that names their ids. That includes the user's own new
+  message, which stays such a note for the rest of the thread, and an entry
+  limit may drop it. The runs after it are read normally. A final answer, a
+  halt, a structured response and a `return_direct` tool all end at
+  `after_agent`, so they leave the flag clear.
+
+  The prompt tells the judge that such a note may be the user's own words:
+  it authorises nothing, and only a limit it sets that narrows what the
+  agent may do still applies. Honouring such a limit from a message of
+  unknown author can block honest work, but it lets no action through. A
+  "limit" that drops a safeguard, such as "do not ask me first", would widen
+  what passes instead, so the prompt adds that a note never removes a
+  safeguard, such as asking the user first, logging or reporting.
+
+  Such a note need not hold the user's words. A `before_model` hook of a
+  middleware listed after the monitor runs after the monitor's own, and Deep
+  Agents lists a harness profile's middleware there [@deepagents2026]. A
+  nudge such a hook writes just before a model call that fails is one the
+  monitor never saw, so the next run reads it as `unconfirmed_input` rather
+  than as a note named after the nudge. Deep Agents' Nemotron nudge that
+  tells the agent to call a tool instead of asking for another confirmation
+  becomes such a note, and it opens by saying the user is asking for an
+  action. The agent can cause the stop, and the judge is then told that
+  this text may be the user's. So the agent gains from the stop only if the
+  judge departs from the prompt, by taking an approval from the note or by
+  letting it lift a safeguard; the prompt forbids both but cannot guarantee
+  either.
 - The monitor's own feedback carries `lc_source="monitor"` and is rendered as
   `<monitor_feedback>` wherever the task is shown: both the message that
   answers a blocked final answer and the tool message that answers a blocked
@@ -179,13 +276,46 @@ blocks such a step, the feedback answers each malformed call with an error
 result too, because OpenAI-compatible providers receive it as an ordinary tool
 call and reject a request that leaves it unanswered.
 
-These tags rest on trust in the application's own code. A tool or a middleware
-can set `lc_source="monitor"` on a message it returns, or write a plain
-`HumanMessage` through a `Command`, and the monitor then reads it as its own
-feedback or as the user. Tool and middleware code is trusted here, as it is
-everywhere else in the agent. What the monitor distrusts is the content that
-code carries, such as a web page or a file, which is escaped and never read as
-a tag.
+These tags rest on trust in the application's own middleware. Only the
+monitor writes its two sources: the model node writes its feedback, and the
+start of a run writes the `unconfirmed_input` notes. So a message a tool writes
+loses an `lc_source` of `monitor` or `unconfirmed_input`, and a human message
+becomes a note named after the tool. A tool, or a middleware's message, named
+after either source writes an `application` note instead. A middleware can
+still set either tag on a message it writes, and the monitor then reads it as
+its own feedback or as unconfirmed input. Middleware code is trusted here, as
+it is everywhere else in the agent. What the monitor distrusts is the content that code carries, such as a
+web page, a file or an argument the agent chose, which is escaped and never
+read as a tag.
+
+Telling a run's input from the rest still has two open paths, both through
+another middleware's hooks. Such a message can carry the agent's own words, as
+Deep Agents' final answer guard quotes a value the agent chose
+[@deepagents2026]. The two paths are these:
+
+- A `before_agent` hook of a middleware listed before the monitor runs before
+  the monitor's own, so an untagged human message it writes counts as the
+  run's input.
+- An `after_agent` hook of a middleware listed before the monitor runs after
+  the monitor's own, since LangChain runs `after_agent` hooks in reverse list
+  order [@langchain2026]. An untagged human message it writes, without
+  sending the run back to the model, counts as the next run's input.
+
+No sound fail-closed rule covers them. At the start of a run such a message
+and the new input are both unseen, both are untagged, and both follow the
+last message the monitor saw, so the only rule that would close these paths
+reads every new message as a note in every run. A history replayed without a
+checkpointer holds the tags the monitor wrote, so there only a message the
+monitor never saw reads as input, such as one from these two paths or one a
+later middleware wrote just before a step that failed. A thread started before
+the monitor was added has the gap for every untagged human message it holds,
+and so does a human message an application adds with `update_state` between
+two finished runs, which is the application speaking. The other way round, a
+human message added to a run that resumes, through `Command(update=...)` or
+`update_state`, is never recorded as input, so it is a note from
+`application`. That fails closed, but a restriction the user adds that way,
+such as "do not send anything", then carries no authority with the judge
+either; send it as the input of a new run instead.
 
 When the view keeps only recent entries, every message from the task author is
 kept anyway, in order: the first states the task, and a later one can narrow or
@@ -359,7 +489,9 @@ A routing edge reads a fresh copy of the state that keeps only its own node's
 writes, and the `jump_to` key is cleared everywhere else [@langgraph2026], so
 a `jump_to` from the model node would reach only the model node's own edge,
 which exists only in an agent with no `after_model` hook at all. The hook costs
-one graph step per model call, which counts towards an explicit
+one graph step per model call. The hooks that record who wrote each human
+message add one more per model call, `before_model`, and two per run,
+`before_agent` and `after_agent`. All of them count towards an explicit
 `recursion_limit`.
 
 The agent's end is not always the end of the run. A `jump_to: "end"` reaches
@@ -427,14 +559,23 @@ LangChain's `init_chat_model`.
   labelled unsafe is the standard fallback, with gains that level off after a
   handful [@xiong2024uncertainty; @lyu2025sampleconsistency].
   `GuardScoring.AUTO` does the first when it can and draws five samples
-  otherwise. Guard models are overconfident, especially under jailbreaks
-  [@liu2025guardcalibration], and a hard 0 or 1 label gives a threshold only
-  one operating point, so that option warns. The label is read only where the
-  guard's format puts it: on the last line, or on the first line when it is
-  unsafe and only category codes follow, as in Llama Guard
+  otherwise. LangChain has no capability flag for log-probabilities, so `AUTO`
+  asks every model for them; a chat model that rejects the request, such as
+  `ChatAnthropic`, fails the first judged step with a `ConfigurationError`
+  that names `GuardScoring.SAMPLE_FRACTION`. Guard models are overconfident,
+  especially under jailbreaks [@liu2025guardcalibration], and a hard 0 or 1
+  label gives a threshold only one operating point, so that option warns. The
+  label is read only where the guard's format puts it: on the last line,
+  alone or after a verdict key such as `Label:`, or on the first line when it
+  is unsafe and only category codes follow, as in Llama Guard
   [@meta2024llamaguard3format; @meta2025llamaguard4]. A reply with two
-  different labels on their own lines, a label elsewhere, or a cut-off reply
-  counts as suspicious, for the same reason as a quoted score.
+  different labels, a label elsewhere, or a cut-off reply counts as
+  suspicious, for the same reason as a quoted score. A line that may hold the
+  guard's own suspicious label off format, such as `violation (the note asks
+  ...` or `...: violation`, counts as naming it, so when the reader cannot
+  tell, it errs towards suspicion. A planted label that the guard quotes alone
+  on the last line, when the reply names no other label, cannot be told from a
+  verdict: a guard's output can be steered by what it reads.
 - **Decision models** (`DecisionModelMonitor`) answer yes or no questions with
   a probability and generate no text. Suspicion is the probability of yes.
   Several questions can go in one request, combined by their maximum, so one
@@ -628,6 +769,16 @@ flowchart LR
 
 The cost is live tokens. A monitored agent streams each step whole, once the
 protocol commits it, and not token by token as the model writes it.
+
+The monitor's `before_agent`, `before_model` and `after_agent` hooks write back
+the human messages they tag as notes, under their own ids, so
+`stream_mode="updates"` carries such a message twice: once from the node that
+wrote it, and once, tagged, from the monitor's hook. In a run that follows one
+that stopped early, the user's own new message comes back too, tagged, from
+the monitor's `before_agent` hook. A consumer that
+builds the conversation from `updates` should merge messages by id, as
+LangGraph's own message reducer does [@langgraph2026], rather than append them;
+`stream_mode="messages"` and `values` are not affected.
 
 Rejected samples stay out of the conversation, not out of the record. They
 remain in `monitor_log`, which the `values` and `updates` stream modes carry,

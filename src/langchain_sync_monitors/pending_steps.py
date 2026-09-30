@@ -46,6 +46,7 @@ from langchain_sync_monitors.contracts import (
 from langchain_sync_monitors.errors import MonitorError, SynchronousRunError
 from langchain_sync_monitors.feedback import build_feedback_messages
 from langchain_sync_monitors.spans import build_judgement_span, build_verdict_outputs
+from langchain_sync_monitors.task_authorship import mark_context_notes
 from langchain_sync_monitors.thresholds import LIBRARY_DIRECTORY
 
 SYNCHRONOUS_RUN_MESSAGE = (
@@ -202,9 +203,11 @@ class MonitoredStep(PendingStep):
     `request` is the step's model request, `monitor` judges each sample, and
     `previous_records` holds this monitor's records for this agent from
     earlier steps of the thread, every turn of a checkpointed thread included,
-    or, inside a subagent, from earlier steps of its current delegation. The
-    middleware counts `blocks_in_thread` and `new_subagent_blocks` from the
-    log and from the agent's `Delegation`.
+    or, inside a subagent, from earlier steps of its current delegation.
+    `task_message_ids` holds the ids of the human messages that arrived as a
+    run's input; the monitor reads every other human message as a context
+    note. The middleware counts `blocks_in_thread` and `new_subagent_blocks`
+    from the log and from the agent's `Delegation`.
     `judged_samples` collects every sample the monitor has judged so far, in
     the order the verdicts arrived, so the middleware can report them if the
     step fails before it is committed. `sample_numbers` numbers the samples
@@ -215,6 +218,7 @@ class MonitoredStep(PendingStep):
     request: AgentModelRequest
     monitor: Monitor
     task_author: TaskAuthor
+    task_message_ids: frozenset[str] = frozenset()
     previous_records: tuple[StepRecord, ...] = ()
     blocks_in_thread: int = 0
     new_subagent_blocks: int = 0
@@ -243,8 +247,14 @@ class MonitoredStep(PendingStep):
         conversation: tuple[BaseMessage, ...],
         proposal: AIMessage,
     ) -> MonitorInput:
-        """Return what the monitor judges: the conversation the sample saw and its proposal."""
-        return MonitorInput(history=conversation, proposal=proposal, task_author=self.task_author)
+        """Return what the monitor judges: the conversation the sample saw and its proposal.
+
+        In the monitor's copy of the conversation, every untagged human
+        message that did not arrive as a run's input is tagged as a context
+        note, so it cannot speak as the task author.
+        """
+        history = mark_context_notes(conversation, task_message_ids=self.task_message_ids)
+        return MonitorInput(history=history, proposal=proposal, task_author=self.task_author)
 
     def keep_judged_sample(self, sample: Sample) -> Sample:
         """Remember a judged sample as evidence, and return it."""

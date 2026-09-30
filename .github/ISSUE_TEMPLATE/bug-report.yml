@@ -1,0 +1,67 @@
+name: Bug report
+description: Report something that does not work as the documentation says.
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thank you for reporting a bug. If it lets a step get past a monitor, or is
+        any other vulnerability, do not open an issue: report it privately, as
+        [SECURITY.md](https://github.com/omamori-lab/langchain-sync-monitors/security/policy)
+        describes.
+
+  - type: input
+    id: package-version
+    attributes:
+      label: langchain-sync-monitors version
+      description: |
+        The output of `python -c "import langchain_sync_monitors as package; print(package.__version__)"`.
+      placeholder: 0.1.0
+    validations:
+      required: true
+
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: |
+        The Python version, the operating system, and the versions of langchain,
+        langchain-core and langgraph, plus deepagents, langchain-openrouter and
+        langchain-typesafe if you use them. `pip list` or `uv pip list` shows them.
+      render: text
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Minimal reproduction
+      description: |
+        The smallest script that shows the problem. Where you can, use a fake chat
+        model, such as LangChain's `GenericFakeChatModel`, so it runs without an API
+        key. Leave out API keys and other secrets.
+      render: python
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected-behaviour
+    attributes:
+      label: Expected behaviour
+      description: What you expected to happen, and where the documentation says so.
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual-behaviour
+    attributes:
+      label: Actual behaviour
+      description: What happened instead, with the full traceback or the relevant `monitor_log` records.
+    validations:
+      required: true
+
+  - type: textarea
+    id: context
+    attributes:
+      label: Anything else
+      description: Anything else that helps, such as a workaround you found.

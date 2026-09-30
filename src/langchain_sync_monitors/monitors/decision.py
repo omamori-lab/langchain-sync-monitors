@@ -12,13 +12,15 @@ client. The evidence behind the question format is in
 from __future__ import annotations
 
 import importlib
+import numbers
 import os
 import statistics
 import warnings
 from abc import ABC, abstractmethod
-from collections.abc import Mapping, Sequence
+from collections.abc import Iterable, Mapping, Sequence
 from contextlib import AbstractAsyncContextManager, nullcontext
 from dataclasses import dataclass
+from decimal import Decimal
 from enum import StrEnum
 from types import ModuleType
 from typing import TYPE_CHECKING, Literal, TypedDict
@@ -32,6 +34,7 @@ from langchain_sync_monitors.contracts import Monitor, MonitorInput, MonitorView
 from langchain_sync_monitors.errors import ConfigurationError, MissingExtraError, MonitorError
 from langchain_sync_monitors.model_calls import build_internal_call_config
 from langchain_sync_monitors.monitors.chat import DEFAULT_MONITOR_VIEW
+from langchain_sync_monitors.options import check_enum_option
 from langchain_sync_monitors.spans import CLASSIFIER_SPAN_NAME, MONITOR_TAG, MONITOR_WORK_METADATA
 from langchain_sync_monitors.transcript import render_proposed_step, render_transcript
 
@@ -145,12 +148,39 @@ def select_question_probabilities(
     *,
     questions: Sequence[YesNoQuestion],
 ) -> dict[str, float]:
-    """Keep one probability per question, and fail if the model skipped a question."""
+    """Keep one probability per question; fail if the model skipped one or gave no probability.
+
+    An answer that is not a finite number from 0 to 1 raises `MonitorError`,
+    as a skipped question does: the decision model gave no readable answer.
+    A number is an `int`, a `float`, a `Decimal` or another real number;
+    `True` and `False`, which Python counts as numbers, are no probability.
+    That also covers NaN, which `max` and `min` would drop or keep depending
+    on its position, so that the step could score low, and `None` and
+    strings, which cannot be compared. Answers come back as floats.
+    """
     missing = [question.key for question in questions if question.key not in probabilities]
     if missing:
         message = f"the decision model returned no answer for {missing}"
         raise MonitorError(message)
-    return {question.key: probabilities[question.key] for question in questions}
+    selected = {question.key: probabilities[question.key] for question in questions}
+    unreadable = sorted(key for key, value in selected.items() if not is_probability(value))
+    if unreadable:
+        message = f"the decision model returned no probability from 0 to 1 for {unreadable}"
+        raise MonitorError(message)
+    return {key: float(value) for key, value in selected.items()}
+
+
+def is_probability(value: object) -> bool:
+    """Tell whether a value is a finite number from 0 to 1; a bool is not, and neither is NaN.
+
+    A `Decimal` is no `numbers.Real`, so it is checked on its own; its
+    signalling NaN cannot even be converted to a float.
+    """
+    if isinstance(value, Decimal):
+        return value.is_finite() and 0 <= value <= 1
+    if isinstance(value, bool) or not isinstance(value, numbers.Real):
+        return False
+    return 0.0 <= float(value) <= 1.0
 
 
 class NoulCriteriaBody(TypedDict):
@@ -232,10 +262,16 @@ class OpenRouterDecisionModel(DecisionModel):
     questions restores some resolution.
 
     The key comes from `OPENROUTER_API_KEY` unless `api_key` is given. Pass
-    your own `http_client` or `async_http_client` to reuse connections or
-    change transports. Without them, the sync path keeps one client for the
-    model's lifetime, and the async path opens a client per request, since a
-    pooled async client cannot move between event loops.
+    your own `http_client` or `async_http_client` to reuse connections, change
+    transports or decide when a client closes; a client you pass keeps its own
+    timeout, and `timeout_seconds` applies only to the clients the model opens.
+    Without them, the sync path opens one client for the model's lifetime,
+    which is never closed, and the async path opens and closes a client per
+    request, since a pooled async client cannot move between event loops.
+
+    Retries stop after `RETRY_ATTEMPTS` attempts, or once an attempt fails 45
+    seconds or more after the first began, stamina's default time budget.
+    HTTP 408 is a client error like any other, and is not retried.
     """
 
     def __init__(
@@ -459,24 +495,38 @@ class DecisionModelMonitor(Monitor):
     `combine` merges them; `Combine.MAX` is the default because averaging
     dilutes a single strong hit, while the maximum keeps it (see
     `docs/plans/initial-implementation/research/decision-model-question-format.md`).
-    The reason names the question with the highest probability of yes, and
-    carries no probability or combined score: Auto Mode shows the reason to
-    the agent, and those numbers would tell it how close its step came to
-    passing. They stay in the suspicion.
+    The reason names the question with the highest probability of yes, or,
+    under `Combine.MIN`, every question in the order given: the minimum rests
+    on all of them, and naming the lowest would point the agent at the one
+    criterion it needs to lower to pass. It carries no probability or
+    combined score: Auto Mode shows the reason to the agent, and those numbers
+    would tell it how close its step came to passing. They stay in the
+    suspicion.
+
+    Every answer is checked, whichever `DecisionModel` gave it: a skipped
+    question, or an answer that is not a finite number from 0 to 1 (an
+    `int`, a `float`, a `Decimal` or another real number, but not a `bool`),
+    raises `MonitorError`, so the step fails and nothing it proposed runs.
     """
 
     def __init__(
         self,
         *,
         decision_model: DecisionModel,
-        questions: Sequence[YesNoQuestion] = (IS_THE_STEP_SUSPICIOUS,),
+        questions: Iterable[YesNoQuestion] = (IS_THE_STEP_SUSPICIOUS,),
         combine: Combine = Combine.MAX,
         view: MonitorView = DEFAULT_MONITOR_VIEW,
     ) -> None:
-        """Build the monitor; question keys must be unique, and `Combine.MEAN` warns."""
-        keys = [question.key for question in questions]
+        """Build the monitor; question keys must be unique, and `Combine.MEAN` warns.
+
+        `questions` may be any iterable, a generator included; it is read once
+        into a tuple, so checking it cannot consume the questions.
+        """
+        check_enum_option(combine, option_type=Combine, parameter_name="combine")
+        question_tuple = tuple(questions)
+        keys = [question.key for question in question_tuple]
         if not keys or len(set(keys)) != len(keys):
-            message = f"questions must be a non-empty list with unique keys, got {keys}"
+            message = f"questions must be non-empty, with unique keys, got {keys}"
             raise ConfigurationError(message)
         if combine is Combine.MEAN:
             message = (
@@ -485,7 +535,7 @@ class DecisionModelMonitor(Monitor):
             )
             warnings.warn(message, UserWarning, stacklevel=2)
         self.decision_model = decision_model
-        self.questions = tuple(questions)
+        self.questions = question_tuple
         self.combine = combine
         self.view = view
 
@@ -516,9 +566,22 @@ class DecisionModelMonitor(Monitor):
         return f"<transcript>\n{transcript}\n</transcript>\n{proposed_step}"
 
     def build_verdict(self, probabilities: Mapping[str, float]) -> Verdict:
-        """Combine the probabilities and name the question that scored highest."""
-        strongest = max(self.questions, key=lambda question: probabilities[question.key])
-        values = [probabilities[question.key] for question in self.questions]
-        suspicion = combine_probabilities(values, combine=self.combine)
-        reason = f"The decision model's strongest concern is {strongest.key!r}: {strongest.text}"
+        """Check and combine the probabilities, and name the questions the suspicion rests on.
+
+        Under `Combine.MIN` that is every question, in the order given, so the
+        reason does not depend on the answers. Otherwise it is the question
+        with the highest probability of yes, the first in order on a tie.
+        """
+        answers = select_question_probabilities(probabilities, questions=self.questions)
+        suspicion = combine_probabilities(list(answers.values()), combine=self.combine)
+        if self.combine is Combine.MIN:
+            concerns = "; ".join(
+                f"{question.key!r}: {question.text}" for question in self.questions
+            )
+            reason = f"The decision model's score rests on all of its concerns together: {concerns}"
+        else:
+            strongest = max(self.questions, key=lambda question: answers[question.key])
+            reason = (
+                f"The decision model's strongest concern is {strongest.key!r}: {strongest.text}"
+            )
         return Verdict(suspicion=suspicion, reason=reason)

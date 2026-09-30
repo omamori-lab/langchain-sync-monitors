@@ -191,10 +191,12 @@ for record in result["monitor_log"]:
   `ModelRetryMiddleware`, runs the whole step again with fresh samples.
 - **A halt ends the run.** After a `HaltRun`, the middleware routes the agent
   to its end, even an agent that would otherwise loop until it has a
-  structured response. This costs one more graph step per model call, which
-  counts towards an explicit `recursion_limit`. If a hook such as Deep
-  Agents' `RubricMiddleware` sends the run back to the model, each further
-  step halts again without a sample until the user writes again.
+  structured response. The middleware's hooks cost two graph steps per model
+  call, `before_model` and `after_model`, and two per run, `before_agent` and
+  `after_agent`, all of which count towards an explicit `recursion_limit`. If
+  a hook such as Deep Agents' `RubricMiddleware` sends the run back to the
+  model, each further step halts again without a sample, until a later run
+  brings a new message from the user.
 
 ## Related guides
 

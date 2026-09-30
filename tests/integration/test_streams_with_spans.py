@@ -40,9 +40,20 @@ type StreamMode = Literal["messages", "updates", "custom"]
 
 FINAL_ANSWER = "Q3 revenue grew 12%."
 RUN_SPECIFIC_KEYS = frozenset(
-    {"id", "run_id", "thread_id", "checkpoint_ns", "langgraph_checkpoint_ns"},
+    {
+        "id",
+        "run_id",
+        "thread_id",
+        "checkpoint_ns",
+        "langgraph_checkpoint_ns",
+        "monitor_task_messages",
+        "monitor_seen_human_messages",
+    },
 )
-"""Keys whose values differ between any two runs: random message ids and checkpoint names."""
+"""Keys whose values differ between any two runs: random message ids and checkpoint names.
+
+The monitor's lists of message ids, which `stream_mode="updates"` carries, hold ids too.
+"""
 
 MONITOR_SPAN_NAMES = {"monitor step", "monitor judgement", "monitor decision"}
 

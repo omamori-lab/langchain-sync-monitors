@@ -187,7 +187,8 @@ def test_a_middleware_that_has_warned_can_still_be_copied_and_pickled(
 
     # Act
     deep_copy = copy.deepcopy(middleware)
-    unpickled = pickle.loads(pickle.dumps(middleware))
+    pickled = pickle.dumps(middleware)
+    unpickled = pickle.loads(pickled)  # lanorme: ignore[DESERIAL-001] bytes pickled just above
 
     # Assert
     for duplicate in (deep_copy, unpickled):

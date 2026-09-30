@@ -656,7 +656,7 @@ def edit_message(
     )
 
 
-def test_a_tool_that_edits_the_user_s_message_by_id_writes_a_note_not_the_user(
+def test_a_tool_that_edits_the_user_s_message_by_id_writes_a_note_after_the_task(
     run_mode: RunMode,
 ) -> None:
     # Arrange: the application gives its messages ids, and the agent learns the task's
@@ -684,10 +684,13 @@ def test_a_tool_that_edits_the_user_s_message_by_id_writes_a_note_not_the_user(
     # Act
     run_messages(agent, [HumanMessage(TASK, id="task-1")], mode=run_mode)
 
-    # Assert
+    # Assert: the task keeps its place and its words, and the tool's version follows it
     transcript = monitor.find_reading(tool_name="http_post").transcript
-    assert read_tagged_entries(transcript, tag="user") == []
-    assert f'<context_note source="edit_message">{edited}</context_note>' in transcript
+    assert transcript.splitlines()[:2] == [
+        f"<user>{TASK}</user>",
+        f'<context_note source="edit_message">{edited}</context_note>',
+    ]
+    assert read_tagged_entries(transcript, tag="user") == [TASK]
 
 
 def test_a_run_that_ends_by_a_return_direct_tool_keeps_the_next_input_as_the_user(

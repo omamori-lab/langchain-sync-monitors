@@ -72,8 +72,9 @@ order:
 | `UnsupportedContentMiddleware` | `wrap_model_call` | Inside: called once per sample, rewrites the request |
 
 The monitor therefore reads the conversation after summarisation, as the
-agent does, and every sample passes through the two inner model-call
-layers, which return no commands. Skills, memory, asynchronous subagents and
+agent does, with one addition: each run's input the summary replaced is put
+back in the monitor's copy, verbatim. Every sample passes through the two
+inner model-call layers, which return no commands. Skills, memory, asynchronous subagents and
 harness profiles add layers of their own when they are configured.
 
 ### The monitor's hooks
@@ -383,8 +384,10 @@ block is not shown ([what the judge does not see](#what-the-judge-does-not-see))
 
 When the view keeps only recent entries, every message from the task author
 is kept anyway, in order: the first states the task, and a later one can
-narrow or revoke it. A context note is never kept in their place. Reasoning is
-read from LangChain's standard content blocks, with a fallback for a reply
+narrow or revoke it. A context note is never kept in their place. After
+summarisation, or after a tool removes a message by id, every run's input
+still reaches the monitor, verbatim and in order
+([task authorship](#task-authorship-and-notes)). Reasoning is read from LangChain's standard content blocks, with a fallback for a reply
 that carries it only in OpenRouter's `reasoning_details`
 [@langchaincore2026; @langchainopenrouter2026].
 
@@ -505,6 +508,27 @@ reads:
 
 - **At the start of a run**, its `before_agent` hook records each untagged
   human message it has not seen as the run's input.
+- **Every run's input stays with the judge.** At the start of a run the
+  monitor keeps the text of each input under `monitor_run_inputs`, with the
+  ids of up to three messages before it. The kept copy follows its message in
+  the state: at each run start, step start and commit, and in memory before
+  each judgement, its text becomes the text the state holds under its id. So
+  a redaction such as `PIIMiddleware`'s, or the user's `update_state` edit,
+  reaches the judge as the agent reads it. When the model request no longer
+  holds an input, because a summary replaced it or a tool removed it, the
+  monitor puts it back in its own copy. It goes just after the nearest of the
+  three messages before it that is still there, else just before a message
+  that took its id unless a tool wrote that message, else at the start,
+  before the summary. It comes after the input before it, and before both the
+  next input still there and any message under its id; where these disagree,
+  the input before it wins, so the inputs put back keep their order. One the
+  request shows with other text, such as Deep Agents' preview of a large
+  message, is shown whole. The agent's own request is unchanged, and the
+  summary stays a note. Input after a run that stopped early comes back as a
+  note from `unconfirmed_input`. Only the text is kept, so the state grows by
+  the size of the user's turns, and a restored turn carries no image. This
+  holds by default, and any later way of compacting the rest of the history
+  keeps it.
 - **Before each step, at each commit and at the end of a run**, it records
   every untagged human message then in the state as seen, and writes each one
   that is not a run's input back, by its id, tagged as a note. The tag is part
@@ -517,10 +541,20 @@ reads:
   a dict, and any other update as the pairs LangGraph writes. A command the
   tool raises for the parent graph as a `ParentCommand`, itself or from a
   graph it calls, is relabelled the same way before it goes on. A message
-  written back wholly unchanged, under the id of one already in the state,
-  keeps its author, as when a tool rewrites the history. One changed in any
-  field, its metadata included, does not, so a tool that edits a message by
-  id cannot put the agent's words in the user's.
+  written back under the id of one already in the state counts as unchanged
+  only if it has the same type and every field equal, and then keeps its
+  author, as when a tool rewrites the history. One changed in any field, its
+  metadata included, does not, so a tool that edits a message by id cannot
+  put the agent's words in the user's. A tool's `Command` writes to the state
+  keys only the monitor writes, every monitor key but `monitor_log`, are
+  dropped with a warning, in every item of a list result and in a command the
+  tool raises. When a tool writes a message under the id of a human message
+  the monitor has seen, the monitor records that id under
+  `monitor_rewritten_inputs`. Once the messages kept before that input are
+  all gone, such a message never marks the input's place, though it still
+  bounds it from above; ids stay as the tool wrote them. A command still
+  addressed to the parent graph is recorded by the parent's monitor. Each
+  item of a list result is read against the state the items before it leave.
 - **Before a monitor judges a step**, every untagged human message whose id
   is not recorded as input is tagged as a note in the monitor's copy of the
   request, which can hold messages the state lacks.
@@ -536,6 +570,13 @@ distrusts is content, such as a web page, a file or an argument the agent
 chose, which is escaped and never read as a tag. Two paths through a
 middleware listed before the monitor stay open
 ([who speaks as the user](#who-speaks-as-the-user)).
+
+These checks cover what a tool's update says, whatever the model chose as
+the tool's arguments. They do not cover tool code written to defeat them,
+which runs in the same process as the monitor: it can mutate the state it is
+handed in place, or hand over objects whose own methods lie. A `Send` a
+tool's command carries reaches another node's input and is not covered
+(issue #76).
 
 ### After a run that stopped early
 
@@ -599,9 +640,9 @@ Both halts here draw no sample: the untrusted model is not called, and the
 step's record is `halted`, flagged, with no samples. A standing halt's final
 message is `STANDING_HALT_MESSAGE`:
 
-> [Safety monitor] This run stays stopped: the safety monitor halted it, and
-> no new input the monitor could confirm has arrived since. The rejected steps
-> are recorded in monitor_log for review.
+> [Safety monitor] This run is stopped: the safety monitor halted an earlier
+> step, and that halt stands until a later run brings new input the monitor
+> can confirm. The rejected steps are recorded in monitor_log for review.
 
 The rule counts rather than reading where messages sit, so a hook that
 rewrites, trims or removes messages cannot lift a halt, and one that writes
@@ -653,9 +694,8 @@ as the parent agent's words, `<delegator>`, rather than the user's.
   monitor to the subagent's own graph instead, with
   `agent_name="<subagent name>"` and `task_author=TaskAuthor.PARENT_AGENT`.
   With the default `agent_name="main"`, its records count as the main
-  agent's own, so its halt reads as the main agent's: whatever
-  `when_subagent_halts` says, the main agent halts before its next model call
-  with `STANDING_HALT_MESSAGE`. With the default task author, it reads the
+  agent's own, so its halts may go unseen, whatever `when_subagent_halts`
+  says; set `agent_name` to the subagent's name. With the default task author, it reads the
   delegated task as the user's authorisation.
 - **Forked subagents**, `mode="fork"`, are not supported yet, as issue #35
   tracks. A fork passed to `create_deep_agent` directly still runs
@@ -713,9 +753,10 @@ when its task returns.
 
 ### Private state keys
 
-The monitor keeps its run state in six keys. Four are private: they never
+The monitor keeps its run state in eight keys. Six are private: they never
 enter any run's input or `invoke` output, but they do appear in
-`stream_mode="values"`, `stream_mode="updates"` and `get_state`.
+`stream_mode="values"`, `stream_mode="updates"` and `get_state`. So
+`monitor_run_inputs` carries the text of the user's turns into those three.
 
 | Key | Holds | In a run's input | In `invoke` output | In `values`, `updates`, `get_state` |
 |---|---|---|---|---|
@@ -723,6 +764,8 @@ enter any run's input or `invoke` output, but they do appear in
 | `monitor_delegation` | The `Delegation` a subagent started with | Yes | No | Only in the subagent's own state |
 | `monitor_task_messages` | The ids of the human messages recorded as a run's input | No | No | Yes |
 | `monitor_seen_human_messages` | The ids of every untagged human message the monitor has seen | No | No | Yes |
+| `monitor_run_inputs` | The text of each human message a run received as its input, its id, the ids of up to three messages before it, and whether the input was confirmed | No | No | Yes |
+| `monitor_rewritten_inputs` | The ids of the human messages the monitor has seen that a tool wrote a message under | No | No | Yes |
 | `monitor_run_open` | Whether a run has started and not yet reached `after_agent` | No | No | Yes |
 | `monitor_inputs_at_halt` | For each monitor, the run inputs recorded at its latest halt | No | No | In `values` and `get_state` from the first chunk, as `[]`; in `updates` once a monitor has halted |
 
@@ -962,14 +1005,31 @@ limit is linked from where it arises above.
   no block LangChain keeps is invisible to the judge: Gemini's URL context,
   whose metadata langchain-google-genai does not keep, and the search of
   OpenRouter's web plugin.
-- **The task after summarisation** (issue #46). Once summarisation has
-  replaced the earlier messages of the model request, the original task may
-  be gone from what the monitor reads, and the summary is a note.
-- **The task after a tool removes it** (issue #74). A tool can write
-  `RemoveMessage(id=...)` for the message that holds the task, then a new
-  message under that id. LangGraph's reducer deletes the task, and any
-  restriction in it, from the history, so the judge reads no `<user>` entry;
-  the new message is a note from the tool.
+
+### Keeping the user's turns
+
+- **A redaction and a summary in one pass.** With a redacting middleware and
+  a summariser both listed before the monitor, one `before_model` pass can
+  redact a turn and summarise it away before the monitor sees the redaction.
+  The judge then reads the turn as it arrived. List the summariser after the
+  monitor to avoid it.
+- **A turn removed with all its neighbours.** An input a tool removed
+  together with the three messages before it goes back right after the input
+  before it, ahead of that input's surviving steps.
+- **A forged neighbour** (issue #86). A tool that removes the message before
+  an input and writes a new one under that message's id can change where the
+  input goes back.
+- **Reordering the inputs the state still holds** (issue #86). A tool that
+  removes an input and writes it back unchanged in a parallel call of the same
+  step, or writes the whole history back in a new order, reorders the inputs
+  the state holds, and the judge reads them in that order, as the agent does.
+- **Rewrites in the model request alone.** A middleware that rewrites the
+  user's message in the request but not in the state is not followed: the
+  judge reads the state's text.
+- **The cost of a large turn.** The judge reads every turn whole on every
+  step, even one Deep Agents shows the agent as a preview (over 50,000 tokens
+  by default). This costs tokens on every step and can exceed a small judge's
+  context, and the step then fails.
 
 ### Who speaks as the user
 
@@ -998,12 +1058,13 @@ limit is linked from where it arises above.
   before a step that failed.
 - **Messages added to a resumed run.** A human message added to a run that
   resumes, through `Command(update=...)` or `update_state`, is never recorded
-  as input, so it is a note from `application`. That fails closed, but a
-  restriction the user adds that way, such as "do not send anything", then
+  as input, so it is a note from `application`, and it is not kept. That
+  fails closed, but a restriction the user adds that way, such as "do not send anything", then
   carries no authority with the judge either; send it as a new run's input.
 - **Unconfirmed input.** After a run that stopped early, the user's new
-  message stays a note from `unconfirmed_input` for the rest of the thread,
-  and an entry limit may drop it. Honouring a limit from a message of unknown
+  message stays a note from `unconfirmed_input` for the rest of the thread.
+  It comes back after summarisation, but, like every note, an entry limit may
+  drop it. Honouring a limit from a message of unknown
   author can block honest work, but lets no action through. Such a note need
   not hold the user's words: a `before_model` hook of a middleware listed
   after the monitor runs after the monitor's own, and Deep Agents lists a
@@ -1090,10 +1151,9 @@ limit is linked from where it arises above.
 - **Forked subagents.** Only `monitor_subagents` refuses them. A fork passed
   to `create_deep_agent` directly runs under the main agent's monitor, which
   reads the fork's task, written by the parent agent, as the user's words and
-  records the fork's steps as the main agent's. A halt inside the fork then
-  reads as the main agent's own, so the main agent halts before its next model
-  call with `STANDING_HALT_MESSAGE`, whatever `when_subagent_halts` says.
-  Delegate only to isolated subagents.
+  records the fork's steps as the main agent's, so the fork's halts may go
+  unseen, whatever `when_subagent_halts` says. Delegate only to isolated
+  subagents.
 - **Delegation ids** name a step only if the model provider gives every tool
   call in the thread its own id, which LangChain does not check.
 

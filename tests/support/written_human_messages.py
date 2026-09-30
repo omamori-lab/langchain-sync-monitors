@@ -173,6 +173,19 @@ class MessagesTuple(NamedTuple):
     messages: list[BaseMessage]
 
 
+class EqualToEveryMessage(HumanMessage):
+    """A human message whose own `__eq__` calls it equal to anything, as tool code could write.
+
+    Python asks a subclass's `__eq__` first, so `existing == message` would
+    call it equal to the message the state holds.
+    """
+
+    def __eq__(self, other: object) -> bool:
+        return True
+
+    __hash__ = HumanMessage.__hash__
+
+
 class MessagesKey(str):
     """The key `messages` as a string that calls itself unequal to every other with `!=`.
 

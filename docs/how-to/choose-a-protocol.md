@@ -144,9 +144,9 @@ agent's model is not called, the record is `halted`, flagged, with no
 samples, and the final message is `STANDING_HALT_MESSAGE`, whatever message
 your `HaltRun` has:
 
-> [Safety monitor] This run stays stopped: the safety monitor halted it, and
-> no new input the monitor could confirm has arrived since. The rejected steps
-> are recorded in monitor_log for review.
+> [Safety monitor] This run is stopped: the safety monitor halted an earlier
+> step, and that halt stands until a later run brings new input the monitor
+> can confirm. The rejected steps are recorded in monitor_log for review.
 
 Nothing written during a run lifts the halt: not a hook sending the run back
 to the model, not a harness nudge, not a note from `unconfirmed_input`. A new

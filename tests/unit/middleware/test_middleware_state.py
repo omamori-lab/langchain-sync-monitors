@@ -8,7 +8,7 @@ from typing import Annotated, Any, Literal
 
 import pytest
 from langchain.agents import create_agent
-from langchain.agents.middleware import AgentMiddleware
+from langchain.agents.middleware import AgentMiddleware, AgentState
 from langchain_core.messages import AIMessage, ToolMessage
 from langchain_core.tools import BaseTool, InjectedToolCallId, tool
 from langgraph.channels.binop import BinaryOperatorAggregate
@@ -18,6 +18,8 @@ from langgraph.types import Command
 
 from langchain_sync_monitors.contracts import StepRecord, SubagentHalt, TaskAuthor
 from langchain_sync_monitors.middleware import MonitorMiddleware
+from langchain_sync_monitors.monitor_state import MonitorState
+from langchain_sync_monitors.state_keys import MONITOR_STATE_KEYS
 from tests.support.agents import (
     RunMode,
     build_keyword_monitor,
@@ -246,7 +248,13 @@ def test_two_monitors_on_one_agent_count_their_own_steps(run_mode: RunMode) -> N
 
 @pytest.mark.parametrize(
     "key",
-    ["monitor_task_messages", "monitor_seen_human_messages", "monitor_inputs_at_halt"],
+    [
+        "monitor_task_messages",
+        "monitor_seen_human_messages",
+        "monitor_run_inputs",
+        "monitor_rewritten_inputs",
+        "monitor_inputs_at_halt",
+    ],
 )
 def test_the_message_ids_and_halt_counts_the_monitor_records_are_private(
     middleware: MonitorMiddleware,
@@ -284,6 +292,7 @@ def test_two_monitors_on_one_agent_record_each_message_id_once(run_mode: RunMode
     )
     assert state["monitor_task_messages"] == [first_task, second_task]
     assert state["monitor_seen_human_messages"] == [first_task, nudge, second_task]
+    assert [entry["id"] for entry in state["monitor_run_inputs"]] == [first_task, second_task]
 
 
 def test_names_are_unique_per_agent_and_subagent_copies_trust_the_parent_less(
@@ -305,3 +314,11 @@ def test_the_middleware_holds_no_mutable_run_state(middleware: MonitorMiddleware
     # Act / Assert
     with pytest.raises(dataclasses.FrozenInstanceError):
         middleware.agent_name = "changed"  # ty: ignore[invalid-assignment]
+
+
+def test_the_keys_only_the_monitor_writes_are_every_key_it_adds_but_its_log() -> None:
+    # Act
+    added = set(MonitorState.__annotations__) - set(AgentState.__annotations__)
+
+    # Assert
+    assert added - {"monitor_log"} == MONITOR_STATE_KEYS

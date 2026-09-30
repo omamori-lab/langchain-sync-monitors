@@ -10,7 +10,8 @@ each tag of the rendered transcript means.
 
 A monitor reads the conversation so far, rendered as tagged text, and the step
 the agent proposes. It reads the conversation the model call carries, so after
-summarisation it reads what the agent itself reads.
+summarisation it reads what the agent itself reads, and every one of the
+user's turns besides, verbatim, even the ones the summary replaced.
 
 [![Every entry of the transcript belongs to one channel. The default view, Channel.ACTIONS, reads USER (the task, context notes and feedback), TOOL_CALLS (tool calls and errors) and SUBAGENT_REPORTS (what subagents report), and leaves out REASONING, AGENT_TEXT and TOOL_RESULTS, each one flag away. The proposed step's tool calls are always shown, and its text when it is a final answer; the rest of the step follows the view's channels. A MonitorView chooses the channels, can keep only the most recent entries, and names the tools whose results are subagent reports. The monitor reads the chosen entries as escaped, tagged text ending with the proposed step, then scores the step.](../assets/diagrams/monitor-view-light.svg#only-light)](../assets/diagrams/monitor-view-light.svg "Open the diagram at full size")
 [![Every entry of the transcript belongs to one channel. The default view, Channel.ACTIONS, reads USER (the task, context notes and feedback), TOOL_CALLS (tool calls and errors) and SUBAGENT_REPORTS (what subagents report), and leaves out REASONING, AGENT_TEXT and TOOL_RESULTS, each one flag away. The proposed step's tool calls are always shown, and its text when it is a final answer; the rest of the step follows the view's channels. A MonitorView chooses the channels, can keep only the most recent entries, and names the tools whose results are subagent reports. The monitor reads the chosen entries as escaped, tagged text ending with the proposed step, then scores the step.](../assets/diagrams/monitor-view-dark.svg#only-dark)](../assets/diagrams/monitor-view-dark.svg "Open the diagram at full size")
@@ -239,12 +240,13 @@ from langchain_sync_monitors import MonitorView
 view = MonitorView(most_recent_entries=1)
 ```
 
-After summarisation has replaced the earlier messages, the original task may
-be gone from what the monitor reads, left only as a context note (issue #46).
-
-A tool that removes the task message by id, and writes a new message under
-that id, removes the task from what the monitor reads too, and the new
-message is a note from the tool (issue #74).
+After summarisation, or after a tool removes a message by id, the monitor
+still reads every one of the user's turns, verbatim, put back in order before
+the summary, which stays a context note. Input after a run that stopped early
+comes back as a note from `unconfirmed_input`. A tool that reorders turns the
+state still holds reorders them for the judge as for the agent. The monitor
+keeps the text in its private state, so the state grows by the size of the
+user's turns.
 
 ## Name your delegation tools
 

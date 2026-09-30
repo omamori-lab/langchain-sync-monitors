@@ -10,7 +10,16 @@ class MonitorError(Exception):
 
 
 class ConfigurationError(MonitorError):
-    """A monitor, protocol or middleware was built with settings that cannot work."""
+    """A monitor, protocol or middleware was built with settings that cannot work.
+
+    Most are raised when the object is built. A few settings can only be
+    checked during a run, so the same error is raised then: a
+    `monitor_delegation` in an agent's input that is not a valid
+    `Delegation`, and a guard model that returns no log-probabilities with
+    alternatives under `GuardScoring.LOG_PROBABILITIES`, or rejects the
+    request for them under `GuardScoring.AUTO` or
+    `GuardScoring.LOG_PROBABILITIES`.
+    """
 
 
 class MissingExtraError(ConfigurationError, ImportError):

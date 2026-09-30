@@ -17,9 +17,12 @@ Run the gates and make sure they pass:
 scripts/check.sh
 ```
 
-It runs the agent-file sync check, ruff, ty (Astral's type checker, warnings treated as errors), the unit tests, the
-lanorme standards, a strict docs build and a package build. CI and the
-pre-commit hooks run the same script. Do not finish with a red gate.
+It runs the agent-file sync check, ruff, ty (Astral's type checker, warnings
+treated as errors), the offline test suite, the lanorme standards, a strict
+docs build, a package build and an import of the built wheel without any
+extra. CI runs the same script. The pre-commit hooks run only its fast gates,
+ruff, ty, lanorme and the offline suite, plus a gitleaks secrets scan and file
+checks, so they do not replace the script. Do not finish with a red gate.
 `uv run --group dev ruff check --fix . && uv run --group dev ruff format .`
 fixes what ruff reports; `uvx --python 3.13 lanorme==0.21.0 rule CODE` explains
 a lanorme finding.
@@ -47,8 +50,8 @@ a lanorme finding.
 - **Names.** A function is named for what it does, verb first (`build_`,
   `render_`, `read_`, `is_`); modules and classes are nouns. Use full words: no
   shorthands or abbreviations beyond standard ones such as `id` or `url`.
-  LangChain's fixed hook names (`wrap_model_call`, `awrap_model_call`) are the
-  only exception.
+  LangChain's fixed hook names, such as `wrap_model_call`, `awrap_tool_call`
+  and `aafter_model`, are the only exception.
 - **Keyword-only parameters** for every public constructor and function after
   the first positional one, except LangChain hooks marked with `@override`.
 - **Intentional types.** No `Any` and no `dict[str, Any]` for data whose shape

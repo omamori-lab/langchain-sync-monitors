@@ -237,10 +237,14 @@ def rewrite_update_messages(command: Command[Any], *, rewrite: MessageRewrite) -
     pairs = read_update_pairs(command)
     if not any(key == MESSAGES_KEY for key, _ in pairs):
         return command
-    rewritten = rewrite_update_pairs(pairs, rewrite=rewrite)
+    return replace_update_pairs(command, pairs=rewrite_update_pairs(pairs, rewrite=rewrite))
+
+
+def replace_update_pairs(command: Command[Any], *, pairs: UpdatePairs) -> Command[Any]:
+    """Return the command writing `pairs`: a dict update stays a dict, any other becomes pairs."""
     if isinstance(command.update, dict):
-        return replace(command, update=dict(rewritten))
-    return replace(command, update=tuple(rewritten))
+        return replace(command, update=dict(pairs))
+    return replace(command, update=tuple(pairs))
 
 
 MONITOR_LOG_KEY = "monitor_log"
@@ -427,8 +431,9 @@ def write_stream_event(request: AgentModelRequest, *, event: MonitorStreamEvent)
     """Write the event to `stream_mode="custom"`, if the request runs inside a graph.
 
     A request built outside a graph has no runtime, and so no writer. A writer
-    that fails must not undo a step that is already decided, so its error is
-    logged and dropped.
+    that fails must change nothing else: a committed step stays committed, and
+    a failed step's own error is still raised. So the writer's error is logged
+    and the event is dropped.
     """
     writer = getattr(request.runtime, "stream_writer", None)
     if writer is None:
@@ -436,7 +441,7 @@ def write_stream_event(request: AgentModelRequest, *, event: MonitorStreamEvent)
     try:
         writer(event)
     except Exception:
-        logger.exception("The stream writer failed on a monitor step event; the step stands.")
+        logger.exception("The stream writer failed on a monitor event; the event is dropped.")
 
 
 @contextmanager

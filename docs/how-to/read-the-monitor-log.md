@@ -136,7 +136,7 @@ is the kind.
 `STANDING_HALT_MESSAGE`, from `halts.py`, reads:
 
 ```text
-[Safety monitor] This run stays stopped: the safety monitor halted it, and no new input the monitor could confirm has arrived since. The rejected steps are recorded in monitor_log for review.
+[Safety monitor] This run is stopped: the safety monitor halted an earlier step, and that halt stands until a later run brings new input the monitor can confirm. The rejected steps are recorded in monitor_log for review.
 ```
 
 Under the default `SubagentHalt.STOP_SUBAGENT_ONLY`, a subagent that reaches
@@ -284,10 +284,12 @@ not append them. With `FeedbackVisibility.IN_TRANSCRIPT`, a blocked attempt
 and its feedback are committed as part of the conversation, so they stream
 with the step that follows them.
 
-The monitor keeps four private keys in the state: `monitor_task_messages`,
-`monitor_seen_human_messages`, `monitor_run_open` and
-`monitor_inputs_at_halt`. They record which human messages were a run's
-input, and how many inputs the thread had at a halt. They never enter a run's
+The monitor keeps six private keys in the state: `monitor_task_messages`,
+`monitor_seen_human_messages`, `monitor_run_inputs`,
+`monitor_rewritten_inputs`, `monitor_run_open` and `monitor_inputs_at_halt`.
+They record which human messages were a run's input and the text of each,
+the inputs a tool wrote over, and how many inputs the thread had at a halt,
+so `monitor_run_inputs` holds the text of the user's turns. They never enter a run's
 input or the result of `invoke()` and `ainvoke()`, but `values`, `updates`
 and `agent.get_state(config)` show them. One more key, `monitor_delegation`,
 is part of every monitored agent's input: the monitor sets it for each
@@ -344,6 +346,7 @@ The library logs through Python's `logging`, under `langchain_sync_monitors`:
 | `langchain_sync_monitors.monitors.guard` | `DEBUG` | A guard model returned log-probabilities in a format the monitor cannot read |
 | `langchain_sync_monitors.monitors.guard` | `WARNING` | Under `GuardScoring.LOG_PROBABILITIES`, no label could be scored from a reply's log-probabilities, so the step is treated as suspicious |
 | `langchain_sync_monitors.task_authorship` | `WARNING` | A run started after one that stopped before its end, so its new human messages are notes from `unconfirmed_input`; the message names their ids |
+| `langchain_sync_monitors.task_authorship` | `WARNING` | A tool's command wrote a state key only the monitor writes, every monitor key but `monitor_log`; the write is dropped, and the message names the tool and the keys |
 | `langchain_sync_monitors.concurrency` | `WARNING` | A concurrent call failed after another one already had |
 | `langchain_sync_monitors._langchain` | `ERROR` | Writing a monitor event to the custom stream failed. The event is dropped and nothing else changes: a committed step stays committed, and a failed step's error is still raised |
 

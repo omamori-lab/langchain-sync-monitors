@@ -208,8 +208,10 @@ its own general-purpose subagent, and that one has no monitor.
 ### `when_subagent_halts`
 
 This option of `MonitorMiddleware` decides what a halt inside a subagent does
-to the agent that started it. Set it on the main agent's monitor; the
-subagents' copies inherit it.
+to the agent that started it, so the parent's monitor's value is the one that
+counts. Set it on the main agent's monitor. The copies `monitor_subagents`
+makes of that monitor carry the same value, which decides for a subagent's
+own nested subagents, and an override in `overrides` keeps its own.
 
 | Value | What happens when a subagent is halted |
 |---|---|
@@ -296,11 +298,8 @@ Both options matter:
 
 - `agent_name` must be the subagent's name. With the default, `"main"`, the
   subagent's records come back labelled as the main agent's own, and number
-  the main agent's later steps after them. When the subagent halts, the
-  parent's monitor reads that halt as its own last step, so under either
-  `when_subagent_halts` value the parent halts before its next model call,
-  without a sample, with `STANDING_HALT_MESSAGE`, as if it had halted itself.
-  The thread goes on at the next message from the user.
+  the main agent's later steps after them, so its halts may go unseen,
+  whatever `when_subagent_halts` says.
 - `task_author=TaskAuthor.PARENT_AGENT` makes the monitor read the delegated
   task as the parent agent's words. With the default, it reads the task as the
   user's own authorisation, although the parent agent wrote it.
@@ -317,10 +316,8 @@ starting from the delegated task. The monitor does not support forks yet
 A fork inherits the main agent's middleware, so it runs under `monitor[main]`.
 That monitor reads the fork's task, which the parent agent wrote, as the
 user's words, and records the fork's steps under the main agent's name. Those
-records renumber the main agent's steps. When the fork halts, the main agent
-reads the halt as its own last step, and halts before its next model call
-under either `when_subagent_halts` value, with `STANDING_HALT_MESSAGE`, until
-the next message from the user. This happens whenever a monitored agent has a
+records renumber the main agent's steps, and the fork's halts may go unseen,
+whatever `when_subagent_halts` says. This happens whenever a monitored agent has a
 fork, with or without `monitor_subagents`, so give a monitored agent only
 isolated subagents, the default.
 

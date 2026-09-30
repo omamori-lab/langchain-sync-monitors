@@ -20,8 +20,10 @@ context note, in the state as well as in what the monitor reads.
   when the run reaches the monitor's `after_agent` hook. A run that starts
   while it is still set follows one that stopped early, or a fork from a
   checkpoint inside a run, and the state may hold messages the monitor never
-  saw. The monitor cannot tell them from the new input, so it reads all of
-  them as notes, which they stay for the rest of the thread.
+  saw. The monitor cannot tell them from the new input, so it tags all of
+  them as notes from `unconfirmed_input`, which they stay for the rest of
+  the thread. The prompt tells the judge that such a note may be the user's
+  own words: it authorises nothing, but a limit it sets still applies.
 
 Two paths stay open, both through another middleware listed before the
 monitor. Its `before_agent` hook runs before the monitor's own, so an untagged
@@ -57,6 +59,10 @@ RUN_OPEN_KEY = "monitor_run_open"
 
 APPLICATION_SOURCE = "application"
 """The source of a context note made from a human message that names no source of its own."""
+
+UNCONFIRMED_INPUT_SOURCE = "unconfirmed_input"
+"""The source of a note made from a human message that may be a run's input, but cannot be told
+from one an earlier run that stopped early left behind."""
 
 
 def merge_message_ids(  # lanorme: ignore[KWARG-001]
@@ -178,21 +184,29 @@ def build_run_input_update(state: object) -> AgentStateUpdate:
     At the start of a run, an untagged human message the monitor has not seen
     is the run's input: the monitor saw every earlier one, at the step or the
     end that followed it. After a run that stopped before its end, or from a
-    fork inside a run, it may not have, so it records no input and warns.
+    fork inside a run, it may not have, so it records no input, tags each of
+    those messages as a note from `unconfirmed_input`, and warns with their
+    ids, so the application can tell the user.
     """
     new_ids = find_unseen_human_message_ids(state)
     update: AgentStateUpdate = {RUN_OPEN_KEY: True}
     if not new_ids:
         return update
-    if is_run_open(state):
-        logger.warning(
-            "This run starts from a run that did not reach its end, so the monitor cannot "
-            "tell its input from messages the earlier run left behind; it reads %d human "
-            "message(s) as context notes, which authorise nothing.",
-            len(new_ids),
-        )
-        return {**update, SEEN_HUMAN_MESSAGES_KEY: new_ids}
-    return {**update, TASK_MESSAGES_KEY: new_ids, SEEN_HUMAN_MESSAGES_KEY: new_ids}
+    if not is_run_open(state):
+        return {**update, TASK_MESSAGES_KEY: new_ids, SEEN_HUMAN_MESSAGES_KEY: new_ids}
+    logger.warning(
+        "This run starts from a run that did not reach its end, so the monitor cannot tell "
+        "its input from messages the earlier run left behind. It reads the human messages "
+        "%s as notes from unconfirmed input: they authorise nothing, but a limit they set "
+        "still applies.",
+        new_ids,
+    )
+    unconfirmed = [
+        tag_as_context_note(message, source=UNCONFIRMED_INPUT_SOURCE)
+        for message in read_state_messages(state)
+        if isinstance(message, HumanMessage) and message.id in new_ids
+    ]
+    return {**update, SEEN_HUMAN_MESSAGES_KEY: new_ids, "messages": unconfirmed}
 
 
 def build_note_update(state: object) -> AgentStateUpdate:
@@ -253,18 +267,37 @@ def relabel_tool_written_message(message: BaseMessage, *, tool_name: str) -> Bas
     return message.model_copy(update={"additional_kwargs": additional_kwargs})
 
 
+def is_unchanged_write_back(
+    message: BaseMessage,
+    *,
+    existing_messages: Mapping[str, BaseMessage],
+) -> bool:
+    """Tell whether a tool writes back, under its id, a message the state holds unchanged.
+
+    Such a message keeps its author, as when a tool rewrites the history.
+    One whose type, words or tag the tool changed does not: a tool that edits
+    a message by id must not put the agent's words in the user's.
+    """
+    existing = existing_messages.get(message.id) if message.id else None
+    return (
+        existing is not None
+        and existing.type == message.type
+        and existing.content == message.content
+        and read_message_source(existing) == read_message_source(message)
+    )
+
+
 def relabel_tool_command(
     command: Command,
     *,
     tool_name: str,
-    existing_ids: frozenset[str],
+    existing_messages: Mapping[str, BaseMessage],
 ) -> Command:
-    """Relabel the new messages in a tool's `Command` update.
+    """Relabel the new or changed messages in a tool's `Command` update.
 
     Messages given as dictionaries, tuples or strings, one or a list, are
     converted first, as LangGraph's message reducer would convert them
-    [@langgraph2026]. A message whose id the state already holds replaces one
-    there, as a tool that rewrites the history does, and keeps its author.
+    [@langgraph2026].
     """
     if not isinstance(command.update, dict) or "messages" not in command.update:
         return command
@@ -272,7 +305,7 @@ def relabel_tool_command(
     messages = convert_to_messages(written if isinstance(written, list) else [written])
     relabelled = [
         message
-        if message.id in existing_ids
+        if is_unchanged_write_back(message, existing_messages=existing_messages)
         else relabel_tool_written_message(message, tool_name=tool_name)
         for message in messages
     ]
@@ -283,12 +316,16 @@ def relabel_tool_result(
     result: ToolCallResult,
     *,
     tool_name: str,
-    existing_ids: frozenset[str],
+    existing_messages: Mapping[str, BaseMessage],
 ) -> ToolCallResult:
     """Relabel what one item of a tool's result writes, a tool message or a `Command`."""
     if isinstance(result, Command):
-        return relabel_tool_command(result, tool_name=tool_name, existing_ids=existing_ids)
-    if read_message_source(result) != MONITOR_FEEDBACK_SOURCE or result.id in existing_ids:
+        return relabel_tool_command(
+            result, tool_name=tool_name, existing_messages=existing_messages
+        )
+    if read_message_source(result) != MONITOR_FEEDBACK_SOURCE or is_unchanged_write_back(
+        result, existing_messages=existing_messages
+    ):
         return result
     relabelled = relabel_tool_written_message(result, tool_name=tool_name)
     return relabelled if isinstance(relabelled, ToolMessage) else result
@@ -308,10 +345,12 @@ def mark_tool_written_notes(
     in every later run, even one that starts before the monitor has seen it,
     and in a history the application stores and replays.
     """
-    existing_ids = frozenset(message.id for message in read_state_messages(state) if message.id)
+    existing_messages = {
+        message.id: message for message in read_state_messages(state) if message.id
+    }
     if isinstance(results, list):
         return [
-            relabel_tool_result(result, tool_name=tool_name, existing_ids=existing_ids)
+            relabel_tool_result(result, tool_name=tool_name, existing_messages=existing_messages)
             for result in results
         ]
-    return relabel_tool_result(results, tool_name=tool_name, existing_ids=existing_ids)
+    return relabel_tool_result(results, tool_name=tool_name, existing_messages=existing_messages)

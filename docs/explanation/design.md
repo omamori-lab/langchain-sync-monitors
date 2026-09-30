@@ -431,11 +431,16 @@ reads:
   of the message, so a history the application saves or replays keeps it.
 - **When a tool writes messages**, `wrap_tool_call` tags each new human
   message as a note named after the tool, whether the tool returns a
-  `Command`, a list, or messages as dictionaries. A message written back
-  wholly unchanged, under the id of one already in the state, keeps its
-  author, as when a tool rewrites the history. One changed in any field, its
-  metadata included, does not, so a tool that edits a message by id cannot
-  put the agent's words in the user's.
+  `Command`, a list, or messages as dictionaries, and whatever shape a
+  command's update takes that LangGraph accepts: a dict, pairs of key and
+  value, a dataclass or a pydantic model [@langgraph2026]. A dict comes back
+  a dict, and any other update as the pairs LangGraph writes. A command the
+  tool raises for the parent graph as a `ParentCommand`, itself or from a
+  graph it calls, is relabelled the same way before it goes on. A message
+  written back wholly unchanged, under the id of one already in the state,
+  keeps its author, as when a tool rewrites the history. One changed in any
+  field, its metadata included, does not, so a tool that edits a message by
+  id cannot put the agent's words in the user's.
 - **Before a monitor judges a step**, every untagged human message whose id
   is not recorded as input is tagged as a note in the monitor's copy of the
   request, which can hold messages the state lacks.

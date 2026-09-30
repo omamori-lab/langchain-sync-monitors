@@ -42,10 +42,10 @@ monitor = DecisionModelMonitor(
 
 | Setting | Behaviour |
 |---|---|
-| Key | Read from `OPENROUTER_API_KEY` when the model is built, unless you pass `api_key=SecretStr(...)`. A missing key raises `ConfigurationError` at once. |
+| Key | Read from `OPENROUTER_API_KEY` when the model is built, unless you pass `api_key=SecretStr(...)`. A missing key raises `ConfigurationError` at once. A blank `api_key`, or one that is not a `SecretStr`, raises too, rather than fall back to the variable. Either key is stripped of surrounding whitespace, and one that still holds a control or non-ASCII character raises `ConfigurationError`, with no part of the key in the message. |
 | Endpoint | `{base_url}/decisions`, with `base_url` defaulting to `https://openrouter.ai/api/alpha`. The Decisions API is in alpha. |
-| Timeout | `timeout_seconds`, 30 by default, applies only to the clients the model opens itself. A client you pass keeps its own timeout. |
-| Connections | Pass `http_client` or `async_http_client`, both `httpx` clients, to reuse connections or decide when a client closes. Without them, `invoke()` uses one client for the model's lifetime, which the library never closes, and `ainvoke()` opens and closes a client per request. |
+| Timeout | `timeout_seconds`, 30 by default, a positive, finite number of seconds; `None` or an `httpx.Timeout` raises `ConfigurationError`. It applies only to the clients the model opens itself. A client you pass keeps its own timeout. |
+| Connections | Pass `http_client` or `async_http_client`, both `httpx` clients, to reuse connections or decide when a client closes. Without them, `invoke()` uses one client for the model's lifetime, which the library never closes, and `ainvoke()` opens and closes a client per request, since a pooled async client cannot move between event loops. |
 
 ## Reach Jev through TypeSafe's client
 

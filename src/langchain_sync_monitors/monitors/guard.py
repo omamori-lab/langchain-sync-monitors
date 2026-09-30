@@ -36,17 +36,22 @@ from langchain_sync_monitors.monitors.chat import (
     VerdictPlan,
     is_reply_cut_off,
 )
-from langchain_sync_monitors.monitors.guard_labels import LabelMatch, find_reply_label
-from langchain_sync_monitors.options import check_enum_option
+from langchain_sync_monitors.monitors.guard_labels import LABEL_WORD, LabelMatch, find_reply_label
+from langchain_sync_monitors.options import (
+    check_enum_option,
+    check_string_set_option,
+    read_count_option,
+)
 
 logger = logging.getLogger(__name__)
 
 TOP_LOG_PROBABILITIES = 20
 """How many alternatives to request per token; 20 is the most OpenAI-style APIs return."""
 
-LABEL_PATTERN = re.compile(r"[\w-]+")
-LEADING_MARKUP_PATTERN = re.compile(r"^\W+")
-"""Markup a label line may open with, such as `**` or `(`; a token may carry it before a label."""
+LABEL_PATTERN = re.compile(LABEL_WORD)
+"""A label the reply parser can read: letters or digits at both ends, where `_` or `-` is markup."""
+LEADING_MARKUP_PATTERN = re.compile(r"^[\W_]+")
+"""Markup a label line may open with, such as `**`, `__` or `(`; a token may carry it."""
 UNREADABLE_LABEL_REASON = (
     "The guard model gave no readable label, so the step is treated as suspicious."
 )
@@ -155,8 +160,8 @@ def read_label_prefix(token: str) -> str:
     """Return the start of a label a token may carry: no whitespace, no leading markup, lower case.
 
     The markup is what a label line may open with, so a token such as `(viol`
-    is read as the parser reads `(violation)`. Trailing markup stays, since a
-    token such as `no)` can begin no label.
+    or `__viol` is read as the parser reads `(violation)` or `__violation__`.
+    Trailing markup stays, since a token such as `no)` can begin no label.
     """
     return LEADING_MARKUP_PATTERN.sub("", token.strip()).lower()
 
@@ -227,13 +232,26 @@ def compute_suspicious_share(
 
 
 def validate_labels(*, suspicious_labels: AbstractSet[str], safe_labels: AbstractSet[str]) -> None:
-    """Reject empty, multi-word or overlapping label sets at construction."""
+    """Reject label sets that are not sets of strings, or are empty, overlapping or unreadable.
+
+    A label the reply parser could never read, such as `not safe` or
+    `violation_`, would make every reply unreadable, so it is refused here.
+    """
+    check_string_set_option(
+        suspicious_labels,
+        parameter_name="suspicious_labels",
+        example="{'violation'}",
+    )
+    check_string_set_option(safe_labels, parameter_name="safe_labels", example="{'no_violation'}")
     if not suspicious_labels or not safe_labels:
         message = "suspicious_labels and safe_labels must each hold at least one label"
         raise ConfigurationError(message)
     multi_word = sorted(filterfalse(is_one_word, suspicious_labels | safe_labels))
     if multi_word:
-        message = f"labels must be single words (letters, digits, _ or -), got {multi_word}"
+        message = (
+            "labels must be single words of letters, digits, _ or -, beginning and ending "
+            f"with a letter or digit, got {multi_word}"
+        )
         raise ConfigurationError(message)
     shared = set(map(str.lower, suspicious_labels)) & set(map(str.lower, safe_labels))
     if shared:
@@ -242,7 +260,10 @@ def validate_labels(*, suspicious_labels: AbstractSet[str], safe_labels: Abstrac
 
 
 def is_one_word(label: str) -> bool:
-    """Tell whether a label is one word of letters, digits, underscores or hyphens."""
+    """Tell whether a label is one readable word: letters and digits, joined by `_` or `-`.
+
+    The reply parser reads a `_` or `-` at either end of a word as markup.
+    """
     return LABEL_PATTERN.fullmatch(label) is not None
 
 
@@ -253,19 +274,25 @@ class GuardModelMonitor(ChatModelMonitor):
     `{proposed_step}`; it should ask for one label on a line of its own. The
     labels in `suspicious_labels` and `safe_labels` match case-insensitively,
     for example `{"violation"}` and `{"no_violation"}` for gpt-oss-safeguard,
-    or `{"unsafe"}` and `{"safe"}` for Llama Guard. The label is read only on
-    the reply's last line, or on its first when it is suspicious and only
-    category codes follow. A reply without a label there, with two different
-    labels on their own lines, or cut off at a length limit counts as a
-    suspicious label, so it can only raise the suspicion: alone it gives 1.0,
-    and among several samples it is one suspicious vote.
+    or `{"unsafe"}` and `{"safe"}` for Llama Guard; each is one word that
+    begins and ends with a letter or digit. The label is read only on the
+    reply's last line, or on its first when it is suspicious and only
+    category codes follow, with any markup such as `**` or `__` around it or
+    its key; a label with no key in a list item or a quote, as in
+    `2. no_violation`, is no verdict. A reply without a label there, with two
+    different labels on their own lines, or cut off at a length limit counts
+    as a suspicious label, so it can only raise the suspicion: alone it gives
+    1.0, and among several samples it is one suspicious vote.
 
     With log-probabilities, suspicion is the probability the guard gives to a
     suspicious label, the score Llama Guard, ShieldGemma and Granite Guardian
     report [@inan2023llamaguard; @zeng2024shieldgemma; @padhi2024graniteguardian].
     Without them, suspicion is the share of `samples` replies labelled
-    suspicious; the gain from more samples levels off around 5 to 10
-    [@xiong2024uncertainty; @lyu2025sampleconsistency; @tian2023justask].
+    suspicious. Studies of sampled answer confidence, none of them on guard
+    models, find that the gain from more samples levels off: Lyu et al. saw
+    calibration saturate after 15 to 20 samples [@lyu2025sampleconsistency],
+    Xiong et al. saw it converge within 13 [@xiong2024uncertainty], and Tian
+    et al. found no meaningful gain from 20 samples over 10 [@tian2023justask].
     Sampling needs the model's temperature above zero. Guard probabilities
     are overconfident [@liu2025guardcalibration], so set thresholds on
     honest-run percentiles with `CalibratedMonitor` rather than on raw values.
@@ -279,6 +306,7 @@ class GuardModelMonitor(ChatModelMonitor):
     """
 
     call_source: ClassVar[str] = "guard_model_monitor"
+    prompt_parameter_name: ClassVar[str] = "policy_prompt"
 
     def __init__(
         self,
@@ -291,17 +319,18 @@ class GuardModelMonitor(ChatModelMonitor):
         samples: int = 5,
         view: MonitorView = DEFAULT_MONITOR_VIEW,
     ) -> None:
-        """Build a guard monitor; `samples` applies to sampling, including `AUTO`'s fallback."""
+        """Build a guard monitor; `samples` applies to sampling, including `AUTO`'s fallback.
+
+        `samples` must be a whole number of at least 1, and each label set a
+        set of strings; anything else raises `ConfigurationError`.
+        """
         check_enum_option(scoring, option_type=GuardScoring, parameter_name="scoring")
         validate_labels(suspicious_labels=suspicious_labels, safe_labels=safe_labels)
-        if samples < 1:
-            message = f"samples must be at least 1, got {samples}"
-            raise ConfigurationError(message)
+        self.samples = read_count_option(samples, parameter_name="samples", minimum=1)
         super().__init__(model=model, prompt=policy_prompt, view=view)
         self.suspicious_labels = frozenset(label.lower() for label in suspicious_labels)
         self.safe_labels = frozenset(label.lower() for label in safe_labels)
         self.scoring = scoring
-        self.samples = samples
         self.model_with_log_probabilities = self.model.bind(
             logprobs=True,
             top_logprobs=TOP_LOG_PROBABILITIES,

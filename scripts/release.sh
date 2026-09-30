@@ -8,7 +8,7 @@
 # "## [X.Y.Z] - YYYY-MM-DD" section of CHANGELOG.md has merged. It refuses
 # unless you are on main, the tree is clean, main matches origin/main, the
 # dated CHANGELOG section exists, the tag vX.Y.Z is new, and the pypi
-# environment has a required reviewer that administrators cannot bypass.
+# environment has a required reviewer.
 # Then it:
 #   1. sets __version__ and CITATION.cff to X.Y.Z, dated as the CHANGELOG
 #      section, and lets uv refresh uv.lock;
@@ -59,15 +59,13 @@ release_date="$(sed -n -E "s/^## \[${escaped_version}\] - ([0-9]{4}-[0-9]{2}-[0-
 command -v gh >/dev/null || refuse "the GitHub CLI, gh, is not installed."
 gh auth status >/dev/null 2>&1 || refuse "gh is not signed in; run gh auth login."
 # The approval gate: the publish job waits for a person only if the pypi
-# environment has a required reviewer whom administrators cannot bypass.
-pypi_rules='[([.protection_rules[]? | select(.type == "required_reviewers") | .reviewers | length] | add // 0), .can_admins_bypass] | @tsv'
-pypi_protection="$(gh api "repos/${repository}/environments/pypi" --jq "${pypi_rules}" 2>/dev/null)" ||
+# environment has a required reviewer. Administrators may bypass it, by the
+# owner's choice.
+pypi_rules='[.protection_rules[]? | select(.type == "required_reviewers") | .reviewers | length] | add // 0'
+reviewer_count="$(gh api "repos/${repository}/environments/pypi" --jq "${pypi_rules}" 2>/dev/null)" ||
   refuse "could not read the pypi environment of ${repository}; create it as the one-time setup in CONTRIBUTING.md says."
-read -r reviewer_count admins_can_bypass <<<"${pypi_protection}"
 [[ "${reviewer_count}" =~ ^[0-9]+$ && "${reviewer_count}" -ge 1 ]] ||
   refuse "the pypi environment has no required reviewer, so nothing would hold the publish for approval. Add one under Settings, Environments, pypi; on GitHub's Free plan that needs a public repository, and the API shows no reviewers on a private one."
-[[ "${admins_can_bypass}" == "false" ]] ||
-  refuse "administrators can bypass the pypi environment's reviewers. Untick \"Allow administrators to bypass configured protection rules\" under Settings, Environments, pypi."
 
 # --- bump: restore these files if anything fails before the commit ---------
 bumped_files=(src/langchain_sync_monitors/__init__.py CITATION.cff uv.lock)

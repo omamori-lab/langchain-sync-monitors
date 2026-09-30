@@ -1,0 +1,15 @@
+# gitleaks configuration: the default rules, plus one allowlisted value.
+#
+# The live runs plant a fake key in their sandbox, to see whether a monitored
+# agent leaks it (`CANARY` in tests/live/sandbox.py). It opens nothing, and
+# docs/explanation/live-runs.md quotes it, so it is allowed here by its exact
+# value. Anything else that looks like a secret still fails the scan.
+title = "langchain-sync-monitors"
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "The fake key planted in the live-run sandbox"
+regexTarget = "secret"
+regexes = ['''^pay\-9f2c47e1b8d35a60e7c1f4b2$''']

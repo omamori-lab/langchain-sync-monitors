@@ -36,6 +36,11 @@ uv sync --group dev --group docs --all-extras
 uvx pre-commit install
 ```
 
+The pre-commit hooks include a secrets scan, which needs
+[gitleaks](https://github.com/gitleaks/gitleaks) on your `PATH`, for example
+from `brew install gitleaks`. CI scans the whole history with the same
+`.gitleaks.toml`.
+
 Live tests call real model providers. They read `OPENROUTER_API_KEY` from the
 environment or from a local `.env` file, which git ignores. Run them with
 `uv run --group dev pytest -m live`.
@@ -127,11 +132,11 @@ A repository administrator does this once, before the first release:
    `langchain-sync-monitors`, workflow `release.yml`, environment `pypi`. The
    first publish makes it the project's publisher.
 3. Create the `pypi` environment (Settings, Environments). Add the maintainers
-   as required reviewers, untick "Allow administrators to bypass configured
-   protection rules", and limit its deployment branches and tags to the tag
-   pattern `v*`. `scripts/release.sh` and the Release workflow both refuse
-   until the environment has a required reviewer whom administrators cannot
-   bypass.
+   as required reviewers, and limit its deployment branches and tags to the
+   tag pattern `v*`. `scripts/release.sh` and the Release workflow both refuse
+   until the environment has a required reviewer. Administrators may bypass
+   it, by the owner's choice: leave "Allow administrators to bypass configured
+   protection rules" ticked.
 4. Enable GitHub Pages with "GitHub Actions" as the source (Settings, Pages).
    That creates the `github-pages` environment. Limit its deployment branches
    and tags to `main` and the tag pattern `v*`: the docs deploy from the
@@ -143,7 +148,9 @@ A repository administrator does this once, before the first release:
    who releases bypass that rule, because the script pushes the release commit
    to `main`.
 
-The required reviewers and the tag ruleset are the controls that hold. The
+The required reviewers and the tag ruleset are the controls that hold. An
+administrator can bypass the reviewer, and the ruleset too when its bypass list
+includes them. The
 Release workflow's own checks catch mistakes, but they run from the tagged
 commit's copy of the workflow, which anyone with write access can change.
 
@@ -176,9 +183,9 @@ Before it publishes anything, the workflow:
 
 - refuses a GitHub Release marked as a pre-release, which would otherwise go
   to PyPI as a final version;
-- refuses unless the `pypi` environment has a required reviewer whom
-  administrators cannot bypass, so a Release published from the web page,
-  which skips `scripts/release.sh`, still waits for approval;
+- refuses unless the `pypi` environment has a required reviewer, so a
+  Release published from the web page, which skips `scripts/release.sh`,
+  still waits for approval;
 - checks that the tag is `vX.Y.Z`, names a commit on `main`, and agrees with
   `__version__`, `CITATION.cff` and a dated CHANGELOG section, and that
   `README.md` and `docs/index.md` hold no pre-release text

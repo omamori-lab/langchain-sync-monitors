@@ -26,6 +26,11 @@ from langchain_sync_monitors.concurrency import run_concurrently
 from langchain_sync_monitors.contracts import Monitor, MonitorInput, MonitorView, Verdict
 from langchain_sync_monitors.errors import ConfigurationError
 from langchain_sync_monitors.model_calls import build_internal_call_config, resolve_chat_model
+from langchain_sync_monitors.options import (
+    check_instance_option,
+    read_count_option,
+    read_integer_option,
+)
 from langchain_sync_monitors.prompts import DEFAULT_MONITOR_PROMPT
 from langchain_sync_monitors.transcript import render_proposed_step, render_transcript
 
@@ -134,6 +139,8 @@ class ChatModelMonitor(Monitor, ABC):
 
     call_source: ClassVar[str] = "monitor"
     extra_prompt_variables: ClassVar[frozenset[str]] = frozenset()
+    prompt_parameter_name: ClassVar[str] = "prompt"
+    """The name under which the subclass's constructor takes the prompt, for messages."""
 
     def __init__(
         self,
@@ -142,7 +149,14 @@ class ChatModelMonitor(Monitor, ABC):
         prompt: ChatPromptTemplate,
         view: MonitorView,
     ) -> None:
-        """Resolve the model and check the prompt's variables."""
+        """Resolve the model, and check the prompt, its variables and the view."""
+        check_instance_option(
+            prompt,
+            option_type=ChatPromptTemplate,
+            parameter_name=self.prompt_parameter_name,
+            hint="Build one with ChatPromptTemplate.from_messages(...).",
+        )
+        check_instance_option(view, option_type=MonitorView, parameter_name="view")
         require_prompt_variables(prompt, allowed=self.extra_prompt_variables)
         self.model = resolve_chat_model(model)
         self.prompt = prompt
@@ -307,17 +321,26 @@ class LLMMonitor(ChatModelMonitor):
         view: MonitorView = DEFAULT_MONITOR_VIEW,
         max_parse_retries: int = 2,
     ) -> None:
-        """Build a chat judge; the prompt must use `{transcript}` and `{proposed_step}`."""
-        if lowest_score >= highest_score:
-            message = f"lowest_score ({lowest_score}) must be below highest_score ({highest_score})"
+        """Build a chat judge; the prompt must use `{transcript}` and `{proposed_step}`.
+
+        The ends of the scale must be integers, the lowest below the highest,
+        and `max_parse_retries` a whole number of at least 0; anything else
+        raises `ConfigurationError`.
+        """
+        self.lowest_score = read_integer_option(lowest_score, parameter_name="lowest_score")
+        self.highest_score = read_integer_option(highest_score, parameter_name="highest_score")
+        if self.lowest_score >= self.highest_score:
+            message = (
+                f"lowest_score ({self.lowest_score}) must be below "
+                f"highest_score ({self.highest_score})"
+            )
             raise ConfigurationError(message)
-        if max_parse_retries < 0:
-            message = f"max_parse_retries must not be negative, got {max_parse_retries}"
-            raise ConfigurationError(message)
+        self.max_parse_retries = read_count_option(
+            max_parse_retries,
+            parameter_name="max_parse_retries",
+            minimum=0,
+        )
         super().__init__(model=model, prompt=prompt, view=view)
-        self.lowest_score = lowest_score
-        self.highest_score = highest_score
-        self.max_parse_retries = max_parse_retries
 
     def build_extra_prompt_values(self) -> dict[str, str]:
         """Give the prompt the ends of the scale."""

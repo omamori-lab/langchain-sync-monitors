@@ -23,7 +23,12 @@ from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import AIMessage, BaseMessage
 from pydantic import NonNegativeInt
 
-from langchain_sync_monitors.errors import ConfigurationError, InvalidSuspicionError
+from langchain_sync_monitors.errors import InvalidSuspicionError
+from langchain_sync_monitors.options import (
+    check_instance_option,
+    check_string_set_option,
+    read_optional_count_option,
+)
 
 
 class Channel(Flag):
@@ -103,6 +108,11 @@ class MonitorView:
     one, or every entry when it is `None`; the messages of the task author are
     kept in addition. `delegation_tools` names the tools whose results are
     subagent reports.
+
+    Each option is checked when the view is built: `channels` must be a
+    `Channel`, `most_recent_entries` a whole number of at least 1 or `None`,
+    and `delegation_tools` a set of strings, kept as a frozenset. Anything
+    else raises `ConfigurationError`.
     """
 
     channels: Channel = Channel.ACTIONS
@@ -110,13 +120,31 @@ class MonitorView:
     delegation_tools: frozenset[str] = frozenset({"task"})
 
     def __post_init__(self) -> None:
-        """Reject an entry limit below one, which would silently hide every recent step."""
-        if self.most_recent_entries is not None and self.most_recent_entries < 1:
-            message = (
-                "most_recent_entries must be at least 1, or None to keep every entry, "
-                f"got {self.most_recent_entries!r}"
-            )
-            raise ConfigurationError(message)
+        """Reject an option of the wrong type, and an entry limit below one.
+
+        A limit below one would silently hide every recent step, and a plain
+        string of tool names would match any part of a name.
+        """
+        check_instance_option(
+            self.channels,
+            option_type=Channel,
+            parameter_name="channels",
+            hint="Combine members with |, such as Channel.ACTIONS | Channel.REASONING.",
+        )
+        most_recent_entries = read_optional_count_option(
+            self.most_recent_entries,
+            parameter_name="most_recent_entries",
+            minimum=1,
+            none_means="to keep every entry",
+        )
+        check_string_set_option(
+            self.delegation_tools,
+            parameter_name="delegation_tools",
+            example="frozenset({'task'})",
+        )
+        # The view is frozen, so its converted options are set past the dataclass's guard.
+        object.__setattr__(self, "most_recent_entries", most_recent_entries)
+        object.__setattr__(self, "delegation_tools", frozenset(self.delegation_tools))
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)

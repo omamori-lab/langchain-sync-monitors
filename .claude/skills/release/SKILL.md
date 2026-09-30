@@ -24,8 +24,8 @@ evidence behind.
 `scripts/release.sh` checks, on your machine, that the approval gate exists
 and that the bumped tree is ready, before it commits:
 
-1. The `pypi` environment has a required reviewer, and administrators cannot
-   bypass it (read with `gh api`).
+1. The `pypi` environment has a required reviewer (read with `gh api`).
+   Administrators may bypass it, by the owner's choice.
 2. `scripts/check-release.sh X.Y.Z`: `__version__`, `CITATION.cff` (version and
    `date-released`) and a dated, non-empty `## [X.Y.Z] - YYYY-MM-DD` section of
    `CHANGELOG.md` with its link reference agree, and `README.md` and
@@ -40,9 +40,8 @@ and that the bumped tree is ready, before it commits:
 The Release workflow checks the tagged commit again before it publishes:
 
 1. The GitHub Release is not marked as a pre-release, the `pypi` environment
-   has a required-reviewer rule that administrators cannot bypass, the tag is
-   `vX.Y.Z` and names a commit on `main`, and the tree passes
-   `scripts/check-release.sh`.
+   has a required-reviewer rule, the tag is `vX.Y.Z` and names a commit on
+   `main`, and the tree passes `scripts/check-release.sh`.
 2. The whole CI workflow: the gates on Python 3.12, 3.13 and 3.14, the offline
    suite at the lowest allowed dependency versions, and without any extra.
 3. One build of the sdist and the wheel, whose names must carry the version,
@@ -126,11 +125,11 @@ Before 1.0:
 
    It refuses unless you are on `main`, the tree is clean, `main` matches
    `origin/main`, the dated CHANGELOG section exists, the tag `vX.Y.Z` is new
-   locally and on `origin`, and the `pypi` environment has a required reviewer
-   whom administrators cannot bypass. On GitHub's Free plan that needs a public
-   repository; the API shows no reviewers on a private one. Then it sets `__version__` and `CITATION.cff`
-   (version and `date-released`, from the CHANGELOG heading), runs `uv lock`,
-   runs the checks listed under "The release discipline", commits
+   locally and on `origin`, and the `pypi` environment has a required
+   reviewer. On GitHub's Free plan that needs a public repository; the API
+   shows no reviewers on a private one. Then it sets `__version__` and
+   `CITATION.cff` (version and `date-released`, from the CHANGELOG heading),
+   runs `uv lock`, runs the checks listed under "The release discipline", commits
    `Release X.Y.Z`, tags it `vX.Y.Z`, pushes `main` and the tag, and creates the
    GitHub Release with `gh release create --repo omamori-lab/langchain-sync-monitors --verify-tag`.
    It deletes its temporary notes file however it ends.
@@ -175,10 +174,13 @@ Before 1.0:
   `gh release delete vX.Y.Z --yes`, which keeps the tag, and create it again as
   "Finish a half-done release" shows.
 - The approval is the gate that holds. `scripts/release.sh` and the workflow's
-  first job both refuse until the `pypi` environment has a required reviewer
-  whom administrators cannot bypass, and the `v*` tag ruleset keeps other
-  people from tagging releases. The workflow's copy of that check can be edited
-  away like its other checks; the environment's own rule cannot.
+  first job both refuse until the `pypi` environment has a required reviewer,
+  and the `v*` tag ruleset keeps other people from tagging releases.
+  Administrators may bypass the reviewer, by the owner's choice, so the
+  approval stops a leaked token but not an administrator, nor a reviewer
+  approving their own release unless the environment's "Prevent
+  self-review" is on. The workflow's copy of that check can be edited away
+  like its other checks; the environment's own rule cannot.
 - The PyPI page links pages and diagrams at the tag `vX.Y.Z`, through
   hatch-fancy-pypi-readme's `$HFPR_VERSION`. They resolve once the tag is
   pushed, which happens before anything is published.

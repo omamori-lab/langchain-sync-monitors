@@ -92,7 +92,7 @@ Also measure saturation and repeat variance.
 21. Koran, Yun, Tetef, Arnav, Bernabeu-Perez (2026). Ensemble Monitoring for AI Control: Diverse Signals Outweigh More Compute. arXiv:2605.15377 [@koran2026ensemble]
 22. Hua, Lemoine, Baskerville, Bhatt, Hopman, Tracy (2025). Combining Cost-Constrained Runtime Monitors for AI Safety. arXiv:2507.15886 [@hua2025combining]
 23. Arnav, Bernabeu-Pérez, Helm-Burger, Kostolansky, Whittingham, Phuong (2025). CoT Red-Handed: Stress Testing Chain-of-Thought Monitoring. arXiv:2505.23575 [@arnav2025cotredhanded]
-24. Apollo Research (23 Jul 2026). What makes a good monitoring prompt? Local copy: /Users/abo-tresol/Documents/ai-safety/spar-in-the-wild-ai-control/references/posts/apollo-what-makes-a-good-monitoring-prompt.md [@apollo2026monitoringprompt]
+24. Apollo Research (23 Jul 2026). What makes a good monitoring prompt? https://www.apolloresearch.ai/monitoring/what-makes-a-good-monitoring-prompt [@apollo2026monitoringprompt]
 25. Anthropic Engineering. Claude Code auto mode. https://www.anthropic.com/engineering/claude-code-auto-mode [@hughes2026automode]
 26. TypeSafe docs: https://docs.typesafe.ai (landing page), /primitives/noul, /primitives/score, /confidence, /model-jaggedness/jev-1.13.md, /patterns/composite-scoring.md, /introduction/machine-learning-primer.md, /concepts/system-one [@typesafe2026docs]
 27. TypeSafe, Jev launch post: https://typesafe.ai/blog/introducing-system-one-models-and-jev [@typesafe2026jev]

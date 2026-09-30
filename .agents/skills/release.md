@@ -162,7 +162,10 @@ Before 1.0:
   workflow. Create it with your own `gh`, as the script does. A Release published
   from the GitHub web page also starts the workflow, and passes the same checks.
 - A Release marked as a pre-release is refused, because its `vX.Y.Z` would go to
-  PyPI as a final version. Untick the pre-release box and publish it again.
+  PyPI as a final version. Unticking the mark afterwards fires `released`, not
+  `published`, so it starts nothing: delete the Release with
+  `gh release delete vX.Y.Z --yes`, which keeps the tag, and create it again as
+  "Finish a half-done release" shows.
 - The approval is the gate that holds: `scripts/release.sh` refuses until the
   `pypi` environment has a required reviewer whom administrators cannot
   bypass, and the `v*` tag ruleset keeps other people from tagging releases.

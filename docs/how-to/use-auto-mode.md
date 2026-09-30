@@ -280,7 +280,8 @@ records' `blocked_count`.
   `before_agent` and `after_agent`, all of which count towards an explicit
   `recursion_limit`. If a hook such as Deep Agents' `RubricMiddleware` sends
   the run back to the model, each further step halts again without a sample,
-  until a later run brings a new message from the user.
+  until a later run brings a new message the monitor records as the user's
+  input.
 - **A failed call leaves no record.** If an attempt, a monitor call or the
   fallback raises, nothing is committed and the error propagates. The attempts
   judged before the failure are logged as a warning and written to

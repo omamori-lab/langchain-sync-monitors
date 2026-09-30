@@ -40,9 +40,9 @@ from langchain_sync_monitors.task_authorship import (
 )
 
 STANDING_HALT_MESSAGE = (
-    "[Safety monitor] This run stays stopped: the safety monitor halted it, and no new "
-    "message from the user has arrived since. The rejected steps are recorded in "
-    "monitor_log for review."
+    "[Safety monitor] This run stays stopped: the safety monitor halted it, and no message "
+    "the monitor could confirm as new input from the user has arrived since. The rejected "
+    "steps are recorded in monitor_log for review."
 )
 """The final message of a step the monitor halts again because its earlier halt stands."""
 

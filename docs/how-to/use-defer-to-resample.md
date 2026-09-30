@@ -196,7 +196,7 @@ for record in result["monitor_log"]:
   `after_agent`, all of which count towards an explicit `recursion_limit`. If
   a hook such as Deep Agents' `RubricMiddleware` sends the run back to the
   model, each further step halts again without a sample, until a later run
-  brings a new message from the user.
+  brings a new message the monitor records as the user's input.
 
 ## Related guides
 

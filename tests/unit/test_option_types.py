@@ -9,6 +9,8 @@ from __future__ import annotations
 
 import math
 import numbers
+from decimal import Decimal
+from fractions import Fraction
 from typing import Any
 
 import pytest
@@ -23,6 +25,7 @@ from langchain_sync_monitors.protocols import (
     DeferToTrustedModel,
     FeedbackTemplate,
     HaltRun,
+    TrustedMonitoring,
 )
 from tests.support.monitors import KeywordMonitor
 from tests.support.protocols import AcceptFirst
@@ -237,3 +240,74 @@ def test_a_message_that_is_not_text_is_refused(build: Any, message: str) -> None
     # Act / Assert
     with pytest.raises(ConfigurationError, match=message):
         build()
+
+
+def test_infinity_that_is_not_a_float_is_refused_as_the_total_limit() -> None:
+    # Act / Assert
+    with pytest.raises(ConfigurationError, match="max_total_blocks must be a whole number"):
+        build_auto_mode(max_total_blocks=Decimal("Infinity"))
+
+
+def test_a_foreign_type_that_shares_a_builtin_name_is_named_with_its_module() -> None:
+    # Arrange: numpy's bool is not Python's, and is named bool too
+    foreign_bool = type("bool", (), {"__module__": "numpy"})()
+
+    # Act / Assert
+    with pytest.raises(ConfigurationError, match=r"got an instance of numpy\.bool$"):
+        build_auto_mode(max_consecutive_blocks=foreign_bool)
+
+
+def build_protocol_with_threshold(parameter_name: str, value: object) -> object:
+    thresholds: dict[str, Any] = {parameter_name: value}
+    if parameter_name == "flag_threshold":
+        return TrustedMonitoring(**thresholds)
+    if parameter_name == "block_threshold":
+        return AutoMode(**thresholds)
+    settings: dict[str, Any] = {"defer_threshold": 0.6, "audit_threshold": 0.9, **thresholds}
+    return DeferToResample(fallback=HaltRun(), **settings)
+
+
+THRESHOLD_PARAMETERS = ["flag_threshold", "block_threshold", "defer_threshold", "audit_threshold"]
+
+
+@pytest.mark.parametrize("parameter_name", THRESHOLD_PARAMETERS)
+@pytest.mark.parametrize(
+    ("value", "message"),
+    [
+        ("0.6", "must be a number between 0 and 1, got '0.6'"),
+        (True, "must be a number between 0 and 1, got True"),
+        ([0.6], r"must be a number between 0 and 1, got an instance of list"),
+        (math.nan, "must be between 0 and 1, got nan"),
+        (1.5, "must be between 0 and 1, got 1.5"),
+        (-0.1, "must be between 0 and 1, got -0.1"),
+        (Decimal("sNaN"), r"must be between 0 and 1, got Decimal\('sNaN'\)"),
+    ],
+    ids=["string", "bool", "list", "nan", "above-one", "below-zero", "signalling-nan"],
+)
+def test_a_threshold_that_is_not_a_number_from_zero_to_one_is_refused(
+    parameter_name: str,
+    value: object,
+    message: str,
+) -> None:
+    # Act / Assert
+    with pytest.raises(ConfigurationError, match=f"{parameter_name} {message}"):
+        build_protocol_with_threshold(parameter_name, value)
+
+
+@pytest.mark.parametrize("parameter_name", THRESHOLD_PARAMETERS)
+@pytest.mark.parametrize(
+    "value",
+    [0, 1, 0.6, Fraction(3, 5), Decimal("0.6")],
+    ids=["zero", "one", "float", "fraction", "decimal"],
+)
+def test_a_threshold_given_as_any_real_number_from_zero_to_one_is_kept_as_a_float(
+    parameter_name: str,
+    value: float | Fraction | Decimal,
+) -> None:
+    # Act
+    protocol = build_protocol_with_threshold(parameter_name, value)
+
+    # Assert
+    threshold = getattr(protocol, parameter_name)
+    assert type(threshold) is float
+    assert threshold == float(value)

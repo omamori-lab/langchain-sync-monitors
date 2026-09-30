@@ -39,10 +39,18 @@ def check_enum_option(value: object, *, option_type: type[Enum], parameter_name:
 
 
 def describe_option_value(value: object) -> str:
-    """Name a refused value: a string, a number or None as written, anything else by its type."""
+    """Name a refused value: a string, a number or None as written, anything else by its type.
+
+    A type from outside Python's builtins and this library is named with its
+    module, so numpy's `bool` does not read as Python's.
+    """
     if value is None or isinstance(value, str | numbers.Number):
         return repr(value)
-    return f"an instance of {type(value).__name__}"
+    value_type = type(value)
+    module = value_type.__module__
+    is_own = module == "builtins" or module.split(".")[0] == __name__.split(".")[0]
+    type_name = value_type.__qualname__ if is_own else f"{module}.{value_type.__qualname__}"
+    return f"an instance of {type_name}"
 
 
 def check_instance_option(

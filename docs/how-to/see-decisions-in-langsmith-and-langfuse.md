@@ -57,7 +57,11 @@ middleware hook [@langchain2026]:
   the middleware listed before the monitor, as in a Deep Agent;
 - the hook runs of the middleware listed after the monitor, such as the ones
   Deep Agents adds, around each sample, so a sample sits one level below
-  `monitor step` for each of them.
+  `monitor step` for each of them;
+- a `monitor[main].wrap_tool_call`, or `awrap_tool_call`, around each tool
+  call, under `tools` or inside the hook runs of the middleware listed before
+  the monitor, a Deep Agent's `task` call and the subagent it starts
+  included.
 
 ## Know what each span holds
 
@@ -66,7 +70,7 @@ middleware hook [@langchain2026]:
 | `monitor step` | `step_number`, and `proposed_step`, the step first proposed, added when the span ends | `outcome`, `flagged`, `blocked_count`, `max_suspicion`, and each sample's `suspicion`, `reason` and `executed` | `monitor` |
 | `monitor judgement` | `sample_number`, and `monitor`, the monitor's class name | `suspicion` and `reason` | `monitor` |
 | `monitor classifier` | `model`, and `questions`, each question's text by its key | `answers`, the probability of yes to each question; one span covers a request and all its retries | `monitor` |
-| `monitor decision` | None | `outcome`, `flagged` and `max_suspicion` | `monitor`, `monitor:<outcome>`, and `monitor:flagged` when the step is flagged |
+| `monitor decision` | Empty | `outcome`, `flagged` and `max_suspicion` | `monitor`, `monitor:<outcome>`, and `monitor:flagged` when the step is flagged |
 
 - **Proposal text.** Only the step span carries any: its `proposed_step`.
   Each sample's text stays on the model call that drew it.
@@ -95,13 +99,20 @@ Every monitor span of a step carries flat metadata keys that name the step:
 
 `monitor_name`, `monitor_agent`, `monitor_step_number` and, inside a subagent,
 `monitor_delegation_id` match a span to its `StepRecord` in `monitor_log`.
-`monitor_step_id` finds a step again in Langfuse, which, by its SDK's
-source, does not keep LangChain's run ids [@langfuse2026].
+`monitor_step_id` is the same on every monitor span of a step, so one filter
+on it gathers the step's spans. In LangSmith it is also the step span's own
+id; Langfuse does not keep LangChain's run ids, and gives each observation an
+id of its own [@langfuse2026].
 
 The model calls the library's monitors make carry `ls_message_view_exclude`,
 which keeps them out of LangSmith's Trajectory view too
 [@langsmith2026trajectory]. The library sets neither key on the step span,
 because the agent's own samples nest in it.
+
+Each model call carries its own token usage in both tools. LangSmith also
+adds up the usage of the calls below each run, so a step span's token count
+covers its samples and the monitor's calls together, and so does the trace's
+total.
 
 The spans add no tag or metadata to the LangChain runs inside them, model
 calls included. LangSmith's own `traceable` runs are the exception: LangSmith
@@ -157,16 +168,16 @@ Without `LANGSMITH_PROJECT`, the traces go to the `default` project.
 
 ## Attach Langfuse
 
-These steps were written from the source of Langfuse's Python SDK 4.15.6 and
-have never been run. Langfuse's LangChain integration is a callback handler
-that you pass to each run. The library does not depend on Langfuse's SDK, so
-install it and set its keys:
+Langfuse's LangChain integration is a callback handler that you pass to each
+run. The library does not depend on Langfuse's SDK, so install it and set its
+keys:
 
 ```console
 # Langfuse's SDK, and the keys of your Langfuse project.
 pip install langfuse
 export LANGFUSE_PUBLIC_KEY="your public key"
 export LANGFUSE_SECRET_KEY="your secret key"
+# Your project's region: https://cloud.langfuse.com in the EU, https://us.cloud.langfuse.com in the US.
 export LANGFUSE_BASE_URL="https://cloud.langfuse.com"
 ```
 
@@ -183,19 +194,16 @@ result = agent.invoke(inputs, config={"callbacks": [langfuse_handler]})
 get_client().flush()
 ```
 
-Read from the source of Langfuse's SDK and server
-[@langfuse2026; @langfuseserver2026], this is what Langfuse makes of a span:
+This is what Langfuse makes of a span [@langfuse2026; @langfuseserver2026]:
 
-- each span becomes an observation of type chain, with the span's name and its
-  metadata keys;
+- each span becomes an observation of type `CHAIN`, with the span's name and
+  its metadata keys;
 - a span's tags go into its metadata under `tags`, and only the root run's
   tags become the trace's tags;
-- the server stores every metadata value as a string, so `monitor_flagged`
-  reads `"true"`, `monitor_step_number` a string such as `"1"`, and
-  `monitor_max_suspicion` one such as `"0.9"`.
-
-No test runs Langfuse's handler, and no live Langfuse project has confirmed
-these, as [Limits](#limits) says.
+- a metadata filter compares values as strings, so it matches
+  `monitor_flagged` with `"true"`, `monitor_step_number` with a string such
+  as `"1"`, and `monitor_max_suspicion` with one such as `"0.9"`. The API
+  returns the values as JSON again: `true`, `1` and `0.9`.
 
 ## Find halted and flagged steps
 
@@ -206,12 +214,13 @@ flagged step:
 |---|---|---|
 | Every halted step | `and(eq(name, "monitor decision"), has(tags, "monitor:halted"))` on runs | Name `monitor decision`, and metadata `monitor_outcome` equal to `halted` |
 | Traces with a flagged step | `has(tags, "monitor:flagged")` as a tree filter, on root runs | Name `monitor decision`, and metadata `monitor_flagged` equal to `true` |
-| Everything but the monitor's spans | Exclude the `monitor` tag | Exclude the names `monitor step`, `monitor judgement`, `monitor classifier` and `monitor decision` |
-| Everything but the monitor's spans and model calls | Also exclude the runs whose metadata has the key `ls_message_view_exclude` | Also exclude the observations whose metadata has the key `ls_message_view_exclude` |
-| Steps above a suspicion | No score to filter on; see [Limits](#limits) | No score to filter on; see [Limits](#limits) |
+| Everything but the monitor's spans | `neq(name, "monitor step")` and the same for the other three span names, joined with `and(...)` | Name none of `monitor step`, `monitor judgement`, `monitor classifier` and `monitor decision` |
+| Everything but the monitor's spans and model calls | Also `neq(metadata_key, "ls_message_view_exclude")` | No filter: a metadata filter matches only the observations that have the key, so `ls_message_view_exclude` equal to `true` finds the calls but cannot leave them out |
+| Steps above a suspicion | `and(eq(name, "monitor decision"), eq(metadata_key, "monitor_max_suspicion"), gte(metadata_value, 0.5))`, with the threshold as a number | No filter: metadata filters compare strings only; see [Limits](#limits) |
 
 Replace `halted` with `allowed`, `resampled`, `steered` or
-`deferred_to_trusted` to find those steps. By its source, Langfuse keeps a
+`deferred_to_trusted` to find those steps. LangSmith's filter language cannot
+negate a tag, so leave the monitor's spans out by name. Langfuse keeps a
 span's tags only in its metadata, so filter on `monitor_outcome` and
 `monitor_flagged` there.
 
@@ -281,13 +290,15 @@ observations = get_client().api.observations.get_many(
     fields="core,basic,metadata",
 )
 for observation in observations.data:
-    print(observation.trace_id, observation.metadata)
+    metadata = observation.metadata
+    print(observation.trace_id, metadata["monitor_agent"], metadata["monitor_step_number"])
 ```
 
 For flagged steps, filter on the key `monitor_flagged` with the value
-`"true"`, a string. By its source, Langfuse ingests spans asynchronously, so a
-step can take some seconds after `flush()` to appear in a query. Like the
-setup above, this query has never been run.
+`"true"`, a string. The API returns 50 observations a page unless `limit`
+asks for more, up to 1,000; pass `observations.meta.cursor` back as `cursor`
+for the next page. By its source, Langfuse ingests spans asynchronously, so a
+step can take some seconds after `flush()` to appear in a query.
 
 ## Watch the spans in astream_events
 
@@ -336,12 +347,21 @@ explains.
 
 ## Limits
 
-- **No live check.** The test suite checks the spans and their nesting
-  offline, with a recording handler and with LangSmith's tracer on a mock
-  client, where it also checks the parent of each span LangSmith receives. No
-  test runs Langfuse's handler. No live LangSmith or Langfuse project has
-  shown the spans, so how each tool displays them, and whether each filter
-  above matches there, is unconfirmed.
+- **What is confirmed live.** The test suite checks the spans and their
+  nesting offline, with a recording handler and with LangSmith's tracer on a
+  mock client, where it also checks the parent of each span LangSmith
+  receives. No test runs Langfuse's handler. Read back through their APIs,
+  LangSmith and Langfuse Cloud show the trees, fields and filters on this
+  page as described, with langsmith 0.14.1 and langfuse 4.15.6, under
+  `invoke()` and `ainvoke()`. That covers allowed, steered, resampled,
+  deferred and halted steps, a step whose monitor call raised, a Deep Agents
+  subagent, the Decisions API monitor against a fake server, and real chat,
+  guard and subagent model calls. The Langfuse handler, the two query
+  examples and the `astream_events` example run as written. A cancelled sample,
+  `SynchronousRunError`, stacked monitors, parallel resampling, a monitor's
+  own `traceable` code, `TypeSafeDecisionModel` and what each tool's UI
+  shows, its Trajectory view included, rest on the tests and the tools'
+  source alone.
 - **Two tracers together can split a trace.** The monitor opens its spans
   from the model node's own callback manager, so they nest under `model` for
   every handler. With LangSmith and a second tracer attached together, other
@@ -349,21 +369,22 @@ explains.
   never saw. A tool call runs inside the monitor's `wrap_tool_call` hook, a
   Deep Agent's `task` call included, and the agent's own model calls run
   inside the hook runs of the middleware listed after the monitor, as the
-  ones Deep Agents adds. Under `ainvoke()`, by its SDK's source, Langfuse can
-  then put such a run, with everything inside it, in a trace of its own
-  [@langfuse2026], so in a Deep Agent each sample and each whole subagent can
-  land in a separate trace. The hook runs cause the split, not the spans. Attach one tracer at a
-  time to avoid it.
+  ones Deep Agents adds. Under `ainvoke()`, Langfuse then puts such a run,
+  with everything inside it, in a trace of its own [@langfuse2026], so in a
+  Deep Agent each sample, each tool call and each whole subagent lands in a
+  separate trace. Under `invoke()` the trace stays whole. The hook runs cause
+  the split, not the spans. Attach one tracer at a time to avoid it.
 - **A subagent's spans may show in its Trajectory view.** Inside a Deep
   Agents subagent, LangSmith sets `ls_agent_type` to `subagent` on every run,
   the monitor's spans included, `monitor step` among them. So the monitor's
   spans may show in the subagent's Trajectory view, where `middleware` would
   have kept them out.
-- **Nothing is scored numerically.** Suspicion sits in the spans' outputs and
-  in the decision span's metadata, not in LangSmith feedback or Langfuse
-  scores, so neither tool can filter, chart or aggregate steps by suspicion,
-  and Langfuse stores `monitor_max_suspicion` as a string. Read suspicions from
-  `monitor_log` instead, as
+- **Suspicion is not a score.** Suspicion sits in the spans' outputs and in
+  the decision span's metadata, not in LangSmith feedback or Langfuse scores,
+  so neither tool charts or aggregates steps by suspicion. LangSmith keeps
+  `monitor_max_suspicion` as a number, so its filters can compare it with a
+  threshold, as the table above shows; Langfuse's metadata filters compare
+  strings only. Read suspicions from `monitor_log` instead, as
   [Collect honest scores for calibration](read-the-monitor-log.md#collect-honest-scores-for-calibration)
   shows.
 

@@ -1,0 +1,70 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1000" height="614" viewBox="0 0 1000 614" role="img" aria-labelledby="title desc">
+  <title id="title">A monitor in every subagent</title>
+  <desc id="desc">In a Deep Agent, the main agent&#x27;s monitor, monitor[main], reads the user&#x27;s task. When the main agent calls the task tool, monitor[main] judges that call first, and the subagent then runs under a monitor of its own, monitor[researcher], which reads the task as the parent agent&#x27;s words, not the user&#x27;s, and judges each of the subagent&#x27;s steps. The subagent&#x27;s final report returns to the main agent. When the subagent returns or halts, its records flow back into the main agent&#x27;s monitor_log, halts included. monitor_subagents gives every subagent a copy of the monitor, the general-purpose one included.</desc>
+  <!-- Colours come from the brand tokens: diagrams/render.py fills this style block. -->
+  <style>
+    svg { color-scheme: light; }
+    text { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans", "Noto Sans JP", Helvetica, Arial, sans-serif; font-size: 15px; fill: #111111; }
+    .title { font-size: 17px; font-weight: 600; }
+    .small { font-size: 14px; fill: #5B5B57; }
+    .mono { font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace; font-size: 13.5px; }
+    .soft { fill: #5B5B57; }
+    .dashed { stroke-dasharray: 5 4; fill: none; stroke: #9A9A94; }
+    .box { fill: #FFFFFF; stroke: #111111; stroke-width: 1.4; }
+    .charm { fill: #111111; }
+    .on-charm { fill: #FFFFFF; }
+    .charm-cord { fill: none; stroke: #111111; stroke-width: 2.2; }
+    .seal { fill: #BF3A22; }
+    .allow { fill: #FFFFFF; stroke: #111111; stroke-width: 1.4; }
+    .resample { fill: #F2F1EC; stroke: #111111; stroke-width: 1.4; }
+    .defer { fill: #DCDBD4; stroke: #111111; stroke-width: 1.4; }
+    .steer { fill: #3A3A38; stroke: #3A3A38; stroke-width: 1.4; }
+    .on-steer { fill: #FFFFFF; }
+    .halt { fill: #BF3A22; stroke: #BF3A22; stroke-width: 1.4; }
+    .on-halt { fill: #FFFFFF; }
+    .frame { fill: none; stroke: #9A9A94; stroke-width: 1.2; stroke-dasharray: 6 4; }
+    .edge { fill: none; stroke: #2B2B2B; stroke-width: 1.5; }
+    .loop { fill: none; stroke: #2B2B2B; stroke-width: 1.5; stroke-dasharray: 5 4; }
+    .head { fill: #2B2B2B; }
+    .brush { fill: #111111; }
+  </style>
+  <defs><marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="9" markerHeight="9" markerUnits="userSpaceOnUse" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="head"/></marker></defs>
+  <rect class="frame" x="16.0" y="20.0" width="412.0" height="492.0" rx="10"/>
+  <text x="40.0" y="50.0" text-anchor="start"><tspan class="title">Main agent</tspan><tspan class="small">   the user&#x27;s task</tspan></text>
+  <rect class="frame" x="572.0" y="146.0" width="412.0" height="366.0" rx="10"/>
+  <text x="596.0" y="176.0" text-anchor="start"><tspan class="title">Subagent: researcher</tspan><tspan class="small">   and every other</tspan></text>
+  <path class="charm-cord" d="M216.0,91.0 C212.0,74.0 232.0,74.0 228.0,91.0"/>
+  <path class="charm" d="M64.0,90.0 H380.0 L396.0,106.0 V186.0 Q396.0,192.0 390.0,192.0 H54.0 Q48.0,192.0 48.0,186.0 V106.0 Z"/>
+  <rect class="seal" x="57.0" y="174.0" width="9" height="9" rx="1"/>
+  <text x="222.0" y="121.0" text-anchor="middle"><tspan class="mono on-charm">monitor[main]</tspan></text>
+  <text x="222.0" y="143.0" text-anchor="middle" class="small on-charm">wraps the main model;</text>
+  <text x="222.0" y="164.0" text-anchor="middle" class="small on-charm">task author: the user</text>
+  <rect class="box" x="48.0" y="240.0" width="348.0" height="81.0" rx="6"/>
+  <text x="222.0" y="271.0" text-anchor="middle" class="title">task tool</text>
+  <text x="222.0" y="293.0" text-anchor="middle" class="small">judged first, then hands the work on</text>
+  <rect class="box" x="48.0" y="361.0" width="348.0" height="102.0" rx="6"/>
+  <text x="222.0" y="392.0" text-anchor="middle"><tspan class="mono">monitor_log</tspan></text>
+  <text x="222.0" y="414.0" text-anchor="middle" class="small">its own records, and</text>
+  <text x="222.0" y="435.0" text-anchor="middle" class="small">every subagent&#x27;s</text>
+  <path class="charm-cord" d="M772.0,230.5 C768.0,213.5 788.0,213.5 784.0,230.5"/>
+  <path class="charm" d="M620.0,229.5 H936.0 L952.0,245.5 V325.5 Q952.0,331.5 946.0,331.5 H610.0 Q604.0,331.5 604.0,325.5 V245.5 Z"/>
+  <rect class="seal" x="613.0" y="313.5" width="9" height="9" rx="1"/>
+  <text x="778.0" y="260.5" text-anchor="middle"><tspan class="mono on-charm">monitor[researcher]</tspan></text>
+  <text x="778.0" y="282.5" text-anchor="middle" class="small on-charm">judges each of its steps;</text>
+  <text x="778.0" y="303.5" text-anchor="middle" class="small on-charm">task author: the parent agent</text>
+  <rect class="box" x="604.0" y="361.0" width="348.0" height="102.0" rx="6"/>
+  <text x="778.0" y="392.0" text-anchor="middle"><tspan class="mono">monitor_log</tspan></text>
+  <text x="778.0" y="414.0" text-anchor="middle" class="small">the subagent&#x27;s</text>
+  <text x="778.0" y="435.0" text-anchor="middle" class="small">own records</text>
+  <path class="edge" d="M222.0,192.0 L222.0,238.0" marker-end="url(#arrow)"/>
+  <path class="edge" d="M396.0,268.5 L602.0,268.5" marker-end="url(#arrow)"/>
+  <text x="500.0" y="258.5" text-anchor="middle" class="small">the task</text>
+  <path class="edge" d="M604.0,292.5 L398.0,292.5" marker-end="url(#arrow)"/>
+  <text x="500.0" y="314.5" text-anchor="middle" class="small">its report</text>
+  <path class="edge" d="M604.0,412.0 L398.0,412.0" marker-end="url(#arrow)"/>
+  <text x="500.0" y="378.0" text-anchor="middle" class="small">records,</text>
+  <text x="500.0" y="400.0" text-anchor="middle" class="small">halts too</text>
+  <text x="778.0" y="494.0" text-anchor="middle" class="small">a halt here can also stop the whole run</text>
+  <text x="32.0" y="556.0" text-anchor="start"><tspan class="mono">monitor_subagents(middleware=monitor, subagents=[...])</tspan></text>
+  <text x="32.0" y="582.0" text-anchor="start" class="small">gives every subagent a copy of the monitor, the general-purpose one included</text>
+</svg>

@@ -9,7 +9,7 @@ from langchain.chat_models import init_chat_model
 from langchain_core.language_models import BaseChatModel
 from langchain_core.runnables import RunnableConfig
 
-from langchain_sync_monitors.errors import MissingExtraError
+from langchain_sync_monitors.errors import ConfigurationError, MissingExtraError
 
 OPENROUTER_PREFIX = "openrouter:"
 OPENROUTER_INSTALL_HINT = (
@@ -25,13 +25,29 @@ def resolve_chat_model(model: str | BaseChatModel) -> BaseChatModel:
     LangChain's ``init_chat_model``, the same way LangChain's own middleware
     accepts a second model [@langchain2026]. The library never picks a model.
 
-    An ``openrouter:`` string without the ``openrouter`` extra raises
-    `MissingExtraError` naming the extra. The check only looks for the
-    package, without importing it; a package that is present but broken, and
-    every other provider, raise LangChain's own ``ImportError``.
+    An ``openrouter:`` string needs the ``openrouter`` extra, which installs
+    langchain-openrouter [@langchainopenrouter2026]; that package calls
+    OpenRouter through its Python SDK [@openrouterpythonsdk2026]. Without the
+    extra, such a string raises `MissingExtraError` naming it. The check only
+    looks for the package, without importing it; a package that is present
+    but broken, and every other provider, raise LangChain's own
+    ``ImportError``.
+
+    Anything else, such as a chat model wrapped in a Runnable by
+    ``with_retry()`` or ``bind()``, raises `ConfigurationError` naming its
+    type. The message holds the type alone, since a Runnable's repr carries
+    its bound arguments.
     """
     if isinstance(model, BaseChatModel):
         return model
+    if not isinstance(model, str):
+        message = (
+            "model must be a LangChain chat model or a provider string such as "
+            f"'openrouter:xiaomi/mimo-v2.6-pro', got {type(model).__name__}. Pass the chat "
+            "model itself, not a Runnable wrapped around it; chat models retry on their own "
+            "through max_retries."
+        )
+        raise ConfigurationError(message)
     if model.startswith(OPENROUTER_PREFIX) and not is_package_installed("langchain_openrouter"):
         raise MissingExtraError(OPENROUTER_INSTALL_HINT)
     return init_chat_model(model)
@@ -42,11 +58,29 @@ def is_package_installed(name: str) -> bool:
     return importlib.util.find_spec(name) is not None
 
 
+MESSAGE_VIEW_EXCLUDE_KEY = "ls_message_view_exclude"
+"""The metadata key that keeps one run out of LangSmith's Trajectory view.
+
+LangSmith checks it by presence, and documents it for classification calls,
+safety filters and routing or guardrail decisions [@langsmith2026trajectory].
+"""
+
+
 def build_internal_call_config(*, source: str) -> RunnableConfig:
     """Tag a model call the library makes itself, such as a monitor's call.
 
-    The tag keeps the call out of the agent's message stream, the mechanism
-    LangChain's ``InternalCallTransformer`` provides for middleware
-    [@langchain2026]. ``source`` names the caller in traces.
+    The metadata drops the call from the experimental
+    ``stream_events(version="v3")`` projection, through LangChain's
+    ``InternalCallTransformer`` [@langchain2026], and keeps it out of
+    LangSmith's Trajectory view [@langsmith2026trajectory]. It does not
+    filter ``stream_mode="messages"``: the middleware's ``nostream`` block
+    keeps the call out of that stream. ``source`` names the caller in
+    traces.
     """
-    return RunnableConfig(metadata={"lc_source": source, **internal_call_metadata()})
+    return RunnableConfig(
+        metadata={
+            "lc_source": source,
+            MESSAGE_VIEW_EXCLUDE_KEY: True,
+            **internal_call_metadata(),
+        },
+    )

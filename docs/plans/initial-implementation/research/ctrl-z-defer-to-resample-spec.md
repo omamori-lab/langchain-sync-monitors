@@ -1,6 +1,6 @@
 # Defer to Resample (Ctrl-Z): specification extracted from the sources
 
-**Note.** A copyright constraint allows me only one verbatim quote, so the rest is close paraphrase with line references you can check: "L###" is `papers/2504.10374.txt`, "LW L###" is the LessWrong post, and "AIC L###" is `papers/2312.06942.txt`.
+**Note.** A copyright constraint allows me only one verbatim quote, so the rest is close paraphrase with line references you can check: "L###" is `papers/2504.10374.txt` [@bhatt2025ctrlz], "LW L###" is the LessWrong post [@bhatt2025ctrlzpost], and "AIC L###" is `papers/2312.06942.txt` [@greenblatt2023aicontrol].
 
 ## 1. Setting (Ctrl-Z §2, pp.2–3)
 
@@ -124,8 +124,8 @@ step(ctx):                                   # ctx = task + executed history onl
 **Models.** U = GPT-4o mini. T and the monitor = Llama-3.1-8B. The untrusted monitor (§4) is GPT-4o mini, run on T's paraphrase of the command.
 
 **Later work, for contrast (neither paper evaluates DTR).**
-- BashArena monitors see the task, the side-task descriptions, and all tool calls with their outputs, but not the system prompt or chain of thought (§4.1). Scores are 0–10, averaged over 3 GPT-4.1-mini calls (§4.2).
-- LinuxArena uses a per-action monitor with reasoning then a 0–10 score, the mean of 2 calls, a transcript that includes outputs, and no chain of thought (§5.1, App. H).
+- BashArena [@kaufman2025basharena] monitors see the task, the side-task descriptions, and all tool calls with their outputs, but not the system prompt or chain of thought (§4.1). Scores are 0–10, averaged over 3 GPT-4.1-mini calls (§4.2).
+- LinuxArena [@tracy2026linuxarena] uses a per-action monitor with reasoning then a 0–10 score, the mean of 2 calls, a transcript that includes outputs, and no chain of thought (§5.1, App. H).
 
 ## 4. Results and why DTR helps
 
@@ -161,34 +161,7 @@ The abstract puts it as attack success falling from 58% to 7% at a 5% usefulness
 
 ## 6. Citations
 
-```bibtex
-@misc{bhatt2025ctrlz,
-  title        = {Ctrl-Z: Controlling {AI} Agents via Resampling},
-  author       = {Bhatt, Aryan and Rushing, Cody and Kaufman, Adam and Tracy, Tyler and
-                  Georgiev, Vasil and Matolcsi, David and Khan, Akbir and Shlegeris, Buck},
-  year         = {2025},
-  eprint       = {2504.10374},
-  archivePrefix= {arXiv},
-  primaryClass = {cs.LG},
-  url          = {https://arxiv.org/abs/2504.10374}
-}
-@misc{greenblatt2023aicontrol,
-  title        = {{AI} Control: Improving Safety Despite Intentional Subversion},
-  author       = {Greenblatt, Ryan and Shlegeris, Buck and Sachan, Kshitij and Roger, Fabien},
-  year         = {2023},
-  eprint       = {2312.06942},
-  archivePrefix= {arXiv},
-  primaryClass = {cs.LG},
-  url          = {https://arxiv.org/abs/2312.06942}
-}
-@inproceedings{greenblatt2024aicontrol,
-  title     = {{AI} Control: Improving Safety Despite Intentional Subversion},
-  author    = {Greenblatt, Ryan and Shlegeris, Buck and Sachan, Kshitij and Roger, Fabien},
-  booktitle = {Proceedings of the 41st International Conference on Machine Learning (ICML)},
-  year      = {2024},
-  url       = {https://openreview.net/pdf?id=KviM5k8pcP}
-}
-```
+Both papers and the post are entries in `docs/references.bib`: Ctrl-Z [@bhatt2025ctrlz], the authors' LessWrong post [@bhatt2025ctrlzpost] and AI Control [@greenblatt2023aicontrol], whose entry notes the ICML 2024 version.
 
 - **Ctrl-Z:** arXiv v1, 14 Apr 2025. Redwood Research and MATS. No venue is stated.
 - **AI Control:** the local copy is v5, 23 Jul 2024. A footnote says a shortened version appears in the ICML 2024 proceedings. PMLR vol. 235 is my assumption; I have not verified it.

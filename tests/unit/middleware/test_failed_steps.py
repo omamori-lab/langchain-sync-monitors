@@ -17,9 +17,21 @@ from langchain.agents import create_agent
 from langchain.agents.middleware import ModelRetryMiddleware
 from langchain.agents.middleware.types import AgentMiddleware
 from langchain_core.messages import AIMessage
-from langchain_core.runnables import Runnable
+from langchain_core.runnables import Runnable, RunnableConfig
+from langgraph.checkpoint.memory import InMemorySaver
+from langgraph.graph.state import CompiledStateGraph
+from langgraph.types import interrupt
 
-from langchain_sync_monitors.contracts import ControlProtocol, Monitor, Resampling
+from langchain_sync_monitors.contracts import (
+    ControlProtocol,
+    Monitor,
+    MonitorInput,
+    Outcome,
+    PendingStep,
+    Resampling,
+    StepDecision,
+    Verdict,
+)
 from langchain_sync_monitors.middleware import MonitorMiddleware
 from langchain_sync_monitors.protocols import (
     AutoMode,
@@ -33,9 +45,11 @@ from tests.support.agents import (
     build_exfiltration_step,
     build_read_step,
     build_task_input,
+    build_thread_config,
 )
 from tests.support.flaky_models import FlakyChatModel, TriggeredFailureMonitor
 from tests.support.monitors import KeywordMonitor
+from tests.support.protocols import AcceptFirst
 
 MIDDLEWARE_LOGGER = "langchain_sync_monitors.middleware"
 EXFILTRATION_SUSPICION = 0.95
@@ -260,3 +274,78 @@ def test_a_retry_outside_the_monitor_commits_a_clean_step_but_the_evidence_strea
     committed = [event["record"] for event in events if event["type"] == "monitor_step"]
     assert [sample["suspicion"] for sample in committed[0]["samples"]] == [0.1]
     assert len(read_warnings(caplog)) == 1
+
+
+class AskingMonitor(Monitor):
+    """Asks a person about every step through `interrupt()`, which the docstrings forbid."""
+
+    def request_verdict_from_person(self) -> Verdict:
+        answer = interrupt("Does this step look safe?")
+        return Verdict(suspicion=0.0 if answer == "yes" else 1.0, reason=str(answer))
+
+    async def evaluate(self, monitor_input: MonitorInput) -> Verdict:
+        return self.request_verdict_from_person()
+
+    def evaluate_sync(self, monitor_input: MonitorInput) -> Verdict:
+        return self.request_verdict_from_person()
+
+
+class AskingProtocol(ControlProtocol):
+    """Draws one sample, then asks a person through `interrupt()`, which the docstrings forbid."""
+
+    async def decide(self, step: PendingStep) -> StepDecision:
+        [sample] = await step.sample(count=1)
+        interrupt("Run this step?")
+        return StepDecision(
+            outcome=Outcome.ALLOWED,
+            response=sample.response,
+            samples=(sample,),
+            executed_sample=sample,
+            flagged=False,
+        )
+
+
+@pytest.mark.parametrize("asker", ["monitor", "protocol"])
+def test_an_interrupt_inside_the_step_is_a_pause_and_not_a_failed_step(
+    run_mode: RunMode,
+    asker: str,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    # Arrange
+    caplog.set_level(logging.WARNING, logger=MIDDLEWARE_LOGGER)
+    model = FlakyChatModel(replies=[build_read_step()])
+    if asker == "monitor":
+        middleware = MonitorMiddleware(monitor=AskingMonitor(), protocol=AcceptFirst())
+    else:
+        middleware = MonitorMiddleware(monitor=build_monitor(), protocol=AskingProtocol())
+    agent = create_agent(
+        model=model,
+        tools=Workspace().build_tools(),
+        middleware=[middleware],
+        checkpointer=InMemorySaver(),
+    )
+    config = build_thread_config(f"interrupt-{asker}-{run_mode}")
+
+    # Act
+    events = stream_custom_events_with_config(agent, mode=run_mode, config=config)
+
+    # Assert: the run paused, and nothing reported the pause as a failure
+    assert agent.get_state(config).interrupts
+    assert find_failed_step_events(events) == []
+    assert read_warnings(caplog) == []
+
+
+def stream_custom_events_with_config(
+    agent: CompiledStateGraph[Any, Any, Any, Any],
+    *,
+    mode: RunMode,
+    config: RunnableConfig,
+) -> list[dict[str, Any]]:
+    payload = build_task_input()
+    if mode == "invoke":
+        return list(agent.stream(payload, config, stream_mode="custom"))
+
+    async def collect() -> list[dict[str, Any]]:
+        return [event async for event in agent.astream(payload, config, stream_mode="custom")]
+
+    return asyncio.run(collect())

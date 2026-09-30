@@ -75,25 +75,25 @@ All four endpoints accept `temperature` and `seed`. LG4 and paid Nemotron also a
 
 ## Verified references (all opened)
 
-- Inan et al., *Llama Guard*, 2023, arXiv:2312.06674
-- Meta, Llama-Guard-3-8B and Llama-Guard-4-12B model cards, huggingface.co/meta-llama
-- ShieldGemma Team (Zeng et al.), *ShieldGemma*, 2024, arXiv:2407.21772
-- Padhi et al., *Granite Guardian*, 2024, arXiv:2412.07724
-- Ghosh et al., *AEGIS*, 2024, arXiv:2404.05993
-- Han et al., *WildGuard*, 2024, arXiv:2406.18495
-- Qwen Team, *Qwen3Guard Technical Report*, 2025, arXiv:2510.14276
-- OpenAI, *Technical Report: gpt-oss-safeguard-120b/20b*, Oct 2025, cdn.openai.com PDF; *gpt-oss-safeguard user guide*, developers.openai.com/cookbook
-- Liu, Huang, Gu, Wang, Wang, *On Calibration of LLM-based Guard Models for Reliable Content Moderation*, ICLR 2025, arXiv:2410.10414
-- Huang et al., *ProbGuard: Calibrated Safety Risk Estimation from LLM Output Distributions*, 2026, arXiv:2608.10621
-- Wang, Poskitt, Wei, Sun, *ProbGuard: Proactive Runtime Monitoring for LLM Agent Safety*, 2025/26, arXiv:2508.00500
-- Xiong et al., *Can LLMs Express Their Uncertainty?*, ICLR 2024, arXiv:2306.13063
-- Tian et al., *Just Ask for Calibration*, EMNLP 2023, arXiv:2305.14975
-- Kadavath et al., *Language Models (Mostly) Know What They Know*, 2022, arXiv:2207.05221
-- Lyu et al., *Calibrating Large Language Models with Sample Consistency*, AAAI 2025, arXiv:2402.13904
-- Carlini et al., *Stealing Part of a Production Language Model*, 2024, arXiv:2403.06634
-- Greenblatt, Shlegeris, Sachan, Roger, *AI Control*, 2023, arXiv:2312.06942 (local)
-- Bhatt et al., *Ctrl-Z*, 2025, arXiv:2504.10374 (local)
-- *BashArena*, 2025, arXiv:2512.15688 (local)
-- Tracy et al., *LinuxArena*, 2026, arXiv:2604.15384 (local)
-- Makins & Angelini, *Multi-Agent AI Control: Distributed Attacks Hamper Per-Instance Monitors*, 2026, arXiv:2607.07368 (local)
-- Koran, Yun, Tetef et al., *Ensemble Monitoring for AI Control*, 2026, arXiv:2605.15377
+- Inan et al., *Llama Guard*, 2023, arXiv:2312.06674 [@inan2023llamaguard]
+- Meta, Llama-Guard-3-8B and Llama-Guard-4-12B model cards, huggingface.co/meta-llama [@meta2024llamaguard3; @meta2025llamaguard4]
+- ShieldGemma Team (Zeng et al.), *ShieldGemma*, 2024, arXiv:2407.21772 [@zeng2024shieldgemma]
+- Padhi et al., *Granite Guardian*, 2024, arXiv:2412.07724 [@padhi2024graniteguardian]
+- Ghosh et al., *AEGIS*, 2024, arXiv:2404.05993 [@ghosh2024aegis]
+- Han et al., *WildGuard*, 2024, arXiv:2406.18495 [@han2024wildguard]
+- Qwen Team, *Qwen3Guard Technical Report*, 2025, arXiv:2510.14276 [@qwen2025qwen3guard]
+- OpenAI, *Technical Report: gpt-oss-safeguard-120b/20b*, Oct 2025, cdn.openai.com PDF; *gpt-oss-safeguard user guide*, developers.openai.com/cookbook [@openai2025gptosssafeguard; @openai2025gptosssafeguardguide]
+- Liu, Huang, Gu, Wang, Wang, *On Calibration of LLM-based Guard Models for Reliable Content Moderation*, ICLR 2025, arXiv:2410.10414 [@liu2025guardcalibration]
+- Huang et al., *ProbGuard: Calibrated Safety Risk Estimation from LLM Output Distributions*, 2026, arXiv:2608.10621 [@huang2026probguard]
+- Wang, Poskitt, Wei, Sun, *ProbGuard: Proactive Runtime Monitoring for LLM Agent Safety*, 2025/26, arXiv:2508.00500 [@wang2026probguard]
+- Xiong et al., *Can LLMs Express Their Uncertainty?*, ICLR 2024, arXiv:2306.13063 [@xiong2024uncertainty]
+- Tian et al., *Just Ask for Calibration*, EMNLP 2023, arXiv:2305.14975 [@tian2023justask]
+- Kadavath et al., *Language Models (Mostly) Know What They Know*, 2022, arXiv:2207.05221 [@kadavath2022know]
+- Lyu et al., *Calibrating Large Language Models with Sample Consistency*, AAAI 2025, arXiv:2402.13904 [@lyu2025sampleconsistency]
+- Carlini et al., *Stealing Part of a Production Language Model*, 2024, arXiv:2403.06634 [@carlini2024stealing]
+- Greenblatt, Shlegeris, Sachan, Roger, *AI Control*, 2023, arXiv:2312.06942 (local) [@greenblatt2023aicontrol]
+- Bhatt et al., *Ctrl-Z*, 2025, arXiv:2504.10374 (local) [@bhatt2025ctrlz]
+- *BashArena*, 2025, arXiv:2512.15688 (local) [@kaufman2025basharena]
+- Tracy et al., *LinuxArena*, 2026, arXiv:2604.15384 (local) [@tracy2026linuxarena]
+- Makins & Angelini, *Multi-Agent AI Control: Distributed Attacks Hamper Per-Instance Monitors*, 2026, arXiv:2607.07368 (local) [@makins2026multiagent]
+- Koran, Yun, Tetef et al., *Ensemble Monitoring for AI Control*, 2026, arXiv:2605.15377 [@koran2026ensemble]

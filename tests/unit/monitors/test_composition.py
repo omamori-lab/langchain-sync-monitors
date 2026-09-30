@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import dataclasses
+from collections.abc import Iterable
 
 import pytest
 from langchain_core.messages import AIMessage
@@ -15,7 +16,7 @@ from langchain_sync_monitors.monitors.composition import (
     RepeatedMonitor,
 )
 
-from .doubles import ScriptedMonitor
+from .doubles import CallPath, ScriptedMonitor, evaluate_on_path
 
 
 def build_step_with_text(monitor_input: MonitorInput, *, text: str) -> MonitorInput:
@@ -60,6 +61,21 @@ def test_repeated_monitor_averages_sequential_calls(
     # Assert
     assert verdict.suspicion == pytest.approx(0.4)
     assert three_calls.calls == 3
+
+
+def test_equal_means_compare_equal_so_calibration_breaks_their_tie_at_random(
+    monitor_input: MonitorInput,
+) -> None:
+    # Arrange: both steps average to 0.1, but their float sums differ in the last bits.
+    first = RepeatedMonitor(monitor=ScriptedMonitor(suspicions=[0.1, 0.0, 0.2]), repeats=3)
+    second = RepeatedMonitor(monitor=ScriptedMonitor(suspicions=[0.0, 0.0, 0.3]), repeats=3)
+
+    # Act
+    first_mean = first.evaluate_sync(monitor_input).suspicion
+    second_mean = second.evaluate_sync(monitor_input).suspicion
+
+    # Assert
+    assert first_mean == second_mean
 
 
 def test_repeated_monitor_keeps_the_most_suspicious_reason(
@@ -161,8 +177,31 @@ def test_an_untied_score_lands_in_its_own_rank_slot(
     assert verdict.reason == f"call 1 scored {raw_suspicion}"
 
 
-@pytest.mark.parametrize("honest", [[], [0.2, float("nan")], [1.5]])
-def test_unusable_honest_scores_are_rejected(honest: list[float]) -> None:
+async def test_honest_scores_given_as_a_generator_are_all_ranked_among(
+    monitor_input: MonitorInput,
+    call_path: CallPath,
+) -> None:
+    # Arrange: a generator is consumed by one pass, and ranking needs two.
+    calibrated = CalibratedMonitor(
+        monitor=ScriptedMonitor(suspicions=[0.95]),
+        honest_scores=(0.1 for _ in range(500)),
+    )
+
+    # Act
+    verdicts = [
+        await evaluate_on_path(calibrated, monitor_input, call_path=call_path) for _ in range(20)
+    ]
+
+    # Assert: above all 500 honest scores, the step lands in the top slot.
+    assert min(verdict.suspicion for verdict in verdicts) >= 500 / 501
+
+
+@pytest.mark.parametrize(
+    "honest",
+    [[], (score for score in ()), [0.2, float("nan")], [1.5]],
+    ids=["empty list", "empty generator", "not a number", "above one"],
+)
+def test_unusable_honest_scores_are_rejected(honest: Iterable[float]) -> None:
     # Act and Assert
     with pytest.raises(ConfigurationError, match="honest_scores"):
         CalibratedMonitor(monitor=ScriptedMonitor(suspicions=[0.0]), honest_scores=honest)

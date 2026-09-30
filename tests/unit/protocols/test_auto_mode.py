@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import math
+
 import pytest
 from langchain_core.messages import AIMessage
 
@@ -120,6 +122,108 @@ def test_acceptable_step_runs_even_after_the_run_total_is_reached(
         suspicions=[0.2],
         previous_records=[build_step_record(blocked_count=20)],
     )
+
+    # Act
+    decision = drive(protocol.decide(step))
+
+    # Assert
+    assert decision.outcome is Outcome.ALLOWED
+
+
+@pytest.mark.parametrize(("blocks_in_thread", "blocks_this_step"), [(18, 2), (19, 1)])
+def test_blocks_elsewhere_in_the_thread_count_towards_the_total(
+    protocol: AutoMode,
+    drive: StepDriver,
+    blocks_in_thread: int,
+    blocks_this_step: int,
+) -> None:
+    # Arrange
+    step = ScriptedPendingStep(
+        suspicions=[0.9] * blocks_this_step,
+        blocks_in_thread=blocks_in_thread,
+    )
+
+    # Act
+    decision = drive(protocol.decide(step))
+
+    # Assert
+    assert decision.outcome is Outcome.HALTED
+    assert len(decision.blocked_attempts) == blocks_this_step
+
+
+def test_an_infinite_total_never_hands_a_step_to_the_fallback(drive: StepDriver) -> None:
+    # Arrange
+    protocol = AutoMode(block_threshold=0.6, max_total_blocks=math.inf)
+    step = ScriptedPendingStep(
+        suspicions=[0.9, 0.9, 0.1],
+        blocks_in_thread=10_000,
+        new_subagent_blocks=5,
+    )
+
+    # Act
+    decision = drive(protocol.decide(step))
+
+    # Assert: the thread's many blocks do not stop the step, which is steered
+    assert decision.outcome is Outcome.STEERED
+    assert len(decision.blocked_attempts) == 2
+
+
+def test_subagent_blocks_that_reach_the_total_hand_the_next_step_to_the_fallback(
+    protocol: AutoMode,
+    drive: StepDriver,
+) -> None:
+    # Arrange
+    step = ScriptedPendingStep(suspicions=[], blocks_in_thread=20, new_subagent_blocks=2)
+
+    # Act
+    decision = drive(protocol.decide(step))
+
+    # Assert
+    assert decision.outcome is Outcome.HALTED
+    assert decision.flagged is True
+    assert decision.samples == ()
+    assert decision.blocked_attempts == ()
+    assert step.sample_calls == []
+
+
+def test_subagent_blocks_that_reach_the_total_can_defer_the_next_step(
+    defer_to_trusted_model: DeferToTrustedModel,
+    drive: StepDriver,
+) -> None:
+    # Arrange
+    protocol = AutoMode(block_threshold=0.6, when_limit_reached=defer_to_trusted_model)
+    step = ScriptedPendingStep(suspicions=[], blocks_in_thread=21, new_subagent_blocks=1)
+
+    # Act
+    decision = drive(protocol.decide(step))
+
+    # Assert
+    assert decision.outcome is Outcome.DEFERRED_TO_TRUSTED
+    assert decision.response.result[0].id == TRUSTED_STEP_ID
+    assert decision.flagged is True
+
+
+def test_subagent_blocks_under_the_total_leave_the_next_step_to_sampling(
+    protocol: AutoMode,
+    drive: StepDriver,
+) -> None:
+    # Arrange
+    step = ScriptedPendingStep(suspicions=[0.1], blocks_in_thread=19, new_subagent_blocks=3)
+
+    # Act
+    decision = drive(protocol.decide(step))
+
+    # Assert
+    assert decision.outcome is Outcome.ALLOWED
+    assert len(step.sample_calls) == 1
+
+
+def test_a_thread_over_the_total_samples_a_step_without_new_subagent_blocks(
+    protocol: AutoMode,
+    drive: StepDriver,
+) -> None:
+    # Arrange
+    step = ScriptedPendingStep(suspicions=[0.1], blocks_in_thread=25, new_subagent_blocks=0)
 
     # Act
     decision = drive(protocol.decide(step))

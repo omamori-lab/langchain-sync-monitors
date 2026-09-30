@@ -1,0 +1,83 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1000" height="822" viewBox="0 0 1000 822" role="img" aria-labelledby="title desc">
+  <title id="title">Three kinds of monitor model, one scale</title>
+  <desc id="desc">Three monitor classes cover three kinds of model, each drawn as the charm. LLMMonitor asks a chat model to reason and then score the step, from 0 to 10 by default. GuardModelMonitor has a guard model label the step against a policy you write, and suspicion is the chance the label is unsafe. DecisionModelMonitor asks a decision model yes or no questions, and suspicion is the chance of yes. Each returns the same Verdict, a suspicion from 0 to 1 and a reason, so any monitor works with any control protocol. Three wrappers stack around any monitor: RepeatedMonitor averages several calls, CalibratedMonitor ranks the score among the scores of honest runs, and CascadeMonitor runs a fast monitor on every step and a careful one when the fast one finds the step suspicious.</desc>
+  <!-- Colours come from the brand tokens: diagrams/render.py fills this style block. -->
+  <style>
+    svg { color-scheme: light; }
+    text { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans", "Noto Sans JP", Helvetica, Arial, sans-serif; font-size: 15px; fill: #111111; }
+    .title { font-size: 17px; font-weight: 600; }
+    .small { font-size: 14px; fill: #5B5B57; }
+    .mono { font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace; font-size: 13.5px; }
+    .soft { fill: #5B5B57; }
+    .dashed { stroke-dasharray: 5 4; fill: none; stroke: #9A9A94; }
+    .box { fill: #FFFFFF; stroke: #111111; stroke-width: 1.4; }
+    .charm { fill: #111111; }
+    .on-charm { fill: #FFFFFF; }
+    .charm-cord { fill: none; stroke: #111111; stroke-width: 2.2; }
+    .seal { fill: #BF3A22; }
+    .allow { fill: #FFFFFF; stroke: #111111; stroke-width: 1.4; }
+    .resample { fill: #F2F1EC; stroke: #111111; stroke-width: 1.4; }
+    .defer { fill: #DCDBD4; stroke: #111111; stroke-width: 1.4; }
+    .steer { fill: #3A3A38; stroke: #3A3A38; stroke-width: 1.4; }
+    .on-steer { fill: #FFFFFF; }
+    .halt { fill: #BF3A22; stroke: #BF3A22; stroke-width: 1.4; }
+    .on-halt { fill: #FFFFFF; }
+    .frame { fill: none; stroke: #9A9A94; stroke-width: 1.2; stroke-dasharray: 6 4; }
+    .edge { fill: none; stroke: #2B2B2B; stroke-width: 1.5; }
+    .loop { fill: none; stroke: #2B2B2B; stroke-width: 1.5; stroke-dasharray: 5 4; }
+    .head { fill: #2B2B2B; }
+    .brush { fill: #111111; }
+  </style>
+  <defs><marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="9" markerHeight="9" markerUnits="userSpaceOnUse" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="head"/></marker></defs>
+  <text x="32.0" y="44.0" text-anchor="start"><tspan class="title">Three kinds of monitor model, one scale</tspan></text>
+  <path class="charm-cord" d="M191.0,97.0 C187.0,80.0 207.0,80.0 203.0,97.0"/>
+  <path class="charm" d="M48.0,96.0 H346.0 L362.0,112.0 V213.0 Q362.0,219.0 356.0,219.0 H38.0 Q32.0,219.0 32.0,213.0 V112.0 Z"/>
+  <rect class="seal" x="41.0" y="201.0" width="9" height="9" rx="1"/>
+  <text x="197.0" y="127.0" text-anchor="middle" class="title on-charm">Chat judge</text>
+  <text x="197.0" y="149.0" text-anchor="middle" class="mono on-charm">LLMMonitor</text>
+  <text x="197.0" y="170.0" text-anchor="middle" class="small on-charm">a chat model reasons, then scores</text>
+  <text x="197.0" y="191.0" text-anchor="middle" class="small on-charm">the step, 0 to 10 by default</text>
+  <path class="charm-cord" d="M191.0,260.0 C187.0,243.0 207.0,243.0 203.0,260.0"/>
+  <path class="charm" d="M48.0,259.0 H346.0 L362.0,275.0 V376.0 Q362.0,382.0 356.0,382.0 H38.0 Q32.0,382.0 32.0,376.0 V275.0 Z"/>
+  <rect class="seal" x="41.0" y="364.0" width="9" height="9" rx="1"/>
+  <text x="197.0" y="290.0" text-anchor="middle" class="title on-charm">Guard model</text>
+  <text x="197.0" y="312.0" text-anchor="middle" class="mono on-charm">GuardModelMonitor</text>
+  <text x="197.0" y="333.0" text-anchor="middle" class="small on-charm">labels the step against your policy;</text>
+  <text x="197.0" y="354.0" text-anchor="middle" class="small on-charm">suspicion: the chance it is unsafe</text>
+  <path class="charm-cord" d="M191.0,423.0 C187.0,406.0 207.0,406.0 203.0,423.0"/>
+  <path class="charm" d="M48.0,422.0 H346.0 L362.0,438.0 V539.0 Q362.0,545.0 356.0,545.0 H38.0 Q32.0,545.0 32.0,539.0 V438.0 Z"/>
+  <rect class="seal" x="41.0" y="527.0" width="9" height="9" rx="1"/>
+  <text x="197.0" y="453.0" text-anchor="middle" class="title on-charm">Decision model</text>
+  <text x="197.0" y="475.0" text-anchor="middle" class="mono on-charm">DecisionModelMonitor</text>
+  <text x="197.0" y="496.0" text-anchor="middle" class="small on-charm">answers yes or no questions;</text>
+  <text x="197.0" y="517.0" text-anchor="middle" class="small on-charm">suspicion: the chance of yes</text>
+  <rect class="box" x="460.0" y="269.5" width="210.0" height="102.0" rx="6"/>
+  <text x="565.0" y="300.5" text-anchor="middle" class="title">Verdict</text>
+  <text x="565.0" y="322.5" text-anchor="middle" class="small">suspicion from 0 to 1,</text>
+  <text x="565.0" y="343.5" text-anchor="middle" class="small">and a reason</text>
+  <rect class="box" x="706.0" y="269.5" width="262.0" height="102.0" rx="6"/>
+  <text x="837.0" y="300.5" text-anchor="middle" class="title">Any control protocol</text>
+  <text x="837.0" y="322.5" text-anchor="middle" class="small">one shared scale, so any</text>
+  <text x="837.0" y="343.5" text-anchor="middle" class="small">monitor fits any protocol</text>
+  <path class="edge" d="M362.0,157.5 L402.0,157.5 L402.0,320.5 L458.0,320.5" marker-end="url(#arrow)"/>
+  <path class="edge" d="M362.0,320.5 L402.0,320.5 L402.0,320.5 L458.0,320.5" marker-end="url(#arrow)"/>
+  <path class="edge" d="M362.0,483.5 L402.0,483.5 L402.0,320.5 L458.0,320.5" marker-end="url(#arrow)"/>
+  <path class="edge" d="M670.0,320.5 L704.0,320.5" marker-end="url(#arrow)"/>
+  <rect class="frame" x="16.0" y="589.0" width="968.0" height="201.0" rx="10"/>
+  <text x="40.0" y="619.0" text-anchor="start"><tspan class="title">Wrappers</tspan><tspan class="small">   each wraps any monitor and is a monitor itself, so they stack</tspan></text>
+  <rect class="box" x="48.0" y="643.0" width="282.7" height="123.0" rx="6"/>
+  <text x="189.3" y="674.0" text-anchor="middle" class="title">Average</text>
+  <text x="189.3" y="696.0" text-anchor="middle" class="mono">RepeatedMonitor</text>
+  <text x="189.3" y="717.0" text-anchor="middle" class="small">the mean of several calls</text>
+  <text x="189.3" y="738.0" text-anchor="middle" class="small">of one monitor</text>
+  <rect class="box" x="358.7" y="643.0" width="282.7" height="123.0" rx="6"/>
+  <text x="500.0" y="674.0" text-anchor="middle" class="title">Calibrate</text>
+  <text x="500.0" y="696.0" text-anchor="middle" class="mono">CalibratedMonitor</text>
+  <text x="500.0" y="717.0" text-anchor="middle" class="small">ranks each score among</text>
+  <text x="500.0" y="738.0" text-anchor="middle" class="small">the scores of honest runs</text>
+  <rect class="box" x="669.3" y="643.0" width="282.7" height="123.0" rx="6"/>
+  <text x="810.7" y="674.0" text-anchor="middle" class="title">Cascade</text>
+  <text x="810.7" y="696.0" text-anchor="middle" class="mono">CascadeMonitor</text>
+  <text x="810.7" y="717.0" text-anchor="middle" class="small">a fast monitor on every step,</text>
+  <text x="810.7" y="738.0" text-anchor="middle" class="small">a careful one on suspicious steps</text>
+</svg>

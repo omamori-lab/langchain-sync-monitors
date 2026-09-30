@@ -1,194 +1,123 @@
 """The middleware that puts a monitor and a control protocol around every model call.
 
 `MonitorMiddleware` wraps each model call of an agent. The untrusted model's
-proposal is judged before any tool runs, the protocol decides what the agent
-state receives, and one `StepRecord` per step is appended to `monitor_log`.
+proposal is judged before any of the agent's own tools run, the protocol
+decides what the agent state receives, and one `StepRecord` per step is
+appended to `monitor_log`. Tools the model provider runs itself run inside the
+model call, before the proposal is judged, and the middleware warns about the
+ones it knows.
 
 In a `create_agent` middleware list the monitor goes last. LangChain nests
 `wrap_model_call` handlers with the first middleware outermost, and a
 middleware inside the monitor that returns state updates would have them
-merged across every sample the protocol draws [@langchain2026].
-`check_monitor_placement` warns about such a list, and about a middleware
-outside the monitor that retries failed model calls.
+taken from a sample the protocol may not commit: LangChain keeps the updates of
+the last inner call, and mixes them when samples are drawn concurrently
+[@langchain2026].
+`check_monitor_placement` warns about such a list, about a middleware
+outside the monitor that retries failed model calls, and about a middleware
+that runs failed tool calls again or answers them with an error message. It
+also warns about a second monitor inside one whose protocol can call the
+model more than once in a step, which loses the records of all but its last
+call or piles them up for calls drawn at once, and about a monitor inside
+another that commits its blocked attempts with the step, since the outer
+monitor then judges the first blocked proposal.
+`halts` has what happens after a halted step.
 """
 
-import logging
-import operator
-import warnings
-from collections.abc import Sequence
 from dataclasses import dataclass, replace
-from typing import Annotated, NotRequired, Self, override
+from typing import Self, override
 
 from langchain.agents.middleware.internal_call_transformer import InternalCallTransformer
 from langchain.agents.middleware.types import (
     AgentMiddleware,
-    AgentState,
     ExtendedModelResponse,
-    ModelResponse,
-    OmitFromInput,
+    ToolCallRequest,
     hook_config,
 )
-from langchain_core.messages import AIMessage
-from langgraph.types import Command
+from langgraph.errors import GraphBubbleUp, ParentCommand
 
 from langchain_sync_monitors._langchain import (
-    MONITOR_LOG_KEY,
     AgentContext,
     AgentModelRequest,
     AgentRuntime,
     AgentStateUpdate,
-    AnyAgentMiddleware,
     AsyncModelCallHandler,
+    AsyncToolCallHandler,
     ModelCallHandler,
-    MonitorStepEvent,
-    MonitorStepFailedEvent,
     StructuredOutput,
+    ToolCallHandler,
+    ToolCallResult,
+    cast_to_tool_call_result,
     hide_model_calls_from_message_stream,
     read_monitor_log,
-    write_stream_event,
 )
+from langchain_sync_monitors.commits import commit_step, report_failed_step
 from langchain_sync_monitors.contracts import (
     ControlProtocol,
+    Fallback,
     FeedbackVisibility,
     Monitor,
-    Outcome,
-    SampleRecord,
-    StepDecision,
-    StepRecord,
     SubagentHalt,
     TaskAuthor,
 )
-from langchain_sync_monitors.feedback import (
-    build_blocked_attempt_messages,
-    build_monitor_message_id,
+from langchain_sync_monitors.delegation import (
+    add_delegation,
+    count_blocks_in_thread,
+    count_new_subagent_blocks,
+    read_delegation_id,
 )
-from langchain_sync_monitors.options import check_enum_option
+from langchain_sync_monitors.errors import ConfigurationError
+from langchain_sync_monitors.halts import (
+    build_end_run_update,
+    find_halt_decision,
+    has_just_halted,
+)
+from langchain_sync_monitors.monitor_state import MonitorState
+from langchain_sync_monitors.options import (
+    check_enum_option,
+    check_instance_option,
+    check_name_part_option,
+)
 from langchain_sync_monitors.pending_steps import (
     AsyncPendingStep,
-    MonitoredStep,
+    PendingStepOptions,
+    PreparedStep,
     SyncPendingStep,
     run_synchronously,
 )
-from langchain_sync_monitors.records import (
-    build_sample_record,
-    build_step_record,
-    find_monitor_records,
+from langchain_sync_monitors.provider_tools import warn_about_provider_tools
+from langchain_sync_monitors.records import find_monitor_records
+from langchain_sync_monitors.spans import (
+    StepIdentity,
+    open_step_span,
+    open_step_span_sync,
+    trace_decision,
+    trace_decision_sync,
 )
-
-logger = logging.getLogger(__name__)
-
-REQUEST_ONLY_MIDDLEWARE = frozenset(
-    {
-        "AnthropicPromptCachingMiddleware",
-        "BedrockPromptCachingMiddleware",
-        "FireworksPromptCachingMiddleware",
-        "MemoryMiddleware",
-        "UnsupportedContentMiddleware",
-        "_ToolExclusionMiddleware",
-    },
+from langchain_sync_monitors.task_authorship import (
+    TASK_MESSAGES_KEY,
+    build_run_end_update,
+    build_run_input_update,
+    build_step_start_update,
+    mark_tool_written_notes,
+    read_message_ids,
+    relabel_parent_command,
 )
-"""Classes that only rewrite the request, so they are safe inside a monitor.
-
-Deep Agents places these after user middleware [@deepagents2026].
-"""
-
-RETRYING_MIDDLEWARE = frozenset(
-    {
-        "ModelFallbackMiddleware",
-        "ModelRetryMiddleware",
-        "_DeepAgentsSummarizationMiddleware",
-    },
-)
-"""Classes that call the rest of the stack again when a model call raises.
-
-LangChain's retry and fallback middleware retry on an exception, and Deep
-Agents' summarisation retries after a context overflow
-[@langchain2026; @deepagents2026]. Outside a monitor, each retry runs the
-whole monitored step again.
-"""
-
-
-class MonitorState(AgentState):
-    """The agent state with the log of every monitored step.
-
-    The reducer comes last in the annotation because LangGraph reads it only
-    from the last metadata position; anywhere else the log silently keeps only
-    its last write [@langgraph2026]. `OmitFromInput` keeps the log out of a
-    subagent's input, so a subagent never copies its parent's records back.
-    """
-
-    monitor_log: NotRequired[Annotated[list[StepRecord], OmitFromInput, operator.add]]
-
-
-class MonitorPlacementWarning(UserWarning):
-    """A middleware placed around or inside a monitor undermines what the monitor records.
-
-    Inside a monitor, a middleware can return state updates for samples the
-    monitor rejects. Outside it, a middleware that retries failed model calls
-    runs the whole step again, and the samples judged before the failure never
-    reach `monitor_log`.
-    """
-
-
-def build_subagent_halt_decision(*, subagent_names: Sequence[str]) -> StepDecision:
-    """Return the decision that ends the run because a subagent was halted."""
-    distinct_names = sorted(set(subagent_names))
-    subject = "subagent" if len(distinct_names) == 1 else "subagents"
-    message = AIMessage(
-        content=(
-            f"[Safety monitor] Stopped: the safety monitor halted the {subject} "
-            f"{', '.join(distinct_names)}, so this agent stops too."
-        ),
-        id=build_monitor_message_id(),
-    )
-    return StepDecision(
-        outcome=Outcome.HALTED,
-        response=ModelResponse(result=[message]),
-        samples=(),
-        executed_sample=None,
-        flagged=True,
-    )
-
-
-def find_new_subagent_halts(
-    records: Sequence[StepRecord],
-    *,
-    agent: str,
-) -> list[StepRecord]:
-    """Return the halts of other agents logged since this agent's last step.
-
-    Only halts this agent has not yet answered count, so a halted run does not
-    stay halted on the next turn of a checkpointed thread.
-    """
-    own_positions = [index for index, record in enumerate(records) if record["agent"] == agent]
-    start = own_positions[-1] + 1 if own_positions else 0
-    return [
-        record
-        for record in records[start:]
-        if record["agent"] != agent and record["outcome"] == "halted"
-    ]
-
-
-def build_end_run_update() -> AgentStateUpdate:
-    """Return the update with which an `after_model` hook ends the agent's run [@langchain2026]."""
-    return {"jump_to": "end"}
-
-
-def render_judged_samples(samples: Sequence[SampleRecord]) -> str:
-    """Render judged samples for a log line: each one's suspicion, reason and proposal."""
-    return "\n".join(
-        f"- suspicion {sample['suspicion']:.3f}, reason: {sample['reason']}\n{sample['proposal']}"
-        for sample in samples
-    )
 
 
 @dataclass(frozen=True, kw_only=True, eq=False)
 class MonitorMiddleware(AgentMiddleware[MonitorState, AgentContext, StructuredOutput]):
     """Puts a monitor and a control protocol around every model call of an agent.
 
-    The monitor judges each proposed step before any tool runs, and the
-    protocol decides what the agent state receives. Only the decision is
-    committed, with one record that keeps every judged sample for audit.
+    The monitor judges each proposed step before any of the agent's own tools
+    run, and the protocol decides what the agent state receives. Only the
+    decision is committed, with one record that keeps every judged sample for
+    audit. Tools the model provider runs itself, such as Anthropic's
+    `web_fetch` or OpenAI's `web_search`, run inside the model call, before
+    the monitor judges the step and again for every sample, so no monitor can
+    stop them; the middleware emits a `ProviderToolWarning`, once per
+    instance, when the model request holds such tools. `provider_tools` lists
+    the ones it knows, and what it cannot see.
     Nothing the protocol calls streams to `stream_mode="messages"`: not the
     samples, not the trusted model's step, not the monitor's own calls. The
     committed step streams whole once the model node returns it.
@@ -196,28 +125,69 @@ class MonitorMiddleware(AgentMiddleware[MonitorState, AgentContext, StructuredOu
     checks a list.
 
     `label` and `agent_name` make up the name, `monitor[main]` by default,
-    which LangChain requires to be unique within one agent. `task_author` says
+    which LangChain requires to be unique within one agent, and a subclass
+    that names itself otherwise raises `ConfigurationError`. Each must be a
+    non-blank string without `:` or `|`, which LangGraph refuses in the names
+    of the graph nodes the hooks become. `task_author` says
     who wrote the task the monitor reads. `feedback_visibility` decides whether
     blocked attempts and their feedback are committed with the step or only
     shown to the retry. `when_subagent_halts=SubagentHalt.STOP_WHOLE_RUN` halts
     this agent before its next model call once a subagent was halted. Each
     option must be a member of its enum; a plain string raises
-    `ConfigurationError`.
+    `ConfigurationError`, as do a `monitor` that is not a `Monitor` and a
+    `protocol` that is not a `ControlProtocol`, such as the fallback
+    `DeferToTrustedModel` in place of the protocol `DeferToTrusted`.
+
+    Before each tool call, the middleware adds a `Delegation` to the state the
+    tool sees: the call's id, `agent_name` and the blocks each monitor has
+    recorded in the thread. A subagent the call starts, as Deep Agents' `task`
+    tool does, receives it, so the subagent's records carry the call's id as
+    `delegation_id` and its Auto Mode counts from the thread's total.
+
+    Only the untagged human messages a run receives as its input are read as
+    the task author's. The middleware's `before_agent` hook records them in
+    the graph state. Its `before_model` and `after_agent` hooks, and each
+    commit, tag every other untagged human message in the state as a context
+    note, and a human message a tool writes is tagged where it is written.
+    After a run that stopped before reaching `after_agent`, the next run's
+    new messages are notes too, since the monitor cannot tell them from what
+    the stopped run left; `task_authorship` has the rule and its limits.
 
     A halted step ends the run. The middleware's `after_model` hook routes the
     agent to its end, since the halt message alone does not end an agent that
-    loops until it has a structured response. The hook adds one graph step per
-    model call, which counts towards an explicit `recursion_limit`, and on a
-    halted step it skips the `after_model` hooks that would run after it.
+    loops until it has a structured response. On a halted step it skips the
+    `after_model` hooks that would run after it. The hooks add two graph steps
+    per model call and two per run, which count towards an explicit
+    `recursion_limit`.
+
+    A halt stands until a later run brings new input. An `after_agent` hook
+    can send a finished run back to the model, as Deep Agents'
+    `RubricMiddleware` does when it grades the task unmet [@deepagents2026].
+    While this monitor's last step is a halt and the thread has recorded no
+    run input since, each further step halts again without a sample: the
+    untrusted model is not called, and the step's record, flagged, holds no
+    samples. A human message written between a run's start and its end never
+    lifts the halt. One that a middleware listed before the monitor writes
+    from its `before_agent` hook, or from its `after_agent` hook without a
+    return to the model, counts as a run's input and does; `halts` has the
+    rule.
 
     If a call inside a step raises before the protocol decides, the step is
     not committed. The samples the monitor had judged are logged as a warning
     and written to `stream_mode="custom"` as a `MonitorStepFailedEvent`, and
-    the exception is raised again.
+    the exception is raised again. LangGraph's own control flow, such as the
+    `GraphInterrupt` that `interrupt()` raises, passes through unreported. Yet
+    a monitor, a protocol or a fallback must not call `interrupt()`: on
+    resume LangGraph runs the model node again [@langgraph2026], so the step
+    is sampled and judged afresh, and the person's answer applies to samples
+    they never saw.
 
-    The instance holds configuration only. Deep Agents runs parallel subagents
-    through shared middleware instances, so every piece of run state lives in
-    the graph state.
+    In LangChain tracers such as LangSmith and Langfuse, each step is a
+    `monitor step` span, with the spans that `spans` describes nested in it.
+
+    The instance holds configuration only, so it can be copied and pickled.
+    Deep Agents runs parallel subagents through shared middleware instances,
+    so every piece of run state lives in the graph state.
     """
 
     monitor: Monitor
@@ -232,7 +202,31 @@ class MonitorMiddleware(AgentMiddleware[MonitorState, AgentContext, StructuredOu
     transformers = (InternalCallTransformer,)
 
     def __post_init__(self) -> None:
-        """Reject an option that is not a member of its enum, such as a plain string."""
+        """Reject an option of the wrong type, such as a plain string where an enum belongs."""
+        check_name_part_option(self.label, parameter_name="label")
+        check_name_part_option(self.agent_name, parameter_name="agent_name")
+        if self.name != f"{self.label}[{self.agent_name}]":
+            message = (
+                f"a monitor's name must be label[agent_name], {self.label}[{self.agent_name}], "
+                f"got {self.name!r}: its records and halts are kept under its label and agent, "
+                "so two monitors that shared them would lift each other's halts. Give each "
+                "monitor its own label instead."
+            )
+            raise ConfigurationError(message)
+        check_instance_option(self.monitor, option_type=Monitor, parameter_name="monitor")
+        protocol_hint = "Use a protocol such as AutoMode, DeferToResample or DeferToTrusted."
+        if isinstance(self.protocol, Fallback):
+            protocol_hint = (
+                f"{type(self.protocol).__name__} is a fallback, which writes a step once a "
+                "protocol rejects its samples. To defer suspicious steps to the trusted model, "
+                "use DeferToTrusted(trusted_model=...)."
+            )
+        check_instance_option(
+            self.protocol,
+            option_type=ControlProtocol,
+            parameter_name="protocol",
+            hint=protocol_hint,
+        )
         check_enum_option(self.task_author, option_type=TaskAuthor, parameter_name="task_author")
         check_enum_option(
             self.feedback_visibility,
@@ -262,26 +256,40 @@ class MonitorMiddleware(AgentMiddleware[MonitorState, AgentContext, StructuredOu
         handler: ModelCallHandler,
     ) -> ExtendedModelResponse[StructuredOutput]:
         """Decide this step under `invoke()`, driving the protocol without an event loop."""
-        records = read_monitor_log(request.state)
-        previous_records = find_monitor_records(records, monitor=self.label, agent=self.agent_name)
-        decision = self.find_halt_decision(records)
-        if decision is None:
-            step = SyncPendingStep(
-                request=request,
-                handler=handler,
-                monitor=self.monitor,
-                task_author=self.task_author,
-                previous_records=previous_records,
+        prepared = self.prepare_step(request)
+        with open_step_span_sync(prepared.identity) as traced_step:
+            # A halt found before sampling decides the step, and the protocol never runs.
+            decision = prepared.halt
+            if decision is None:
+                step = SyncPendingStep(handler=handler, **prepared.options)
+                try:
+                    with hide_model_calls_from_message_stream():
+                        decision = run_synchronously(self.protocol.decide(step))
+                except GraphBubbleUp:
+                    # LangGraph's own control flow, such as an interrupt, is not a failed step.
+                    raise
+                except BaseException as error:
+                    report_failed_step(
+                        step,
+                        identity=prepared.identity,
+                        error=error,
+                        traced_step=traced_step,
+                        middleware_name=self.name,
+                    )
+                    raise
+                finally:
+                    # A task the protocol left on a running loop may run after the step.
+                    # Once closed, the step refuses it the model.
+                    step.close()
+            record = prepared.identity.build_record(decision)
+            trace_decision_sync(traced_step, record=record)
+            return commit_step(
+                request,
+                decision=decision,
+                record=record,
+                middleware_name=self.name,
+                feedback_visibility=self.feedback_visibility,
             )
-            try:
-                with hide_model_calls_from_message_stream():
-                    decision = run_synchronously(self.protocol.decide(step))
-            except BaseException as error:
-                self.report_failed_step(request, step=step, error=error)
-                raise
-            finally:
-                step.close()
-        return self.commit(request, decision=decision, previous_records=previous_records)
 
     @override
     async def awrap_model_call(
@@ -290,30 +298,117 @@ class MonitorMiddleware(AgentMiddleware[MonitorState, AgentContext, StructuredOu
         handler: AsyncModelCallHandler,
     ) -> ExtendedModelResponse[StructuredOutput]:
         """Decide this step under `ainvoke()`, awaiting the protocol."""
-        records = read_monitor_log(request.state)
-        previous_records = find_monitor_records(records, monitor=self.label, agent=self.agent_name)
-        decision = self.find_halt_decision(records)
-        if decision is None:
-            step = AsyncPendingStep(
-                request=request,
-                handler=handler,
-                monitor=self.monitor,
-                task_author=self.task_author,
-                previous_records=previous_records,
+        prepared = self.prepare_step(request)
+        async with open_step_span(prepared.identity) as traced_step:
+            # A halt found before sampling decides the step, and the protocol never runs.
+            decision = prepared.halt
+            if decision is None:
+                step = AsyncPendingStep(handler=handler, **prepared.options)
+                try:
+                    with hide_model_calls_from_message_stream():
+                        decision = await self.protocol.decide(step)
+                except GraphBubbleUp:
+                    # LangGraph's own control flow, such as an interrupt, is not a failed step.
+                    raise
+                except BaseException as error:
+                    report_failed_step(
+                        step,
+                        identity=prepared.identity,
+                        error=error,
+                        traced_step=traced_step,
+                        middleware_name=self.name,
+                    )
+                    raise
+            record = prepared.identity.build_record(decision)
+            await trace_decision(traced_step, record=record)
+            return commit_step(
+                request,
+                decision=decision,
+                record=record,
+                middleware_name=self.name,
+                feedback_visibility=self.feedback_visibility,
             )
-            try:
-                with hide_model_calls_from_message_stream():
-                    decision = await self.protocol.decide(step)
-            except BaseException as error:
-                self.report_failed_step(request, step=step, error=error)
-                raise
-        return self.commit(request, decision=decision, previous_records=previous_records)
 
+    @override
+    def wrap_tool_call(
+        self,
+        request: ToolCallRequest,
+        handler: ToolCallHandler,
+    ) -> ToolCallResult:
+        """Run a tool call under `invoke()`, handing any subagent it starts its delegation.
+
+        Every new or changed message the tool writes loses a source only the
+        monitor writes, and a human message left without one becomes a note
+        named after the tool, whatever the shape of the result, of a
+        `Command`'s update or of a `ParentCommand` the call raises;
+        `mark_tool_written_notes` has the rule.
+        """
+        tool_name = request.tool_call["name"]
+        try:
+            result = handler(add_delegation(request, agent=self.agent_name))
+        except ParentCommand as bubble:
+            relabel_parent_command(bubble, tool_name=tool_name, state=request.state)
+            raise
+        written = mark_tool_written_notes(result, tool_name=tool_name, state=request.state)
+        return cast_to_tool_call_result(written)
+
+    @override
+    async def awrap_tool_call(
+        self,
+        request: ToolCallRequest,
+        handler: AsyncToolCallHandler,
+    ) -> ToolCallResult:
+        """Run a tool call under `ainvoke()`, handing any subagent it starts its delegation.
+
+        Every new or changed message the tool writes loses a source only the
+        monitor writes, and a human message left without one becomes a note
+        named after the tool, whatever the shape of the result, of a
+        `Command`'s update or of a `ParentCommand` the call raises;
+        `mark_tool_written_notes` has the rule.
+        """
+        tool_name = request.tool_call["name"]
+        try:
+            result = await handler(add_delegation(request, agent=self.agent_name))
+        except ParentCommand as bubble:
+            relabel_parent_command(bubble, tool_name=tool_name, state=request.state)
+            raise
+        written = mark_tool_written_notes(result, tool_name=tool_name, state=request.state)
+        return cast_to_tool_call_result(written)
+
+    @override
+    def before_agent(self, state: MonitorState, runtime: AgentRuntime) -> AgentStateUpdate | None:
+        """Record the human messages this run received as its input, under `invoke()`."""
+        return build_run_input_update(state)
+
+    @override
+    async def abefore_agent(  # lanorme: ignore[NAMING-011]
+        self,
+        state: MonitorState,
+        runtime: AgentRuntime,
+    ) -> AgentStateUpdate | None:
+        """Record the human messages this run received as its input, under `ainvoke()`."""
+        return build_run_input_update(state)
+
+    @override
+    def before_model(self, state: MonitorState, runtime: AgentRuntime) -> AgentStateUpdate | None:
+        """Record and tag the human messages so far, and open a step, under `invoke()`."""
+        return build_step_start_update(state)
+
+    @override
+    async def abefore_model(  # lanorme: ignore[NAMING-011]
+        self,
+        state: MonitorState,
+        runtime: AgentRuntime,
+    ) -> AgentStateUpdate | None:
+        """Record and tag the human messages so far, and open a step, under `ainvoke()`."""
+        return build_step_start_update(state)
+
+    # Without `can_jump_to`, `create_agent` gives the hook a plain edge and ignores `jump_to`.
     @hook_config(can_jump_to=["end"])
     @override
     def after_model(self, state: MonitorState, runtime: AgentRuntime) -> AgentStateUpdate | None:
         """End the run after a step this monitor halted, under `invoke()`."""
-        return build_end_run_update() if self.has_just_halted(state) else None
+        return self.build_halt_end_update(state)
 
     @hook_config(can_jump_to=["end"])
     @override
@@ -323,196 +418,56 @@ class MonitorMiddleware(AgentMiddleware[MonitorState, AgentContext, StructuredOu
         runtime: AgentRuntime,
     ) -> AgentStateUpdate | None:
         """End the run after a step this monitor halted, under `ainvoke()`."""
-        return build_end_run_update() if self.has_just_halted(state) else None
+        return self.build_halt_end_update(state)
 
-    def has_just_halted(self, state: MonitorState) -> bool:
-        """Tell whether the step just committed is this monitor's halt.
+    @override
+    def after_agent(self, state: MonitorState, runtime: AgentRuntime) -> AgentStateUpdate | None:
+        """Tag the notes written since the last step, and close the run, under `invoke()`."""
+        return build_run_end_update(state)
 
-        The model node's own `jump_to` would not do: a routing edge reads a
-        fresh copy of the state in which only its own node's writes survive,
-        and `jump_to` is cleared everywhere else [@langgraph2026]. With any
-        `after_model` hook in the agent, the model node has no routing edge of
-        its own, so the hook that follows it has to write `jump_to` itself.
-        The last message must be the halt, a final message with no tool calls,
-        so an older halt record never ends a later turn.
-        """
-        own_records = find_monitor_records(
-            read_monitor_log(state),
-            monitor=self.label,
-            agent=self.agent_name,
-        )
-        messages = state["messages"]
-        last_message = messages[-1] if messages else None
-        return (
-            bool(own_records)
-            and own_records[-1]["outcome"] == "halted"
-            and isinstance(last_message, AIMessage)
-            and not last_message.tool_calls
-        )
-
-    def find_halt_decision(self, records: Sequence[StepRecord]) -> StepDecision | None:
-        """Return a halt when a subagent halted and this monitor stops the whole run, else None."""
-        if self.when_subagent_halts is SubagentHalt.STOP_SUBAGENT_ONLY:
-            return None
-        halts = find_new_subagent_halts(records, agent=self.agent_name)
-        if not halts:
-            return None
-        return build_subagent_halt_decision(subagent_names=[record["agent"] for record in halts])
-
-    def report_failed_step(
+    @override
+    async def aafter_agent(  # lanorme: ignore[NAMING-011]
         self,
-        request: AgentModelRequest,
-        *,
-        step: MonitoredStep,
-        error: BaseException,
-    ) -> None:
-        """Report the samples judged in a step that raised, before the error propagates.
+        state: MonitorState,
+        runtime: AgentRuntime,
+    ) -> AgentStateUpdate | None:
+        """Tag the notes written since the last step, and close the run, under `ainvoke()`."""
+        return build_run_end_update(state)
 
-        The step is never committed, so this is the only trace of its samples:
-        a `MonitorStepFailedEvent` on `stream_mode="custom"` and, when the
-        monitor had judged anything, a warning that lists each sample.
-        """
-        step_number = len(step.previous_records) + 1
-        samples = [build_sample_record(sample, executed=False) for sample in step.judged_samples]
-        event = MonitorStepFailedEvent(
-            type="monitor_step_failed",
-            agent=self.agent_name,
+    def build_halt_end_update(self, state: MonitorState) -> AgentStateUpdate | None:
+        """Return the update that ends the run right after this monitor's halt, else None."""
+        if has_just_halted(state, monitor=self.label, agent=self.agent_name):
+            return build_end_run_update()
+        return None
+
+    def prepare_step(self, request: AgentModelRequest) -> PreparedStep:
+        """Read the log once for a step: its identity, a halt without a sample, its options."""
+        warn_about_provider_tools(request, middleware=self, middleware_name=self.name)
+        records = read_monitor_log(request.state)
+        previous_records = find_monitor_records(records, monitor=self.label, agent=self.agent_name)
+        identity = StepIdentity(
             monitor=self.label,
-            step_number=step_number,
-            error=f"{type(error).__name__}: {error}",
-            samples=samples,
-        )
-        write_stream_event(request, event=event)
-        if samples:
-            logger.warning(
-                "%s: step %d failed with %s before it was committed, so the %d sample(s) the "
-                "monitor judged are not in monitor_log:\n%s",
-                self.name,
-                step_number,
-                event["error"],
-                len(samples),
-                render_judged_samples(samples),
-            )
-
-    def commit(
-        self,
-        request: AgentModelRequest,
-        *,
-        decision: StepDecision,
-        previous_records: tuple[StepRecord, ...],
-    ) -> ExtendedModelResponse[StructuredOutput]:
-        """Commit the decided messages and append one record of the step to `monitor_log`.
-
-        The record is also written to `stream_mode="custom"` as it is committed.
-        With `FeedbackVisibility.IN_TRANSCRIPT`, each blocked attempt and its
-        feedback come before the step's own messages.
-        """
-        record = build_step_record(
-            decision=decision,
             agent=self.agent_name,
-            monitor=self.label,
             step_number=len(previous_records) + 1,
+            protocol=type(self.protocol).__name__,
+            delegation_id=read_delegation_id(request.state),
         )
-        write_stream_event(request, event=MonitorStepEvent(type="monitor_step", record=record))
-        logger.debug(
-            "%s committed step %d: %s", self.name, record["step_number"], record["outcome"]
+        halt = find_halt_decision(
+            request.state,
+            previous_records=previous_records,
+            agent=self.agent_name,
+            monitor=self.name,
+            when_subagent_halts=self.when_subagent_halts,
         )
-        messages = list(decision.response.result)
-        if self.feedback_visibility is FeedbackVisibility.IN_TRANSCRIPT:
-            messages = [*build_blocked_attempt_messages(decision=decision), *messages]
-        response = ModelResponse(
-            result=messages,
-            structured_response=decision.response.structured_response,
+        options = PendingStepOptions(
+            request=request,
+            monitor=self.monitor,
+            task_author=self.task_author,
+            task_message_ids=read_message_ids(request.state, key=TASK_MESSAGES_KEY),
+            previous_records=previous_records,
+            blocks_in_thread=count_blocks_in_thread(request.state, monitor=self.label),
+            new_subagent_blocks=count_new_subagent_blocks(
+                records, agent=self.agent_name, monitor=self.label
+            ),
         )
-        update = {MONITOR_LOG_KEY: [record]}
-        return ExtendedModelResponse(model_response=response, command=Command(update=update))
-
-
-def is_model_call_wrapper(middleware: AnyAgentMiddleware) -> bool:
-    """Tell whether a middleware wraps model calls, as `create_agent` decides it."""
-    middleware_class = type(middleware)
-    return (
-        middleware_class.wrap_model_call is not AgentMiddleware.wrap_model_call
-        or middleware_class.awrap_model_call is not AgentMiddleware.awrap_model_call
-    )
-
-
-def is_unsafe_inside_monitor(middleware: AnyAgentMiddleware) -> bool:
-    """Tell whether a middleware wraps model calls and is not known to only rewrite the request."""
-    is_request_only = type(middleware).__name__ in REQUEST_ONLY_MIDDLEWARE
-    return is_model_call_wrapper(middleware) and not is_request_only
-
-
-def is_retrying_middleware(middleware: AnyAgentMiddleware) -> bool:
-    """Tell whether a middleware wraps model calls and is known to retry them when they raise."""
-    is_retrying = type(middleware).__name__ in RETRYING_MIDDLEWARE
-    return is_retrying and is_model_call_wrapper(middleware)
-
-
-def find_last_monitor_position(middleware: Sequence[AnyAgentMiddleware]) -> int | None:
-    """Return the position of the last monitor in the list, or None when there is none."""
-    monitor_positions = [
-        index for index, item in enumerate(middleware) if isinstance(item, MonitorMiddleware)
-    ]
-    return monitor_positions[-1] if monitor_positions else None
-
-
-def find_middleware_inside_monitor(
-    middleware: Sequence[AnyAgentMiddleware],
-) -> Sequence[AnyAgentMiddleware]:
-    """Return the middleware after the last monitor, which LangChain nests inside it."""
-    position = find_last_monitor_position(middleware)
-    return () if position is None else middleware[position + 1 :]
-
-
-def find_middleware_outside_monitor(
-    middleware: Sequence[AnyAgentMiddleware],
-) -> Sequence[AnyAgentMiddleware]:
-    """Return the middleware before the last monitor, which LangChain wraps around it."""
-    position = find_last_monitor_position(middleware)
-    return () if position is None else middleware[:position]
-
-
-def check_monitor_placement(*, middleware: Sequence[AnyAgentMiddleware]) -> list[str]:
-    """Warn about each middleware placed where it undermines the last monitor.
-
-    Pass the list given to `create_agent`. Two placements are warned about:
-
-    - inside the monitor, a middleware that wraps model calls and is not known
-      to only rewrite the request. It can return commands, which LangChain
-      collects per call of the monitor's handler, so they would pile up from
-      every sample the protocol draws [@langchain2026];
-    - outside the monitor, a middleware known to retry failed model calls,
-      such as `ModelRetryMiddleware`. A retry runs the whole step again with
-      fresh samples, and the samples judged before the failure reach only a
-      warning log line and a `MonitorStepFailedEvent`, never `monitor_log`.
-
-    Returns the names of the middleware it warned about.
-    """
-    misplaced_inside = [
-        item.name
-        for item in find_middleware_inside_monitor(middleware)
-        if is_unsafe_inside_monitor(item)
-    ]
-    retrying_outside = [
-        item.name
-        for item in find_middleware_outside_monitor(middleware)
-        if is_retrying_middleware(item)
-    ]
-    for name in misplaced_inside:
-        warnings.warn(
-            f"{name} wraps model calls inside a monitor, so any state update it returns "
-            "is merged across every sample the monitor draws. Put the monitor last.",
-            MonitorPlacementWarning,
-            stacklevel=2,
-        )
-    for name in retrying_outside:
-        warnings.warn(
-            f"{name} retries failed model calls from outside a monitor, so a step that fails "
-            "runs again from the start with fresh samples. The samples the monitor judged "
-            "before the failure never reach monitor_log; only a warning log line and a "
-            "monitor_step_failed event on stream_mode='custom' keep them.",
-            MonitorPlacementWarning,
-            stacklevel=2,
-        )
-    return misplaced_inside + retrying_outside
+        return PreparedStep(identity=identity, halt=halt, options=options)

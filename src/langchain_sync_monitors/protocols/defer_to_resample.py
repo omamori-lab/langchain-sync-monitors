@@ -13,9 +13,8 @@ from langchain_sync_monitors.contracts import (
     Sample,
     StepDecision,
 )
-from langchain_sync_monitors.errors import ConfigurationError
-from langchain_sync_monitors.options import check_enum_option
-from langchain_sync_monitors.protocols.fallbacks import DeferToTrustedModel
+from langchain_sync_monitors.options import check_enum_option, read_count_option
+from langchain_sync_monitors.protocols.fallbacks import DeferToTrustedModel, check_fallback_option
 from langchain_sync_monitors.thresholds import (
     DEFAULT_AUDIT_THRESHOLD,
     DEFAULT_DEFER_THRESHOLD,
@@ -39,7 +38,10 @@ class DeferToResample(ControlProtocol):
     acceptable one, as Ctrl-Z's appendix J words the protocol.
     `Resampling.PARALLEL` draws every resample at once, which lowers latency but
     always costs `max_resamples` extra calls. `resampling` must be a
-    `Resampling` member; a plain string raises `ConfigurationError`.
+    `Resampling` member; a plain string raises `ConfigurationError`, as do a
+    `fallback` that is not a `Fallback`, such as the `DeferToTrusted` protocol
+    in place of `DeferToTrustedModel`, and a `max_resamples` that is not a
+    whole number of at least 0.
     Resampling needs fresh draws, so a LangChain response cache on the agent's
     model defeats it, and the pending step emits a `CachedResampleWarning`.
 
@@ -52,9 +54,17 @@ class DeferToResample(ControlProtocol):
     still ran, a review queue of borderline steps below the deferral line.
     Every sample stays in the step's record as evidence, and an auditor should
     read the most suspicious one first. The agent never sees the rejected
-    samples. `audit_threshold=None` turns this flagging off; `HaltRun` still
+    samples, so it cannot tell that it was resampled [@bhatt2025ctrlzpost].
+    `audit_threshold=None` turns this flagging off; `HaltRun` still
     flags every step it halts, so with that fallback a step that reaches it
     is flagged anyway.
+
+    Running the least suspicious sample has a cost against prompt injection.
+    An agent can write text aimed at the monitor into its step, and an
+    injection that fools the monitor only some of the time gets another try
+    with every sample, so resampling turns it into a best-of-n attack
+    [@terekhov2025adaptive] (sections 4.2 and 6). An injection that passes one
+    sample in five gets through about half the time across three samples.
 
     One caveat comes from how LangChain composes middleware. If a middleware
     placed inside the monitor returns commands, only the commands of the last
@@ -63,6 +73,13 @@ class DeferToResample(ControlProtocol):
     sample whenever it accepts one, and a fallback's trusted call is the last
     call. Parallel resampling may commit an earlier sample, and concurrent
     calls pile up their commands. Keep the monitor last in the middleware list.
+    A second monitor placed inside this one is such a middleware: it returns
+    its record as a command, so it loses its judgement of each rejected
+    sample, and parallel resampling under `ainvoke()` leaves it one record per
+    resample drawn at once, all under the same step number.
+    `check_monitor_placement` warns about it unless `max_resamples=0` and the
+    fallback is a `HaltRun` (not a subclass), which call the model at most once
+    per step.
     """
 
     def __init__(
@@ -79,9 +96,7 @@ class DeferToResample(ControlProtocol):
         Two resamples, three samples in all, is the number Ctrl-Z draws
         [@bhatt2025ctrlz].
         """
-        if max_resamples < 0:
-            message = f"max_resamples must be zero or more, got {max_resamples}"
-            raise ConfigurationError(message)
+        check_fallback_option(fallback, parameter_name="fallback")
         check_enum_option(resampling, option_type=Resampling, parameter_name="resampling")
         self.fallback = fallback
         self.defer_threshold = resolve_threshold(
@@ -93,7 +108,11 @@ class DeferToResample(ControlProtocol):
             if audit_threshold is None
             else resolve_threshold(parameter_name="audit_threshold", threshold=audit_threshold)
         )
-        self.max_resamples = max_resamples
+        self.max_resamples = read_count_option(
+            max_resamples,
+            parameter_name="max_resamples",
+            minimum=0,
+        )
         self.resampling = resampling
 
     async def decide(self, step: PendingStep) -> StepDecision:

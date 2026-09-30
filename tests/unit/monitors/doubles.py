@@ -55,6 +55,29 @@ class ScriptedChatModel(BaseChatModel):
         return self._generate(messages, stop=stop, run_manager=sync_manager, **kwargs)
 
 
+class KeywordRejectingChatModel(ScriptedChatModel):
+    """Raises `TypeError(rejection)` on a call that passes `logprobs`, or on every call.
+
+    langchain-anthropic passes bound keywords on to the Anthropic SDK, whose
+    `Messages.create()` takes no `logprobs`, so Python raises before any
+    request is sent.
+    """
+
+    rejection: str = "Messages.create() got an unexpected keyword argument 'logprobs'"
+    rejects_every_call: bool = False
+
+    def _generate(
+        self,
+        messages: list[BaseMessage],
+        stop: list[str] | None = None,
+        run_manager: CallbackManagerForLLMRun | None = None,
+        **kwargs: object,
+    ) -> ChatResult:
+        if self.rejects_every_call or "logprobs" in kwargs:
+            raise TypeError(self.rejection)
+        return super()._generate(messages, stop=stop, run_manager=run_manager, **kwargs)
+
+
 class ScriptedMonitor(Monitor):
     """Returns the given suspicions in turn, one per call, on both paths."""
 

@@ -1,7 +1,10 @@
-% Every source this library takes an idea, a protocol, a number or a code pattern from.
-% Cite an entry at the point of use by its key in square brackets, prefixed with an at sign,
-% in docstrings and docs pages. tests/unit/test_references.py fails when a cited key is
-% missing here, or when an entry is never cited.
+% Every source this library takes an idea, a protocol, a number or a code pattern from,
+% and every code base it is built on or checked with. Cite an entry at the point of use
+% by its key in square brackets, prefixed with an at sign, in docstrings, docs pages and
+% the plans under docs/plans/. tests/unit/test_references.py fails when a cited key is
+% missing here, or when an entry is never cited. Every entry was checked against its
+% arXiv page, publisher page, repository or package index; software versions are the
+% ones the project locks or runs.
 
 % ---------------------------------------------------------------- AI control protocols
 
@@ -16,12 +19,22 @@
 }
 
 @misc{bhatt2025ctrlz,
-  title         = {Ctrl-Z: Controlling {AI} Agents via Resampling},
+  title         = {{Ctrl-Z}: Controlling {AI} Agents via Resampling},
   author        = {Bhatt, Aryan and Rushing, Cody and Kaufman, Adam and Tracy, Tyler and Georgiev, Vasil and Matolcsi, David and Khan, Akbir and Shlegeris, Buck},
   year          = {2025},
   eprint        = {2504.10374},
   archiveprefix = {arXiv},
   url           = {https://arxiv.org/abs/2504.10374}
+}
+
+@online{bhatt2025ctrlzpost,
+  title        = {{Ctrl-Z}: Controlling {AI} Agents via Resampling},
+  author       = {Bhatt, Aryan and Shlegeris, Buck and Kaufman, Adam and Tracy, Tyler},
+  year         = {2025},
+  month        = apr,
+  organization = {LessWrong},
+  note         = {The authors' post on the paper},
+  url          = {https://www.lesswrong.com/posts/LPHMMMZFAWog6ty5x/ctrl-z-controlling-ai-agents-via-resampling}
 }
 
 @online{hughes2026automode,
@@ -31,6 +44,17 @@
   month   = mar,
   organization = {Anthropic},
   url     = {https://www.anthropic.com/engineering/claude-code-auto-mode}
+}
+
+% ---------------------------------------------------------------- Attacks on monitors
+
+@misc{terekhov2025adaptive,
+  title         = {Adaptive Attacks on Trusted Monitors Subvert {AI} Control Protocols},
+  author        = {Terekhov, Mikhail and Panfilov, Alexander and Dzenhaliou, Daniil and Gulcehre, Caglar and Andriushchenko, Maksym and Prabhu, Ameya and Geiping, Jonas},
+  year          = {2025},
+  eprint        = {2510.09462},
+  archiveprefix = {arXiv},
+  url           = {https://arxiv.org/abs/2510.09462}
 }
 
 % ---------------------------------------------------------------- Control settings and monitor evaluation
@@ -46,7 +70,7 @@
 
 @misc{tracy2026linuxarena,
   title         = {{LinuxArena}: A Control Setting for {AI} Agents in Live Production Software Environments},
-  author        = {Tracy, Tyler and Potham, Ram and Kuhn, Nick and Heller, Myles and Khandelwal, Anshul and Rushing, Cody},
+  author        = {Tracy, Tyler and Potham, Ram and Kuhn, Nick and Heller, Myles and Khandelwal, Anshul and Rushing, Cody and others},
   year          = {2026},
   eprint        = {2604.15384},
   archiveprefix = {arXiv},
@@ -55,7 +79,7 @@
 
 @misc{koran2026ensemble,
   title         = {Ensemble Monitoring for {AI} Control: Diverse Signals Outweigh More Compute},
-  author        = {Koran and Yun and Tetef and Arnav, Benjamin and Bernabeu-P{\'e}rez, Pablo},
+  author        = {Koran, Eugene and Yun, Yejun and Tetef, Samantha and Arnav, Benjamin and Bernabeu-P{\'e}rez, Pablo},
   year          = {2026},
   eprint        = {2605.15377},
   archiveprefix = {arXiv},
@@ -64,7 +88,7 @@
 
 @misc{hua2025combining,
   title         = {Combining Cost-Constrained Runtime Monitors for {AI} Safety},
-  author        = {Hua and Lemoine, Henri and Baskerville and Bhatt, Aryan and Hopman and Tracy, Tyler},
+  author        = {Hua, Tim Tian and Baskerville, James and Lemoine, Henri and Hopman, Mia and Bhatt, Aryan and Tracy, Tyler},
   year          = {2025},
   eprint        = {2507.15886},
   archiveprefix = {arXiv},
@@ -73,7 +97,7 @@
 
 @misc{makins2026multiagent,
   title         = {Multi-Agent {AI} Control: Distributed Attacks Hamper Per-Instance Monitors},
-  author        = {Makins, Oliver and Angelini, Orazio},
+  author        = {Makins, Oliver and Angelini, Orazio and Shams, Zohreh and Phuong, Mary},
   year          = {2026},
   eprint        = {2607.07368},
   archiveprefix = {arXiv},
@@ -95,7 +119,7 @@
   author       = {{Apollo Research}},
   year         = {2026},
   month        = jul,
-  url          = {https://apolloresearch.ai}
+  url          = {https://www.apolloresearch.ai/monitoring/what-makes-a-good-monitoring-prompt}
 }
 
 % ---------------------------------------------------------------- What a monitor should read
@@ -131,12 +155,35 @@
 % ---------------------------------------------------------------- Guard models and calibrated scores
 
 @misc{inan2023llamaguard,
-  title         = {Llama Guard: {LLM}-based Input-Output Safeguard for Human-{AI} Conversations},
+  title         = {{Llama Guard}: {LLM}-based Input-Output Safeguard for Human-{AI} Conversations},
   author        = {Inan, Hakan and others},
   year          = {2023},
   eprint        = {2312.06674},
   archiveprefix = {arXiv},
   url           = {https://arxiv.org/abs/2312.06674}
+}
+
+@online{meta2024llamaguard3,
+  title        = {{Llama Guard 3 8B}: model card},
+  author       = {{Meta}},
+  year         = {2024},
+  organization = {Hugging Face},
+  url          = {https://huggingface.co/meta-llama/Llama-Guard-3-8B}
+}
+
+@online{meta2024llamaguard3format,
+  title        = {{Llama Guard 3}: model cards and prompt formats},
+  author       = {{Meta}},
+  year         = {2024},
+  url          = {https://dev.meta.ai/llama/docs/model-cards-and-prompt-formats/llama-guard-3/}
+}
+
+@online{meta2025llamaguard4,
+  title        = {{Llama Guard 4 12B}: model card},
+  author       = {{Meta}},
+  year         = {2025},
+  organization = {Hugging Face},
+  url          = {https://huggingface.co/meta-llama/Llama-Guard-4-12B}
 }
 
 @misc{zeng2024shieldgemma,
@@ -149,12 +196,58 @@
 }
 
 @misc{padhi2024graniteguardian,
-  title         = {Granite Guardian},
+  title         = {{Granite Guardian}},
   author        = {Padhi, Inkit and others},
   year          = {2024},
   eprint        = {2412.07724},
   archiveprefix = {arXiv},
   url           = {https://arxiv.org/abs/2412.07724}
+}
+
+@misc{ghosh2024aegis,
+  title         = {{AEGIS}: Online Adaptive {AI} Content Safety Moderation with Ensemble of {LLM} Experts},
+  author        = {Ghosh, Shaona and Varshney, Prasoon and Galinkin, Erick and Parisien, Christopher},
+  year          = {2024},
+  eprint        = {2404.05993},
+  archiveprefix = {arXiv},
+  url           = {https://arxiv.org/abs/2404.05993}
+}
+
+@inproceedings{han2024wildguard,
+  title         = {{WildGuard}: Open One-Stop Moderation Tools for Safety Risks, Jailbreaks, and Refusals of {LLMs}},
+  author        = {Han, Seungju and Rao, Kavel and Ettinger, Allyson and Jiang, Liwei and Lin, Bill Yuchen and Lambert, Nathan and Choi, Yejin and Dziri, Nouha},
+  booktitle     = {Advances in Neural Information Processing Systems},
+  year          = {2024},
+  eprint        = {2406.18495},
+  archiveprefix = {arXiv},
+  url           = {https://arxiv.org/abs/2406.18495}
+}
+
+@misc{qwen2025qwen3guard,
+  title         = {{Qwen3Guard} Technical Report},
+  author        = {Zhao, Haiquan and Yuan, Chenhan and Huang, Fei and Hu, Xiaomeng and Zhang, Yichang and Yang, An and Yu, Bowen and Liu, Dayiheng and Zhou, Jingren and Lin, Junyang and others},
+  year          = {2025},
+  eprint        = {2510.14276},
+  archiveprefix = {arXiv},
+  url           = {https://arxiv.org/abs/2510.14276}
+}
+
+@techreport{openai2025gptosssafeguard,
+  title       = {Technical Report: Performance and baseline evaluations of gpt-oss-safeguard-120b and gpt-oss-safeguard-20b},
+  author      = {{OpenAI}},
+  institution = {OpenAI},
+  year        = {2025},
+  month       = oct,
+  url         = {https://cdn.openai.com/pdf/08b7dee4-8bc6-4955-a219-7793fb69090c/Technical_report__Research_Preview_of_gpt_oss_safeguard.pdf}
+}
+
+@online{openai2025gptosssafeguardguide,
+  title        = {User guide for {gpt-oss-safeguard}},
+  author       = {{ROOST} and {OpenAI}},
+  year         = {2025},
+  month        = oct,
+  organization = {OpenAI Cookbook},
+  url          = {https://developers.openai.com/cookbook/articles/gpt-oss-safeguard-guide}
 }
 
 @inproceedings{liu2025guardcalibration,
@@ -165,6 +258,25 @@
   eprint        = {2410.10414},
   archiveprefix = {arXiv},
   url           = {https://arxiv.org/abs/2410.10414}
+}
+
+@misc{huang2026probguard,
+  title         = {{ProbGuard}: Calibrated Safety Risk Estimation from {LLM} Output Distributions},
+  author        = {Huang, Xinzhe and Yao, Biwu and Xiu, Kedong and Zhao, Mengnan and Wang, Di and Zhao, Puning and Zheng, Tianhang},
+  year          = {2026},
+  eprint        = {2608.10621},
+  archiveprefix = {arXiv},
+  url           = {https://arxiv.org/abs/2608.10621}
+}
+
+@inproceedings{wang2026probguard,
+  title         = {{ProbGuard}: Proactive Runtime Monitoring for {LLM} Agent Safety via Probabilistic Prediction},
+  author        = {Wang, Haoyu and Poskitt, Christopher M. and Wei, Jiali and Sun, Jun},
+  booktitle     = {IEEE/ACM International Conference on Automated Software Engineering},
+  year          = {2026},
+  eprint        = {2508.00500},
+  archiveprefix = {arXiv},
+  url           = {https://arxiv.org/abs/2508.00500}
 }
 
 @inproceedings{xiong2024uncertainty,
@@ -187,6 +299,34 @@
   url           = {https://arxiv.org/abs/2402.13904}
 }
 
+@inproceedings{tian2023justask,
+  title         = {Just Ask for Calibration: Strategies for Eliciting Calibrated Confidence Scores from Language Models Fine-Tuned with Human Feedback},
+  author        = {Tian, Katherine and Mitchell, Eric and Zhou, Allan and Sharma, Archit and Rafailov, Rafael and Yao, Huaxiu and Finn, Chelsea and Manning, Christopher D.},
+  booktitle     = {Conference on Empirical Methods in Natural Language Processing},
+  year          = {2023},
+  eprint        = {2305.14975},
+  archiveprefix = {arXiv},
+  url           = {https://arxiv.org/abs/2305.14975}
+}
+
+@misc{kadavath2022know,
+  title         = {Language Models (Mostly) Know What They Know},
+  author        = {Kadavath, Saurav and Conerly, Tom and Askell, Amanda and Henighan, Tom and Drain, Dawn and others},
+  year          = {2022},
+  eprint        = {2207.05221},
+  archiveprefix = {arXiv},
+  url           = {https://arxiv.org/abs/2207.05221}
+}
+
+@misc{carlini2024stealing,
+  title         = {Stealing Part of a Production Language Model},
+  author        = {Carlini, Nicholas and Paleka, Daniel and Dvijotham, Krishnamurthy Dj and Steinke, Thomas and Hayase, Jonathan and Cooper, A. Feder and Lee, Katherine and Jagielski, Matthew and Nasr, Milad and Conmy, Arthur and Yona, Itay and Wallace, Eric and Rolnick, David and Tram{\`e}r, Florian},
+  year          = {2024},
+  eprint        = {2403.06634},
+  archiveprefix = {arXiv},
+  url           = {https://arxiv.org/abs/2403.06634}
+}
+
 % ---------------------------------------------------------------- Scoring formats for model judges
 
 @misc{liu2023geval,
@@ -207,60 +347,337 @@
   url           = {https://arxiv.org/abs/2503.03064}
 }
 
-% ---------------------------------------------------------------- Code, libraries and services we learned from or build on
+@inproceedings{kim2024prometheus,
+  title         = {Prometheus: Inducing Fine-grained Evaluation Capability in Language Models},
+  author        = {Kim, Seungone and Shin, Jamin and Cho, Yejin and Jang, Joel and Longpre, Shayne and Lee, Hwaran and Yun, Sangdoo and Shin, Seongjin and Kim, Sungdong and Thorne, James and Seo, Minjoon},
+  booktitle     = {International Conference on Learning Representations},
+  year          = {2024},
+  eprint        = {2310.08491},
+  archiveprefix = {arXiv},
+  url           = {https://arxiv.org/abs/2310.08491}
+}
+
+@inproceedings{zheng2023judging,
+  title         = {Judging {LLM}-as-a-Judge with {MT-Bench} and {Chatbot Arena}},
+  author        = {Zheng, Lianmin and Chiang, Wei-Lin and Sheng, Ying and Zhuang, Siyuan and Wu, Zhanghao and Zhuang, Yonghao and Lin, Zi and Li, Zhuohan and Li, Dacheng and Xing, Eric P. and Zhang, Hao and Gonzalez, Joseph E. and Stoica, Ion},
+  booktitle     = {Advances in Neural Information Processing Systems, Datasets and Benchmarks Track},
+  year          = {2023},
+  eprint        = {2306.05685},
+  archiveprefix = {arXiv},
+  url           = {https://arxiv.org/abs/2306.05685}
+}
+
+@inproceedings{lee2025checkeval,
+  title         = {{CheckEval}: A reliable {LLM}-as-a-Judge framework for evaluating text generation using checklists},
+  author        = {Lee, Yukyung and Kim, Joonghoon and Kim, Jaehee and Cho, Hyowon and Kang, Jaewook and Kang, Pilsung and Kim, Najoung},
+  booktitle     = {Conference on Empirical Methods in Natural Language Processing},
+  year          = {2025},
+  eprint        = {2403.18771},
+  archiveprefix = {arXiv},
+  url           = {https://arxiv.org/abs/2403.18771}
+}
+
+@misc{cook2024ticking,
+  title         = {{TICKing} All the Boxes: Generated Checklists Improve {LLM} Evaluation and Generation},
+  author        = {Cook, Jonathan and Rockt{\"a}schel, Tim and Foerster, Jakob and Aumiller, Dennis and Wang, Alex},
+  year          = {2024},
+  eprint        = {2410.03608},
+  archiveprefix = {arXiv},
+  url           = {https://arxiv.org/abs/2410.03608}
+}
+
+@misc{godfrey2025likert,
+  title         = {Likert or Not: {LLM} Absolute Relevance Judgments on Fine-Grained Ordinal Scales},
+  author        = {Godfrey, Charles and Nie, Ping and Ostapuk, Natalia and Ken, David and Gao, Shang and Inati, Souheil},
+  year          = {2025},
+  eprint        = {2505.19334},
+  archiveprefix = {arXiv},
+  url           = {https://arxiv.org/abs/2505.19334}
+}
+
+@misc{li2026gradingscale,
+  title         = {Grading Scale Impact on {LLM}-as-a-Judge: Human-{LLM} Alignment Is Highest on 0-5 Grading Scale},
+  author        = {Li, Weiyue and Zhao, Minda and Dong, Weixuan and Cai, Jiahui and Wei, Yuze and Pocress, Michael and Li, Yi and Yuan, Wanyan and Wang, Xiaoyue and Hou, Ruoyu and Lou, Kaiyuan and Zeng, Wenqi and Yang, Yutong and Du, Yilun and Wang, Mengyu},
+  year          = {2026},
+  eprint        = {2601.03444},
+  archiveprefix = {arXiv},
+  url           = {https://arxiv.org/abs/2601.03444}
+}
+
+@article{gneiting2007scoring,
+  title   = {Strictly Proper Scoring Rules, Prediction, and Estimation},
+  author  = {Gneiting, Tilmann and Raftery, Adrian E.},
+  journal = {Journal of the American Statistical Association},
+  volume  = {102},
+  number  = {477},
+  pages   = {359--378},
+  year    = {2007},
+  doi     = {10.1198/016214506000001437},
+  url     = {https://sites.stat.washington.edu/raftery/Research/PDF/Gneiting2007jasa.pdf}
+}
+
+@inproceedings{cruz2024riskscores,
+  title         = {Evaluating language models as risk scores},
+  author        = {Cruz, Andr{\'e} F. and Hardt, Moritz and Mendler-D{\"u}nner, Celestine},
+  booktitle     = {Advances in Neural Information Processing Systems},
+  year          = {2024},
+  eprint        = {2407.14614},
+  archiveprefix = {arXiv},
+  url           = {https://arxiv.org/abs/2407.14614}
+}
+
+@misc{qi2026verdi,
+  title         = {{VERDI}: Single-Call Confidence Estimation for Verification-Based {LLM} Judges via Decomposed Inference},
+  author        = {Qi, Jasmine and Dantsev, Danylo and Sun, Muyang},
+  year          = {2026},
+  eprint        = {2605.11334},
+  archiveprefix = {arXiv},
+  url           = {https://arxiv.org/abs/2605.11334}
+}
+
+% ---------------------------------------------------------------- Decision models
+
+@online{openrouter2026decisions,
+  title        = {{Jev} Documentation: Using the {TypeSafe} Decision Model on {OpenRouter}},
+  author       = {{OpenRouter}},
+  year         = {2026},
+  url          = {https://openrouter.ai/docs/guides/community/jev}
+}
+
+@online{openrouter2026gatetoolcalls,
+  title        = {Gate Agent Tool Calls with {Jev}},
+  author       = {{OpenRouter}},
+  year         = {2026},
+  organization = {OpenRouter Cookbook},
+  url          = {https://openrouter.ai/docs/cookbook/building-agents/gate-tool-calls-with-jev}
+}
+
+@online{typesafe2026docs,
+  title        = {{TypeSafe AI} documentation},
+  author       = {{TypeSafe}},
+  year         = {2026},
+  note         = {The Introduction and Noul pages advise atomic questions combined in code},
+  url          = {https://docs.typesafe.ai/introduction}
+}
+
+@online{typesafe2026jev,
+  title        = {Introducing {System One} Models \& {Jev}},
+  author       = {Almeida, Diogo},
+  year         = {2026},
+  month        = sep,
+  organization = {TypeSafe},
+  url          = {https://typesafe.ai/blog/introducing-system-one-models-and-jev}
+}
+
+@misc{ren2026openjev,
+  title         = {{Open-Jev} Judgments on {CallScreenBench}: Calibrated One-Pass Scam Screening with a Small Language Model},
+  author        = {Ren, Simiao and Zewde, Kidus and Shen, Xingyu and Zhou, Yuchen and Ng, Dennis and Raj, Ankit and Duong, Tommy and Zhang, Yuxin and Tiangratanakul, Neo},
+  year          = {2026},
+  eprint        = {2609.23959},
+  archiveprefix = {arXiv},
+  url           = {https://arxiv.org/abs/2609.23959}
+}
+
+% ---------------------------------------------------------------- Code the library builds on or learned from
 
 @software{langchain2026,
-  title   = {{LangChain}: agent middleware (\texttt{langchain.agents.middleware})},
-  author  = {{LangChain}},
+  title   = {{LangChain}: agent middleware ({langchain.agents.middleware})},
+  author  = {Chase, Harrison},
   year    = {2026},
   version = {1.4.2},
   url     = {https://github.com/langchain-ai/langchain}
 }
 
+@software{langchaincore2026,
+  title   = {{langchain-core}: messages, content blocks, prompts and caches},
+  author  = {Chase, Harrison},
+  year    = {2026},
+  version = {1.6.5},
+  url     = {https://github.com/langchain-ai/langchain/tree/master/libs/core}
+}
+
+@software{langgraph2026,
+  title   = {{LangGraph}: state graphs, channels and reducers ({langgraph.graph})},
+  author  = {{LangChain}},
+  year    = {2026},
+  version = {1.2.12},
+  url     = {https://github.com/langchain-ai/langgraph}
+}
+
 @software{deepagents2026,
-  title   = {Deep Agents},
+  title   = {{Deep Agents}},
   author  = {{LangChain}},
   year    = {2026},
   version = {0.7.19},
   url     = {https://github.com/langchain-ai/deepagents}
 }
 
+@software{langchainopenrouter2026,
+  title   = {{langchain-openrouter}: an integration package connecting {OpenRouter} and {LangChain}},
+  author  = {Chase, Harrison},
+  year    = {2026},
+  version = {0.2.9},
+  url     = {https://github.com/langchain-ai/langchain/tree/master/libs/partners/openrouter}
+}
+
+@software{langchainanthropic2026,
+  title   = {{langchain-anthropic}: an integration package connecting {Anthropic} and {LangChain}},
+  author  = {{LangChain}},
+  year    = {2026},
+  version = {1.7.4},
+  url     = {https://github.com/langchain-ai/langchain/tree/master/libs/partners/anthropic}
+}
+
+@software{langchainopenai2026,
+  title   = {{langchain-openai}: an integration package connecting {OpenAI} and {LangChain}},
+  author  = {{LangChain}},
+  year    = {2026},
+  version = {1.6.6},
+  url     = {https://github.com/langchain-ai/langchain/tree/master/libs/partners/openai},
+  note    = {Its WellKnownTools list of built-in tool types}
+}
+
+@software{langchaingooglegenai2026,
+  title   = {{langchain-google-genai}: an integration package connecting {Google}'s {Gemini} models and {LangChain}},
+  author  = {{LangChain}},
+  year    = {2026},
+  version = {4.4.0},
+  url     = {https://github.com/langchain-ai/langchain-google/tree/main/libs/genai}
+}
+
+@online{anthropic2026tooluse,
+  title        = {Tool use with {Claude}},
+  author       = {{Anthropic}},
+  year         = {2026},
+  organization = {Claude Developer Platform documentation},
+  url          = {https://platform.claude.com/docs/en/agents-and-tools/tool-use/overview}
+}
+
+@online{openai2026tools,
+  title        = {Using tools},
+  author       = {{OpenAI}},
+  year         = {2026},
+  organization = {OpenAI API documentation},
+  url          = {https://developers.openai.com/api/docs/guides/tools},
+  note         = {With the guides to its code interpreter and image generation tools}
+}
+
+@online{google2026geminitools,
+  title        = {Using tools with the {Gemini API}},
+  author       = {{Google}},
+  year         = {2026},
+  organization = {Gemini API documentation},
+  url          = {https://ai.google.dev/gemini-api/docs/tools}
+}
+
+@software{langchainaws2026,
+  title   = {{langchain-aws}: {LangChain} integrations for {AWS}, including {ChatBedrockConverse}},
+  author  = {{LangChain}},
+  year    = {2026},
+  url     = {https://github.com/langchain-ai/langchain-aws}
+}
+
+@software{langchainollama2026,
+  title   = {{langchain-ollama}: an integration package connecting {Ollama} and {LangChain}},
+  author  = {{LangChain}},
+  year    = {2026},
+  url     = {https://github.com/langchain-ai/langchain/tree/master/libs/partners/ollama}
+}
+
+@online{aws2026converse,
+  title        = {Converse: {Amazon Bedrock} {API} Reference},
+  author       = {{Amazon Web Services}},
+  year         = {2026},
+  note         = {The stopReason values of a Converse response, max\_tokens among them},
+  url          = {https://docs.aws.amazon.com/bedrock/latest/APIReference/API_runtime_Converse.html}
+}
+
+@online{groq2026openaicompatibility,
+  title        = {{OpenAI} Compatibility},
+  author       = {{Groq}},
+  year         = {2026},
+  organization = {GroqCloud documentation},
+  note         = {Lists logprobs and top\_logprobs among the fields that give a 400 error},
+  url          = {https://console.groq.com/docs/openai}
+}
+
+@software{openrouterpythonsdk2026,
+  title   = {{openrouter}: the official {Python} client {SDK} for {OpenRouter}},
+  author  = {{OpenRouter}},
+  year    = {2026},
+  version = {0.10.8},
+  url     = {https://github.com/OpenRouterTeam/python-sdk}
+}
+
 @software{typesafe2026langchain,
-  title   = {langchain-typesafe: {LangChain} integration for {TypeSafe} decision models},
+  title   = {{langchain-typesafe}: {LangChain} integration for {TypeSafe} decision models},
   author  = {{TypeSafe}},
   year    = {2026},
   version = {0.0.1a3},
   url     = {https://pypi.org/project/langchain-typesafe/}
 }
 
-@online{openrouter2026decisions,
-  title        = {Jev and the Decisions {API}},
-  author       = {{OpenRouter}},
-  year         = {2026},
-  url          = {https://openrouter.ai/docs/guides/community/jev}
+@software{pydantic2026,
+  title   = {{Pydantic Validation}},
+  author  = {Colvin, Samuel and Jolibois, Eric and Ramezani, Hasan and Garcia Badaracco, Adrian and Dorsey, Terrence and Montague, David and Matveenko, Serge and Trylesinski, Marcelo and Runkle, Sydney and Hewitt, David and Hall, Alex and Plot, Victorien},
+  year    = {2026},
+  version = {2.13.5},
+  url     = {https://github.com/pydantic/pydantic}
 }
 
-@software{lanorme2026,
-  title   = {LaNorme: executable codebase standards for {Python}},
-  author  = {{LaNorme contributors}},
-  year    = {2026},
-  version = {0.21.0},
-  url     = {https://github.com/lanorme/lanorme}
+@software{httpx2024,
+  title   = {{HTTPX}: the next generation {HTTP} client for {Python}},
+  author  = {Christie, Tom},
+  year    = {2024},
+  version = {0.28.1},
+  organization = {Encode},
+  url     = {https://github.com/encode/httpx}
 }
 
 @software{schlawack2026stamina,
-  title   = {stamina: production-grade retries for {Python}},
+  title   = {{stamina}: production-grade retries for {Python}},
   author  = {Schlawack, Hynek},
   year    = {2026},
+  version = {26.1.0},
   url     = {https://github.com/hynek/stamina}
 }
 
-@software{langgraph2026,
-  title   = {{LangGraph}: state graphs, channels and reducers (\texttt{langgraph.graph})},
+@software{langfuse2026,
+  title   = {{Langfuse} {Python} {SDK}: the {LangChain} callback handler ({langfuse.langchain})},
+  author  = {{Langfuse}},
+  year    = {2026},
+  version = {4.15.6},
+  url     = {https://github.com/langfuse/langfuse-python}
+}
+
+@software{langfuseserver2026,
+  title   = {{Langfuse}: the server and its ingestion worker},
+  author  = {{Langfuse}},
+  year    = {2026},
+  version = {4.47.0},
+  url     = {https://github.com/langfuse/langfuse}
+}
+
+@online{langsmith2026traces,
+  title        = {View traces: the {Trajectory} view and its metadata keys},
+  author       = {{LangChain}},
+  year         = {2026},
+  url          = {https://docs.langchain.com/langsmith/view-traces}
+}
+
+@online{langsmith2026trajectory,
+  title        = {Trajectory view integrations: hide custom middleware or guardrails, and exclude runs from the {Trajectory} view},
+  author       = {{LangChain}},
+  year         = {2026},
+  url          = {https://docs.langchain.com/langsmith/trajectory-view-integrations}
+}
+
+@software{langsmithsdk2026,
+  title   = {{LangSmith} {Python} {SDK}: run trees, the traceable decorator and the client ({langsmith})},
   author  = {{LangChain}},
   year    = {2026},
-  version = {1.2.12},
-  url     = {https://github.com/langchain-ai/langgraph}
+  version = {0.14.1},
+  url     = {https://github.com/langchain-ai/langsmith-sdk}
 }
 
 @online{cannon2016sansio,
@@ -268,4 +685,137 @@
   author       = {Cannon, Brett},
   year         = {2016},
   url          = {https://sans-io.readthedocs.io/}
+}
+
+% ---------------------------------------------------------------- Tools the project is built and checked with
+
+@software{lanorme2026,
+  title   = {{LaNorme}: executable codebase standards for {Python}},
+  author  = {{LaNorme contributors}},
+  year    = {2026},
+  version = {0.21.0},
+  url     = {https://github.com/lanorme/lanorme}
+}
+
+@software{uv2025,
+  title   = {{uv}: an extremely fast {Python} package and project manager},
+  author  = {{Astral Software Inc.}},
+  year    = {2025},
+  version = {0.9.7},
+  url     = {https://github.com/astral-sh/uv}
+}
+
+@software{hatchling2026,
+  title   = {{Hatchling}: a modern, extensible {Python} build backend},
+  author  = {Lev, Ofek},
+  year    = {2026},
+  version = {1.32.4},
+  url     = {https://github.com/pypa/hatch/tree/master/backend}
+}
+
+@software{hatchfancypypireadme2025,
+  title   = {hatch-fancy-pypi-readme: fancy {PyPI} READMEs with {Hatch}},
+  author  = {Schlawack, Hynek},
+  year    = {2025},
+  version = {25.1.0},
+  url     = {https://github.com/hynek/hatch-fancy-pypi-readme}
+}
+
+@software{ruff2026,
+  title   = {{Ruff}: an extremely fast {Python} linter and code formatter},
+  author  = {{Astral Software Inc.}},
+  year    = {2026},
+  version = {0.16.9},
+  url     = {https://github.com/astral-sh/ruff}
+}
+
+@software{ty2026,
+  title   = {{ty}: an extremely fast {Python} type checker},
+  author  = {{Astral Software Inc.}},
+  year    = {2026},
+  version = {0.0.84},
+  url     = {https://github.com/astral-sh/ty}
+}
+
+@software{krekel2004pytest,
+  title   = {{pytest} 9.1},
+  author  = {Krekel, Holger and Oliveira, Bruno and Pfannschmidt, Ronny and Bruynooghe, Floris and Laugher, Brianna and Bruhin, Freya},
+  year    = {2004},
+  version = {9.1.1},
+  note    = {Contributors: the six named authors and others},
+  url     = {https://github.com/pytest-dev/pytest}
+}
+
+@software{pytestasyncio2026,
+  title   = {{pytest-asyncio}: {asyncio} support for {pytest}},
+  author  = {Tvrtkovi{\'c}, Tin and Seifert, Michael},
+  year    = {2026},
+  version = {1.4.0},
+  url     = {https://github.com/pytest-dev/pytest-asyncio}
+}
+
+@software{bibtexparser2026,
+  title   = {{python-bibtexparser}: a {BibTeX} parser for {Python} 3},
+  author  = {Boulogne, Fran{\c{c}}ois and others},
+  year    = {2026},
+  version = {1.4.4},
+  url     = {https://github.com/sciunto-org/python-bibtexparser}
+}
+
+@software{precommit2026,
+  title   = {{pre-commit}: a framework for managing and maintaining multi-language pre-commit hooks},
+  author  = {Sottile, Anthony},
+  year    = {2026},
+  version = {4.6.0},
+  url     = {https://github.com/pre-commit/pre-commit}
+}
+
+@software{mkdocs2024,
+  title   = {{MkDocs}: project documentation with {Markdown}},
+  author  = {Christie, Tom},
+  year    = {2024},
+  version = {1.6.1},
+  url     = {https://github.com/mkdocs/mkdocs}
+}
+
+@software{mkdocsmaterial2026,
+  title   = {{Material for MkDocs}},
+  author  = {Donath, Martin},
+  year    = {2026},
+  version = {9.7.7},
+  url     = {https://github.com/squidfunk/mkdocs-material}
+}
+
+@software{pymdownextensions2026,
+  title   = {{PyMdown Extensions}: an extension pack for {Python Markdown}},
+  author  = {Muse, Isaac},
+  year    = {2026},
+  version = {12.1},
+  url     = {https://github.com/facelessuser/pymdown-extensions}
+}
+
+@software{mermaid2026,
+  title   = {{Mermaid}: Generate diagrams from markdown-like text},
+  author  = {Sveidqvist, Knut and {Contributors to Mermaid}},
+  year    = {2026},
+  version = {11.17.2},
+  note    = {Loaded by Material for MkDocs as the latest 11.x release},
+  url     = {https://github.com/mermaid-js/mermaid}
+}
+
+@software{mkdocstrings2026,
+  title   = {{mkdocstrings}: automatic documentation from sources, for {MkDocs}, with its {Python} handler},
+  author  = {Mazzucotelli, Timoth{\'e}e},
+  year    = {2026},
+  version = {1.0.6, with mkdocstrings-python 2.0.9},
+  url     = {https://github.com/mkdocstrings/mkdocstrings}
+}
+
+@software{mkdocsbibtex2025,
+  title   = {{mkdocs-bibtex}: an {MkDocs} plugin for citation management using {BibTeX}},
+  author  = {Dwaraknath, Shyam},
+  year    = {2025},
+  version = {4.4.0},
+  note    = {The repository was archived in November 2025},
+  url     = {https://github.com/shyamd/mkdocs-bibtex}
 }

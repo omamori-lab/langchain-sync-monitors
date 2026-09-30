@@ -1,0 +1,317 @@
+name: Release
+
+# Publishes a release to PyPI when its GitHub Release is published;
+# scripts/release.sh tags a commit on main and creates that Release. The
+# workflow:
+#   1. checks that the Release is not a pre-release, that the pypi
+#      environment has a required reviewer, that the tag is vX.Y.Z and
+#      names a commit on main, and that it agrees with __version__,
+#      CITATION.cff and CHANGELOG.md (scripts/check-release.sh);
+#   2. runs the whole CI workflow on the tagged commit;
+#   3. builds the sdist and the wheel once, records their SHA-256 digests,
+#      checks them with twine, and installs the wheel into fresh
+#      environments, with and without extras;
+#   4. waits for approval in the "pypi" environment, checks the files against
+#      the recorded digests, then publishes exactly those files through PyPI
+#      trusted publishing, so no token is stored;
+#   5. checks the files against the digests again and attaches them to the
+#      GitHub Release, and deploys the tagged commit's documentation.
+# These checks guard against mistakes. Someone with write access could tag a
+# commit whose own copy of this file drops them, so the real controls are the
+# required reviewers on the "pypi" environment and the v* tag ruleset.
+# CONTRIBUTING.md lists the one-time setup and how to recover from a failure.
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.event.release.tag_name }}
+  cancel-in-progress: false
+
+env:
+  TAG: ${{ github.event.release.tag_name }}
+
+# Run every step under bash -eo pipefail, so a failing command stops the step.
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  tag:
+    name: Check the release tag
+    # Forks have no PyPI publisher, so the workflow does nothing there.
+    if: github.repository == 'omamori-lab/langchain-sync-monitors'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      # Reading the pypi environment's protection rules needs actions: read.
+      actions: read
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - name: Check that the Release is not a pre-release, and the tag is vX.Y.Z
+        id: version
+        env:
+          PRERELEASE: ${{ github.event.release.prerelease }}
+        run: |
+          # A pre-release on GitHub would go to PyPI as a final version.
+          if [[ "${PRERELEASE}" == "true" ]]; then
+            echo "::error::The GitHub Release ${TAG} is marked as a pre-release, so nothing is published. Delete the Release, keeping the tag, and create it again without the pre-release mark; unticking the mark on this one does not start the workflow."
+            exit 1
+          fi
+          if [[ ! "${TAG}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::The tag ${TAG} is not of the form vX.Y.Z, so nothing is published."
+            exit 1
+          fi
+          echo "version=${TAG#v}" >> "${GITHUB_OUTPUT}"
+
+      - name: Check that the pypi environment holds the publish for a reviewer
+        # scripts/release.sh checks this before it tags, but a Release published
+        # from the web page skips the script. A required-reviewer rule counts
+        # unless its reviewer list is shown and empty: should the workflow
+        # token not see the reviewers, the rule alone still counts.
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # Administrators may bypass the reviewer, by the owner's choice.
+          rules='[.protection_rules[]? | select(.type == "required_reviewers") | select((.reviewers // [null]) | length > 0)] | length'
+          if ! reviewer_rules="$(gh api "repos/${GITHUB_REPOSITORY}/environments/pypi" --jq "${rules}")"; then
+            echo "::error::Could not read the pypi environment, so nothing is published. Create it as the one-time setup in CONTRIBUTING.md says."
+            exit 1
+          fi
+          if [[ ! "${reviewer_rules}" =~ ^[1-9][0-9]*$ ]]; then
+            echo "::error::The pypi environment has no required reviewer, so nothing would hold the publish for approval. Add one under Settings, Environments, pypi, then re-run this workflow."
+            exit 1
+          fi
+
+      - name: Check out the tagged commit, with the history of main
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Check that the tagged commit is on main
+        run: |
+          tagged_commit="$(git rev-parse HEAD)"
+          if ! git merge-base --is-ancestor "${tagged_commit}" origin/main; then
+            echo "::error::The tag ${TAG} names commit ${tagged_commit}, which is not on main. Only a commit on main is released."
+            exit 1
+          fi
+
+      - name: Check the tag against the version, CHANGELOG.md and CITATION.cff
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          if ! notes="$(scripts/check-release.sh "${VERSION}")"; then
+            exit 1
+          fi
+          {
+            echo "## Release notes for ${TAG}, from CHANGELOG.md"
+            echo
+            echo "${notes}"
+          } >> "${GITHUB_STEP_SUMMARY}"
+
+  ci:
+    name: CI
+    needs: tag
+    uses: ./.github/workflows/ci.yml
+
+  build:
+    name: Build the distributions
+    needs: tag
+    runs-on: ubuntu-latest
+    outputs:
+      digests: ${{ steps.digests.outputs.digests }}
+    env:
+      VERSION: ${{ needs.tag.outputs.version }}
+    steps:
+      - name: Check out the tagged commit
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v10.2.0
+        with:
+          python-version: "3.12"
+
+      - name: Build the sdist, and the wheel from it
+        run: uv build --no-sources
+
+      - name: Check that the files carry the tag's version
+        run: |
+          expected="langchain_sync_monitors-${VERSION}-py3-none-any.whl
+          langchain_sync_monitors-${VERSION}.tar.gz"
+          # uv also writes dist/.gitignore; the hidden file is not a distribution.
+          built="$(find dist -mindepth 1 ! -name '.*' -printf '%P\n' | LC_ALL=C sort)"
+          if [[ "${built}" != "${expected}" ]]; then
+            echo "::error::dist/ holds ${built//$'\n'/, }, not just the wheel and sdist of ${VERSION}."
+            exit 1
+          fi
+
+      - name: Check the metadata and the rendered README
+        run: uvx --with "readme_renderer[md]" twine check --strict dist/*
+
+      - name: Record the SHA-256 digest of each file
+        id: digests
+        run: |
+          digests="$(cd dist && sha256sum -- *)"
+          {
+            echo "digests<<END_OF_DIGESTS"
+            echo "${digests}"
+            echo "END_OF_DIGESTS"
+          } >> "${GITHUB_OUTPUT}"
+          {
+            echo "## Built files"
+            echo
+            echo '```'
+            echo "${digests}"
+            echo '```'
+          } >> "${GITHUB_STEP_SUMMARY}"
+
+      - name: Keep the files for the next jobs
+        uses: actions/upload-artifact@v7
+        with:
+          name: distributions
+          path: dist/
+          if-no-files-found: error
+
+  install:
+    name: Install the wheel (Python ${{ matrix.python-version }}, ${{ matrix.extras }})
+    needs: [tag, build]
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.12", "3.13", "3.14"]
+        extras: ["no extras", "every extra"]
+    env:
+      VERSION: ${{ needs.tag.outputs.version }}
+      EXTRAS: ${{ matrix.extras }}
+    steps:
+      - name: Fetch the built files
+        uses: actions/download-artifact@v8
+        with:
+          name: distributions
+          path: dist/
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v10.2.0
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install the wheel into a fresh environment and import it
+        run: |
+          wheel="dist/langchain_sync_monitors-${VERSION}-py3-none-any.whl"
+          extra_modules="deepagents langchain_openrouter langchain_typesafe"
+          if [[ "${EXTRAS}" == "every extra" ]]; then
+            requirement="${wheel}[deepagents,openrouter,typesafe]"
+            expect_extras=yes
+          else
+            requirement="${wheel}"
+            expect_extras=no
+          fi
+          # shellcheck disable=SC2086 # the module names are split on purpose
+          uv run --isolated --no-project --with "${requirement}" \
+            python - "${expect_extras}" ${extra_modules} <<'PYTHON'
+          import importlib
+          import importlib.metadata
+          import importlib.util
+          import os
+          import sys
+
+          import langchain_sync_monitors as package
+
+          expected = os.environ["VERSION"]
+          assert package.__version__ == expected, package.__version__
+          assert importlib.metadata.version("langchain-sync-monitors") == expected
+          expect_extras, modules = sys.argv[1] == "yes", sys.argv[2:]
+          for module in modules:
+              if expect_extras:
+                  importlib.import_module(module)
+              else:
+                  assert importlib.util.find_spec(module) is None, f"{module} is installed"
+          print(f"imported {package.__name__} {expected} with {len(package.__all__)} public names")
+          PYTHON
+
+  publish:
+    name: Publish to PyPI
+    needs: [tag, ci, build, install]
+    runs-on: ubuntu-latest
+    environment:
+      name: pypi
+      url: https://pypi.org/project/langchain-sync-monitors/${{ needs.tag.outputs.version }}/
+    permissions:
+      id-token: write
+    steps:
+      - name: Fetch the built files
+        uses: actions/download-artifact@v8
+        with:
+          name: distributions
+          path: dist/
+
+      - name: Check the files against the digests the build recorded
+        env:
+          DIGESTS: ${{ needs.build.outputs.digests }}
+        run: |
+          cd dist
+          printf '%s\n' "${DIGESTS}" | sha256sum --check --strict -
+          recorded="$(printf '%s\n' "${DIGESTS}" | awk '{ print $2 }' | LC_ALL=C sort)"
+          present="$(find . -mindepth 1 ! -name '.*' -printf '%P\n' | LC_ALL=C sort)"
+          if [[ -z "${recorded}" || "${present}" != "${recorded}" ]]; then
+            echo "::error::dist/ holds ${present//$'\n'/, }, but the build recorded ${recorded//$'\n'/, }."
+            exit 1
+          fi
+
+      # Pinned to the commit of release v1.14.2, which cannot move as a tag or
+      # a branch can.
+      - name: Publish to PyPI through trusted publishing
+        uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33 # v1.14.2
+        with:
+          print-hash: true
+
+  attach:
+    name: Attach the files to the GitHub Release
+    needs: [build, publish]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Fetch the built files
+        uses: actions/download-artifact@v8
+        with:
+          name: distributions
+          path: dist/
+
+      # The same check as the publish job's, so the Release gets the files
+      # PyPI got.
+      - name: Check the files against the digests the build recorded
+        env:
+          DIGESTS: ${{ needs.build.outputs.digests }}
+        run: |
+          cd dist
+          printf '%s\n' "${DIGESTS}" | sha256sum --check --strict -
+          recorded="$(printf '%s\n' "${DIGESTS}" | awk '{ print $2 }' | LC_ALL=C sort)"
+          present="$(find . -mindepth 1 ! -name '.*' -printf '%P\n' | LC_ALL=C sort)"
+          if [[ -z "${recorded}" || "${present}" != "${recorded}" ]]; then
+            echo "::error::dist/ holds ${present//$'\n'/, }, but the build recorded ${recorded//$'\n'/, }."
+            exit 1
+          fi
+
+      - name: Upload them to the GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload "${TAG}" dist/* --clobber --repo "${GITHUB_REPOSITORY}"
+
+  docs:
+    name: Docs
+    needs: publish
+    uses: ./.github/workflows/docs.yml
+    permissions:
+      contents: read
+      pages: write
+      id-token: write

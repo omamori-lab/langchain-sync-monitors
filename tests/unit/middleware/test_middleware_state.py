@@ -4,10 +4,11 @@ from __future__ import annotations
 
 import dataclasses
 import json
-from typing import Annotated, Any
+from typing import Annotated, Any, Literal
 
 import pytest
 from langchain.agents import create_agent
+from langchain.agents.middleware import AgentMiddleware
 from langchain_core.messages import AIMessage, ToolMessage
 from langchain_core.tools import BaseTool, InjectedToolCallId, tool
 from langgraph.channels.binop import BinaryOperatorAggregate
@@ -26,6 +27,7 @@ from tests.support.agents import (
 )
 from tests.support.chat_models import ScriptedChatModel, build_tool_call_message
 from tests.support.protocols import AcceptFirst
+from tests.support.written_human_messages import NudgingMiddleware
 
 SUBAGENT_HALT = StepRecord(
     agent="researcher",
@@ -45,6 +47,32 @@ def delegate(description: str, tool_call_id: Annotated[str, InjectedToolCallId])
     return Command[None](update={"monitor_log": [SUBAGENT_HALT], "messages": [report]})
 
 
+@dataclasses.dataclass
+class DelegationReport:
+    """A delegation's update as a dataclass: the subagent's records, then its report."""
+
+    monitor_log: list[StepRecord]
+    messages: list[ToolMessage]
+
+
+def build_delegating_tool(shape: Literal["pairs", "dataclass"]) -> BaseTool:
+    """Return a `delegate` tool whose update carries the subagent's halt in `shape`."""
+
+    @tool
+    def delegate(
+        description: str,
+        tool_call_id: Annotated[str, InjectedToolCallId],
+    ) -> Command[None]:
+        """Hand a task to the researcher subagent, which the safety monitor halts."""
+        report = ToolMessage("Stopped by the safety monitor.", tool_call_id=tool_call_id)
+        if shape == "pairs":
+            return Command[None](update=(("monitor_log", [SUBAGENT_HALT]), ("messages", [report])))
+        update = DelegationReport(monitor_log=[SUBAGENT_HALT], messages=[report])
+        return Command[None](update=update)
+
+    return delegate
+
+
 def build_delegation_step() -> AIMessage:
     return build_tool_call_message(
         tool_name="delegate",
@@ -58,13 +86,14 @@ def build_parent_agent(
     model: ScriptedChatModel,
     when_subagent_halts: SubagentHalt,
     checkpointer: InMemorySaver | None = None,
+    delegating_tool: BaseTool = delegate,
 ) -> CompiledStateGraph[Any, Any, Any, Any]:
     middleware = MonitorMiddleware(
         monitor=build_keyword_monitor(),
         protocol=AcceptFirst(),
         when_subagent_halts=when_subagent_halts,
     )
-    tools: list[BaseTool] = [delegate]
+    tools: list[BaseTool] = [delegating_tool]
     return create_agent(model, tools=tools, middleware=[middleware], checkpointer=checkpointer)
 
 
@@ -123,6 +152,32 @@ def test_the_parent_halts_before_its_next_model_call_when_a_subagent_halted(
         ("main", "halted"),
     ]
     assert log[-1]["samples"] == []
+
+
+@pytest.mark.parametrize("shape", ["pairs", "dataclass"])
+def test_a_subagent_halt_reaches_the_parent_whatever_the_update_shape(
+    run_mode: RunMode,
+    shape: Literal["pairs", "dataclass"],
+) -> None:
+    # Arrange: the monitor reads the records from the state, once LangGraph has written them
+    model = ScriptedChatModel(responses=[build_delegation_step(), AIMessage("never drawn")])
+    agent = build_parent_agent(
+        model=model,
+        when_subagent_halts=SubagentHalt.STOP_WHOLE_RUN,
+        delegating_tool=build_delegating_tool(shape),
+    )
+
+    # Act
+    result = run_agent(agent, mode=run_mode)
+
+    # Assert
+    assert len(model.calls) == 1
+    assert [(record["agent"], record["outcome"]) for record in result["monitor_log"]] == [
+        ("main", "allowed"),
+        ("researcher", "halted"),
+        ("main", "halted"),
+    ]
+    assert "Stopped by the safety monitor." in read_texts(result["messages"])
 
 
 def test_the_parent_carries_on_when_only_the_subagent_stops(run_mode: RunMode) -> None:
@@ -187,6 +242,48 @@ def test_two_monitors_on_one_agent_count_their_own_steps(run_mode: RunMode) -> N
     ]
     assert [len(records) for records in inner_protocol.seen_previous_records] == [0, 1]
     assert all(record["monitor"] == "monitor" for record in inner_protocol.seen_previous_records[1])
+
+
+@pytest.mark.parametrize(
+    "key",
+    ["monitor_task_messages", "monitor_seen_human_messages", "monitor_inputs_at_halt"],
+)
+def test_the_message_ids_and_halt_counts_the_monitor_records_are_private(
+    middleware: MonitorMiddleware,
+    key: str,
+) -> None:
+    # Act
+    agent = create_agent(ScriptedChatModel(responses=[]), middleware=[middleware])
+
+    # Assert
+    assert key in agent.channels
+    assert key not in agent.get_input_jsonschema()["properties"]
+    assert key not in agent.get_output_jsonschema()["properties"]
+
+
+def test_two_monitors_on_one_agent_record_each_message_id_once(run_mode: RunMode) -> None:
+    # Arrange: the nudge is written after both monitors' before_model hooks, so both
+    # monitors record it when they commit, in the same model node
+    guard = MonitorMiddleware(
+        monitor=build_keyword_monitor(), protocol=AcceptFirst(), label="guard"
+    )
+    judge = MonitorMiddleware(monitor=build_keyword_monitor(), protocol=AcceptFirst())
+    model = ScriptedChatModel(responses=[AIMessage("first"), AIMessage("second")])
+    middleware: list[AgentMiddleware[Any, Any, Any]] = [guard, judge, NudgingMiddleware()]
+    agent = create_agent(model, middleware=middleware, checkpointer=InMemorySaver())
+    config = build_thread_config(f"stacked-ids-{run_mode}")
+    run_agent(agent, mode=run_mode, config=config)
+
+    # Act
+    run_agent(agent, mode=run_mode, config=config)
+
+    # Assert
+    state = agent.get_state(config).values
+    first_task, nudge, second_task = (
+        message.id for message in state["messages"] if message.type == "human"
+    )
+    assert state["monitor_task_messages"] == [first_task, second_task]
+    assert state["monitor_seen_human_messages"] == [first_task, nudge, second_task]
 
 
 def test_names_are_unique_per_agent_and_subagent_copies_trust_the_parent_less(

@@ -69,31 +69,31 @@ Also measure saturation and repeat variance.
 
 ## References (all opened)
 
-1. Liu, Iter, Xu, Wang, Xu, Zhu (2023). G-Eval: NLG Evaluation using GPT-4 with Better Human Alignment. arXiv:2303.16634
-2. Kim, Shin, Cho, Jang, Longpre, Lee, Yun, Shin, Kim, Thorne, Seo (2023). Prometheus: Inducing Fine-grained Evaluation Capability in Language Models. arXiv:2310.08491
-3. Zheng, Chiang, Sheng, et al. (2023). Judging LLM-as-a-Judge with MT-Bench and Chatbot Arena. arXiv:2306.05685. In §3.1 and Table 5, single-answer grading gives more ties; both single-answer and pairwise GPT-4 reach 85% agreement with humans (S2).
-4. Lee, Kim, Kim, Cho, Kang, Kang, Kim (2024/2025). CheckEval: A reliable LLM-as-a-Judge framework for evaluating text generation using checklists. arXiv:2403.18771
-5. Cook, Rocktäschel, Foerster, Aumiller, Wang (2024). TICKing All the Boxes: Generated Checklists Improve LLM Evaluation and Generation. arXiv:2410.03608
-6. Wang, Zhang, Choi (2025). Improving LLM-as-a-Judge Inference with the Judgment Distribution. arXiv:2503.03064
-7. Godfrey, Nie, Ostapuk, Ken, Gao, Inati (2025). Likert or Not: LLM Absolute Relevance Judgments on Fine-Grained Ordinal Scales. arXiv:2505.19334
-8. Li, Zhao, Dong, et al. (2026). Grading Scale Impact on LLM-as-a-Judge: Human-LLM Alignment Is Highest on 0-5 Grading Scale. arXiv:2601.03444
-9. Gneiting, Raftery (2007). Strictly Proper Scoring Rules, Prediction, and Estimation. JASA 102(477). https://sites.stat.washington.edu/raftery/Research/PDF/Gneiting2007jasa.pdf
-10. Kadavath et al. (2022). Language Models (Mostly) Know What They Know. arXiv:2207.05221
-11. Tian, Mitchell, Zhou, Sharma, Rafailov, Yao, Finn, Manning (2023). Just Ask for Calibration. arXiv:2305.14975
-12. Cruz, Hardt, Mendler-Dünner (2024). Evaluating language models as risk scores. arXiv:2407.14614
-13. Liu, Huang, Gu, Wang, Wang (2025). On Calibration of LLM-based Guard Models for Reliable Content Moderation. arXiv:2410.10414
-14. Qi, Dantsev, Sun (2026). VERDI: Single-Call Confidence Estimation for Verification-Based LLM Judges via Decomposed Inference. arXiv:2605.11334
-15. Ren, Zewde, Shen, et al. (2026). Open-Jev Judgments on CallScreenBench: Calibrated One-Pass Scam Screening with a Small Language Model. arXiv:2609.23959
-16. Greenblatt, Shlegeris, Sachan, Roger (2023). AI Control: Improving Safety Despite Intentional Subversion. arXiv:2312.06942
-17. Bhatt, Rushing, Kaufman, Tracy, Georgiev, Matolcsi, Khan, Shlegeris (2025). Ctrl-Z: Controlling AI Agents via Resampling. arXiv:2504.10374
-18. Kaufman, Lucassen, Tracy, Rushing, Bhatt (2025). BashArena: A Control Setting for Highly Privileged AI Agents. arXiv:2512.15688
-19. Tracy, Potham, Kuhn, Heller, Khandelwal, et al. (2026). LinuxArena: A Control Setting for AI Agents in Live Production Software Environments. arXiv:2604.15384
-20. Arike, Mehta Moreno, Subramani, Biswas, Ward (2026). How does information access affect LLM monitors' ability to detect sabotage? arXiv:2601.21112
-21. Koran, Yun, Tetef, Arnav, Bernabeu-Perez (2026). Ensemble Monitoring for AI Control: Diverse Signals Outweigh More Compute. arXiv:2605.15377
-22. Hua, Lemoine, Baskerville, Bhatt, Hopman, Tracy (2025). Combining Cost-Constrained Runtime Monitors for AI Safety. arXiv:2507.15886
-23. Arnav, Bernabeu-Pérez, Helm-Burger, Kostolansky, Whittingham, Phuong (2025). CoT Red-Handed: Stress Testing Chain-of-Thought Monitoring. arXiv:2505.23575
-24. Apollo Research (23 Jul 2026). What makes a good monitoring prompt? Local copy: /Users/abo-tresol/Documents/ai-safety/spar-in-the-wild-ai-control/references/posts/apollo-what-makes-a-good-monitoring-prompt.md
-25. Anthropic Engineering. Claude Code auto mode. https://www.anthropic.com/engineering/claude-code-auto-mode
-26. TypeSafe docs: https://docs.typesafe.ai (landing page), /primitives/noul, /primitives/score, /confidence, /model-jaggedness/jev-1.13.md, /patterns/composite-scoring.md, /introduction/machine-learning-primer.md, /concepts/system-one
-27. TypeSafe, Jev launch post: https://typesafe.ai/blog/introducing-system-one-models-and-jev
-28. OpenRouter. Jev guide: https://openrouter.ai/docs/guides/community/jev. Cookbook "Gate Agent Tool Calls with Jev": https://openrouter.ai/docs/cookbook/building-agents/gate-tool-calls-with-jev
+1. Liu, Iter, Xu, Wang, Xu, Zhu (2023). G-Eval: NLG Evaluation using GPT-4 with Better Human Alignment. arXiv:2303.16634 [@liu2023geval]
+2. Kim, Shin, Cho, Jang, Longpre, Lee, Yun, Shin, Kim, Thorne, Seo (2023). Prometheus: Inducing Fine-grained Evaluation Capability in Language Models. arXiv:2310.08491 [@kim2024prometheus]
+3. Zheng, Chiang, Sheng, et al. (2023). Judging LLM-as-a-Judge with MT-Bench and Chatbot Arena. arXiv:2306.05685. In §3.1 and Table 5, single-answer grading gives more ties; both single-answer and pairwise GPT-4 reach 85% agreement with humans (S2). [@zheng2023judging]
+4. Lee, Kim, Kim, Cho, Kang, Kang, Kim (2024/2025). CheckEval: A reliable LLM-as-a-Judge framework for evaluating text generation using checklists. arXiv:2403.18771 [@lee2025checkeval]
+5. Cook, Rocktäschel, Foerster, Aumiller, Wang (2024). TICKing All the Boxes: Generated Checklists Improve LLM Evaluation and Generation. arXiv:2410.03608 [@cook2024ticking]
+6. Wang, Zhang, Choi (2025). Improving LLM-as-a-Judge Inference with the Judgment Distribution. arXiv:2503.03064 [@wang2025judgment]
+7. Godfrey, Nie, Ostapuk, Ken, Gao, Inati (2025). Likert or Not: LLM Absolute Relevance Judgments on Fine-Grained Ordinal Scales. arXiv:2505.19334 [@godfrey2025likert]
+8. Li, Zhao, Dong, et al. (2026). Grading Scale Impact on LLM-as-a-Judge: Human-LLM Alignment Is Highest on 0-5 Grading Scale. arXiv:2601.03444 [@li2026gradingscale]
+9. Gneiting, Raftery (2007). Strictly Proper Scoring Rules, Prediction, and Estimation. JASA 102(477). https://sites.stat.washington.edu/raftery/Research/PDF/Gneiting2007jasa.pdf [@gneiting2007scoring]
+10. Kadavath et al. (2022). Language Models (Mostly) Know What They Know. arXiv:2207.05221 [@kadavath2022know]
+11. Tian, Mitchell, Zhou, Sharma, Rafailov, Yao, Finn, Manning (2023). Just Ask for Calibration. arXiv:2305.14975 [@tian2023justask]
+12. Cruz, Hardt, Mendler-Dünner (2024). Evaluating language models as risk scores. arXiv:2407.14614 [@cruz2024riskscores]
+13. Liu, Huang, Gu, Wang, Wang (2025). On Calibration of LLM-based Guard Models for Reliable Content Moderation. arXiv:2410.10414 [@liu2025guardcalibration]
+14. Qi, Dantsev, Sun (2026). VERDI: Single-Call Confidence Estimation for Verification-Based LLM Judges via Decomposed Inference. arXiv:2605.11334 [@qi2026verdi]
+15. Ren, Zewde, Shen, et al. (2026). Open-Jev Judgments on CallScreenBench: Calibrated One-Pass Scam Screening with a Small Language Model. arXiv:2609.23959 [@ren2026openjev]
+16. Greenblatt, Shlegeris, Sachan, Roger (2023). AI Control: Improving Safety Despite Intentional Subversion. arXiv:2312.06942 [@greenblatt2023aicontrol]
+17. Bhatt, Rushing, Kaufman, Tracy, Georgiev, Matolcsi, Khan, Shlegeris (2025). Ctrl-Z: Controlling AI Agents via Resampling. arXiv:2504.10374 [@bhatt2025ctrlz]
+18. Kaufman, Lucassen, Tracy, Rushing, Bhatt (2025). BashArena: A Control Setting for Highly Privileged AI Agents. arXiv:2512.15688 [@kaufman2025basharena]
+19. Tracy, Potham, Kuhn, Heller, Khandelwal, et al. (2026). LinuxArena: A Control Setting for AI Agents in Live Production Software Environments. arXiv:2604.15384 [@tracy2026linuxarena]
+20. Arike, Mehta Moreno, Subramani, Biswas, Ward (2026). How does information access affect LLM monitors' ability to detect sabotage? arXiv:2601.21112 [@arike2026information]
+21. Koran, Yun, Tetef, Arnav, Bernabeu-Perez (2026). Ensemble Monitoring for AI Control: Diverse Signals Outweigh More Compute. arXiv:2605.15377 [@koran2026ensemble]
+22. Hua, Lemoine, Baskerville, Bhatt, Hopman, Tracy (2025). Combining Cost-Constrained Runtime Monitors for AI Safety. arXiv:2507.15886 [@hua2025combining]
+23. Arnav, Bernabeu-Pérez, Helm-Burger, Kostolansky, Whittingham, Phuong (2025). CoT Red-Handed: Stress Testing Chain-of-Thought Monitoring. arXiv:2505.23575 [@arnav2025cotredhanded]
+24. Apollo Research (23 Jul 2026). What makes a good monitoring prompt? https://www.apolloresearch.ai/monitoring/what-makes-a-good-monitoring-prompt [@apollo2026monitoringprompt]
+25. Anthropic Engineering. Claude Code auto mode. https://www.anthropic.com/engineering/claude-code-auto-mode [@hughes2026automode]
+26. TypeSafe docs: https://docs.typesafe.ai (landing page), /primitives/noul, /primitives/score, /confidence, /model-jaggedness/jev-1.13.md, /patterns/composite-scoring.md, /introduction/machine-learning-primer.md, /concepts/system-one [@typesafe2026docs]
+27. TypeSafe, Jev launch post: https://typesafe.ai/blog/introducing-system-one-models-and-jev [@typesafe2026jev]
+28. OpenRouter. Jev guide: https://openrouter.ai/docs/guides/community/jev. Cookbook "Gate Agent Tool Calls with Jev": https://openrouter.ai/docs/cookbook/building-agents/gate-tool-calls-with-jev [@openrouter2026decisions; @openrouter2026gatetoolcalls]

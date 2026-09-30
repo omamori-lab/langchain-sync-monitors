@@ -1,5 +1,10 @@
-# The same gates as scripts/check.sh, run before each commit. Enable once after
-# cloning:
+# The fast gates of scripts/check.sh (ruff, ty, lanorme and the offline test
+# suite), a gitleaks secrets scan and file checks, run before each commit. The
+# agent-file sync check, the docs build, the package build and the wheel import
+# run only in scripts/check.sh and CI. The ruff, ruff format, ty and pytest
+# hooks run only when a commit stages a Python file, so a docs-only commit skips
+# the docs-standard tests; lanorme and gitleaks run on every commit. Enable once
+# after cloning:
 #
 #   uvx pre-commit install
 repos:
@@ -30,9 +35,14 @@ repos:
         language: system
         pass_filenames: false
         require_serial: true
+      - id: gitleaks
+        name: secrets (gitleaks)
+        entry: gitleaks git --pre-commit --staged --config .gitleaks.toml --redact --no-banner
+        language: system
+        pass_filenames: false
       - id: pytest
-        name: unit tests
-        entry: uv run --group dev pytest -q
+        name: offline test suite
+        entry: env REQUIRE_DOCS_GROUP=1 uv run --group dev --group docs pytest -q
         language: system
         types: [python]
         pass_filenames: false

@@ -1,8 +1,8 @@
 """The types every monitor, control protocol and the middleware exchange.
 
 The rest of the package codes against these definitions, so they change only in
-a dedicated pull request. The design they come from, with diagrams, is in
-`docs/plans/initial-implementation/plan.html`.
+a dedicated pull request. How they fit together is explained in
+`docs/explanation/design.md`.
 
 A step is one model call of the agent. The untrusted model proposes it, a
 `Monitor` scores it, and a `ControlProtocol` decides what the agent state
@@ -16,13 +16,19 @@ import math
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from enum import Flag, StrEnum, auto
-from typing import Literal, TypedDict
+from typing import Literal, NotRequired, TypedDict
 
 from langchain.agents.middleware.types import ModelResponse
 from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import AIMessage, BaseMessage
+from pydantic import NonNegativeInt
 
-from langchain_sync_monitors.errors import ConfigurationError, InvalidSuspicionError
+from langchain_sync_monitors.errors import InvalidSuspicionError
+from langchain_sync_monitors.options import (
+    check_instance_option,
+    check_string_set_option,
+    read_optional_count_option,
+)
 
 
 class Channel(Flag):
@@ -32,9 +38,10 @@ class Channel(Flag):
     tool output, following Claude Code's auto mode classifier
     [@hughes2026automode]; reasoning is one flag away, since reading it catches
     more misbehaviour [@baker2025monitoring] but can also mislead a monitor
-    [@arnav2025cotredhanded]. Whether a call ran is never left out: a tool
-    error travels with the call, and monitor feedback and context notes with
-    the task.
+    [@arnav2025cotredhanded]. Whether a call ran travels with what it belongs
+    to: a tool error with the call, and monitor feedback and context notes
+    with the task. The channels select what a monitor reads of the history;
+    the step it judges always shows its tool calls, whatever the channels.
     """
 
     USER = auto()
@@ -101,6 +108,11 @@ class MonitorView:
     one, or every entry when it is `None`; the messages of the task author are
     kept in addition. `delegation_tools` names the tools whose results are
     subagent reports.
+
+    Each option is checked when the view is built: `channels` must be a
+    `Channel`, `most_recent_entries` a whole number of at least 1 or `None`,
+    and `delegation_tools` a set of strings, kept as a frozenset. Anything
+    else raises `ConfigurationError`.
     """
 
     channels: Channel = Channel.ACTIONS
@@ -108,18 +120,41 @@ class MonitorView:
     delegation_tools: frozenset[str] = frozenset({"task"})
 
     def __post_init__(self) -> None:
-        """Reject an entry limit below one, which would silently hide every recent step."""
-        if self.most_recent_entries is not None and self.most_recent_entries < 1:
-            message = (
-                "most_recent_entries must be at least 1, or None to keep every entry, "
-                f"got {self.most_recent_entries!r}"
-            )
-            raise ConfigurationError(message)
+        """Reject an option of the wrong type, and an entry limit below one.
+
+        A limit below one would silently hide every recent step, and a plain
+        string of tool names would match any part of a name.
+        """
+        check_instance_option(
+            self.channels,
+            option_type=Channel,
+            parameter_name="channels",
+            hint="Combine members with |, such as Channel.ACTIONS | Channel.REASONING.",
+        )
+        most_recent_entries = read_optional_count_option(
+            self.most_recent_entries,
+            parameter_name="most_recent_entries",
+            minimum=1,
+            none_means="to keep every entry",
+        )
+        check_string_set_option(
+            self.delegation_tools,
+            parameter_name="delegation_tools",
+            example="frozenset({'task'})",
+        )
+        # The view is frozen, so its converted options are set past the dataclass's guard.
+        object.__setattr__(self, "most_recent_entries", most_recent_entries)
+        object.__setattr__(self, "delegation_tools", frozenset(self.delegation_tools))
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class MonitorInput:
-    """What a monitor judges: the conversation so far and the step not yet taken."""
+    """What a monitor judges: the conversation so far and the step not yet taken.
+
+    Inside an agent, every human message in `history` that did not arrive as
+    a run's input carries an `lc_source` tag, so only the task author's
+    messages are untagged.
+    """
 
     history: tuple[BaseMessage, ...]
     proposal: AIMessage
@@ -192,7 +227,13 @@ class StepRecord(TypedDict):
     """One step as stored in the agent state's `monitor_log`.
 
     Records pass through checkpointers, so they hold plain values only: the
-    outcome is a string and every sequence is a list.
+    outcome is a string and every sequence is a list. A subagent's step
+    numbers start again with every delegation, so its records also carry
+    `delegation_id`, the id of the tool call that started the subagent, and
+    `(agent, delegation_id, step_number)` names one step, provided the model
+    provider gives every tool call in the thread its own id, which LangChain
+    does not check. The records of an agent that no monitored agent started
+    have no `delegation_id`.
     """
 
     agent: str
@@ -202,10 +243,36 @@ class StepRecord(TypedDict):
     flagged: bool
     blocked_count: int
     samples: list[SampleRecord]
+    delegation_id: NotRequired[str]
+
+
+class Delegation(TypedDict):
+    """What a monitored agent hands to a subagent that one of its tool calls starts.
+
+    `tool_call_id` is the id of that tool call, which the subagent's records
+    carry as their `delegation_id`. `delegating_agent` names the agent that
+    made the call, so a monitor stacked in that agent passes the delegation on
+    as it is, while a subagent whose own call reuses the id hands on a new one.
+    `blocks_before` holds, for each monitor label, the blocks recorded in the
+    conversation thread when the subagent started, none of them negative, so
+    that the subagent's Auto Mode counts from the thread's total. The state key
+    that holds it is part of every monitored agent's input, and a value that
+    does not fit this shape raises `ConfigurationError` when it is read.
+    """
+
+    tool_call_id: str
+    delegating_agent: str
+    blocks_before: dict[str, NonNegativeInt]
 
 
 class Monitor(ABC):
-    """Scores a proposed step. Implementations differ in the model family they use."""
+    """Scores a proposed step. Implementations differ in the model family they use.
+
+    A monitor runs inside the agent's model node, so it must not ask a person
+    through LangGraph's `interrupt()`: on resume LangGraph runs the node
+    again [@langgraph2026], the step is sampled and judged afresh, and the
+    answer applies to samples the person never saw.
+    """
 
     @abstractmethod
     async def evaluate(self, monitor_input: MonitorInput) -> Verdict:
@@ -222,7 +289,34 @@ class PendingStep(ABC):
     @property
     @abstractmethod
     def previous_records(self) -> tuple[StepRecord, ...]:
-        """This monitor's records from earlier steps of the run."""
+        """This monitor's records from earlier steps of the thread.
+
+        Every turn of a checkpointed thread counts. Inside a subagent, they are
+        the records of its current delegation.
+        """
+
+    @property
+    def blocks_in_thread(self) -> int:
+        """The blocks this monitor recorded in the conversation thread before this step.
+
+        A subagent's copy of a monitor keeps its label, so the count covers
+        this agent's earlier steps, its subagents' steps, nested ones included,
+        and, inside a subagent, the blocks recorded before the subagent
+        started. It misses the blocks of a subagent whose run raised, which
+        returned no records, and of sibling subagents still running in
+        parallel, whose records arrive when they return. By default it sums
+        `previous_records` alone.
+        """
+        return sum(record["blocked_count"] for record in self.previous_records)
+
+    @property
+    def new_subagent_blocks(self) -> int:
+        """The blocks this monitor recorded inside subagents since this agent's last step.
+
+        Like `blocks_in_thread`, it misses the blocks of a subagent whose run
+        raised. It is 0 by default.
+        """
+        return 0
 
     @abstractmethod
     async def sample(
@@ -244,7 +338,12 @@ class PendingStep(ABC):
 
 
 class ControlProtocol(ABC):
-    """Decides what the agent state receives for each step."""
+    """Decides what the agent state receives for each step.
+
+    Like a monitor, a protocol runs inside the agent's model node and must not
+    call LangGraph's `interrupt()`, since on resume the step is sampled and
+    judged afresh [@langgraph2026].
+    """
 
     @abstractmethod
     async def decide(self, step: PendingStep) -> StepDecision:

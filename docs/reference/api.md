@@ -1,3 +1,7 @@
+---
+heading_numbers: false
+---
+
 # API
 
 This reference is generated from the docstrings of the public package.

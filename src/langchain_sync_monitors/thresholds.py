@@ -8,16 +8,45 @@ library's defaults are placeholders: a protocol built with one emits an
 
 from __future__ import annotations
 
-import math
+import numbers
 import os
 import warnings
 from dataclasses import dataclass
+from decimal import Decimal
 from typing import Final
 
 from langchain_sync_monitors.errors import ConfigurationError
+from langchain_sync_monitors.options import check_instance_option, describe_option_value
 
 LIBRARY_DIRECTORY: Final = os.path.dirname(__file__) + os.sep
 """This package's directory, so that warnings skip the library's own frames."""
+
+
+def read_threshold_value(value: object, *, parameter_name: str) -> float:
+    """Return a threshold as a float from 0 to 1, raising `ConfigurationError` for anything else.
+
+    Any real number counts, a `Fraction` or numpy's floats included, and so
+    does a `Decimal`. A `bool` does not, although Python counts it as a number,
+    and neither does a string such as `"0.6"`. The range is checked on the
+    exact value, before it becomes a float, so a value just outside [0, 1]
+    that a float would round into it is refused, as is NaN, because
+    suspicion scores never leave that range. `-0.0` is read as `0.0`.
+    """
+    if isinstance(value, bool) or not isinstance(value, numbers.Real | Decimal):
+        message = (
+            f"{parameter_name} must be a number between 0 and 1, got {describe_option_value(value)}"
+        )
+        raise ConfigurationError(message)
+    try:
+        is_in_range = not value < 0 and value <= 1
+    except ArithmeticError:
+        # A Decimal NaN raises `InvalidOperation` when compared, and is out of range too.
+        is_in_range = False
+    if not is_in_range:
+        message = f"{parameter_name} must be between 0 and 1, got {value!r}"
+        raise ConfigurationError(message)
+    # Adding 0.0 turns -0.0 into 0.0.
+    return float(value) + 0.0
 
 
 @dataclass(frozen=True, slots=True)
@@ -26,9 +55,16 @@ class DefaultThreshold:
 
     A protocol given one uses `value` but emits an `UncalibratedThresholdWarning`
     when it is built. Pass a plain float to choose the threshold yourself.
+    `value` is read as a threshold is, and kept as a float.
     """
 
     value: float
+
+    def __post_init__(self) -> None:
+        """Reject a value that is no threshold, and keep it as a float."""
+        value = read_threshold_value(self.value, parameter_name="value")
+        # The dataclass is frozen, so the float is set past its guard.
+        object.__setattr__(self, "value", value)
 
 
 class UncalibratedThresholdWarning(UserWarning):
@@ -70,13 +106,13 @@ def resolve_threshold(*, parameter_name: str, threshold: float | DefaultThreshol
 
     The warning is attributed to the first caller outside this library, which
     is the user's constructor call however many library frames lie between.
-    A value outside [0, 1], or NaN, raises `ConfigurationError`, because
-    suspicion scores never leave that range.
+    `read_threshold_value` says which values count.
     """
-    value = threshold.value if isinstance(threshold, DefaultThreshold) else threshold
-    if math.isnan(value) or not 0.0 <= value <= 1.0:
-        message = f"{parameter_name} must be between 0 and 1, got {value!r}"
-        raise ConfigurationError(message)
+    check_instance_option(parameter_name, option_type=str, parameter_name="parameter_name")
+    value = read_threshold_value(
+        threshold.value if isinstance(threshold, DefaultThreshold) else threshold,
+        parameter_name=parameter_name,
+    )
     if isinstance(threshold, DefaultThreshold):
         warnings.warn(
             build_uncalibrated_message(parameter_name=parameter_name, value=value),
@@ -84,4 +120,4 @@ def resolve_threshold(*, parameter_name: str, threshold: float | DefaultThreshol
             stacklevel=2,
             skip_file_prefixes=(LIBRARY_DIRECTORY,),
         )
-    return float(value)
+    return value

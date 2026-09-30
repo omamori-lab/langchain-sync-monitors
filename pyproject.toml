@@ -1,24 +1,42 @@
 [build-system]
-requires = ["hatchling>=1.27"]
+requires = ["hatchling>=1.27", "hatch-fancy-pypi-readme>=25.1"]
 build-backend = "hatchling.build"
 
 [project]
 name = "langchain-sync-monitors"
-dynamic = ["version"]
-description = "Control monitors for LangChain agents and Deep Agents, as middleware."
-readme = "README.md"
+dynamic = ["version", "readme"]
+description = "AI-control monitors for LangChain agents and Deep Agents: every step an agent proposes is judged before its tools run, and a control protocol decides what runs."
 requires-python = ">=3.12"
 license = "MIT"
 license-files = ["LICENSE"]
-authors = [{ name = "Antonio Badilla-Olivas", email = "antonio1dbo@gmail.com" }]
-keywords = ["ai-control", "monitoring", "langchain", "deepagents", "middleware", "ai-safety"]
+authors = [{ name = "Antonio Badilla-Olivas", email = "omamori-lab@proton.me" }]
+keywords = [
+    "ai-safety",
+    "ai-control",
+    "langchain",
+    "langgraph",
+    "deepagents",
+    "ai-agents",
+    "llm-agents",
+    "agent-safety",
+    "monitoring",
+    "guardrails",
+    "prompt-injection",
+    "llm-security",
+    "middleware",
+]
 classifiers = [
-    "Development Status :: 2 - Pre-Alpha",
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
     "Intended Audience :: Science/Research",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
     "Programming Language :: Python :: 3.14",
     "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Topic :: Security",
     "Typing :: Typed",
 ]
 dependencies = [
@@ -36,7 +54,11 @@ openrouter = ["langchain-openrouter>=0.2.1"]
 typesafe = ["langchain-typesafe>=0.0.1a3"]
 
 [project.urls]
-Repository = "https://github.com/Antonio-Tresol/langchain-sync-monitors"
+Homepage = "https://omamori-lab.github.io/langchain-sync-monitors/"
+Documentation = "https://omamori-lab.github.io/langchain-sync-monitors/"
+Repository = "https://github.com/omamori-lab/langchain-sync-monitors"
+Issues = "https://github.com/omamori-lab/langchain-sync-monitors/issues"
+Changelog = "https://github.com/omamori-lab/langchain-sync-monitors/blob/main/CHANGELOG.md"
 
 [dependency-groups]
 dev = [
@@ -44,7 +66,7 @@ dev = [
     "pytest-asyncio>=0.24",
     "ruff>=0.15",
     "ty>=0.0.84",
-    "bibtexparser>=1.4,<2",
+    "bibtexparser>=2.0.1,<3",
 ]
 docs = [
     "mkdocs>=1.6,<2",
@@ -56,13 +78,34 @@ docs = [
 [tool.hatch.version]
 path = "src/langchain_sync_monitors/__init__.py"
 
+# The README links images and pages by relative path, which GitHub resolves.
+# PyPI does not, so the package description gets absolute URLs at build time:
+# raw files for the diagrams, repository pages for links. The URLs name the
+# release tag, v$HFPR_VERSION, so a release's PyPI page keeps showing the files
+# it was released with. PyPI drops the <source> of each <picture>, so it shows
+# the light variant of every diagram.
+[tool.hatch.metadata.hooks.fancy-pypi-readme]
+content-type = "text/markdown"
+
+[[tool.hatch.metadata.hooks.fancy-pypi-readme.fragments]]
+path = "README.md"
+
+[[tool.hatch.metadata.hooks.fancy-pypi-readme.substitutions]]
+pattern = '(src|srcset)="(docs/assets/[^"]+)"'
+replacement = '\1="https://raw.githubusercontent.com/omamori-lab/langchain-sync-monitors/v$HFPR_VERSION/\2"'
+
+[[tool.hatch.metadata.hooks.fancy-pypi-readme.substitutions]]
+pattern = '\]\((?!https?://|#|mailto:)([^)\s]+)\)'
+replacement = '](https://github.com/omamori-lab/langchain-sync-monitors/blob/v$HFPR_VERSION/\1)'
+
 [tool.hatch.build.targets.wheel]
 packages = ["src/langchain_sync_monitors"]
 
 [tool.hatch.build.targets.sdist]
 # An explicit list, because hatchling ships every file .gitignore does not
 # exclude, tracked or not. The docs travel with the tests that check their
-# citations; the plans are working notes and stay in the repository.
+# citations; the plans are working notes and stay in the repository, as do the
+# GitHub templates, the agent files and the release scripts.
 include = [
     "/src",
     "/tests",
@@ -70,6 +113,7 @@ include = [
     "/README.md",
     "/LICENSE",
     "/CHANGELOG.md",
+    "/CITATION.cff",
     "/pyproject.toml",
 ]
 exclude = ["/docs/plans"]

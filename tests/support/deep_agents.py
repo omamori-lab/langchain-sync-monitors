@@ -16,11 +16,16 @@ from langchain_sync_monitors.middleware import MonitorMiddleware
 from tests.support.chat_models import ScriptedChatModel, build_tool_call_message
 
 
-def build_delegation_step(*, description: str = "Find the sources.") -> AIMessage:
+def build_delegation_step(
+    *,
+    description: str = "Find the sources.",
+    call_id: str = "call-task",
+    subagent_type: str = "worker",
+) -> AIMessage:
     return build_tool_call_message(
         tool_name="task",
-        call_id="call-task",
-        arguments={"description": description, "subagent_type": "worker"},
+        call_id=call_id,
+        arguments={"description": description, "subagent_type": subagent_type},
     )
 
 

@@ -8,3 +8,6 @@ it is.
   the sync and async paths.
 - [Where the ideas come from](background.md) credits every paper and codebase
   the library draws on.
+- [Live runs of a monitored agent](live-runs.md) reports a small evaluation
+  with real models: an agent under each monitor and protocol, once honestly
+  and once with a hidden side task, step by step.

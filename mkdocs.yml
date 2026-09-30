@@ -1,7 +1,11 @@
 site_name: langchain-sync-monitors
-site_description: Control monitors for LangChain agents and Deep Agents, as middleware.
-repo_url: https://github.com/Antonio-Tresol/langchain-sync-monitors
-repo_name: Antonio-Tresol/langchain-sync-monitors
+site_description: >-
+  AI-control monitors for LangChain agents and Deep Agents: every step an agent
+  proposes is judged before its tools run, and a control protocol decides what
+  runs.
+site_url: https://omamori-lab.github.io/langchain-sync-monitors/
+repo_url: https://github.com/omamori-lab/langchain-sync-monitors
+repo_name: omamori-lab/langchain-sync-monitors
 edit_uri: edit/main/docs/
 docs_dir: docs
 # Plans are working documents for contributors, not user docs.
@@ -10,6 +14,11 @@ exclude_docs: |
 
 theme:
   name: material
+  # overrides/main.html adds the favicon sizes and the front-matter switch that
+  # turns off a page's section numbers.
+  custom_dir: overrides
+  logo: assets/brand/omamori-lab.svg
+  favicon: assets/brand/favicon-32.png
   features:
     - navigation.indexes
     - navigation.top
@@ -18,24 +27,44 @@ theme:
     - search.suggest
     - search.highlight
     - content.code.copy
+  # Custom colours in both schemes: docs/stylesheets/brand.css sets them from
+  # the omamori lab brand, and site.css adds the shades it leaves out. The toggle
+  # cycles through three settings, automatic, light and dark, and the browser
+  # remembers the reader's choice. Automatic, the first, is where a new reader
+  # starts: it follows the operating system's scheme, and changes with it.
   palette:
-    - scheme: default
-      primary: black
-      accent: indigo
+    - media: "(prefers-color-scheme)"
+      primary: custom
+      accent: custom
       toggle:
-        icon: material/weather-night
-        name: Switch to dark mode
-    - scheme: slate
-      primary: black
-      accent: indigo
-      toggle:
-        icon: material/weather-sunny
+        icon: material/brightness-auto
         name: Switch to light mode
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: custom
+      accent: custom
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: custom
+      accent: custom
+      toggle:
+        icon: material/brightness-4
+        name: Switch to the system setting
+
+extra_css:
+  - stylesheets/brand.css
+  - stylesheets/site.css
 
 plugins:
   - search
   - bibtex:
       bib_file: docs/references.bib
+      # Only bracketed [@key] citations, so a bare @word, such as a decorator in a
+      # code example, is never read as a citation key.
+      enable_inline_citations: false
   - mkdocstrings:
       handlers:
         python:
@@ -51,6 +80,10 @@ markdown_extensions:
   - footnotes
   - toc:
       permalink: true
+      # A page's [TOC] marker and the right-hand contents list both show the h2
+      # and h3 sections, the two levels docs/stylesheets/site.css numbers.
+      title: Contents
+      toc_depth: "2-3"
   - pymdownx.highlight
   - pymdownx.inlinehilite
   - pymdownx.superfences:
@@ -59,12 +92,33 @@ markdown_extensions:
           class: mermaid
           format: !!python/name:pymdownx.superfences.fence_code_format
 
+# Report a link to a missing anchor as a warning, so --strict fails on it. A line
+# that Markdown mistakes for a footnote definition shows up this way.
+validation:
+  anchors: warn
+
 nav:
   - Home: index.md
   - Tutorials:
       - tutorials/index.md
+      - Monitor your first agent: tutorials/first-monitored-agent.md
   - How-to guides:
       - how-to/index.md
+      - Protocols:
+          - Choose a protocol: how-to/choose-a-protocol.md
+          - Use Trusted Monitoring: how-to/use-trusted-monitoring.md
+          - Use Defer to Trusted: how-to/use-defer-to-trusted.md
+          - Use Defer to Resample: how-to/use-defer-to-resample.md
+          - Use Auto Mode: how-to/use-auto-mode.md
+          - Monitor Deep Agents subagents: how-to/monitor-deep-agents-subagents.md
+      - Monitors:
+          - Use a chat judge: how-to/use-a-chat-judge.md
+          - Use a guard model: how-to/use-a-guard-model.md
+          - Use a decision model: how-to/use-a-decision-model.md
+          - Combine and calibrate monitors: how-to/combine-and-calibrate-monitors.md
+          - Choose what the monitor reads: how-to/choose-what-the-monitor-reads.md
+          - Read the monitor log: how-to/read-the-monitor-log.md
+          - See the monitor's decisions in LangSmith and Langfuse: how-to/see-decisions-in-langsmith-and-langfuse.md
   - Reference:
       - reference/index.md
       - API: reference/api.md
@@ -72,3 +126,4 @@ nav:
       - explanation/index.md
       - How the library is built: explanation/design.md
       - Where the ideas come from: explanation/background.md
+      - Live runs of a monitored agent: explanation/live-runs.md

@@ -6,7 +6,8 @@ are strings, sequences are lists, and each sample's proposal is rendered text.
 
 from __future__ import annotations
 
-from collections.abc import Iterable
+from collections import Counter
+from collections.abc import Iterable, Mapping, Sequence
 
 from langchain_sync_monitors.contracts import (
     Outcome,
@@ -48,13 +49,15 @@ def build_step_record(
     agent: str,
     monitor: str,
     step_number: int,
+    delegation_id: str | None = None,
 ) -> StepRecord:
     """Record one decided step, keeping every sample the monitor judged as audit evidence.
 
     A sample is marked executed only when it is the very sample the decision
-    runs, so a rejected sample that happens to equal it is not.
+    runs, so a rejected sample that happens to equal it is not. A subagent's
+    record also names its delegation, the tool call that started it.
     """
-    return StepRecord(
+    record = StepRecord(
         agent=agent,
         monitor=monitor,
         step_number=step_number,
@@ -66,6 +69,9 @@ def build_step_record(
             for sample in decision.samples
         ],
     )
+    if delegation_id is not None:
+        record["delegation_id"] = delegation_id
+    return record
 
 
 def find_monitor_records(
@@ -78,3 +84,35 @@ def find_monitor_records(
     return tuple(
         record for record in records if record["monitor"] == monitor and record["agent"] == agent
     )
+
+
+def find_new_subagent_records(
+    records: Sequence[StepRecord],
+    *,
+    agent: str,
+) -> list[StepRecord]:
+    """Return the records of other agents logged since this agent's last step.
+
+    Those are the steps of the subagents this agent started since then,
+    nested ones included, which this agent has not yet answered.
+    """
+    own_positions = [index for index, record in enumerate(records) if record["agent"] == agent]
+    start = own_positions[-1] + 1 if own_positions else 0
+    return [record for record in records[start:] if record["agent"] != agent]
+
+
+def count_blocks(records: Iterable[StepRecord], *, monitor: str) -> int:
+    """Return how many attempts one monitor blocked across the records."""
+    return sum(record["blocked_count"] for record in records if record["monitor"] == monitor)
+
+
+def count_blocks_by_monitor(
+    records: Iterable[StepRecord],
+    *,
+    earlier_blocks: Mapping[str, int],
+) -> dict[str, int]:
+    """Return the blocks each monitor recorded, by label, adding the records to `earlier_blocks`."""
+    blocks = Counter(earlier_blocks)
+    for record in records:
+        blocks[record["monitor"]] += record["blocked_count"]
+    return dict(blocks)

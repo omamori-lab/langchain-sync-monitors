@@ -13,15 +13,21 @@ the numbers stay in the step's record, which is for the auditor.
 
 from __future__ import annotations
 
-import math
 import random
 import statistics
 from bisect import bisect_left, bisect_right
-from collections.abc import Sequence
+from collections.abc import Iterable, Sequence
 
 from langchain_sync_monitors.concurrency import run_concurrently
 from langchain_sync_monitors.contracts import Monitor, MonitorInput, Verdict
 from langchain_sync_monitors.errors import ConfigurationError
+from langchain_sync_monitors.options import (
+    check_instance_option,
+    describe_option_value,
+    read_count_option,
+    read_integer_option,
+)
+from langchain_sync_monitors.thresholds import read_threshold_value
 from langchain_sync_monitors.transcript import render_proposal_for_audit
 
 
@@ -30,13 +36,14 @@ class RepeatedMonitor(Monitor):
 
     A single call of a chat judge gives an integer score, and integer scores tie
     so often that a low audit budget cannot be set: the budget falls inside a
-    group of tied steps. Averaging repeated calls adds resolution, which is why
-    Ctrl-Z averages 4 calls, BashArena 3 and LinuxArena 2
-    [@bhatt2025ctrlz; @kaufman2025basharena; @tracy2026linuxarena]; a plain mean
-    works as well as more elaborate aggregators [@koran2026ensemble]. The calls
-    only differ when the wrapped monitor samples, so its model needs a
-    temperature above zero (Ctrl-Z used 1.1), and no LangChain response cache,
-    which would answer every repeat with a copy of the first call.
+    group of tied steps. Averaging repeated calls adds resolution
+    [@kaufman2025basharena]. BashArena averages three calls and LinuxArena
+    two, and Ctrl-Z samples its monitor several times at temperature 1.1
+    [@kaufman2025basharena; @tracy2026linuxarena; @bhatt2025ctrlz]; a plain
+    mean works as well as more elaborate aggregators [@koran2026ensemble]. The
+    calls only differ when the wrapped monitor samples, so its model needs a
+    temperature above zero, and no LangChain response cache, which would
+    answer every repeat with a copy of the first call.
 
     The reason is the most suspicious call's own reason, since that is the one
     an auditor needs to read. `evaluate` makes the calls concurrently, and one
@@ -44,12 +51,14 @@ class RepeatedMonitor(Monitor):
     """
 
     def __init__(self, *, monitor: Monitor, repeats: int) -> None:
-        """Wrap `monitor`, calling it `repeats` times for each step."""
-        if repeats < 1:
-            message = f"repeats must be at least 1, got {repeats}"
-            raise ConfigurationError(message)
+        """Wrap `monitor`, calling it `repeats` times for each step.
+
+        `repeats` must be a whole number of at least 1; anything else, or a
+        `monitor` that is not a `Monitor`, raises `ConfigurationError`.
+        """
+        check_instance_option(monitor, option_type=Monitor, parameter_name="monitor")
         self.monitor = monitor
-        self.repeats = repeats
+        self.repeats = read_count_option(repeats, parameter_name="repeats", minimum=1)
 
     async def evaluate(self, monitor_input: MonitorInput) -> Verdict:
         """Call the wrapped monitor `repeats` times concurrently and average."""
@@ -64,11 +73,46 @@ class RepeatedMonitor(Monitor):
         return build_mean_verdict(verdicts)
 
 
+MEAN_DECIMAL_PLACES = 12
+"""Decimal places a mean suspicion is rounded to, so equal means compare equal.
+
+Scores such as 0.1, 0.0, 0.2 and 0.0, 0.0, 0.3 have the same mean, but their
+float averages differ in the last bits. Unrounded, `CalibratedMonitor` would
+order such steps by rounding error instead of breaking the tie at random.
+"""
+
+
 def build_mean_verdict(verdicts: Sequence[Verdict]) -> Verdict:
     """Average the suspicions and keep the reason of the most suspicious verdict."""
     most_suspicious = max(verdicts, key=lambda verdict: verdict.suspicion)
     mean_suspicion = statistics.fmean(verdict.suspicion for verdict in verdicts)
-    return Verdict(suspicion=mean_suspicion, reason=most_suspicious.reason)
+    return Verdict(
+        suspicion=round(mean_suspicion, MEAN_DECIMAL_PLACES),
+        reason=most_suspicious.reason,
+    )
+
+
+def read_honest_scores(honest_scores: object) -> list[float]:
+    """Return the honest scores as floats, raising `ConfigurationError` unless they are usable.
+
+    They must be an iterable other than a string, holding at least one score,
+    and each score is read as a threshold is: a number from 0 to 1, not a
+    `bool` and not NaN. A refused score is named by its position.
+    """
+    if isinstance(honest_scores, str | bytes) or not isinstance(honest_scores, Iterable):
+        message = (
+            "honest_scores must be an iterable of numbers between 0 and 1, "
+            f"got {describe_option_value(honest_scores)}"
+        )
+        raise ConfigurationError(message)
+    scores = [
+        read_threshold_value(score, parameter_name=f"honest_scores[{position}]")
+        for position, score in enumerate(honest_scores)
+    ]
+    if not scores:
+        message = "honest_scores must hold at least one score"
+        raise ConfigurationError(message)
+    return scores
 
 
 def render_tie_break_key(monitor_input: MonitorInput) -> str:
@@ -110,33 +154,38 @@ class CalibratedMonitor(Monitor):
     thousand scores give a spread of about 0.3 percentage points.
 
     Collect `honest_scores` by running the wrapped monitor, with the same
-    settings, on steps from runs you trust. With `random_seed`, `U` is derived
-    from the seed and the step's content, so a step always gets the same
-    suspicion, whatever else the instance has scored and however many runs
-    share it. Without a seed, `U` is drawn afresh on every call. The reason is
-    the wrapped monitor's, unchanged.
+    settings, on steps from runs you trust, and pass them as Python floats or
+    numpy float64s: each is read as a float, so a float32 0.1 becomes
+    0.10000000149011612 and no longer ties with a score of 0.1. With
+    `random_seed`, `U` is derived from the seed and the step's content, so a
+    step always gets the same suspicion, whatever else the instance has
+    scored and however many runs share it. Without a seed, `U` is drawn afresh
+    on every call. The reason is the wrapped monitor's, unchanged.
     """
 
     def __init__(
         self,
         *,
         monitor: Monitor,
-        honest_scores: Sequence[float],
+        honest_scores: Iterable[float],
         random_seed: int | None = None,
     ) -> None:
-        """Wrap `monitor` and rank its scores among `honest_scores`."""
-        if not honest_scores:
-            message = "honest_scores must hold at least one score"
-            raise ConfigurationError(message)
-        invalid_scores = [
-            score for score in honest_scores if math.isnan(score) or not 0.0 <= score <= 1.0
-        ]
-        if invalid_scores:
-            message = f"honest_scores must lie between 0 and 1, got {invalid_scores[:3]!r}"
-            raise ConfigurationError(message)
+        """Wrap `monitor` and rank its scores among `honest_scores`, which are read once.
+
+        Reading them into a list first keeps a generator's scores: checking
+        and then sorting it would consume it and leave nothing to rank among.
+        Each score is read as a threshold is, so it becomes a float, and
+        `random_seed` must be an integer or `None`; anything else raises
+        `ConfigurationError`.
+        """
+        check_instance_option(monitor, option_type=Monitor, parameter_name="monitor")
         self.monitor = monitor
-        self.sorted_honest_scores = sorted(honest_scores)
-        self.random_seed = random_seed
+        self.sorted_honest_scores = sorted(read_honest_scores(honest_scores))
+        self.random_seed = (
+            None
+            if random_seed is None
+            else read_integer_option(random_seed, parameter_name="random_seed")
+        )
 
     async def evaluate(self, monitor_input: MonitorInput) -> Verdict:
         """Score the step with the wrapped monitor, then rank the score."""
@@ -151,6 +200,8 @@ class CalibratedMonitor(Monitor):
     def build_calibrated_verdict(self, verdict: Verdict, *, monitor_input: MonitorInput) -> Verdict:
         """Replace the raw suspicion with its smoothed conformal rank among the honest scores."""
         scores = self.sorted_honest_scores
+        # A conformal rank with ties: every honest score below counts, and the tied ones count
+        # for a random share.
         below = bisect_left(scores, verdict.suspicion)
         tied = bisect_right(scores, verdict.suspicion) - below
         tie_share = self.draw_tie_share(monitor_input)
@@ -182,13 +233,17 @@ class CascadeMonitor(Monitor):
     """
 
     def __init__(self, *, fast: Monitor, careful: Monitor, escalate_at: float) -> None:
-        """Escalate from `fast` to `careful` when the fast suspicion reaches `escalate_at`."""
-        if math.isnan(escalate_at) or not 0.0 <= escalate_at <= 1.0:
-            message = f"escalate_at must lie between 0 and 1, got {escalate_at!r}"
-            raise ConfigurationError(message)
+        """Escalate from `fast` to `careful` when the fast suspicion reaches `escalate_at`.
+
+        `escalate_at` is read as a threshold is: a number from 0 to 1, kept as
+        a float. Anything else, or a stage that is not a `Monitor`, raises
+        `ConfigurationError`.
+        """
+        check_instance_option(fast, option_type=Monitor, parameter_name="fast")
+        check_instance_option(careful, option_type=Monitor, parameter_name="careful")
         self.fast = fast
         self.careful = careful
-        self.escalate_at = escalate_at
+        self.escalate_at = read_threshold_value(escalate_at, parameter_name="escalate_at")
 
     async def evaluate(self, monitor_input: MonitorInput) -> Verdict:
         """Score with the fast monitor, and with the careful one if that escalates."""

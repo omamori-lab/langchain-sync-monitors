@@ -10,7 +10,6 @@ This keeps the protocol logic free of I/O, the sans-I/O pattern
 
 from __future__ import annotations
 
-import asyncio
 import logging
 import re
 from abc import ABC, abstractmethod
@@ -23,9 +22,15 @@ from langchain_core.messages import AIMessage, BaseMessage
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.runnables import Runnable
 
+from langchain_sync_monitors.concurrency import run_concurrently
 from langchain_sync_monitors.contracts import Monitor, MonitorInput, MonitorView, Verdict
 from langchain_sync_monitors.errors import ConfigurationError
 from langchain_sync_monitors.model_calls import build_internal_call_config, resolve_chat_model
+from langchain_sync_monitors.options import (
+    check_instance_option,
+    read_count_option,
+    read_integer_option,
+)
 from langchain_sync_monitors.prompts import DEFAULT_MONITOR_PROMPT
 from langchain_sync_monitors.transcript import render_proposed_step, render_transcript
 
@@ -42,8 +47,18 @@ REASONING_PATTERN = re.compile(
 )
 FINAL_SCORE_PATTERN = re.compile(r"\s*<score>(?P<score>[^<]*)</score>\s*", flags=re.IGNORECASE)
 
-STOP_REASON_KEYS = ("finish_reason", "native_finish_reason", "stop_reason")
-"""Where providers put why a reply stopped: OpenAI, OpenRouter and Gemini, then Anthropic."""
+STOP_REASON_KEYS = (
+    "finish_reason",
+    "native_finish_reason",
+    "stop_reason",
+    "stopReason",
+    "done_reason",
+)
+"""Where providers put why a reply stopped.
+
+OpenAI, OpenRouter and Gemini use the first two, Anthropic the third,
+Bedrock Converse the fourth and Ollama the last.
+"""
 
 CUT_OFF_STOP_REASONS = ("length", "max_tokens", "max_output_tokens", "context_window_exceeded")
 """Stop reasons that mean the reply hit a length limit before the model finished it."""
@@ -118,12 +133,15 @@ class ChatModelMonitor(Monitor, ABC):
     """What chat judges and guard models share: fill a prompt with the step, then call the model.
 
     Subclasses write their scoring once, in `build_verdict_plan`. The model's
-    calls are tagged as internal, so they stay out of the agent's message
-    stream.
+    calls carry LangChain's internal-call metadata, which drops them from
+    `stream_events(version="v3")`; the monitor middleware's `nostream` tag
+    keeps them out of `stream_mode="messages"`.
     """
 
     call_source: ClassVar[str] = "monitor"
     extra_prompt_variables: ClassVar[frozenset[str]] = frozenset()
+    prompt_parameter_name: ClassVar[str] = "prompt"
+    """The name under which the subclass's constructor takes the prompt, for messages."""
 
     def __init__(
         self,
@@ -132,7 +150,14 @@ class ChatModelMonitor(Monitor, ABC):
         prompt: ChatPromptTemplate,
         view: MonitorView,
     ) -> None:
-        """Resolve the model and check the prompt's variables."""
+        """Resolve the model, and check the prompt, its variables and the view."""
+        check_instance_option(
+            prompt,
+            option_type=ChatPromptTemplate,
+            parameter_name=self.prompt_parameter_name,
+            hint="Build one with ChatPromptTemplate.from_messages(...).",
+        )
+        check_instance_option(view, option_type=MonitorView, parameter_name="view")
         require_prompt_variables(prompt, allowed=self.extra_prompt_variables)
         self.model = resolve_chat_model(model)
         self.prompt = prompt
@@ -171,14 +196,11 @@ class ChatModelMonitor(Monitor, ABC):
         return run_verdict_plan_sync(plan, request_replies=self.request_replies_sync)
 
     async def request_replies(self, request: ReplyRequest) -> list[AIMessage]:
-        """Draw the requested replies concurrently."""
-        replies = await asyncio.gather(
-            *(
-                request.model.ainvoke(list(request.messages), config=self.call_config)
-                for _ in range(request.count)
-            ),
+        """Draw the requested replies concurrently; one failed call cancels the others."""
+        return await run_concurrently(
+            request.model.ainvoke(list(request.messages), config=self.call_config)
+            for _ in range(request.count)
         )
-        return list(replies)
 
     def request_replies_sync(self, request: ReplyRequest) -> list[AIMessage]:
         """Draw the requested replies one after another."""
@@ -195,7 +217,11 @@ def is_reply_cut_off(reply: AIMessage) -> bool:
     `finish_reason: "MAX_TOKENS"`, Anthropic `stop_reason: "max_tokens"` or
     `"model_context_window_exceeded"`, and OpenRouter keeps the upstream value
     in `native_finish_reason`; the OpenAI Responses API reports
-    `incomplete_details: {"reason": "max_output_tokens"}`. Merging streamed
+    `incomplete_details: {"reason": "max_output_tokens"}`. `ChatBedrockConverse`
+    keeps the Converse response's `stopReason`, `"max_tokens"` or
+    `"model_context_window_exceeded"` [@langchainaws2026; @aws2026converse],
+    and `ChatOllama` keeps Ollama's `done_reason: "length"`
+    [@langchainollama2026]. Merging streamed
     chunks can repeat a value, as in `"MAX_TOKENSMAX_TOKENS"`, so a stop
     reason counts when it contains a cut-off reason.
     """
@@ -233,6 +259,7 @@ def read_judge_reply(text: str) -> JudgeReply | None:
     reasoning = REASONING_PATTERN.search(text)
     if reasoning is None or not reasoning["reasoning"].strip():
         return None
+    # Matched from the reasoning's end to the text's end, so a score tag elsewhere never counts.
     score = FINAL_SCORE_PATTERN.fullmatch(text, reasoning.end())
     if score is None:
         return None
@@ -240,10 +267,18 @@ def read_judge_reply(text: str) -> JudgeReply | None:
 
 
 def parse_score(score_text: str, *, lowest_score: int, highest_score: int) -> int | None:
-    """Read the score as an integer, or return `None` if it is not an integer in range."""
+    """Read the score as an integer, or return `None` if it is not an integer in range.
+
+    Python refuses to convert an integer of more than 4,300 digits, by
+    default; such a score is no integer in range either.
+    """
+    # `int` would also take forms no score is written in, such as `1_0` for 10.
     if not INTEGER_PATTERN.fullmatch(score_text):
         return None
-    score = int(score_text)
+    try:
+        score = int(score_text)
+    except ValueError:
+        return None
     return score if lowest_score <= score <= highest_score else None
 
 
@@ -260,7 +295,8 @@ class LLMMonitor(ChatModelMonitor):
     A reply is readable only in exactly that shape: the reasoning block, then
     one score tag, with nothing but whitespace between them or after the
     score. A custom `prompt` must ask for this shape, or every reply is
-    unreadable. The shape keeps a score tag the agent planted in its step,
+    unreadable. An agent can write text aimed at its monitor into its step
+    [@terekhov2025adaptive], so the shape keeps a score tag the agent planted,
     and the judge quoted, from becoming the verdict. A reply that the provider
     reports as cut off at a length limit is unreadable too, since its end is
     not the judge's verdict.
@@ -286,17 +322,26 @@ class LLMMonitor(ChatModelMonitor):
         view: MonitorView = DEFAULT_MONITOR_VIEW,
         max_parse_retries: int = 2,
     ) -> None:
-        """Build a chat judge; the prompt must use `{transcript}` and `{proposed_step}`."""
-        if lowest_score >= highest_score:
-            message = f"lowest_score ({lowest_score}) must be below highest_score ({highest_score})"
+        """Build a chat judge; the prompt must use `{transcript}` and `{proposed_step}`.
+
+        The ends of the scale must be integers, the lowest below the highest,
+        and `max_parse_retries` a whole number of at least 0; anything else
+        raises `ConfigurationError`.
+        """
+        self.lowest_score = read_integer_option(lowest_score, parameter_name="lowest_score")
+        self.highest_score = read_integer_option(highest_score, parameter_name="highest_score")
+        if self.lowest_score >= self.highest_score:
+            message = (
+                f"lowest_score ({self.lowest_score}) must be below "
+                f"highest_score ({self.highest_score})"
+            )
             raise ConfigurationError(message)
-        if max_parse_retries < 0:
-            message = f"max_parse_retries must not be negative, got {max_parse_retries}"
-            raise ConfigurationError(message)
+        self.max_parse_retries = read_count_option(
+            max_parse_retries,
+            parameter_name="max_parse_retries",
+            minimum=0,
+        )
         super().__init__(model=model, prompt=prompt, view=view)
-        self.lowest_score = lowest_score
-        self.highest_score = highest_score
-        self.max_parse_retries = max_parse_retries
 
     def build_extra_prompt_values(self) -> dict[str, str]:
         """Give the prompt the ends of the scale."""

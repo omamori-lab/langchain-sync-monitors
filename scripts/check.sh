@@ -1,13 +1,15 @@
 #!/usr/bin/env bash
-# Run every gate: agent files in sync, ruff, ty, the unit tests, the lanorme
-# standards, the docs build, and a package build.
+# Run every gate: agent files in sync, ruff, ty, the offline test suite, the
+# lanorme standards, the docs build, a package build, and an import of the built
+# wheel without any extra.
 # Run this before committing or finishing a change. No arguments.
 #
 #   scripts/check.sh
 #
-# Exits non-zero on the first failing gate. CI and the pre-commit hooks run this
-# same script; CI also runs the offline suite at the lowest versions the
-# dependency bounds allow, and without any extra.
+# Exits non-zero on the first failing gate. CI runs this same script; CI also
+# runs the offline suite at the lowest versions the dependency bounds allow, and
+# without any extra. The pre-commit hooks run only the fast gates: ruff, ty,
+# lanorme and the offline suite.
 set -euo pipefail
 
 cd "$(git rev-parse --show-toplevel)"
@@ -22,15 +24,17 @@ uv run --group dev ruff format --check .
 echo "==> ty (type checking)"
 uv run --group dev ty check
 
-echo "==> unit tests"
-uv run --group dev pytest -q
+echo "==> offline test suite"
+# The docs standard tests render pages with the docs group. They skip without it,
+# as in the dev-only CI jobs; here REQUIRE_DOCS_GROUP=1 makes a missing module fail.
+REQUIRE_DOCS_GROUP=1 uv run --group dev --group docs pytest -q
 
 echo "==> lanorme standards"
 # lanorme needs Python 3.13+; it only parses the code, so it checks 3.12 source correctly.
 uvx --python 3.13 lanorme==0.21.0 check .
 
 echo "==> docs build"
-uv run --group docs mkdocs build --strict --quiet --site-dir "$(mktemp -d)"
+uv run --group docs mkdocs build --strict --site-dir "$(mktemp -d)"
 
 echo "==> build"
 uv build >/dev/null

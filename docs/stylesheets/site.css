@@ -6,7 +6,7 @@
  * It sets the primary, accent, link and Mermaid colours of both schemes. This
  * file adds the rest of the custom palette, the header's lower edge in dark
  * mode, the logo size, the contents box that a page's [TOC] marker renders,
- * and the section numbers.
+ * the section numbers, and the links that open each diagram at full size.
  */
 
 /* The rest of the custom palette -----------------------------------------
@@ -212,4 +212,15 @@
 .md-main__inner:has(.md-heading-numbers-off) .toc a::before,
 .md-main__inner:has(.md-heading-numbers-off) .md-nav--secondary .md-ellipsis::before {
   content: none !important;
+}
+
+/* Diagrams -----------------------------------------------------------------
+ *
+ * Each diagram on a page links to its own SVG, so a reader can open it at full
+ * size. Material hides the image drawn for the other colour scheme; these
+ * rules hide its link too, so it leaves no empty link to tab to.
+ */
+[data-md-color-scheme="default"] a:has(> img[src$="#only-dark"]),
+[data-md-color-scheme="slate"] a:has(> img[src$="#only-light"]) {
+  display: none;
 }

@@ -83,6 +83,27 @@ Whichever you choose, every threshold defaults to a placeholder and warns with
 an `UncalibratedThresholdWarning` until you pass your own value. The protocol
 guides say how to choose one.
 
+Whichever you choose, too, the library warns about a setup it cannot monitor
+in full. `check_monitor_placement(middleware=[...])` warns about middleware
+placed where it undermines the monitor, and the middleware emits a
+`ProviderToolWarning`, once, when the agent's model is given a tool its
+provider runs itself. The provider runs such a tool inside the model call,
+before the monitor judges the step and again for every resample, so no
+protocol can stop it. The warning knows these server tools:
+
+- Anthropic's web search, web fetch, code execution and MCP connector
+  [@anthropic2026tooluse];
+- OpenAI's web search, file search, code interpreter, image generation and
+  remote MCP [@openai2026tools];
+- Gemini's Google Search, Google Maps, code execution and URL context
+  [@google2026geminitools].
+
+It reads only the tools in the model request. A server-side feature switched
+on in the model's own settings, such as OpenRouter's web plugin or an
+`:online` model, runs the same way without a warning. Tools the agent runs
+itself, Anthropic's bash, text editor, memory and computer use tools
+included, come back as tool calls, which the monitor judges before they run.
+
 ## Related guides
 
 - [Use a chat judge](use-a-chat-judge.md) for the monitor most setups start with.

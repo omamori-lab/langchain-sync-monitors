@@ -4,7 +4,8 @@
 proposal is judged before any of the agent's own tools run, the protocol
 decides what the agent state receives, and one `StepRecord` per step is
 appended to `monitor_log`. Tools the model provider runs itself run inside the
-model call, before the proposal is judged, and the middleware warns about them.
+model call, before the proposal is judged, and the middleware warns about the
+ones it knows.
 
 In a `create_agent` middleware list the monitor goes last. LangChain nests
 `wrap_model_call` handlers with the first middleware outermost, and a
@@ -20,10 +21,8 @@ about a middleware that can lift a halt.
 
 import logging
 import operator
-import threading
-import warnings
 from collections.abc import Sequence
-from dataclasses import dataclass, field, replace
+from dataclasses import dataclass, replace
 from typing import Annotated, NotRequired, Self, override
 
 from langchain.agents.middleware.internal_call_transformer import InternalCallTransformer
@@ -80,7 +79,6 @@ from langchain_sync_monitors.delegation import (
     find_new_subagent_halts,
     read_delegation_id,
 )
-from langchain_sync_monitors.errors import ProviderToolWarning
 from langchain_sync_monitors.feedback import build_blocked_attempt_messages
 from langchain_sync_monitors.halts import build_standing_halt_decision, is_halt_standing
 from langchain_sync_monitors.options import check_enum_option, check_instance_option
@@ -90,10 +88,7 @@ from langchain_sync_monitors.pending_steps import (
     SyncPendingStep,
     run_synchronously,
 )
-from langchain_sync_monitors.provider_tools import (
-    find_provider_tools,
-    render_provider_tool_warning,
-)
+from langchain_sync_monitors.provider_tools import warn_about_provider_tools
 from langchain_sync_monitors.records import build_sample_record, find_monitor_records
 from langchain_sync_monitors.spans import (
     StepIdentity,
@@ -103,7 +98,6 @@ from langchain_sync_monitors.spans import (
     trace_decision,
     trace_decision_sync,
 )
-from langchain_sync_monitors.thresholds import LIBRARY_DIRECTORY
 
 logger = logging.getLogger(__name__)
 
@@ -152,7 +146,8 @@ class MonitorMiddleware(AgentMiddleware[MonitorState, AgentContext, StructuredOu
     `web_fetch` or OpenAI's `web_search`, run inside the model call, before
     the monitor judges the step and again for every sample, so no monitor can
     stop them; the middleware emits a `ProviderToolWarning`, once per
-    instance, when the agent's model is given such tools.
+    instance, when the model request holds such tools. `provider_tools` lists
+    the ones it knows, and what it cannot see.
     Nothing the protocol calls streams to `stream_mode="messages"`: not the
     samples, not the trusted model's step, not the monitor's own calls. The
     committed step streams whole once the model node returns it.
@@ -206,10 +201,9 @@ class MonitorMiddleware(AgentMiddleware[MonitorState, AgentContext, StructuredOu
     In LangChain tracers such as LangSmith and Langfuse, each step is a
     `monitor step` span, with the spans that `spans` describes nested in it.
 
-    The instance holds configuration only, besides the mark that it has shown
-    its `ProviderToolWarning`. Deep Agents runs parallel subagents through
-    shared middleware instances, so every piece of run state lives in the
-    graph state.
+    The instance holds configuration only, so it can be copied and pickled.
+    Deep Agents runs parallel subagents through shared middleware instances,
+    so every piece of run state lives in the graph state.
     """
 
     monitor: Monitor
@@ -219,11 +213,6 @@ class MonitorMiddleware(AgentMiddleware[MonitorState, AgentContext, StructuredOu
     task_author: TaskAuthor = TaskAuthor.USER
     feedback_visibility: FeedbackVisibility = FeedbackVisibility.HIDDEN
     when_subagent_halts: SubagentHalt = SubagentHalt.STOP_SUBAGENT_ONLY
-    provider_tool_warning_shown: threading.Event = field(
-        default_factory=threading.Event,
-        init=False,
-        repr=False,
-    )
 
     state_schema = MonitorState
     transformers = (InternalCallTransformer,)
@@ -273,7 +262,7 @@ class MonitorMiddleware(AgentMiddleware[MonitorState, AgentContext, StructuredOu
         handler: ModelCallHandler,
     ) -> ExtendedModelResponse[StructuredOutput]:
         """Decide this step under `invoke()`, driving the protocol without an event loop."""
-        self.warn_about_provider_tools(request)
+        warn_about_provider_tools(request.tools, middleware=self, middleware_name=self.name)
         records = read_monitor_log(request.state)
         previous_records = find_monitor_records(records, monitor=self.label, agent=self.agent_name)
         identity = self.build_step_identity(request, step_number=len(previous_records) + 1)
@@ -314,7 +303,7 @@ class MonitorMiddleware(AgentMiddleware[MonitorState, AgentContext, StructuredOu
         handler: AsyncModelCallHandler,
     ) -> ExtendedModelResponse[StructuredOutput]:
         """Decide this step under `ainvoke()`, awaiting the protocol."""
-        self.warn_about_provider_tools(request)
+        warn_about_provider_tools(request.tools, middleware=self, middleware_name=self.name)
         records = read_monitor_log(request.state)
         previous_records = find_monitor_records(records, monitor=self.label, agent=self.agent_name)
         identity = self.build_step_identity(request, step_number=len(previous_records) + 1)
@@ -424,25 +413,6 @@ class MonitorMiddleware(AgentMiddleware[MonitorState, AgentContext, StructuredOu
         if not halts:
             return None
         return build_subagent_halt_decision(subagent_names=[record["agent"] for record in halts])
-
-    def warn_about_provider_tools(self, request: AgentModelRequest) -> None:
-        """Emit a `ProviderToolWarning` when the model is given tools its provider runs itself.
-
-        The warning is emitted once per middleware instance, at the first step
-        whose request holds such tools.
-        """
-        if self.provider_tool_warning_shown.is_set():
-            return
-        provider_tools = find_provider_tools(request.tools)
-        if not provider_tools:
-            return
-        self.provider_tool_warning_shown.set()
-        warnings.warn(
-            render_provider_tool_warning(middleware_name=self.name, provider_tools=provider_tools),
-            ProviderToolWarning,
-            stacklevel=2,
-            skip_file_prefixes=(LIBRARY_DIRECTORY,),
-        )
 
     def build_step_identity(self, request: AgentModelRequest, *, step_number: int) -> StepIdentity:
         """Name the step about to be decided, as its record and its spans name it."""

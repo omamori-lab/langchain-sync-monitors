@@ -1,111 +1,98 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="900" height="452" viewBox="0 24 900 452" role="img" aria-labelledby="title desc">
+<svg xmlns="http://www.w3.org/2000/svg" width="1000" height="640" viewBox="0 0 1000 640" role="img" aria-labelledby="title desc">
   <title id="title">One monitored step</title>
-  <desc id="desc">The untrusted model proposes a step. The monitor reads it through its view and scores its suspicion from 0 to 1. The control protocol chooses one of five outcomes: allow it, resample it, defer to the trusted model, block it with feedback so the agent tries again, or halt. All of this happens inside the middleware, before anything runs. Only the committed step reaches the tools, and one record joins monitor_log. Tool results come back, and the next model call is a new step.</desc>
-  <!-- The light and dark variants of this diagram differ only in the colours of the style block. -->
+  <desc id="desc">The untrusted model proposes a step. The monitor, drawn as an omamori charm, reads it through its view and scores its suspicion from 0 to 1. The control protocol chooses one of five outcomes, from the lightest touch to the strongest: allow it, resample it, defer to the trusted model, block it and tell the agent why, or halt. All of this happens inside the middleware, before any of the agent&#x27;s own tools run; a brushed line marks that boundary. A provider&#x27;s built-in tools, such as web search, run inside the model call, above that line. A committed step reaches the tools and a halted run ends, and either way one record joins monitor_log. Tool results come back, and the next model call is a new step.</desc>
+  <!-- Colours come from the brand tokens: diagrams/render.py fills this style block. -->
   <style>
-    text { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans", Helvetica, Arial, sans-serif; font-size: 13px; fill: #17202B; }
-    .title { font-size: 14px; font-weight: 600; }
-    .pill-title { font-size: 13px; font-weight: 600; }
-    .small { font-size: 12px; fill: #5C6778; }
-    .mono { font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace; font-size: 12px; }
-    .accent-text { fill: #2450C4; }
-    .box { fill: #FFFFFF; stroke: #9AA6B5; stroke-width: 1.2; }
-    .accent-box { fill: #E5ECFB; stroke: #2450C4; stroke-width: 1.5; }
-    .allow-box { fill: #E2F3EA; stroke: #1A7C52; stroke-width: 1.4; }
-    .resample-box { fill: #E5ECFB; stroke: #2450C4; stroke-width: 1.4; }
-    .trusted-box { fill: #ECE8FA; stroke: #5A48B3; stroke-width: 1.4; }
-    .flag-box { fill: #FAF0D9; stroke: #9C6400; stroke-width: 1.4; }
-    .halt-box { fill: #FBE9E1; stroke: #B53F18; stroke-width: 1.4; }
-    .frame { fill: none; stroke: #9AA6B5; stroke-width: 1.2; stroke-dasharray: 6 4; }
-    .edge { fill: none; stroke: #5C6778; stroke-width: 1.4; }
-    .loop { fill: none; stroke: #2450C4; stroke-width: 1.4; stroke-dasharray: 5 4; }
-    .line { stroke: #B53F18; stroke-width: 1.6; stroke-dasharray: 3 4; }
-    .head { fill: #5C6778; }
-    .accent-head { fill: #2450C4; }
+    svg { color-scheme: light; }
+    text { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans", "Noto Sans JP", Helvetica, Arial, sans-serif; font-size: 15px; fill: #111111; }
+    .title { font-size: 17px; font-weight: 600; }
+    .small { font-size: 14px; fill: #5B5B57; }
+    .mono { font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace; font-size: 13.5px; }
+    .soft { fill: #5B5B57; }
+    .dashed { stroke-dasharray: 5 4; fill: none; stroke: #9A9A94; }
+    .box { fill: #FFFFFF; stroke: #111111; stroke-width: 1.4; }
+    .charm { fill: #111111; }
+    .on-charm { fill: #FFFFFF; }
+    .charm-cord { fill: none; stroke: #111111; stroke-width: 2.2; }
+    .seal { fill: #BF3A22; }
+    .allow { fill: #FFFFFF; stroke: #111111; stroke-width: 1.4; }
+    .resample { fill: #F2F1EC; stroke: #111111; stroke-width: 1.4; }
+    .defer { fill: #DCDBD4; stroke: #111111; stroke-width: 1.4; }
+    .steer { fill: #3A3A38; stroke: #3A3A38; stroke-width: 1.4; }
+    .on-steer { fill: #FFFFFF; }
+    .halt { fill: #BF3A22; stroke: #BF3A22; stroke-width: 1.4; }
+    .on-halt { fill: #FFFFFF; }
+    .frame { fill: none; stroke: #9A9A94; stroke-width: 1.2; stroke-dasharray: 6 4; }
+    .edge { fill: none; stroke: #2B2B2B; stroke-width: 1.5; }
+    .loop { fill: none; stroke: #2B2B2B; stroke-width: 1.5; stroke-dasharray: 5 4; }
+    .head { fill: #2B2B2B; }
+    .brush { fill: #111111; }
   </style>
-  <defs>
-    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" markerUnits="userSpaceOnUse" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="head"/></marker>
-    <marker id="accent-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" markerUnits="userSpaceOnUse" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="accent-head"/></marker>
-  </defs>
-
-  <!-- The middleware wraps the model call: everything inside the frame is a proposal. -->
-  <rect class="frame" x="12" y="40" width="876" height="286" rx="14"/>
-  <text x="30" y="66"><tspan class="title accent-text">MonitorMiddleware</tspan><tspan class="small" dx="10">wraps every model call of the agent</tspan></text>
-
-  <!-- Propose, judge, decide. -->
-  <rect class="box" x="40" y="116" width="210" height="80" rx="8"/>
-  <text x="145" y="146" text-anchor="middle" class="title">Untrusted model</text>
-  <text x="145" y="166" text-anchor="middle" class="small">proposes one step:</text>
-  <text x="145" y="182" text-anchor="middle" class="small">tool calls and text</text>
-
-  <rect class="accent-box" x="345" y="116" width="210" height="80" rx="8"/>
-  <text x="450" y="146" text-anchor="middle" class="title">Monitor</text>
-  <text x="450" y="166" text-anchor="middle" class="small">reads it through its view</text>
-  <text x="450" y="182" text-anchor="middle" class="small">and scores it from 0 to 1</text>
-
-  <rect class="accent-box" x="650" y="116" width="210" height="80" rx="8"/>
-  <text x="755" y="146" text-anchor="middle" class="title">Control protocol</text>
-  <text x="755" y="166" text-anchor="middle" class="small">turns the score into</text>
-  <text x="755" y="182" text-anchor="middle" class="small">one of five outcomes</text>
-
-  <line class="edge" x1="250" y1="156" x2="343" y2="156" marker-end="url(#arrow)"/>
-  <text x="297" y="148" text-anchor="middle" class="small">proposal</text>
-  <line class="edge" x1="555" y1="156" x2="648" y2="156" marker-end="url(#arrow)"/>
-  <text x="602" y="148" text-anchor="middle" class="small">verdict</text>
-
-  <path class="loop" d="M755,116 V100 H145 V114" marker-end="url(#accent-arrow)"/>
-  <text x="450" y="92" text-anchor="middle" class="small accent-text">draw another sample: a resample, or a retry after feedback</text>
-
-  <!-- The five outcomes. -->
-  <path class="edge" d="M755,196 V214 M120,214 H792"/>
-  <line class="edge" x1="120" y1="214" x2="120" y2="230" marker-end="url(#arrow)"/>
-  <line class="edge" x1="288" y1="214" x2="288" y2="230" marker-end="url(#arrow)"/>
-  <line class="edge" x1="456" y1="214" x2="456" y2="230" marker-end="url(#arrow)"/>
-  <line class="edge" x1="624" y1="214" x2="624" y2="230" marker-end="url(#arrow)"/>
-  <line class="edge" x1="792" y1="214" x2="792" y2="230" marker-end="url(#arrow)"/>
-
-  <rect class="allow-box" x="40" y="232" width="160" height="66" rx="8"/>
-  <text x="120" y="254" text-anchor="middle" class="pill-title">Allow</text>
-  <text x="120" y="272" text-anchor="middle" class="small">the proposed step</text>
-  <text x="120" y="287" text-anchor="middle" class="small">runs as it is</text>
-
-  <rect class="resample-box" x="208" y="232" width="160" height="66" rx="8"/>
-  <text x="288" y="254" text-anchor="middle" class="pill-title">Resample</text>
-  <text x="288" y="272" text-anchor="middle" class="small">a fresh sample of</text>
-  <text x="288" y="287" text-anchor="middle" class="small">the step runs</text>
-
-  <rect class="trusted-box" x="376" y="232" width="160" height="66" rx="8"/>
-  <text x="456" y="254" text-anchor="middle" class="pill-title">Defer to trusted</text>
-  <text x="456" y="272" text-anchor="middle" class="small">the trusted model</text>
-  <text x="456" y="287" text-anchor="middle" class="small">writes the step</text>
-
-  <rect class="flag-box" x="544" y="232" width="160" height="66" rx="8"/>
-  <text x="624" y="254" text-anchor="middle" class="pill-title">Block and steer</text>
-  <text x="624" y="272" text-anchor="middle" class="small">the agent is told why;</text>
-  <text x="624" y="287" text-anchor="middle" class="small">its next try runs</text>
-
-  <rect class="halt-box" x="712" y="232" width="160" height="66" rx="8"/>
-  <text x="792" y="254" text-anchor="middle" class="pill-title">Halt</text>
-  <text x="792" y="272" text-anchor="middle" class="small">the run stops, and</text>
-  <text x="792" y="287" text-anchor="middle" class="small">the step is flagged</text>
-
-  <!-- Nothing crosses this line until the protocol has decided. -->
-  <path class="edge" d="M120,298 V312 M288,298 V312 M456,298 V312 M624,298 V312 M120,312 H624"/>
-  <line class="edge" x1="372" y1="312" x2="372" y2="356" marker-end="url(#arrow)"/>
-  <line class="edge" x1="792" y1="298" x2="792" y2="356" marker-end="url(#arrow)"/>
-
-  <line class="line" x1="12" y1="340" x2="888" y2="340"/>
-  <text x="617" y="358" text-anchor="middle" class="small">nothing runs above this line</text>
-
-  <rect class="box" x="222" y="358" width="300" height="60" rx="8"/>
-  <text x="372" y="382" text-anchor="middle" class="title">Tools run the committed step</text>
-  <text x="372" y="402" text-anchor="middle"><tspan class="small">and one record joins </tspan><tspan class="mono">monitor_log</tspan></text>
-
-  <rect class="halt-box" x="712" y="358" width="160" height="60" rx="8"/>
-  <text x="792" y="382" text-anchor="middle" class="title">Run ends</text>
-  <text x="792" y="402" text-anchor="middle" class="small">no tool runs</text>
-
-  <!-- The next model call is a new step. -->
-  <path class="edge" d="M372,418 V446 H24 V156 H38" marker-end="url(#arrow)"/>
-  <text x="40" y="464" class="small">tool results come back, and the next model call is a new step</text>
+  <defs><marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="9" markerHeight="9" markerUnits="userSpaceOnUse" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="head"/></marker></defs>
+  <rect class="frame" x="16.0" y="16.0" width="968.0" height="408.0" rx="10"/>
+  <text x="40.0" y="46.0" text-anchor="start"><tspan class="title">MonitorMiddleware</tspan><tspan class="small">   wraps every model call of the agent</tspan></text>
+  <rect class="box" x="48.0" y="124.0" width="236.0" height="102.0" rx="6"/>
+  <text x="166.0" y="155.0" text-anchor="middle" class="title">Untrusted model</text>
+  <text x="166.0" y="177.0" text-anchor="middle" class="small">proposes one step:</text>
+  <text x="166.0" y="198.0" text-anchor="middle" class="small">tool calls and text</text>
+  <path class="charm-cord" d="M494.0,125.0 C490.0,108.0 510.0,108.0 506.0,125.0"/>
+  <path class="charm" d="M398.0,124.0 H602.0 L618.0,140.0 V220.0 Q618.0,226.0 612.0,226.0 H388.0 Q382.0,226.0 382.0,220.0 V140.0 Z"/>
+  <rect class="seal" x="391.0" y="208.0" width="9" height="9" rx="1"/>
+  <text x="500.0" y="155.0" text-anchor="middle" class="title on-charm">Monitor</text>
+  <text x="500.0" y="177.0" text-anchor="middle" class="small on-charm">reads it through its view</text>
+  <text x="500.0" y="198.0" text-anchor="middle" class="small on-charm">and scores it from 0 to 1</text>
+  <rect class="box" x="716.0" y="124.0" width="236.0" height="102.0" rx="6"/>
+  <text x="834.0" y="155.0" text-anchor="middle" class="title">Control protocol</text>
+  <text x="834.0" y="177.0" text-anchor="middle" class="small">turns the score into</text>
+  <text x="834.0" y="198.0" text-anchor="middle" class="small">one of five outcomes</text>
+  <path class="edge" d="M284.0,175.0 L380.0,175.0" marker-end="url(#arrow)"/>
+  <text x="333.0" y="163.0" text-anchor="middle" class="small">proposal</text>
+  <path class="edge" d="M618.0,175.0 L714.0,175.0" marker-end="url(#arrow)"/>
+  <text x="667.0" y="163.0" text-anchor="middle" class="small">verdict</text>
+  <path class="loop" d="M834.0,124.0 L834.0,96.0 L166.0,96.0 L166.0,122.0" marker-end="url(#arrow)"/>
+  <text x="500.0" y="86.0" text-anchor="middle" class="small">draw another sample: a resample, or a retry after feedback</text>
+  <rect class="allow" x="48.0" y="282.0" width="161.6" height="102.0" rx="6"/>
+  <text x="128.8" y="313.0" text-anchor="middle" class="title">Allow</text>
+  <text x="128.8" y="335.0" text-anchor="middle" class="small">the step runs</text>
+  <text x="128.8" y="356.0" text-anchor="middle" class="small">as proposed</text>
+  <rect class="resample" x="233.6" y="282.0" width="161.6" height="102.0" rx="6"/>
+  <text x="314.4" y="313.0" text-anchor="middle" class="title">Resample</text>
+  <text x="314.4" y="335.0" text-anchor="middle" class="small">a fresh sample</text>
+  <text x="314.4" y="356.0" text-anchor="middle" class="small">runs instead</text>
+  <rect class="defer" x="419.2" y="282.0" width="161.6" height="102.0" rx="6"/>
+  <text x="500.0" y="313.0" text-anchor="middle" class="title">Defer to trusted</text>
+  <text x="500.0" y="335.0" text-anchor="middle" class="small">the trusted model</text>
+  <text x="500.0" y="356.0" text-anchor="middle" class="small">writes the step</text>
+  <rect class="steer" x="604.8" y="282.0" width="161.6" height="102.0" rx="6"/>
+  <text x="685.6" y="313.0" text-anchor="middle" class="title on-steer">Block and steer</text>
+  <text x="685.6" y="335.0" text-anchor="middle" class="small on-steer">the agent hears why</text>
+  <text x="685.6" y="356.0" text-anchor="middle" class="small on-steer">and tries again</text>
+  <rect class="halt" x="790.4" y="282.0" width="161.6" height="102.0" rx="6"/>
+  <text x="871.2" y="313.0" text-anchor="middle" class="title on-halt">Halt</text>
+  <text x="871.2" y="335.0" text-anchor="middle" class="small on-halt">the run stops, and</text>
+  <text x="871.2" y="356.0" text-anchor="middle" class="small on-halt">the step is flagged</text>
+  <path class="edge" d="M834.0,226.0 L834.0,254.0"/>
+  <path class="edge" d="M128.8,254.0 L871.2,254.0"/>
+  <path class="edge" d="M128.8,254.0 L128.8,280.0" marker-end="url(#arrow)"/>
+  <path class="edge" d="M314.4,254.0 L314.4,280.0" marker-end="url(#arrow)"/>
+  <path class="edge" d="M500.0,254.0 L500.0,280.0" marker-end="url(#arrow)"/>
+  <path class="edge" d="M685.6,254.0 L685.6,280.0" marker-end="url(#arrow)"/>
+  <path class="edge" d="M871.2,254.0 L871.2,280.0" marker-end="url(#arrow)"/>
+  <path class="edge" d="M128.8,384.0 L128.8,408.0"/>
+  <path class="edge" d="M314.4,384.0 L314.4,408.0"/>
+  <path class="edge" d="M500.0,384.0 L500.0,408.0"/>
+  <path class="edge" d="M685.6,384.0 L685.6,408.0"/>
+  <path class="edge" d="M128.8,408.0 L685.6,408.0"/>
+  <text x="640.0" y="452.0" text-anchor="middle" class="small">none of the agent&#x27;s own tools run above this line</text>
+  <path class="brush" d="M16.0,470.0 L22.1,469.0 L28.1,468.5 L34.1,468.0 L40.2,467.6 L46.2,467.6 L52.3,467.5 L58.3,467.5 L64.4,467.4 L70.5,467.4 L76.5,467.3 L82.6,467.3 L88.6,467.3 L94.7,467.2 L100.7,467.2 L106.8,467.2 L112.8,467.2 L118.8,467.2 L124.9,467.2 L130.9,467.3 L137.0,467.3 L143.1,467.3 L149.1,467.4 L155.1,467.4 L161.2,467.5 L167.2,467.5 L173.3,467.5 L179.4,467.5 L185.4,467.5 L191.4,467.6 L197.5,467.5 L203.6,467.5 L209.6,467.5 L215.6,467.5 L221.7,467.5 L227.8,467.5 L233.8,467.5 L239.9,467.5 L245.9,467.5 L251.9,467.5 L258.0,467.5 L264.0,467.5 L270.1,467.5 L276.1,467.5 L282.2,467.5 L288.2,467.5 L294.3,467.5 L300.4,467.4 L306.4,467.4 L312.5,467.3 L318.5,467.3 L324.5,467.2 L330.6,467.2 L336.6,467.1 L342.7,467.1 L348.8,467.0 L354.8,467.0 L360.9,467.0 L366.9,467.0 L373.0,467.0 L379.0,467.0 L385.0,467.1 L391.1,467.2 L397.1,467.3 L403.2,467.4 L409.2,467.5 L415.3,467.7 L421.4,467.8 L427.4,467.9 L433.5,468.0 L439.5,468.1 L445.5,468.2 L451.6,468.2 L457.6,468.2 L463.7,468.2 L469.8,468.1 L475.8,468.0 L481.9,467.8 L487.9,467.7 L494.0,467.5 L500.0,467.3 L506.0,467.1 L512.1,467.0 L518.2,466.8 L524.2,466.6 L530.2,466.5 L536.3,466.4 L542.3,466.4 L548.4,466.4 L554.5,466.4 L560.5,466.4 L566.5,466.4 L572.6,466.4 L578.7,466.4 L584.7,466.4 L590.8,466.4 L596.8,466.4 L602.8,466.4 L608.9,466.4 L615.0,466.4 L621.0,466.4 L627.0,466.4 L633.1,466.4 L639.2,466.4 L645.2,466.5 L651.2,466.5 L657.3,466.6 L663.3,466.7 L669.4,466.7 L675.5,466.8 L681.5,466.9 L687.5,467.0 L693.6,467.1 L699.7,467.1 L705.7,467.2 L711.8,467.2 L717.8,467.2 L723.8,467.2 L729.9,467.2 L736.0,467.1 L742.0,467.1 L748.0,467.0 L754.1,466.9 L760.2,466.8 L766.2,466.7 L772.2,466.6 L778.3,466.5 L784.3,466.4 L790.4,466.3 L796.5,466.3 L802.5,466.2 L808.5,466.2 L814.6,466.2 L820.7,466.3 L826.7,466.4 L832.8,466.5 L838.8,466.6 L844.8,466.7 L850.9,466.9 L857.0,467.0 L863.0,467.2 L869.0,467.4 L875.1,467.6 L881.2,467.9 L887.2,468.1 L893.2,468.3 L899.3,468.5 L905.3,468.6 L911.4,468.7 L917.5,468.7 L923.5,468.7 L929.5,468.7 L935.6,468.7 L941.7,468.7 L947.7,468.7 L953.8,468.6 L959.8,468.6 L965.8,468.6 L971.9,468.6 L978.0,468.6 L984.0,468.6 L984.0,468.6 L978.0,468.7 L971.9,468.8 L965.8,468.9 L959.8,469.1 L953.8,469.4 L947.7,469.6 L941.7,469.9 L935.6,470.1 L929.5,470.4 L923.5,470.6 L917.5,470.9 L911.4,471.1 L905.3,471.3 L899.3,471.5 L893.2,471.7 L887.2,471.8 L881.2,471.9 L875.1,472.0 L869.0,472.0 L863.0,471.9 L857.0,471.8 L850.9,471.7 L844.8,471.5 L838.8,471.4 L832.8,471.2 L826.7,471.1 L820.7,471.0 L814.6,471.0 L808.5,471.0 L802.5,471.0 L796.5,471.0 L790.4,471.1 L784.3,471.2 L778.3,471.3 L772.2,471.4 L766.2,471.5 L760.2,471.7 L754.1,471.8 L748.0,471.9 L742.0,472.0 L736.0,472.1 L729.9,472.1 L723.8,472.2 L717.8,472.2 L711.8,472.2 L705.7,472.1 L699.7,472.0 L693.6,471.9 L687.5,471.8 L681.5,471.7 L675.5,471.5 L669.4,471.4 L663.3,471.3 L657.3,471.2 L651.2,471.1 L645.2,471.0 L639.2,471.0 L633.1,470.9 L627.0,470.9 L621.0,471.0 L615.0,471.0 L608.9,471.1 L602.8,471.1 L596.8,471.2 L590.8,471.3 L584.7,471.4 L578.7,471.4 L572.6,471.5 L566.5,471.6 L560.5,471.6 L554.5,471.7 L548.4,471.7 L542.3,471.7 L536.3,471.7 L530.2,471.8 L524.2,471.8 L518.2,471.9 L512.1,472.0 L506.0,472.1 L500.0,472.2 L494.0,472.3 L487.9,472.4 L481.9,472.5 L475.8,472.6 L469.8,472.7 L463.7,472.7 L457.6,472.8 L451.6,472.8 L445.5,472.7 L439.5,472.6 L433.5,472.5 L427.4,472.4 L421.4,472.3 L415.3,472.1 L409.2,472.0 L403.2,471.8 L397.1,471.7 L391.1,471.6 L385.0,471.5 L379.0,471.4 L373.0,471.4 L366.9,471.3 L360.9,471.4 L354.8,471.4 L348.8,471.5 L342.7,471.6 L336.6,471.7 L330.6,471.8 L324.5,471.9 L318.5,472.0 L312.5,472.1 L306.4,472.3 L300.4,472.3 L294.3,472.4 L288.2,472.5 L282.2,472.5 L276.1,472.5 L270.1,472.5 L264.0,472.5 L258.0,472.4 L251.9,472.4 L245.9,472.3 L239.9,472.3 L233.8,472.2 L227.8,472.2 L221.7,472.1 L215.6,472.1 L209.6,472.0 L203.6,472.0 L197.5,472.0 L191.4,472.0 L185.4,472.0 L179.4,472.0 L173.3,472.0 L167.2,472.1 L161.2,472.1 L155.1,472.2 L149.1,472.2 L143.1,472.3 L137.0,472.3 L130.9,472.3 L124.9,472.4 L118.8,472.4 L112.8,472.4 L106.8,472.5 L100.7,472.5 L94.7,472.5 L88.6,472.5 L82.6,472.4 L76.5,472.4 L70.5,472.4 L64.4,472.4 L58.3,472.4 L52.3,472.3 L46.2,472.3 L40.2,472.3 L34.1,471.9 L28.1,471.5 L22.1,471.0 L16.0,470.0 Z"/>
+  <rect class="box" x="238.0" y="494.0" width="344.0" height="81.0" rx="6"/>
+  <text x="410.0" y="525.0" text-anchor="middle" class="title">Tools run the committed step</text>
+  <text x="410.0" y="547.0" text-anchor="middle"><tspan class="small">and one record joins </tspan><tspan class="mono">monitor_log</tspan></text>
+  <rect class="halt" x="790.4" y="494.0" width="161.6" height="81.0" rx="6"/>
+  <text x="871.2" y="525.0" text-anchor="middle" class="title on-halt">Run ends</text>
+  <text x="871.2" y="547.0" text-anchor="middle" class="small on-halt">its record is kept too</text>
+  <path class="edge" d="M410.0,408.0 L410.0,492.0" marker-end="url(#arrow)"/>
+  <path class="edge" d="M871.2,384.0 L871.2,492.0" marker-end="url(#arrow)"/>
+  <path class="edge" d="M410.0,575.0 L410.0,600.0 L28.0,600.0 L28.0,175.0 L46.0,175.0" marker-end="url(#arrow)"/>
+  <text x="48.0" y="626.0" text-anchor="start" class="small">tool results come back, and the next model call is a new step</text>
 </svg>

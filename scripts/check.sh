@@ -23,7 +23,9 @@ echo "==> ty (type checking)"
 uv run --group dev ty check
 
 echo "==> unit tests"
-uv run --group dev pytest -q
+# The docs standard tests render pages with the docs group. They skip without it,
+# as in the dev-only CI jobs; here REQUIRE_DOCS_GROUP=1 makes a missing module fail.
+REQUIRE_DOCS_GROUP=1 uv run --group dev --group docs pytest -q
 
 echo "==> lanorme standards"
 # lanorme needs Python 3.13+; it only parses the code, so it checks 3.12 source correctly.

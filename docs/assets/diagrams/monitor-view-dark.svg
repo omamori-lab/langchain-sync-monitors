@@ -1,95 +1,75 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="900" height="360" viewBox="0 0 900 360" role="img" aria-labelledby="title desc">
+<svg xmlns="http://www.w3.org/2000/svg" width="1000" height="615" viewBox="0 0 1000 615" role="img" aria-labelledby="title desc">
   <title id="title">What the monitor reads</title>
-  <desc id="desc">Every entry of the transcript belongs to one channel: USER, REASONING, AGENT_TEXT, TOOL_CALLS, TOOL_RESULTS or SUBAGENT_REPORTS. A MonitorView chooses the channels, can keep only the most recent entries, and names the tools whose results are subagent reports. The default view, Channel.ACTIONS, reads the user's messages, the tool calls and the subagent reports, and leaves out the agent's reasoning, its prose and raw tool output. The chosen entries are rendered as escaped, tagged text, ending with the proposed step.</desc>
-  <!-- The light and dark variants of this diagram differ only in the colours of the style block. -->
+  <desc id="desc">Every entry of the transcript belongs to one channel. The default view, Channel.ACTIONS, reads USER (the task, context notes and feedback), TOOL_CALLS (tool calls and errors) and SUBAGENT_REPORTS (what subagents report), and leaves out REASONING, AGENT_TEXT and TOOL_RESULTS, each one flag away. The proposed step&#x27;s tool calls are always shown, and its text when it is a final answer; the rest of the step follows the view&#x27;s channels. A MonitorView chooses the channels, can keep only the most recent entries, and names the tools whose results are subagent reports. The monitor reads the chosen entries as escaped, tagged text ending with the proposed step, then scores the step.</desc>
+  <!-- Colours come from the brand tokens: diagrams/render.py fills this style block. -->
   <style>
-    text { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans", Helvetica, Arial, sans-serif; font-size: 13px; fill: #E3E8EF; }
-    .title { font-size: 14px; font-weight: 600; }
-    .small { font-size: 12px; fill: #93A0B1; }
-    .mono { font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace; font-size: 12px; }
-    .code { font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace; font-size: 11.5px; fill: #E3E8EF; }
-    .tag { fill: #85A6FF; }
-    .proposed { fill: #F08D62; }
-    .muted { fill: #93A0B1; }
-    .on-row { fill: #1B2745; stroke: #85A6FF; stroke-width: 1.3; }
-    .off-row { fill: none; stroke: #4B5A6E; stroke-width: 1.1; stroke-dasharray: 4 3; }
-    .on-tick { fill: #85A6FF; }
-    .off-tick { fill: none; stroke: #4B5A6E; stroke-width: 1.2; }
-    .tick-mark { fill: none; stroke: #151C26; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
-    .box { fill: #151C26; stroke: #4B5A6E; stroke-width: 1.2; }
-    .accent-box { fill: #1B2745; stroke: #85A6FF; stroke-width: 1.5; }
-    .card { fill: #111822; stroke: #4B5A6E; stroke-width: 1.2; }
-    .edge { fill: none; stroke: #93A0B1; stroke-width: 1.4; }
-    .head { fill: #93A0B1; }
+    svg { color-scheme: dark; }
+    text { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans", "Noto Sans JP", Helvetica, Arial, sans-serif; font-size: 15px; fill: #ECEBE6; }
+    .title { font-size: 17px; font-weight: 600; }
+    .small { font-size: 14px; fill: #A9A8A2; }
+    .mono { font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace; font-size: 13.5px; }
+    .soft { fill: #A9A8A2; }
+    .dashed { stroke-dasharray: 5 4; fill: none; stroke: #6A6A66; }
+    .box { fill: #141414; stroke: #ECEBE6; stroke-width: 1.4; }
+    .charm { fill: #ECEBE6; }
+    .on-charm { fill: #111111; }
+    .charm-cord { fill: none; stroke: #ECEBE6; stroke-width: 2.2; }
+    .seal { fill: #E0563B; }
+    .allow { fill: #141414; stroke: #ECEBE6; stroke-width: 1.4; }
+    .resample { fill: #1F1F1E; stroke: #ECEBE6; stroke-width: 1.4; }
+    .defer { fill: #34332F; stroke: #ECEBE6; stroke-width: 1.4; }
+    .steer { fill: #D9D8D2; stroke: #D9D8D2; stroke-width: 1.4; }
+    .on-steer { fill: #111111; }
+    .halt { fill: #E0563B; stroke: #E0563B; stroke-width: 1.4; }
+    .on-halt { fill: #111111; }
+    .frame { fill: none; stroke: #6A6A66; stroke-width: 1.2; stroke-dasharray: 6 4; }
+    .edge { fill: none; stroke: #D6D5CF; stroke-width: 1.5; }
+    .loop { fill: none; stroke: #D6D5CF; stroke-width: 1.5; stroke-dasharray: 5 4; }
+    .head { fill: #D6D5CF; }
+    .brush { fill: #ECEBE6; }
   </style>
-  <defs>
-    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" markerUnits="userSpaceOnUse" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="head"/></marker>
-  </defs>
-
-  <text x="16" y="26" class="title">Transcript channels</text>
-
-  <!-- The six channels; the default view reads the three ticked ones. -->
-  <rect class="on-row" x="16" y="40" width="330" height="34" rx="8"/>
-  <rect class="on-tick" x="28" y="50" width="14" height="14" rx="3"/>
-  <path class="tick-mark" d="M31,57 L34,60 L39,54"/>
-  <text x="52" y="61" class="mono">USER</text>
-  <text x="190" y="61" class="small">the user's messages</text>
-
-  <rect class="off-row" x="16" y="82" width="330" height="34" rx="8"/>
-  <rect class="off-tick" x="28" y="92" width="14" height="14" rx="3"/>
-  <text x="52" y="103" class="mono muted">REASONING</text>
-  <text x="190" y="103" class="small">the agent's reasoning</text>
-
-  <rect class="off-row" x="16" y="124" width="330" height="34" rx="8"/>
-  <rect class="off-tick" x="28" y="134" width="14" height="14" rx="3"/>
-  <text x="52" y="145" class="mono muted">AGENT_TEXT</text>
-  <text x="190" y="145" class="small">the agent's prose</text>
-
-  <rect class="on-row" x="16" y="166" width="330" height="34" rx="8"/>
-  <rect class="on-tick" x="28" y="176" width="14" height="14" rx="3"/>
-  <path class="tick-mark" d="M31,183 L34,186 L39,180"/>
-  <text x="52" y="187" class="mono">TOOL_CALLS</text>
-  <text x="190" y="187" class="small">tool calls and errors</text>
-
-  <rect class="off-row" x="16" y="208" width="330" height="34" rx="8"/>
-  <rect class="off-tick" x="28" y="218" width="14" height="14" rx="3"/>
-  <text x="52" y="229" class="mono muted">TOOL_RESULTS</text>
-  <text x="190" y="229" class="small">raw tool output</text>
-
-  <rect class="on-row" x="16" y="250" width="330" height="34" rx="8"/>
-  <rect class="on-tick" x="28" y="260" width="14" height="14" rx="3"/>
-  <path class="tick-mark" d="M31,267 L34,270 L39,264"/>
-  <text x="52" y="271" class="mono">SUBAGENT_REPORTS</text>
-  <text x="190" y="271" class="small">what subagents report</text>
-
-  <!-- Legend. -->
-  <rect class="on-tick" x="16" y="304" width="14" height="14" rx="3"/>
-  <path class="tick-mark" d="M19,311 L22,314 L27,308"/>
-  <text x="38" y="315"><tspan class="small">read by the default view, </tspan><tspan class="mono">Channel.ACTIONS</tspan></text>
-  <rect class="off-tick" x="16" y="330" width="14" height="14" rx="3"/>
-  <text x="38" y="341" class="small">left out by default, one flag away</text>
-
-  <!-- The view. -->
-  <path class="edge" d="M346,57 H362 M346,183 H362 M346,267 H362 M362,57 V267"/>
-  <line class="edge" x1="362" y1="162" x2="378" y2="162" marker-end="url(#arrow)"/>
-  <rect class="accent-box" x="380" y="104" width="174" height="116" rx="8"/>
-  <text x="467" y="132" text-anchor="middle" class="title">MonitorView</text>
-  <text x="396" y="156" class="mono">channels</text>
-  <text x="396" y="176" class="mono">most_recent_entries</text>
-  <text x="396" y="196" class="mono">delegation_tools</text>
-  <line class="edge" x1="554" y1="162" x2="568" y2="162" marker-end="url(#arrow)"/>
-
-  <!-- What the monitor reads, as escaped, tagged text. -->
-  <rect class="card" x="570" y="40" width="314" height="244" rx="8"/>
-  <text x="586" y="64" class="title">What the monitor reads</text>
-  <text x="586" y="92" class="code"><tspan class="tag">&lt;user&gt;</tspan>Summarise q3.md<tspan class="tag">&lt;/user&gt;</tspan></text>
-  <text x="586" y="114" class="code"><tspan class="tag">&lt;tool_call name="read_file"&gt;</tspan></text>
-  <text x="602" y="132" class="code">{"path": "q3.md"}<tspan class="tag">&lt;/tool_call&gt;</tspan></text>
-  <text x="586" y="154" class="code"><tspan class="tag">&lt;subagent_report name="task"&gt;</tspan></text>
-  <text x="602" y="172" class="code">Q3 revenue rose 4%.</text>
-  <text x="586" y="190" class="code"><tspan class="tag">&lt;/subagent_report&gt;</tspan></text>
-  <text x="586" y="216" class="code"><tspan class="proposed">&lt;proposed_step&gt;</tspan></text>
-  <text x="602" y="234" class="code"><tspan class="tag">&lt;tool_call name="http_post"&gt;</tspan>...</text>
-  <text x="586" y="252" class="code"><tspan class="proposed">&lt;/proposed_step&gt;</tspan></text>
-  <text x="586" y="274" class="small">then the monitor scores the proposed step</text>
+  <defs><marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="9" markerHeight="9" markerUnits="userSpaceOnUse" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="head"/></marker></defs>
+  <text x="32.0" y="44.0" text-anchor="start"><tspan class="title">Choose what the monitor reads</tspan></text>
+  <text x="32.0" y="96.0" text-anchor="start"><tspan class="small">read by the default view, </tspan><tspan class="mono">Channel.ACTIONS</tspan></text>
+  <rect class="box" x="32.0" y="112.0" width="180.0" height="34" rx="6"/>
+  <text x="122.0" y="134.0" text-anchor="middle" class="mono">USER</text>
+  <text x="226.0" y="134.0" text-anchor="start" class="small">the task, notes and feedback</text>
+  <rect class="box" x="32.0" y="158.0" width="180.0" height="34" rx="6"/>
+  <text x="122.0" y="180.0" text-anchor="middle" class="mono">TOOL_CALLS</text>
+  <text x="226.0" y="180.0" text-anchor="start" class="small">tool calls and errors</text>
+  <rect class="box" x="32.0" y="204.0" width="180.0" height="34" rx="6"/>
+  <text x="122.0" y="226.0" text-anchor="middle" class="mono">SUBAGENT_REPORTS</text>
+  <text x="226.0" y="226.0" text-anchor="start" class="small">what subagents report</text>
+  <text x="32.0" y="274.0" text-anchor="start" class="small">left out by default, each one flag away</text>
+  <rect class="box dashed" x="32.0" y="290.0" width="180.0" height="34" rx="6"/>
+  <text x="122.0" y="312.0" text-anchor="middle" class="mono  soft">REASONING</text>
+  <text x="226.0" y="312.0" text-anchor="start" class="small">the agent&#x27;s reasoning</text>
+  <rect class="box dashed" x="32.0" y="336.0" width="180.0" height="34" rx="6"/>
+  <text x="122.0" y="358.0" text-anchor="middle" class="mono  soft">AGENT_TEXT</text>
+  <text x="226.0" y="358.0" text-anchor="start" class="small">the agent&#x27;s prose</text>
+  <rect class="box dashed" x="32.0" y="382.0" width="180.0" height="34" rx="6"/>
+  <text x="122.0" y="404.0" text-anchor="middle" class="mono  soft">TOOL_RESULTS</text>
+  <text x="226.0" y="404.0" text-anchor="start" class="small">raw tool output</text>
+  <text x="32.0" y="450.0" text-anchor="start" class="small">The proposed step&#x27;s tool calls are always shown,</text>
+  <text x="32.0" y="472.0" text-anchor="start" class="small">and its text when it is a final answer.</text>
+  <rect class="box" x="536.0" y="112.0" width="432.0" height="102.0" rx="6"/>
+  <text x="752.0" y="143.0" text-anchor="middle" class="title">MonitorView</text>
+  <text x="752.0" y="165.0" text-anchor="middle"><tspan class="mono">channels</tspan><tspan class="small">, </tspan><tspan class="mono">most_recent_entries</tspan><tspan class="small">,</tspan></text>
+  <text x="752.0" y="186.0" text-anchor="middle"><tspan class="mono">delegation_tools</tspan></text>
+  <rect class="box" x="536.0" y="262.0" width="432.0" height="291.0" rx="6"/>
+  <text x="556.0" y="292.0" text-anchor="start" class="title">What the monitor reads</text>
+  <text x="556.0" y="316.0" text-anchor="start" class="mono">&lt;user&gt;Summarise q3.md&lt;/user&gt;</text>
+  <text x="556.0" y="337.0" text-anchor="start" class="mono">&lt;tool_call name=&quot;read_file&quot;&gt;</text>
+  <text x="572.0" y="358.0" text-anchor="start" class="mono">{&quot;path&quot;: &quot;q3.md&quot;}&lt;/tool_call&gt;</text>
+  <text x="556.0" y="379.0" text-anchor="start" class="mono">&lt;tool_call name=&quot;task&quot;&gt;</text>
+  <text x="572.0" y="400.0" text-anchor="start" class="mono">{&quot;subagent_type&quot;: &quot;researcher&quot;}</text>
+  <text x="572.0" y="421.0" text-anchor="start" class="mono">&lt;/tool_call&gt;</text>
+  <text x="556.0" y="442.0" text-anchor="start" class="mono">&lt;subagent_report name=&quot;task&quot;&gt;</text>
+  <text x="572.0" y="463.0" text-anchor="start" class="mono">Q3 revenue rose 4%.&lt;/subagent_report&gt;</text>
+  <text x="556.0" y="484.0" text-anchor="start" class="mono">&lt;proposed_step&gt;</text>
+  <text x="572.0" y="505.0" text-anchor="start" class="mono">&lt;tool_call name=&quot;http_post&quot;&gt;...</text>
+  <text x="556.0" y="526.0" text-anchor="start" class="mono">&lt;/proposed_step&gt;</text>
+  <path class="edge" d="M752.0,214.0 L752.0,260.0" marker-end="url(#arrow)"/>
+  <text x="764.0" y="244.0" text-anchor="start" class="small">chooses the entries</text>
+  <text x="752.0" y="583.0" text-anchor="middle" class="small">then the monitor scores the proposed step</text>
 </svg>

@@ -32,7 +32,7 @@ repos:
         require_serial: true
       - id: pytest
         name: unit tests
-        entry: uv run --group dev pytest -q
+        entry: env REQUIRE_DOCS_GROUP=1 uv run --group dev --group docs pytest -q
         language: system
         types: [python]
         pass_filenames: false

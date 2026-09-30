@@ -5,6 +5,8 @@ tells the agent why, and lets it try again. An honest agent that overreached
 can then finish the task by a safer route. After too many blocks, a fallback
 takes over: the run halts, or a trusted model writes the step.
 
+[TOC]
+
 The protocol follows Claude Code's auto mode [@hughes2026automode], including
 its limits of three blocks in a row and twenty in all.
 

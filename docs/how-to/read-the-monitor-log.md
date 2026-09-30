@@ -284,6 +284,7 @@ The library logs through Python's `logging`, under `langchain_sync_monitors`:
 | `langchain_sync_monitors.monitors.guard` | `DEBUG` | A guard model returned log-probabilities in a format the monitor cannot read |
 | `langchain_sync_monitors.monitors.guard` | `WARNING` | A guard model returned log-probabilities without a readable label, so the step is treated as suspicious |
 | `langchain_sync_monitors.task_authorship` | `WARNING` | A run started after one that stopped before its end, so its new human messages are notes from unconfirmed input: they authorise nothing and do not lift a halt |
+| `langchain_sync_monitors.task_authorship` | `WARNING` | A tool wrote a state key only the monitor writes, every monitor key but `monitor_log`; the write is dropped, and the message names the tool and the keys |
 | `langchain_sync_monitors.concurrency` | `WARNING` | A concurrent call failed after another one already had |
 | `langchain_sync_monitors._langchain` | `ERROR` | Writing a monitor event to the custom stream failed; the step stands |
 

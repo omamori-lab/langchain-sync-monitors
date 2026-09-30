@@ -949,6 +949,9 @@ limit is linked from where it arises above.
   it raises `SynchronousRunError`, and inside one it never fires, because the
   synchronous call blocks the loop. Use `ainvoke()` for protocols that need
   asyncio.
+- **More graph steps.** A run of N agent steps needs a `recursion_limit` of
+  4N + 2 rather than 2N, and each further monitor adds another 2N + 2
+  ([graph steps](#graph-steps)).
 - **Unchecked option types.** Options outside those the
   [option checks](#option-checks) cover are not type-checked yet:
   `MonitorMiddleware(label=5)` is accepted, and a monitor or `MonitorView`
@@ -957,6 +960,9 @@ limit is linked from where it arises above.
 
 ### Subagents and the thread total
 
+- **A monitor on the main agent alone.** It judges the `task` call and reads
+  the report, but not the subagent's steps in between, and nothing warns.
+  `monitor_subagents` gives each subagent a monitor ([subagents](#subagents)).
 - **Crashed subagents lose their records.** A subagent's records reach its
   parent only in the result of the call that started it, so a subagent whose
   run raises returns none: its steps, flagged ones and halts included, are

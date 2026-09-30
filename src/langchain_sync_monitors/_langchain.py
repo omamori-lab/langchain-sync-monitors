@@ -98,8 +98,8 @@ def cast_to_tool_call_result(results: ToolCallResults) -> ToolCallResult:
 MESSAGES_KEY = "messages"
 """The state key that holds an agent's conversation."""
 
-type MessagesRewrite = Callable[[list[BaseMessage]], list[BaseMessage]]
-"""Returns the messages to write in place of the ones a command's update writes."""
+type MessageRewrite = Callable[[BaseMessage], BaseMessage]
+"""Returns the message to write in place of one a command's update writes."""
 
 type UpdateValue = Any
 """A value a state update writes under one key, which LangGraph leaves untyped."""
@@ -179,43 +179,51 @@ def read_overwrite(value: UpdateValue) -> tuple[bool, UpdateValue]:
     return reader(value) if callable(reader) else read_overwrite_forms(value)
 
 
-def rewrite_messages_value(value: UpdateValue, *, rewrite: MessagesRewrite) -> WrittenMessages:
+def rewrite_messages_value(value: UpdateValue, *, rewrite: MessageRewrite) -> WrittenMessages:
     """Return what to write to `messages` in place of one value an update writes there.
 
     The value is converted to messages first, as LangGraph's message reducer
     converts one message or a list, given as messages, dictionaries, tuples
-    or strings. A value LangGraph reads as an `Overwrite`, in any of its
-    forms, bypasses the reducer and replaces the conversation
-    [@langgraph2026], so it stays an `Overwrite`, of the rewritten messages.
+    or strings, and each message is rewritten. A value LangGraph reads as an
+    `Overwrite`, in any of its forms, bypasses the reducer and replaces the
+    conversation [@langgraph2026], so it stays an `Overwrite`, of the
+    rewritten messages.
     """
     is_overwrite, overwritten = read_overwrite(value)
     written = overwritten if is_overwrite else value
-    messages = rewrite(convert_to_messages(written if isinstance(written, list) else [written]))
+    converted = convert_to_messages(written if isinstance(written, list) else [written])
+    messages = [rewrite(message) for message in converted]
     return Overwrite(messages) if is_overwrite else messages
 
 
-def rewrite_update_pairs(pairs: UpdatePairs, *, rewrite: MessagesRewrite) -> UpdatePairs:
+def rewrite_update_pairs(pairs: UpdatePairs, *, rewrite: MessageRewrite) -> UpdatePairs:
     """Return the pairs with every value written to `messages` rewritten.
 
     A key is compared with `==`, as LangGraph finds its channel, so a key
-    that only its own `__ne__` sets apart is still read as `messages`. A
-    value written twice, as by a dataclass that annotates `messages` in two
-    of its classes, is rewritten once, so both writes stay the same object,
-    as LangGraph would write them.
+    that only its own `__ne__` sets apart is still read as `messages`. Each
+    write is converted on its own, as the message reducer converts it, so a
+    message given as a dictionary, a tuple or a string is a new message in
+    every write, as it is in LangGraph. A message object written more than
+    once, as by a dataclass that annotates `messages` in two of its classes,
+    is rewritten once, so every write holds the same copy. The reducer gives
+    a message without an id its id in place and keeps one id once
+    [@langgraph2026], so it keeps that copy once, as it would the original.
     """
-    rewrites: dict[int, WrittenMessages] = {}
-    rewritten: list[tuple[str, UpdateValue]] = []
-    for key, value in pairs:
-        if key == MESSAGES_KEY:
-            if id(value) not in rewrites:
-                rewrites[id(value)] = rewrite_messages_value(value, rewrite=rewrite)
-            rewritten.append((key, rewrites[id(value)]))
-        else:
-            rewritten.append((key, value))
-    return rewritten
+    rewrites: dict[int, tuple[BaseMessage, BaseMessage]] = {}
+
+    def rewrite_once(message: BaseMessage) -> BaseMessage:
+        # The original is kept with its copy, so its id is not reused while the pairs are read.
+        if id(message) not in rewrites:
+            rewrites[id(message)] = (message, rewrite(message))
+        return rewrites[id(message)][1]
+
+    return [
+        (key, rewrite_messages_value(value, rewrite=rewrite_once) if key == MESSAGES_KEY else value)
+        for key, value in pairs
+    ]
 
 
-def rewrite_update_messages(command: Command[Any], *, rewrite: MessagesRewrite) -> Command[Any]:
+def rewrite_update_messages(command: Command[Any], *, rewrite: MessageRewrite) -> Command[Any]:
     """Return the command with every value its update writes to `messages` rewritten.
 
     A dict stays a dict, the shape LangChain's and Deep Agents' middleware

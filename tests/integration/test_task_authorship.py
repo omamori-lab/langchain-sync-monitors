@@ -845,6 +845,83 @@ def replace_conversation(
 
 
 @dataclass
+class NoteUpdate:
+    """An update that writes messages given in any form the message reducer reads."""
+
+    messages: list[object]
+
+
+@dataclass
+class NoteUpdateWrittenTwice(NoteUpdate):
+    """An update whose `messages` two classes annotate, so LangGraph writes it twice."""
+
+    messages: list[object] = field(default_factory=list)
+
+
+NOTE_FORMS: dict[str, object] = {
+    "message": HumanMessage("A note."),
+    "dictionary": {"role": "user", "content": "A note."},
+    "tuple": ("user", "A note."),
+    "string": "A note.",
+}
+
+
+@tool
+def write_a_note_twice(
+    shape: str,
+    form: str,
+    tool_call_id: Annotated[str, InjectedToolCallId],
+) -> Command[None]:
+    """Write a note to the conversation, in an update that writes it twice."""
+    note = NOTE_FORMS[form]
+    if isinstance(note, BaseMessage):
+        note = note.model_copy()
+    written: list[object] = [ToolMessage("Noted.", tool_call_id=tool_call_id), note]
+    if shape == "pairs":
+        return Command[None](update=(("messages", written), ("messages", written)))
+    return Command[None](update=NoteUpdateWrittenTwice(messages=written))
+
+
+def read_types_and_texts(state: dict[str, Any]) -> list[tuple[str, str]]:
+    return [(message.type, message.text) for message in state["messages"]]
+
+
+@pytest.mark.parametrize("form", NOTE_FORMS.keys())
+@pytest.mark.parametrize("shape", ["pairs", "dataclass"])
+def test_a_note_written_twice_lands_as_often_as_without_the_monitor(
+    run_mode: RunMode,
+    shape: str,
+    form: str,
+) -> None:
+    # Arrange: LangGraph keeps a message object written twice once, and a dictionary twice
+    def build_agent(
+        middleware: list[AgentMiddleware[Any, Any, Any]],
+    ) -> CompiledStateGraph[Any, Any, Any, Any]:
+        step = build_tool_call_message(
+            tool_name="write_a_note_twice",
+            call_id="call-note",
+            arguments={"shape": shape, "form": form},
+        )
+        model = ScriptedChatModel(responses=[step, AIMessage("Done.")])
+        return create_agent(model=model, tools=[write_a_note_twice], middleware=middleware)
+
+    monitor = MonitorMiddleware(
+        monitor=RenderingMonitor(), protocol=TrustedMonitoring(flag_threshold=0.6)
+    )
+
+    # Act
+    unmonitored = run_agent(build_agent([]), mode=run_mode, task=TASK)
+    monitored = run_agent(build_agent([monitor]), mode=run_mode, task=TASK)
+
+    # Assert
+    assert read_types_and_texts(monitored) == read_types_and_texts(unmonitored)
+    notes = [message for message in monitored["messages"] if message.text == "A note."]
+    assert {message.additional_kwargs.get("lc_source") for message in notes} == {
+        "write_a_note_twice"
+    }
+
+
+@dataclass
 class ReplyingState:
     """The state of a graph a tool calls, which answers its parent graph."""
 

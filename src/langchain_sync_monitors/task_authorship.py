@@ -308,19 +308,16 @@ def is_unchanged_write_back(
     return existing is not None and existing == message
 
 
-def relabel_written_messages(
-    messages: Sequence[BaseMessage],
+def relabel_unless_written_back(
+    message: BaseMessage,
     *,
     tool_name: str,
     existing_messages: Mapping[str, BaseMessage],
-) -> list[BaseMessage]:
-    """Relabel the messages a tool writes, except the ones it writes back unchanged."""
-    return [
-        message
-        if is_unchanged_write_back(message, existing_messages=existing_messages)
-        else relabel_tool_written_message(message, tool_name=tool_name)
-        for message in messages
-    ]
+) -> BaseMessage:
+    """Relabel a message a tool writes, unless the tool writes it back unchanged."""
+    if is_unchanged_write_back(message, existing_messages=existing_messages):
+        return message
+    return relabel_tool_written_message(message, tool_name=tool_name)
 
 
 def relabel_tool_command(
@@ -345,8 +342,8 @@ def relabel_tool_command(
     """
     return rewrite_update_messages(
         command,
-        rewrite=lambda messages: relabel_written_messages(
-            messages, tool_name=tool_name, existing_messages=existing_messages
+        rewrite=lambda message: relabel_unless_written_back(
+            message, tool_name=tool_name, existing_messages=existing_messages
         ),
     )
 

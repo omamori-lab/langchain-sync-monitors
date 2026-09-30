@@ -99,8 +99,8 @@ from langchain_sync_monitors.spans import (
     trace_decision,
     trace_decision_sync,
 )
+from langchain_sync_monitors.state_keys import REWRITTEN_INPUTS_KEY, TASK_MESSAGES_KEY
 from langchain_sync_monitors.task_authorship import (
-    TASK_MESSAGES_KEY,
     build_run_end_update,
     build_step_start_update,
     mark_tool_written_notes,
@@ -473,6 +473,7 @@ class MonitorMiddleware(AgentMiddleware[MonitorState, AgentContext, StructuredOu
             task_author=self.task_author,
             task_message_ids=read_message_ids(request.state, key=TASK_MESSAGES_KEY),
             run_inputs=read_current_run_inputs(request.state),
+            rewritten_input_ids=read_message_ids(request.state, key=REWRITTEN_INPUTS_KEY),
             previous_records=previous_records,
             blocks_in_thread=count_blocks_in_thread(request.state, monitor=self.label),
             new_subagent_blocks=count_new_subagent_blocks(

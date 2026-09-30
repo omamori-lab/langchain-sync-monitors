@@ -252,6 +252,7 @@ def test_two_monitors_on_one_agent_count_their_own_steps(run_mode: RunMode) -> N
         "monitor_task_messages",
         "monitor_seen_human_messages",
         "monitor_run_inputs",
+        "monitor_rewritten_inputs",
         "monitor_inputs_at_halt",
     ],
 )

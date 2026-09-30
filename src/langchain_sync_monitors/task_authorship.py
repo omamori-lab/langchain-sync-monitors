@@ -19,13 +19,13 @@ context note, in the state as well as in what the monitor reads.
   message a tool writes keeps a source only the monitor writes, whatever
   shape the tool's update takes, a command it raises as a `ParentCommand`
   included; a message the tool writes back unchanged, under its id, is left
-  as it was, and one it writes under the id of a human message the monitor
-  saw and the state no longer holds loses that id. A tool's `Command` writes
-  to the state keys only the monitor writes, `MONITOR_STATE_KEYS`, are
-  dropped with a warning, so no command a tool returns or raises can record
-  a message as a run's input or keep words of its own as the user's. A
-  `Send` a tool's command carries reaches another node's input, not these
-  writes, and stays open (#76).
+  as it was. A tool's `Command` writes to the state keys only the monitor
+  writes, `MONITOR_STATE_KEYS`, are dropped with a warning, so no command a
+  tool returns or raises can record a message as a run's input or keep
+  words of its own as the user's. When a tool writes a message under the id
+  of a human message the monitor has seen, the monitor records that id
+  under `REWRITTEN_INPUTS_KEY`, so it never takes that message's place for
+  the input's. Every id stays as the tool wrote it.
 - `RUN_OPEN_KEY` is set at the start of a run and of each step, and cleared
   when the run reaches the monitor's `after_agent` hook. A run that starts
   while it is still set follows one that stopped early, or a fork from a
@@ -35,6 +35,14 @@ context note, in the state as well as in what the monitor reads.
   the thread. The prompt tells the judge that such a note may be the user's
   own words: it authorises nothing, and only a limit it sets that narrows
   what the agent may do still applies, since no note removes a safeguard.
+
+The checks on a tool's writes cover what its update says, whatever the model
+chose as the tool's arguments: the updates a tool returns or raises, read as
+LangGraph writes them. They do not cover tool code written to defeat them,
+which runs in the same process as the monitor: it can mutate the state it is
+handed in place, or put its words in an object whose own methods lie about
+them. A `Send` a tool's command carries reaches another node's input, not
+these writes, and stays open (#76).
 
 Two paths stay open, both through another middleware listed before the
 monitor. Its `before_agent` hook runs before the monitor's own, so an untagged
@@ -53,6 +61,7 @@ from typing import TypeGuard
 
 from langchain_core.messages import BaseMessage, HumanMessage, RemoveMessage, ToolMessage
 from langgraph.errors import ParentCommand
+from langgraph.graph.message import REMOVE_ALL_MESSAGES
 from langgraph.types import Command
 
 from langchain_sync_monitors._langchain import (
@@ -65,6 +74,7 @@ from langchain_sync_monitors._langchain import (
 )
 from langchain_sync_monitors.state_keys import (
     MONITOR_STATE_KEYS,
+    REWRITTEN_INPUTS_KEY,
     RUN_OPEN_KEY,
     SEEN_HUMAN_MESSAGES_KEY,
     TASK_MESSAGES_KEY,
@@ -308,9 +318,7 @@ def is_unchanged_write_back(
     what a message says, too: Deep Agents' `FilesystemMiddleware` shows a
     human message that carries `additional_kwargs["lc_evicted_to"]` as a stub
     that names that path [@deepagents2026]. So the whole message is compared,
-    its exact type included, field by field through `model_dump`: a subclass
-    whose own `__eq__` calls it equal to anything is still told apart, since
-    Python asks a subclass first.
+    its exact type included, field by field through `model_dump`.
     """
     existing = existing_messages.get(message.id) if message.id else None
     return (
@@ -322,41 +330,77 @@ def is_unchanged_write_back(
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class StateBeforeTool:
-    """What the state held when a tool ran, as the relabelling of its writes reads it.
+    """What the state held when a tool's write lands, as the relabelling of it reads it.
 
-    `existing_messages` holds its messages by id. `removed_seen_ids` holds
-    the ids of the human messages the monitor has seen that it no longer
-    holds, such as a run's input a tool removed.
+    `existing_messages` holds its messages by id, and `seen_ids` the ids of
+    the human messages the monitor has seen.
     """
 
     existing_messages: Mapping[str, BaseMessage]
-    removed_seen_ids: frozenset[str]
+    seen_ids: frozenset[str]
 
 
 def read_state_before_tool(state: object) -> StateBeforeTool:
-    """Return what the state held when a tool ran: its messages, and the seen ids it lost."""
-    existing_messages = read_existing_messages(state)
-    seen_ids = read_message_ids(state, key=SEEN_HUMAN_MESSAGES_KEY)
+    """Return what the state held when a tool ran: its messages, and the ids the monitor saw."""
     return StateBeforeTool(
-        existing_messages=existing_messages,
-        removed_seen_ids=seen_ids - existing_messages.keys(),
+        existing_messages=read_existing_messages(state),
+        seen_ids=read_message_ids(state, key=SEEN_HUMAN_MESSAGES_KEY),
     )
 
 
-def reissue_removed_seen_id(message: BaseMessage, *, before: StateBeforeTool) -> BaseMessage:
-    """Return a tool's message without an id when it names a seen human message the state lost.
+def remove_from_state_before_tool(
+    before: StateBeforeTool,
+    *,
+    written: Sequence[BaseMessage],
+) -> StateBeforeTool:
+    """Return what the state holds once an earlier item of a tool's result removed messages.
 
-    LangGraph adds a message under an id the state lacks at the end
-    [@langgraph2026], far from where the message that had the id stood. The
-    monitor places a kept run input just before a message under its id, which
-    is right for a rewrite in place, so such a message must not keep the id:
-    a tool could otherwise move the user's answer after a question the agent
-    asked later. Without an id, LangGraph gives it a fresh one. A
-    `RemoveMessage` keeps its id, which is what it removes.
+    Each item of a list result is a write of its own [@langgraph2026], so a
+    message a later item writes under an id an earlier one removed is added
+    anew, not written back. `REMOVE_ALL_MESSAGES` removes every message.
     """
-    if isinstance(message, RemoveMessage) or message.id not in before.removed_seen_ids:
+    removed = {message.id for message in written if isinstance(message, RemoveMessage)}
+    if not removed:
+        return before
+    existing = {
+        message_id: message
+        for message_id, message in before.existing_messages.items()
+        if REMOVE_ALL_MESSAGES not in removed and message_id not in removed
+    }
+    return StateBeforeTool(existing_messages=existing, seen_ids=before.seen_ids)
+
+
+def read_written_messages(result: ToolCallResult) -> list[BaseMessage]:
+    """Return the messages one item of a tool's result writes, read as LangGraph reads them."""
+    if not isinstance(result, Command):
+        return [result]
+    written: list[BaseMessage] = []
+
+    def collect(message: BaseMessage) -> BaseMessage:
+        written.append(message)
         return message
-    return message.model_copy(update={"id": None})
+
+    rewrite_update_messages(result, rewrite=collect)
+    return written
+
+
+def find_rewritten_ids(written: Sequence[BaseMessage], *, before: StateBeforeTool) -> list[str]:
+    """Return the ids of the seen human messages under which a tool writes a message."""
+    return list(
+        dict.fromkeys(
+            message.id
+            for message in written
+            if message.id in before.seen_ids and not isinstance(message, RemoveMessage)
+        ),
+    )
+
+
+def record_rewritten_ids(command: Command, *, rewritten_ids: list[str]) -> Command:
+    """Return a tool's command that also records the seen ids it writes under, when it does."""
+    if not rewritten_ids:
+        return command
+    pairs = [*read_update_pairs(command), (REWRITTEN_INPUTS_KEY, rewritten_ids)]
+    return replace_update_pairs(command, pairs=pairs)
 
 
 def relabel_unless_written_back(
@@ -368,8 +412,7 @@ def relabel_unless_written_back(
     """Relabel a message a tool writes, unless the tool writes it back unchanged."""
     if is_unchanged_write_back(message, existing_messages=before.existing_messages):
         return message
-    reissued = reissue_removed_seen_id(message, before=before)
-    return relabel_tool_written_message(reissued, tool_name=tool_name)
+    return relabel_tool_written_message(message, tool_name=tool_name)
 
 
 def relabel_tool_command(
@@ -391,14 +434,18 @@ def relabel_tool_command(
     with only a `goto`, is returned as it is. The reader is private to
     LangGraph; without it, an update other than a dict or pairs raises
     `MonitorError`. The command's writes to `MONITOR_STATE_KEYS`, in any
-    update shape, are dropped first, by `drop_monitor_state_writes`.
+    update shape, are dropped first, by `drop_monitor_state_writes`, and the
+    ids of the seen human messages it writes under are recorded after, by
+    `record_rewritten_ids`.
     """
-    return rewrite_update_messages(
+    rewritten_ids = find_rewritten_ids(read_written_messages(command), before=before)
+    relabelled = rewrite_update_messages(
         drop_monitor_state_writes(command, tool_name=tool_name),
         rewrite=lambda message: relabel_unless_written_back(
             message, tool_name=tool_name, before=before
         ),
     )
+    return record_rewritten_ids(relabelled, rewritten_ids=rewritten_ids)
 
 
 def drop_monitor_state_writes(command: Command, *, tool_name: str) -> Command:
@@ -431,8 +478,7 @@ def drop_monitor_state_writes(command: Command, *, tool_name: str) -> Command:
 def is_monitor_state_key(key: str) -> bool:
     """Tell whether an update's key names a state key only the monitor writes.
 
-    A key is compared with `==`, as LangGraph finds its channel, so a string
-    subclass that only its own `__ne__` sets apart is still caught.
+    A key is compared with `==`, as LangGraph finds its channel.
     """
     return any(key == name for name in MONITOR_STATE_KEYS)
 
@@ -443,15 +489,22 @@ def relabel_tool_result(
     tool_name: str,
     before: StateBeforeTool,
 ) -> ToolCallResult:
-    """Relabel what one item of a tool's result writes, a tool message or a `Command`."""
+    """Relabel what one item of a tool's result writes, a tool message or a `Command`.
+
+    A tool message under the id of a seen human message becomes a `Command`
+    that writes it and records that id, since only a command writes a key.
+    """
     if isinstance(result, Command):
         return relabel_tool_command(result, tool_name=tool_name, before=before)
-    if is_unchanged_write_back(result, existing_messages=before.existing_messages):
-        return result
-    reissued = reissue_removed_seen_id(result, before=before)
-    relabelled = relabel_tool_written_message(reissued, tool_name=tool_name)
-    # A tool message stays one; the check only narrows the type for the type checker.
-    return relabelled if isinstance(relabelled, ToolMessage) else result
+    message = result
+    if not is_unchanged_write_back(result, existing_messages=before.existing_messages):
+        relabelled = relabel_tool_written_message(result, tool_name=tool_name)
+        # A tool message stays one; the check only narrows the type for the type checker.
+        message = relabelled if isinstance(relabelled, ToolMessage) else result
+    rewritten_ids = find_rewritten_ids([message], before=before)
+    if not rewritten_ids:
+        return message
+    return Command(update={"messages": [message], REWRITTEN_INPUTS_KEY: rewritten_ids})
 
 
 def read_existing_messages(state: object) -> dict[str, BaseMessage]:
@@ -492,17 +545,19 @@ def mark_tool_written_notes(
     monitor writes, and a human message left without a source becomes a
     note named after the tool, or `application` for a tool named after one
     of the monitor's sources. A write to a state key only the monitor
-    writes is dropped, and a message written under the id of a human message
-    the monitor saw and the state no longer holds loses that id, by
-    `reissue_removed_seen_id`. A message the tool writes back under its id,
+    writes is dropped, and the ids of the seen human messages the tool writes
+    under are recorded. Each item of a list result is read against the state
+    the items before it leave. A message the tool writes back under its id,
     unchanged in every field, keeps its author and its source. Tagged where
     it is written, a human message stays a note in every later run, even one
     that starts before the monitor has seen it, and in a history the
     application stores and replays.
     """
     before = read_state_before_tool(state)
-    if isinstance(results, list):
-        return [
-            relabel_tool_result(result, tool_name=tool_name, before=before) for result in results
-        ]
-    return relabel_tool_result(results, tool_name=tool_name, before=before)
+    if not isinstance(results, list):
+        return relabel_tool_result(results, tool_name=tool_name, before=before)
+    relabelled: list[ToolCallResult] = []
+    for result in results:
+        relabelled.append(relabel_tool_result(result, tool_name=tool_name, before=before))
+        before = remove_from_state_before_tool(before, written=read_written_messages(result))
+    return relabelled

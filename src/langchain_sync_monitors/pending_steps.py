@@ -219,6 +219,7 @@ class PendingStepOptions(TypedDict):
     task_author: TaskAuthor
     task_message_ids: frozenset[str]
     run_inputs: tuple[RunInput, ...]
+    rewritten_input_ids: frozenset[str]
     previous_records: tuple[StepRecord, ...]
     blocks_in_thread: int
     new_subagent_blocks: int
@@ -249,7 +250,8 @@ class MonitoredStep(PendingStep):
     run's input; the monitor reads every other human message as a context
     note. `run_inputs` holds the text of each of them, and of input a run
     could not confirm, which the monitor reads even once the request no
-    longer holds it, the latter as a note. The middleware counts
+    longer holds it, the latter as a note; `rewritten_input_ids` holds the
+    ones a tool wrote a message under. The middleware counts
     `blocks_in_thread` and `new_subagent_blocks` from the log and from the
     agent's `Delegation`.
     `judged_samples` collects every sample the monitor has judged so far, in
@@ -264,6 +266,7 @@ class MonitoredStep(PendingStep):
     task_author: TaskAuthor
     task_message_ids: frozenset[str] = frozenset()
     run_inputs: tuple[RunInput, ...] = ()
+    rewritten_input_ids: frozenset[str] = frozenset()
     previous_records: tuple[StepRecord, ...] = ()
     blocks_in_thread: int = 0
     new_subagent_blocks: int = 0
@@ -303,7 +306,10 @@ class MonitoredStep(PendingStep):
         """
         marked = mark_context_notes(conversation, task_message_ids=self.task_message_ids)
         history = restore_run_inputs(
-            marked, run_inputs=self.run_inputs, task_message_ids=self.task_message_ids
+            marked,
+            run_inputs=self.run_inputs,
+            task_message_ids=self.task_message_ids,
+            rewritten_ids=self.rewritten_input_ids,
         )
         return MonitorInput(history=history, proposal=proposal, task_author=self.task_author)
 

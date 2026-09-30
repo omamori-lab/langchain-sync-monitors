@@ -45,7 +45,9 @@ class MonitorState(AgentState):
     from a message written during an earlier run. `monitor_run_inputs` holds
     the text of each run's input, and of input a run could not confirm, so
     the monitor reads it even once the model request no longer holds it;
-    `run_inputs` has the rule. `monitor_run_open`
+    `run_inputs` has the rule, and `monitor_rewritten_inputs` the ids of
+    those a tool wrote a message under, whose place that message does not
+    mark. `monitor_run_open`
     is true from the start of a run until it reaches the monitor's
     `after_agent` hook, so a run can tell that the last one stopped early.
 
@@ -56,7 +58,7 @@ class MonitorState(AgentState):
     which pass through every checkpointer as `monitor_log` does, and its
     reducer keeps the latest entry for each monitor.
 
-    These five are private, so a subagent starts without its parent's and
+    These six are private, so a subagent starts without its parent's and
     returns none of its own, and a run's result leaves them out, though
     `stream_mode="values"`, `stream_mode="updates"` and `get_state` show
     them. Their reducers let stacked monitors write them in one node.
@@ -69,6 +71,7 @@ class MonitorState(AgentState):
         Annotated[list[str], PrivateStateAttr, merge_message_ids]
     ]
     monitor_run_inputs: NotRequired[Annotated[list[RunInput], PrivateStateAttr, merge_run_inputs]]
+    monitor_rewritten_inputs: NotRequired[Annotated[list[str], PrivateStateAttr, merge_message_ids]]
     monitor_run_open: NotRequired[Annotated[bool, PrivateStateAttr, keep_latest_flag]]
     monitor_inputs_at_halt: NotRequired[
         Annotated[list[InputsAtHalt], PrivateStateAttr, merge_inputs_at_halt]

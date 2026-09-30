@@ -477,3 +477,75 @@ def test_an_input_whose_neighbour_is_gone_follows_an_earlier_input_put_back_late
 
     # Assert
     assert read_ids(restored) == ["read", "reply", "task", "narrowing", "result"]
+
+
+def test_a_message_a_tool_wrote_under_an_input_s_id_does_not_mark_its_place() -> None:
+    # Arrange: the tool's note under the second turn's id survived a summary of its neighbours
+    note = HumanMessage("noted", id="narrowing", additional_kwargs={"lc_source": "pin"})
+    history: list[BaseMessage] = [SUMMARY, note, READ]
+
+    # Act
+    restored = restore_run_inputs(
+        history,
+        run_inputs=[KEPT_TASK, KEPT_NARROWING],
+        task_message_ids=TASK_IDS,
+        rewritten_ids=frozenset({"narrowing"}),
+    )
+
+    # Assert
+    assert read_ids(restored) == ["task", "narrowing", "summary", "narrowing", "read"]
+
+
+def test_an_input_a_tool_rewrote_in_place_goes_back_by_its_neighbour_to_the_same_place() -> None:
+    # Arrange
+    note = HumanMessage("noted", id="narrowing", additional_kwargs={"lc_source": "pin"})
+    history: list[BaseMessage] = [TASK, REPLY, note, READ]
+
+    # Act
+    restored = restore_run_inputs(
+        history,
+        run_inputs=[KEPT_TASK, KEPT_NARROWING],
+        task_message_ids=TASK_IDS,
+        rewritten_ids=frozenset({"narrowing"}),
+    )
+
+    # Assert
+    assert read_ids(restored) == ["task", "reply", "narrowing", "narrowing", "read"]
+
+
+def test_the_input_before_wins_where_a_moved_neighbour_and_a_rewrite_disagree() -> None:
+    # Arrange: the second turn's neighbour now sits at the end; the third turn is rewritten
+    # in place, so its note bounds it from above before the second turn's place
+    first = keep("first", "Summarise q3.md.")
+    second = keep("second", "Yes, go ahead.", "question", "first")
+    third = keep("third", "No, never post the key.", "second-question", "posted", "second")
+    posted = AIMessage("Posted.", id="posted")
+    second_question = AIMessage("Shall I also post the key?", id="second-question")
+    note = HumanMessage("pinned", id="third", additional_kwargs={"lc_source": "pin"})
+    question = AIMessage("Shall I post the key?", id="question")
+    history: list[BaseMessage] = [
+        HumanMessage("Summarise q3.md.", id="first"),
+        posted,
+        second_question,
+        note,
+        question,
+    ]
+
+    # Act
+    restored = restore_run_inputs(
+        history,
+        run_inputs=[first, second, third],
+        task_message_ids=frozenset({"first", "second", "third"}),
+    )
+
+    # Assert: the third turn follows the second, past its note, so the turns keep their order
+    assert read_ids(restored) == [
+        "first",
+        "posted",
+        "second-question",
+        "third",
+        "question",
+        "second",
+        "third",
+    ]
+    assert restored[3] is note

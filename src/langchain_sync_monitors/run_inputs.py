@@ -29,12 +29,14 @@ the kept turns, since the agent's model wrote it.
   the request alone, not in the state, is not followed.
 
 A kept input goes back just after the nearest of the three messages before
-it still there, else just before a message that took its id in place, else
-at the start, before the summary that replaced it and its neighbours. It
-always comes after the input before it, and before both the next input still
-there and any message under its id. A message under its id marks a place
-only because `task_authorship` takes the id from a message a tool writes once
-the state no longer holds the input, which LangGraph would add at the end.
+it still there, else just before a message that took its id, unless a tool
+wrote that message, else at the start, before the summary that replaced it
+and its neighbours. `task_authorship` records the ids a tool writes under,
+since LangGraph adds a message under an id the state lacks at the end; a
+tool's rewrite in place keeps the input's neighbour, so the input still goes
+back there. It comes before the next input still there and any message under
+its id, and after the input before it, which wins where the two disagree, so
+the inputs always keep their order.
 
 The judge reads every input whole on every step, even one Deep Agents shows
 the agent only as a preview, over 50,000 tokens by default, so a very large
@@ -245,16 +247,22 @@ def build_input_message(entry: RunInput) -> HumanMessage:
     return tag_as_context_note(message, source=UNCONFIRMED_INPUT_SOURCE)
 
 
-def find_input_slot(entry: RunInput, *, index_by_id: Mapping[str, int]) -> int:
+def find_input_slot(
+    entry: RunInput,
+    *,
+    index_by_id: Mapping[str, int],
+    rewritten_ids: Collection[str],
+) -> int:
     """Return where a missing input goes, as the index of the message it goes before.
 
     It goes just after the nearest message before it that is still there,
-    else just before the message that took its id in place, else at the start.
+    else just before a message that took its id, unless a tool wrote that
+    message, else at the start.
     """
     for previous_id in entry["previous_message_ids"]:
         if previous_id in index_by_id:
             return index_by_id[previous_id] + 1
-    return index_by_id.get(entry["id"], 0)
+    return 0 if entry["id"] in rewritten_ids else index_by_id.get(entry["id"], 0)
 
 
 def find_missing_input_slots(
@@ -262,12 +270,14 @@ def find_missing_input_slots(
     *,
     history: Sequence[BaseMessage],
     present_ids: Collection[str],
+    rewritten_ids: Collection[str],
 ) -> dict[str, int]:
     """Return, for each input the history lacks, the index of the message it goes before.
 
     Each one comes after the input before it, and before both the next input
     the history holds and a message that took its id, which was written after
-    it. So the inputs keep their order.
+    it. Where the two bounds cross, the lower one wins, so the inputs always
+    keep their order.
     """
     index_by_id = {message.id: index for index, message in enumerate(history) if message.id}
     slots: dict[str, int] = {}
@@ -283,7 +293,8 @@ def find_missing_input_slots(
         ]
         # A message under its id came after it.
         highest = min([*later_present, index_by_id.get(entry["id"], len(history))])
-        slot = min(max(find_input_slot(entry, index_by_id=index_by_id), lowest), highest)
+        candidate = find_input_slot(entry, index_by_id=index_by_id, rewritten_ids=rewritten_ids)
+        slot = max(min(candidate, highest), lowest)
         slots[entry["id"]] = slot
         lowest = slot
     return slots
@@ -325,6 +336,7 @@ def restore_run_inputs(
     *,
     run_inputs: Sequence[RunInput],
     task_message_ids: Collection[str],
+    rewritten_ids: Collection[str] = frozenset(),
 ) -> tuple[BaseMessage, ...]:
     """Return the monitor's copy of a conversation with every kept input in it, verbatim.
 
@@ -338,7 +350,9 @@ def restore_run_inputs(
     ]
     replaced = replace_changed_inputs(history, inputs=inputs)
     present_ids = find_present_input_ids(replaced, inputs=inputs)
-    slots = find_missing_input_slots(inputs, history=replaced, present_ids=present_ids)
+    slots = find_missing_input_slots(
+        inputs, history=replaced, present_ids=present_ids, rewritten_ids=rewritten_ids
+    )
     restored: list[BaseMessage] = []
     for index in range(len(replaced) + 1):
         restored.extend(

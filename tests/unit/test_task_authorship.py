@@ -7,6 +7,7 @@ from __future__ import annotations
 import logging
 from collections.abc import Callable
 from dataclasses import dataclass, field
+from typing import Any
 
 import pytest
 from langchain_core.messages import (
@@ -18,10 +19,11 @@ from langchain_core.messages import (
     ToolMessage,
 )
 from langgraph.errors import ParentCommand
+from langgraph.graph.message import REMOVE_ALL_MESSAGES
 from langgraph.types import Command, Overwrite
 from pydantic import BaseModel
 
-from langchain_sync_monitors._langchain import read_update_pairs
+from langchain_sync_monitors._langchain import ToolCallResult, read_update_pairs
 from langchain_sync_monitors.task_authorship import (
     build_run_input_update,
     mark_context_notes,
@@ -474,32 +476,36 @@ SEEN_TASK_STATE = {"messages": [REPLY_MESSAGE], "monitor_seen_human_messages": [
 """A state whose task the monitor saw, and a tool has since removed."""
 
 
-def read_written_ids(result: object) -> list[str | None]:
+def read_written(result: object, *, key: str) -> list[Any]:
     assert isinstance(result, Command)
-    [messages] = [value for key, value in read_update_pairs(result) if key == "messages"]
+    return [value for pair_key, value in read_update_pairs(result) if pair_key == key]
+
+
+def read_written_ids(result: object) -> list[str | None]:
+    [messages] = read_written(result, key="messages")
     return [message.id for message in messages]
 
 
 WRITES_UNDER_AN_ID = {
-    "the-removed-task": (SEEN_TASK_STATE, "task", [None]),
-    "a-message-the-state-holds": (
+    "the-removed-task": (SEEN_TASK_STATE, "task", [["task"]]),
+    "a-seen-message-the-state-holds": (
         {**SEEN_TASK_STATE, "messages": [TASK_MESSAGE]},
         "task",
-        ["task"],
+        [["task"]],
     ),
-    "an-id-the-monitor-never-saw": (SEEN_TASK_STATE, "progress", ["progress"]),
+    "an-id-the-monitor-never-saw": (SEEN_TASK_STATE, "progress", []),
 }
 
 
 @pytest.mark.parametrize(
-    ("state", "message_id", "expected_ids"),
+    ("state", "message_id", "expected_record"),
     WRITES_UNDER_AN_ID.values(),
     ids=WRITES_UNDER_AN_ID.keys(),
 )
-def test_a_tool_s_write_under_the_id_of_a_removed_seen_message_loses_that_id(
+def test_a_tool_s_write_under_a_seen_id_keeps_the_id_and_is_recorded(
     state: dict[str, object],
     message_id: str,
-    expected_ids: list[str | None],
+    expected_record: list[list[str]],
 ) -> None:
     # Arrange
     command = Command(update={"messages": [HumanMessage("noted", id=message_id)]})
@@ -508,11 +514,12 @@ def test_a_tool_s_write_under_the_id_of_a_removed_seen_message_loses_that_id(
     result = mark_tool_written_notes(command, tool_name="pin", state=state)
 
     # Assert
-    assert read_written_ids(result) == expected_ids
+    assert read_written_ids(result) == [message_id]
+    assert read_written(result, key="monitor_rewritten_inputs") == expected_record
 
 
-def test_a_removal_and_a_tool_message_under_a_removed_seen_id_are_told_apart() -> None:
-    # Arrange: a second removal keeps the id it removes; a tool message is reissued
+def test_a_removal_is_not_recorded_and_a_tool_message_is_recorded_in_a_command() -> None:
+    # Arrange
     command = Command(update={"messages": [RemoveMessage(id="task")]})
     answer = ToolMessage("Pinned.", tool_call_id="call-1", id="task")
 
@@ -521,6 +528,53 @@ def test_a_removal_and_a_tool_message_under_a_removed_seen_id_are_told_apart() -
     written = mark_tool_written_notes(answer, tool_name="pin", state=SEEN_TASK_STATE)
 
     # Assert
-    assert read_written_ids(removal) == ["task"]
-    assert isinstance(written, ToolMessage)
-    assert written.id is None
+    assert read_written(removal, key="monitor_rewritten_inputs") == []
+    assert read_written_ids(written) == ["task"]
+    assert read_written(written, key="monitor_rewritten_inputs") == [["task"]]
+
+
+@pytest.mark.parametrize("removal", ["task", REMOVE_ALL_MESSAGES], ids=["by-id", "remove-all"])
+def test_a_later_item_writing_back_what_an_earlier_one_removed_is_the_tool_s_note(
+    removal: str,
+) -> None:
+    # Arrange: one call removes the task, then writes it back unchanged in a second item
+    state = {"messages": [TASK_MESSAGE, REPLY_MESSAGE], "monitor_seen_human_messages": ["task"]}
+    results: list[ToolCallResult] = [
+        Command(update={"messages": [RemoveMessage(id=removal)]}),
+        Command(update={"messages": [TASK_MESSAGE]}),
+    ]
+
+    # Act
+    written = mark_tool_written_notes(results, tool_name="backup", state=state)
+
+    # Assert
+    assert isinstance(written, list)
+    [[message]] = read_written(written[1], key="messages")
+    assert read_sources([message]) == ["backup"]
+    assert read_written(written[1], key="monitor_rewritten_inputs") == [["task"]]
+
+
+def test_a_write_back_in_the_same_item_as_its_removal_keeps_its_author() -> None:
+    # Arrange: LangGraph puts a message removed and written in one write back in its place
+    state = {"messages": [TASK_MESSAGE, REPLY_MESSAGE], "monitor_seen_human_messages": ["task"]}
+    command = Command(update={"messages": [RemoveMessage(id="task"), TASK_MESSAGE]})
+
+    # Act
+    written = mark_tool_written_notes(command, tool_name="backup", state=state)
+
+    # Assert
+    [messages] = read_written(written, key="messages")
+    assert read_sources(messages) == [None, None]
+
+
+def test_a_command_a_tool_raises_for_the_parent_records_the_seen_ids_it_writes_under() -> None:
+    # Arrange
+    update = {"messages": [HumanMessage("noted", id="task"), ANSWER]}
+    bubble = ParentCommand(Command(graph=Command.PARENT, update=update))
+
+    # Act
+    relabel_parent_command(bubble, tool_name="report", state=SEEN_TASK_STATE)
+
+    # Assert
+    [command] = bubble.args
+    assert read_written(command, key="monitor_rewritten_inputs") == [["task"]]

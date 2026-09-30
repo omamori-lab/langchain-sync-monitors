@@ -61,11 +61,11 @@ change raises the minor version.
   `after_agent` hooks, which show as graph nodes in a trace and add two graph
   steps per model call and two per run, all counted by an explicit
   `recursion_limit`.
-- Five private state keys, `monitor_task_messages`,
-  `monitor_seen_human_messages`, `monitor_run_inputs`, `monitor_run_open` and
-  `monitor_inputs_at_halt`, which never enter a subagent's input or a run's
-  output but do appear in `stream_mode="values"`, `stream_mode="updates"` and
-  `get_state`.
+- Six private state keys, `monitor_task_messages`,
+  `monitor_seen_human_messages`, `monitor_run_inputs`,
+  `monitor_rewritten_inputs`, `monitor_run_open` and `monitor_inputs_at_halt`,
+  which never enter a subagent's input or a run's output but do appear in
+  `stream_mode="values"`, `stream_mode="updates"` and `get_state`.
 - `monitor_inputs_at_halt` keeps how many run inputs the thread had at each
   monitor's latest halt.
 - The monitor's hooks write back, by id, the human messages they tag as notes,

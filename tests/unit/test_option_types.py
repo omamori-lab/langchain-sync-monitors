@@ -1,10 +1,12 @@
-"""Every public constructor checks the type of every option when it is built.
+"""Constructors check the type of their options when they are built.
 
-Protocols, fallbacks, the middleware, monitors and `MonitorView` refuse an
-option of the wrong type with `ConfigurationError`. A limit given as a float,
-or a protocol given where a fallback belongs, used to build without error and
-fail only at the first suspicious step: with a `TypeError` or an
-`AttributeError`, during the attack the protocol exists for.
+Protocols, fallbacks, the middleware's monitor, protocol and enum options, the
+monitors, their decision models and `MonitorView` refuse an option of the
+wrong type with `ConfigurationError`. The middleware's `label` and
+`agent_name`, and `OpenRouterDecisionModel`'s `api_key`, are not checked here.
+A limit given as a float, or a protocol given where a fallback belongs, used to
+build without error and fail only at the first suspicious step: with a
+`TypeError` or an `AttributeError`, during the attack the protocol exists for.
 """
 
 from __future__ import annotations

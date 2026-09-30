@@ -33,17 +33,21 @@ change raises the minor version.
   them as a warning and re-raises the error.
 - A halted step ends the run, including in agents with structured output and
   no tools.
-- A halt stands until a later run brings new input: when a hook such as Deep
-  Agents' `RubricMiddleware` sends a halted run back to the model, each further
-  step halts again without calling the untrusted model, and its `halted`
-  record holds no samples.
-- No human message written during a run lifts a halt, a harness nudge or a note
-  from `unconfirmed_input` included; only a message recorded as a later run's
-  input does.
-- `ProviderToolWarning`, raised once per middleware when the model request
-  holds a server tool that Anthropic, OpenAI or Gemini runs itself, before the
-  monitor can judge the step; a server-side feature set on the model itself,
-  such as OpenRouter's web plugin, is not detected.
+- A halt stands until the thread records another run input: when a hook such
+  as Deep Agents' `RubricMiddleware` sends a halted run back to the model, each
+  further step halts again without calling the untrusted model, and its
+  `halted` record holds no samples.
+- A hook that rewrites, trims or removes messages cannot lift a halt, nor can a
+  harness nudge or a note from `unconfirmed_input`; an untagged human message
+  that another middleware's `before_agent` hook writes, or its `after_agent`
+  hook writes without a return to the model, counts as a run's input and does.
+- The private state key `monitor_inputs_at_halt`, which keeps how many run
+  inputs the thread had at each monitor's latest halt.
+- `ProviderToolWarning`, raised once per middleware when the model request, or
+  the model's own `bind_tools`, holds a server tool that Anthropic, OpenAI or
+  Gemini runs itself before the monitor can judge the step; a server-side
+  feature set on the model itself, such as OpenRouter's web plugin, is not
+  detected.
 - The middleware's `before_agent`, `before_model`, `after_model` and
   `after_agent` hooks, which show as graph nodes in a trace and add two graph
   steps per model call and two per run, all counted by an explicit
@@ -230,6 +234,8 @@ change raises the minor version.
   with an option of the wrong type, such as a float or `bool` limit, or the
   `DeferToTrusted` protocol where the `DeferToTrustedModel` fallback belongs;
   numpy integers count as whole numbers.
+- A threshold must be a real number from 0 to 1, a `Fraction` or `Decimal`
+  included; a string or a `bool` raises `ConfigurationError`.
 
 ### Fixed
 

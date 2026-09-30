@@ -11,9 +11,12 @@
 /* The rest of the custom palette -----------------------------------------
  *
  * mkdocs.yml sets `primary: custom` and `accent: custom`, so Material leaves
- * these shades to the site. They come from the brand tokens: sumi for the
- * primary shades, vermilion (seal) for the accent, and on-seal for text on
- * the accent.
+ * these shades to the site. They come from the brand tokens, some with an
+ * alpha: line for the light primary shade, paper and ink for faded text on the
+ * header, seal (vermilion) for the accent and on-seal for text on it. The dark
+ * primary shade is black, one step below the sumi header, which no token
+ * defines; Material paints only the repository link in the phone's navigation
+ * drawer with it.
  */
 [data-md-color-scheme="default"] {
   --md-primary-fg-color--light: #2B2B2B;
@@ -96,13 +99,13 @@
  * and the right-hand contents list (which the mobile drawer also shows). The
  * site navigation and the page title (h1) are not numbered.
  *
- * Never type a number into a Markdown heading: lanorme's DOCS-008 forbids it,
+ * Never type a number into a Markdown heading: lanorme's DOCS-008 flags it,
  * and the site adds the numbers.
  *
  * The content counters count only the h2 and h3 that are direct children of
- * the article. No docs page puts a heading inside an admonition, a tab or a
- * details block; one that did would show in the contents lists but not be
- * counted here, and the numbers would drift apart.
+ * the article. A heading inside an admonition, a tab or a details block would
+ * show in the contents lists but not be counted here, and the numbers would
+ * drift apart; tests/unit/test_docs_standard.py reports any such heading.
  */
 .md-content__inner {
   counter-reset: section-h2;

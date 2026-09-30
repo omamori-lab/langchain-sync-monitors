@@ -88,7 +88,11 @@ AUDIT_THRESHOLD: Final = 0.9
 """Defer to Resample's audit threshold: the library's placeholder, not a calibrated value."""
 
 RECURSION_LIMIT: Final = 40
-"""About a dozen agent steps: each takes the model node, the monitor's hook and the tools."""
+"""Nine agent steps with tools between them: N steps take 4N + 2 graph steps with one monitor.
+
+The monitor adds two graph steps per agent step, however many samples or model calls it draws,
+and two per run, to the model node and the tools node that each step takes without it.
+"""
 
 type RunMode = Literal["invoke", "ainvoke"]
 

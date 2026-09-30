@@ -171,8 +171,9 @@ class MonitorMiddleware(AgentMiddleware[MonitorState, AgentContext, StructuredOu
     agent to its end, since the halt message alone does not end an agent that
     loops until it has a structured response. On a halted step it skips the
     `after_model` hooks that would run after it. The hooks add two graph steps
-    per model call and two per run, which count towards an explicit
-    `recursion_limit`.
+    per agent step, however many samples or model calls it draws, and two per
+    run, which count towards an explicit `recursion_limit`: N agent steps need
+    4N + 2 rather than 2N, and each further monitor adds another 2N + 2.
 
     A halt stands until a later run brings new input. An `after_agent` hook
     can send a finished run back to the model, as Deep Agents'

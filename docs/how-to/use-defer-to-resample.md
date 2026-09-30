@@ -211,7 +211,7 @@ for record in result["monitor_log"]:
 - **A flag never blocks.** The step has run, or been replaced, by the time
   anyone reads the log.
 - **The graph takes more steps.** The monitor adds two graph steps per agent
-  step and two per run; see
+  step, however many samples it draws, and two per run; see
   [Graph steps, streams and failures](choose-a-protocol.md#graph-steps-streams-and-failures),
   which also covers a step that fails.
 

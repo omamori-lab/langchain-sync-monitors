@@ -126,7 +126,8 @@ A monitored step costs time and graph steps:
 - The monitor's hooks add two graph steps per agent step, however many
   samples or model calls the step draws, and two per run. An agent that
   takes N steps needs a `recursion_limit` of 2N without the monitor and
-  4N + 2 with it, so raise a limit you set for the agent without one.
+  4N + 2 with it, and each further monitor adds another 2N + 2, so raise a
+  limit you set for the agent without one.
 
 ## Pick a protocol
 

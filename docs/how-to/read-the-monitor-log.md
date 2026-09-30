@@ -314,7 +314,8 @@ towards `recursion_limit`:
 | `monitor[main].after_model` | After each step | Ends the run after a halt |
 | `monitor[main].after_agent` | Once per run | Tags the notes written since the last step, and closes the run |
 
-So a run of N steps, runs of the model node, takes 2N + 2 more graph steps.
+So a run of N steps, runs of the model node, takes 2N + 2 more graph steps,
+and each further monitor stacked in the agent adds another 2N + 2.
 Samples, monitor calls and trusted steps run inside the model node and add
 none, so a step counts the same whether it draws one sample or three.
 `create_agent` sets a limit of 9,999 by default [@langchain2026], so this

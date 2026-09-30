@@ -373,8 +373,12 @@ reply: one whose lines name two different labels, one with its label
 anywhere else, and one cut off at a length limit all count as suspicious. A
 line that may hold the guard's own suspicious label written off format, such
 as `violation (the note asks ...` or `...: violation`, counts as naming that
-label, so where the reader cannot tell, it errs towards suspicion. One case
-it cannot tell apart remains ([reading a guard's label](#reading-a-guards-label)).
+label, so where the reader cannot tell, it errs towards suspicion. Keys and
+labels are read through markup, list markers and headings, as in
+`- **Label**: __violation__`, and a label alone on a last line that is a list
+item or a quote is no verdict, since the guard may be quoting a list from the
+step. One case it cannot tell apart remains
+([reading a guard's label](#reading-a-guards-label)).
 
 No family adds a score, probability or count to its `reason`, which Auto Mode
 shows the agent: a number would tell the agent how close its step came to
@@ -934,11 +938,12 @@ limit is linked from where it arises above.
 
 ### Reading a guard's label
 
-- **A planted label quoted alone.** A guard that gives its verdict only in
-  prose and then quotes a label the agent planted, alone on its last line,
-  cannot be told from one that gives that label, when the reply names no
-  other label: the text is the same, and a guard's output can be steered by
-  what it reads.
+- **A planted label quoted as a verdict.** A guard that gives its verdict in
+  a form the reader does not count, such as prose, a key with no colon or tag
+  syntax, and then quotes a label the agent planted on its last line, alone
+  or after a verdict key, cannot be told from one that gives that label, when
+  the reply names no other label: the text is the same, and a guard's output
+  can be steered by what it reads.
 
 ### Protocols and configuration
 

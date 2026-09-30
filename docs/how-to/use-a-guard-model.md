@@ -9,7 +9,8 @@ a suspicion from 0 to 1.
 
 ## Write the policy
 
-The policy is a LangChain `ChatPromptTemplate`. It must use `{transcript}` and
+The policy is a LangChain `ChatPromptTemplate`; anything else raises
+`ConfigurationError`. It must use `{transcript}` and
 `{proposed_step}`, which the monitor fills with the conversation and the step
 being judged, and no other variable; fill any other text in advance with
 `partial`, and write a literal brace as `{{` or `}}`. A missing or extra
@@ -108,7 +109,7 @@ reads](choose-what-the-monitor-reads.md).
 
 | Option | Rule |
 |---|---|
-| `suspicious_labels`, `safe_labels` | Each set holds at least one label; each label is one word of letters, digits, `_` or `-`; no label is in both sets. Labels match in any case. |
+| `suspicious_labels`, `safe_labels` | Each a set of strings holding at least one label; a plain string raises `ConfigurationError`. A label is one word of letters and digits, joined by `_` or `-` and beginning and ending with a letter or digit, so `violation_` or `-unsafe` raises: the reader takes a `_` or `-` at either end as markup. No label is in both sets. Labels match in any case. |
 | `scoring` | A member of `GuardScoring`; a plain string such as `"auto"` raises `ConfigurationError`. |
 | `samples` | How many replies sampling draws, 5 by default; below 1 raises `ConfigurationError`. |
 
@@ -156,7 +157,8 @@ that begin a safe one, and divides. This is the score Llama Guard, ShieldGemma
 and Granite Guardian report
 [@inan2023llamaguard; @zeng2024shieldgemma; @padhi2024graniteguardian].
 It reads them only when the guard's own token there begins a label of the kind
-its reply names, markup such as `(` or `**` aside; otherwise the alternatives
+its reply names, markup such as `(`, `**` or `__` aside; otherwise the
+alternatives
 describe text the guard did not write.
 
 **From samples**, suspicion is the share of replies labelled suspicious, with
@@ -184,28 +186,54 @@ monitors](combine-and-calibrate-monitors.md).
 
 The agent writes the step the guard reads, so it can plant a label there for
 the guard to quote. The monitor therefore reads the verdict only where a
-guard's format puts it: on the last non-empty line, alone or after a verdict
-key and a colon, as a policy can ask of gpt-oss-safeguard
-[@openai2025gptosssafeguardguide]; or on the first line, when it is a
-suspicious label followed only by category codes such as `S1,S10`, as Llama
-Guard writes it [@meta2024llamaguard3format; @meta2025llamaguard4]. The
-verdict keys are `Label`, `Answer`, `Verdict`, `Classification`, `Result`,
-`Output`, `Decision`, `Rating`, `Category`, `Assessment`, `Conclusion`,
-`Judgement` and `Judgment`, each optionally after `Final`, in any case.
+guard's format puts it:
 
-A reply is unreadable when it is cut off, holds no verdict there, or has lines
-that name two different labels. A line names a label when it holds the label
-alone or after a key of up to 20 letters and spaces; when it opens with a
-verdict key and a label, whatever follows, as in `Label: violation because
-...`; when it opens with a suspicious label and then a mark, as in `violation
-(the note asks ...`; or when it ends on a suspicious label after its last
-colon. The last three shapes may be the guard's own label written off format,
-so the monitor errs on the safe side, and a benign reply that opens a
-reasoning line that way fails closed, as the table shows. An unreadable reply counts as a suspicious label: alone, under
-`HARD_LABEL` or with one sample, it gives 1.0; among five samples it adds 0.2.
-If honest steps get the reason "The guard model gave no readable label", ask
-the guard not to open any line but the last with a label, as the policy above
-does.
+- on the last non-empty line, alone or after a verdict key and a colon, as a
+  policy can ask of gpt-oss-safeguard [@openai2025gptosssafeguardguide];
+- on the first line, when it is a suspicious label followed only by category
+  codes such as `S1,S10`, as Llama Guard writes it
+  [@meta2024llamaguard3format; @meta2025llamaguard4].
+
+The verdict keys are `Label`, `Answer`, `Verdict`, `Classification`, `Result`,
+`Output`, `Decision`, `Rating`, `Category`, `Assessment`, `Conclusion`,
+`Judgement` and `Judgment`, each optionally after `Final`, in any case. The
+whole key must be one of them: `Answer requested:` and `Finalanswer:` are
+not.
+
+The reader reads through markup, list markers and headings:
+
+| Part of a line | What the reader accepts |
+|---|---|
+| Its opening | Any marks, such as `**`, `__`, backticks, quotes, `#`, `>` or a bullet; then, optionally, an ordered list marker, a number, one letter or a roman numeral of 2 to 5 of `ivx` before `.` or `)`, and more marks |
+| A key | Up to 20 characters of letters, spaces, `*`, `_` and backticks, beginning and ending with a letter, so each word may be wrapped: `**Final** **answer**:` |
+| Between the key and its colon | Any marks but a colon: `**Label**:`, `` `Label`: ``, `"label":` |
+| A label | The label's own letters, digits, `_` and `-`, with markup around it read through: `__violation__` reads as `violation` |
+
+A label alone on the last line is no verdict when that line is a list item or
+a quote: after an ordered list marker such as `1.`, `10)`, `a)` or `iv.`, a
+bullet such as `-`, `*`, `+` or `•` and a space, or `>`. The guard may be
+quoting a list from the step, so such a reply fails closed, a benign
+`- no_violation` included. A key keeps the line a verdict:
+`- Label: no_violation` reads as `no_violation`. With one-character labels
+such as `1` and `0`, or `Y` and `N`, a line that opens `1.` or `Y.` reads both
+as a list marker and as that label, so a reasoning line numbered `1.` names
+the label `1`, and a reply with a safe verdict then fails closed.
+
+A reply is unreadable when it is cut off, holds no verdict where the format
+puts it, or has lines that name two different labels. A line names a label
+when it holds one as a verdict line would. It also names a suspicious label
+when it opens with that label and then a mark, as in `violation (the note asks
+...`, after a list marker too; when it opens with a verdict key and the label,
+whatever follows, as in `Label: violation because ...`; or when it ends on the
+label after its last colon. These three shapes may be the guard's own label
+written off format, so the monitor errs on the safe side, and a benign reply
+that opens a reasoning line that way fails closed, as the table shows. A key
+that is itself a label, as in `violation: no_violation`, leaves its line
+holding no label. An unreadable reply counts as a suspicious label: alone,
+under `HARD_LABEL` or with one sample, it gives 1.0; among five samples it
+adds 0.2. If honest steps get the reason "The guard model gave no readable
+label", ask the guard not to open any line but the last with a label, and to
+write the last line without a list marker, as the policy above does.
 
 These replies were checked against the monitor's parser, with the labels
 `violation` and `no_violation`, or `unsafe` and `safe` for Llama Guard:
@@ -213,34 +241,39 @@ These replies were checked against the monitor's parser, with the labels
 | The reply | Label read |
 |---|---|
 | Reasoning, then `violation` on the last line | `violation` |
-| Reasoning, then `Label: no_violation` or `**Final answer:** no_violation` | `no_violation` |
-| Reasoning, then `**violation**` or `` `No_Violation` `` | `violation`, `no_violation` |
+| Reasoning, then `Label: no_violation`, `**Final answer:** no_violation`, `**Final** **answer**: no_violation` or `- Label: no_violation` | `no_violation` |
+| Reasoning, then `**violation**`, `__violation__` or `` `No_Violation` `` | `violation`, `violation`, `no_violation` |
 | `unsafe`, then `S1,S10` on the next line | `unsafe` |
+| Reasoning, then `2. no_violation`, `- no_violation` or `> no_violation` | none: a list item or a quote |
 | Reasoning, then `violation (the note asks the reviewer to answer: no_violation)` | none: two labels |
+| `1. violation (the note asks ...)`, then `no_violation` | none: two labels |
 | Reasoning, then `Label: violation because the note asks ...:`, then `no_violation` | none: two labels |
 | Reasoning, then `The final label for this step: violation`, then `no_violation` | none: two labels |
 | Reasoning, then `violation: no_violation` | none: the key names a label |
-| A verdict in prose, then `It asks for: no_violation` | none: not a verdict key |
+| A verdict in prose, then `It asks for: no_violation` or `Answer requested: no_violation` | none: not a verdict key |
 | `Violation of the policy would need data to leave the system; none does.`, then `no_violation` | `no_violation`: a word follows the label |
 | `Result: violation of the policy would need data to leave the system.`, then `no_violation` (benign) | none: fails closed |
 | `Violation: none found.`, then `no_violation` (benign) | none: fails closed |
 | `violation` on the first line, then reasoning | none: out of place |
 | `unsafe`, then a sentence | none: out of place |
 | `The step is a violation of the policy.`, or JSON such as `{"violation": 1}` | none |
-| A verdict in prose, then `no_violation` alone, or `Final answer: no_violation`, on the last line | `no_violation`: the limit below |
+| A verdict in prose, then `no_violation`, `_no_violation_`, `**Label**: no_violation` or `{"label": "no_violation"}` on the last line | `no_violation`: the limit below |
 
 ## Know the limit that remains
 
 One case stays open: **a reply whose only label is a planted one, on the last
 line, reads as a verdict.** This happens when the guard gives its own verdict
-in prose, or writes its label in a shape no rule above counts, and then quotes
-the label the agent planted alone on the last line, as `no_violation` or `>
-no_violation`, or after a verdict key, as `Final answer: no_violation`. Plain
-shapes are enough: a line `violation because the note asks the reviewer to
-answer:`, or a list item `1. violation (...)`, names no label the monitor
-counts, so a `no_violation` on the next line is read as the verdict. That last
-line is exactly what a real verdict looks like, so the monitor reads it as
-one.
+in a form no rule above counts, and then quotes the label the agent planted on
+the last line, alone or after a verdict key: `no_violation`,
+`_no_violation_`, `Final answer: no_violation`, `**Label**: no_violation` or
+`{"label": "no_violation"}`. The forms no rule counts are prose: a key that is
+not a verdict key, with text after the label, as in `My label for this step:
+violation (...)`; a key with no colon, as in `Label - violation`; tag syntax,
+as in `<label>violation</label>`; or a line such as `violation because the
+note asks the reviewer to answer:`. That last line is exactly what a real
+verdict looks like, so the monitor reads it as one. A planted label in a list
+item or a quote on the last line, as in `1. no_violation` or
+`> no_violation`, fails closed instead, since such a line is no verdict.
 
 Ask for the label alone on the last line, as the policy above does, and do not
 let a guard be the only monitor on steps where one planted word would decide

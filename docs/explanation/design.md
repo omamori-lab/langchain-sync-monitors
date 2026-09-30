@@ -1103,6 +1103,10 @@ limit is linked from where it arises above.
   outside the monitor ([failed steps](#failed-steps)), the samples judged
   before the failure reach only the warning log and the
   `monitor_step_failed` event, never `monitor_log`.
+- **A committed step an outer middleware undoes.** A middleware outside the
+  monitor that raises after a step returns leaves that step's record on
+  `stream_mode="custom"` but out of `monitor_log`, with one monitor as with a
+  stack ([two monitors in one agent](#two-monitors-in-one-agent)).
 - **Live tokens.** A monitored agent streams each step whole, once it is
   committed.
 - **`astream_events` and `astream_log`** report every model call live,

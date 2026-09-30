@@ -22,9 +22,11 @@ from langchain_core.language_models.fake_chat_models import GenericFakeChatModel
 from langchain_core.messages import AIMessage
 from langchain_core.runnables import Runnable, RunnableConfig
 
+from langchain_sync_monitors.model_calls import MONITOR_CALL_NAME
 from tests.support.agents import RunMode, run_agent
 
 MONITOR_SPAN_PREFIX = "monitor "
+JUDGE_MODEL_NAME = "judge-model"
 
 
 @dataclass(kw_only=True)
@@ -45,7 +47,8 @@ class RecordedRun:
 
     @property
     def is_monitor_span(self) -> bool:
-        return self.name.startswith(MONITOR_SPAN_PREFIX)
+        """Tell a span the monitor opened from a `monitor call`, which shares the prefix."""
+        return self.name.startswith(MONITOR_SPAN_PREFIX) and self.name != MONITOR_CALL_NAME
 
     def find_children(self, name: str) -> list[RecordedRun]:
         return [child for child in self.children if child.name == name]
@@ -270,9 +273,15 @@ def render_run(run: RecordedRun, *, depth: int, lines: list[str]) -> None:
         render_run(child, depth=depth + 1, lines=lines)
 
 
+class NamedFakeChatModel(GenericFakeChatModel):
+    """A fake chat model with a model name, which LangChain reports as `ls_model_name`."""
+
+    model_name: str = JUDGE_MODEL_NAME
+
+
 def build_judge_model() -> GenericFakeChatModel:
     """Return a judge that answers every call, so each verdict makes one model call."""
-    return GenericFakeChatModel(messages=itertools.repeat(AIMessage("The step looks fine.")))
+    return NamedFakeChatModel(messages=itertools.repeat(AIMessage("The step looks fine.")))
 
 
 def run_traced_agent(

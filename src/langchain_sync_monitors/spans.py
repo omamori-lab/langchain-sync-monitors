@@ -7,7 +7,9 @@ span, around the monitor's own calls, and each Decisions API request a
 `monitor decision` span carries the outcome in its tags, which a span cannot
 change after it starts. The names are fixed, so LangSmith and Langfuse filter
 and count spans by name, and what varies goes in metadata under flat keys
-that start with `monitor_` [@langsmith2026traces; @langfuse2026].
+that start with `monitor_` [@langsmith2026traces; @langfuse2026]. The
+monitor's own model calls inside a judgement carry a fixed name too,
+`model_calls.MONITOR_CALL_NAME`.
 
 Every span is tagged `monitor`. The spans below the step span also carry
 `ls_agent_type: "middleware"`, which keeps them out of LangSmith's Trajectory

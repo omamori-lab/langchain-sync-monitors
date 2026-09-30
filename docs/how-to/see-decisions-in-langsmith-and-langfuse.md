@@ -199,8 +199,8 @@ flagged step, with no code of your own:
 |---|---|---|
 | Every halted step | `and(eq(name, "monitor decision"), has(tags, "monitor:halted"))` on runs | Name `monitor decision`, and metadata `monitor_outcome` equal to `halted` |
 | Traces with a flagged step | `has(tags, "monitor:flagged")` as a tree filter, on root runs | Name `monitor decision`, and metadata `monitor_flagged` equal to `true` |
-| Everything except the monitor's spans | Exclude the `monitor` tag | Exclude the names that start with `monitor` |
-| Everything except the monitor's spans and model calls | Also exclude the runs whose metadata has the key `ls_message_view_exclude` | Also exclude the observations whose metadata has the key `ls_message_view_exclude` |
+| Everything except the monitor's spans | Exclude the `monitor` tag | Exclude the names `monitor step`, `monitor judgement`, `monitor classifier` and `monitor decision` |
+| Everything except the monitor's spans and model calls | Also exclude the name `monitor call` | Also exclude the name `monitor call` |
 | Steps above a suspicion | No score to filter on; see [Limits](#limits) | No score to filter on; see [Limits](#limits) |
 
 Replace `halted` with another outcome, `allowed`, `resampled`, `steered` or
@@ -208,11 +208,16 @@ Replace `halted` with another outcome, `allowed`, `resampled`, `steered` or
 in its metadata, so filter on `monitor_outcome` and `monitor_flagged` there
 rather than on the tags.
 
-The `monitor` tag and the span names cover the spans alone. The monitor's own
-model calls carry neither, since they are named after their chat model, but
-every call the library's monitors make carries the metadata key
-`ls_message_view_exclude`, which LangChain's and Deep Agents' own middleware
-do not set. The calls' `lc_source` names the monitor too, such as
+The `monitor` tag covers the spans alone. The monitor's own model calls carry
+no tag, but each one is named `monitor call`, whatever its model: the calls of
+the chat judges and the guards, and the classifier call of
+`TypeSafeDecisionModel`. The model still shows as the call's model and in its
+`ls_model_name` metadata. A classifier wrapped in `with_retry()` gives the name
+to the wrapper's run, and the attempts inside it keep the classifier's own
+name. The trusted model's step, which a fallback writes for the agent, keeps
+its model's name. Every call the library's monitors make also carries the
+metadata key `ls_message_view_exclude`, which LangChain's and Deep Agents' own
+middleware do not set. The calls' `lc_source` names the monitor too, such as
 `llm_monitor`, but LangChain's middleware sets `lc_source` on its own internal
 calls as well, such as its summaries, so `lc_source` does not single out the
 monitor's calls.

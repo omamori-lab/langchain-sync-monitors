@@ -908,7 +908,7 @@ model                           the agent's model node
 └── monitor step                one per step
     ├── <untrusted model>       sample 1
     ├── monitor judgement       the monitor's verdict on sample 1, holding either
-    │   ├── <judge model>       the monitor's own model calls, or
+    │   ├── monitor call        the monitor's own model calls, or
     │   └── monitor classifier  one Decisions API request
     ├── <untrusted model>       sample 2, if the protocol draws one
     ├── monitor judgement       the verdict on sample 2
@@ -939,6 +939,16 @@ halted step; in Langfuse, the name `monitor decision` and the metadata
 make carry `ls_message_view_exclude`, which keep them out of LangSmith's
 Trajectory view [@langsmith2026trajectory]. The step span carries neither,
 because the agent's own samples nest in it.
+
+The monitor's own model calls have a fixed name too, `monitor call`, set in
+`model_calls.build_internal_call_config` in place of their chat model's class
+name, which the agent's calls share. The model still shows as the call's
+model and in `ls_model_name`. A filter on five names, the four spans' and
+`monitor call`, thus leaves the monitor's spans and calls out of a trace. The
+name goes to the outermost run only, so a TypeSafe classifier wrapped in
+`with_retry()` gives it to the wrapper, and the attempts inside stay visible
+under the classifier's own name. The trusted model's step keeps its model's
+name, because the agent runs it as its own step.
 
 The spans add no tag or metadata to the LangChain runs inside a step, model
 calls included, so no sample is labelled as monitor work. LangSmith's

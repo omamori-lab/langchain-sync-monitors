@@ -4,18 +4,36 @@ from __future__ import annotations
 
 import re
 from collections.abc import Callable
+from pathlib import Path
 
 import pytest
 from langchain_core.language_models import BaseChatModel
 from langchain_core.language_models.fake_chat_models import FakeListChatModel
 from langchain_core.prompts import ChatPromptTemplate
 
+from langchain_sync_monitors import model_calls, spans
 from langchain_sync_monitors.errors import ConfigurationError
 from langchain_sync_monitors.model_calls import build_internal_call_config, resolve_chat_model
 from langchain_sync_monitors.monitors import GuardModelMonitor, LLMMonitor
 from langchain_sync_monitors.protocols import DeferToTrustedModel
 
 GUARD_POLICY = ChatPromptTemplate.from_messages([("human", "{transcript}\n{proposed_step}")])
+MONITOR_RUN_NAMES = frozenset(
+    {
+        "monitor step",
+        "monitor judgement",
+        "monitor classifier",
+        "monitor decision",
+        "monitor call",
+    },
+)
+"""The names the tracing guide lists for leaving the monitor's own runs out of a trace."""
+TRACING_GUIDE = (
+    Path(__file__).resolve().parents[2]
+    / "docs"
+    / "how-to"
+    / "see-decisions-in-langsmith-and-langfuse.md"
+)
 
 
 def test_a_chat_model_instance_is_used_as_given() -> None:
@@ -89,3 +107,33 @@ def test_internal_call_config_keeps_the_call_out_of_langsmith_message_view() -> 
     # Assert
     assert config.get("metadata", {})["ls_message_view_exclude"] is True
     assert "tags" not in config
+
+
+def test_internal_call_config_names_the_run_monitor_call() -> None:
+    # Act
+    config = build_internal_call_config(source="monitor")
+
+    # Assert
+    assert config.get("run_name") == "monitor call"
+
+
+def test_the_monitor_s_runs_have_exactly_the_five_names_the_tracing_guide_lists() -> None:
+    # Arrange
+    guide = TRACING_GUIDE.read_text(encoding="utf-8")
+
+    # Act: every fixed run name the library defines, span or model call.
+    names = {
+        value
+        for module in (spans, model_calls)
+        for key, value in vars(module).items()
+        if key.endswith("_NAME") and isinstance(value, str)
+    }
+
+    # Assert: the guide may quote a name in code or in a filter string.
+    assert names == MONITOR_RUN_NAMES
+    unlisted = [
+        name
+        for name in sorted(MONITOR_RUN_NAMES)
+        if f"`{name}`" not in guide and f'"{name}"' not in guide
+    ]
+    assert unlisted == []

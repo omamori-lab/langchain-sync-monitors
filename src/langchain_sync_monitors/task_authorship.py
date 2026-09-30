@@ -449,8 +449,6 @@ def relabel_tool_result(
     if is_unchanged_write_back(result, existing_messages=before.existing_messages):
         return result
     reissued = reissue_removed_seen_id(result, before=before)
-    if read_message_source(reissued) not in RESERVED_SOURCES:
-        return reissued if isinstance(reissued, ToolMessage) else result
     relabelled = relabel_tool_written_message(reissued, tool_name=tool_name)
     # A tool message stays one; the check only narrows the type for the type checker.
     return relabelled if isinstance(relabelled, ToolMessage) else result

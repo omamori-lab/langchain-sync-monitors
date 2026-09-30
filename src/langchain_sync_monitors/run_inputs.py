@@ -2,65 +2,47 @@
 
 Every human message recorded as a run's input, under `TASK_MESSAGES_KEY`,
 reaches the judge as the task author's words, verbatim and in its original
-order, even once the model request no longer holds it. It leaves when the
-agent summarises: LangChain's `SummarizationMiddleware` replaces the earlier
-messages in the state with a summary, and Deep Agents replaces them in the
-model request [@langchain2026; @deepagents2026]. It also leaves when a tool
-removes it by id, or writes another message under its id, which becomes the
-tool's note [@langgraph2026]. The summary stays a context note, which
-authorises nothing, beside the kept turns: the agent's model wrote it.
+order, even once the model request no longer holds it: after LangChain's
+`SummarizationMiddleware` replaces earlier messages in the state, Deep Agents
+replaces them in the request [@langchain2026; @deepagents2026], or a tool
+removes it by id [@langgraph2026]. The summary stays a context note beside
+the kept turns, since the agent's model wrote it.
 
-- At the start of a run, each new input's text is kept under
-  `RUN_INPUTS_KEY`, in the same update that records its id. That is the one
-  hook sure to see it: a summariser listed before the monitor runs its own
-  `before_model` hook before the monitor's, and on a run's first step it can
-  already remove an earlier run's input. Input a run cannot confirm, after
-  one that stopped early, is kept too, but it goes back as a note from
-  `unconfirmed_input`, never as the task author's words, and is never
-  recorded as a run's input, so it lifts no halt.
+- Each new input's text is kept under `RUN_INPUTS_KEY` at the start of its
+  run, in the update that records its id: the one hook sure to see it, since
+  a summariser listed before the monitor runs its `before_model` hook first.
+  Input a run cannot confirm, after one that stopped early, is kept too, and
+  goes back as a note from `unconfirmed_input`, never as a run's input.
 - Only the text is kept, which is what the judge reads, so the state grows
-  by the text of every run's input and no more. A turn put back carries its
-  text alone: a monitor that reads `MonitorInput.history` itself gets no
-  image the turn held.
-- A kept input follows its message in the state. Whenever the state holds
-  it under its id as the monitor renders it, untagged or as a note from
-  `unconfirmed_input`, the kept text becomes that message's text: at the
-  start of a run and of each step, at each commit, and, in memory, before
-  each judgement. So a trusted rewrite, such as `PIIMiddleware`'s redaction
-  [@langchain2026] or the user's own `update_state` edit, reaches the judge
-  as the agent reads it. A tool cannot write such a message: `task_authorship`
-  tags every human message a tool writes, and drops its writes to this key.
-- Before a monitor judges a step, each kept input its copy of the
-  conversation lacks is put back. One the copy holds under its id, as the
-  monitor renders it, with other text, such as the preview Deep Agents shows
-  the agent in place of a large message while the state keeps the whole
-  [@deepagents2026], is replaced by the kept text. The agent's own request
-  is never changed. So a middleware that rewrites the user's message in
-  the model request alone, and not in the state, is not followed: the judge
-  reads the state's text, as the preview requires.
+  by the text of every run's input, and a turn put back holds no image.
+- A kept input follows its message in the state: whenever the state holds it
+  under its id as the monitor renders it, the kept text becomes its text, at
+  the start of a run and of each step, at each commit, and in memory before
+  each judgement. So a redaction such as `PIIMiddleware`'s [@langchain2026],
+  or the user's `update_state` edit, reaches the judge as the agent reads it.
+  A tool cannot write such a message: `task_authorship` tags the human
+  messages a tool writes, and drops its writes to this key.
+- Before a monitor judges a step, each kept input its copy lacks is put
+  back, and one it holds under its id with other text, such as the preview
+  Deep Agents shows the agent of a large message [@deepagents2026], is made
+  verbatim. The agent's own request is never changed, so a rewrite made in
+  the request alone, not in the state, is not followed.
 
 A kept input goes back just after the nearest of the three messages before
-it that the conversation still holds, else just before a message that took
-its id in place, else at the start, just before the summary that replaced it
-and its neighbours. Either way it comes after the input before it, and before
-both the next input the conversation holds and any message under its id,
-which came after it. A message under its id marks the input's place only
-because a tool cannot put one anywhere else: `task_authorship` takes the id
-from a message a tool writes once the state no longer holds the input, since
-LangGraph would add that message at the end. So an input a tool removed
-together with the three messages before it goes back right after the input
-before it, ahead of that input's surviving steps.
+it still there, else just before a message that took its id in place, else
+at the start, before the summary that replaced it and its neighbours. It
+always comes after the input before it, and before both the next input still
+there and any message under its id. A message under its id marks a place
+only because `task_authorship` takes the id from a message a tool writes once
+the state no longer holds the input, which LangGraph would add at the end.
 
-The judge reads every run's input whole on every step, including one that
-Deep Agents shows the agent only as a preview, over 50,000 tokens by default.
-A very large input therefore costs the judge its full size at every step,
-and can exceed a small judge's context, when that step fails.
-
-One case stays open. When a redacting middleware and a summariser are both
-listed before the monitor, and one `before_model` pass redacts a turn and
-summarises it away, no state the monitor reads holds the redaction, so the
-judge reads the turn as it arrived. With the summariser listed after the
-monitor, the monitor's own hook sees the redaction first and keeps it.
+The judge reads every input whole on every step, even one Deep Agents shows
+the agent only as a preview, over 50,000 tokens by default, so a very large
+input costs its full size at each step and can exceed a small judge's
+context, and the step then fails. One case stays open: with a redacting
+middleware and a summariser both listed before the monitor, one pass can
+redact a turn and summarise it away before any monitor hook sees the
+redaction, and the judge then reads the turn as it arrived.
 """
 
 from __future__ import annotations
@@ -299,8 +281,8 @@ def find_missing_input_slots(
             for later in inputs[position + 1 :]
             if later["id"] in present_ids
         ]
-        taken_at = index_by_id.get(entry["id"])
-        highest = min([*later_present, len(history) if taken_at is None else taken_at])
+        # A message under its id came after it.
+        highest = min([*later_present, index_by_id.get(entry["id"], len(history))])
         slot = min(max(find_input_slot(entry, index_by_id=index_by_id), lowest), highest)
         slots[entry["id"]] = slot
         lowest = slot

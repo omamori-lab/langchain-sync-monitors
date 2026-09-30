@@ -7,7 +7,8 @@ reads, with `MonitorView`, and what each tag in the rendered transcript means.
 
 A monitor reads the conversation so far, rendered as tagged text, and the
 step the agent proposes. The monitor reads the conversation the model call
-carries, so after summarisation it reads what the agent itself reads.
+carries, so after summarisation it reads what the agent itself reads, and every
+one of the user's turns besides, verbatim, even one the summary replaced.
 
 Every entry of the transcript belongs to one `Channel`, and a `MonitorView`
 names the channels a monitor reads. The default view, `Channel.ACTIONS`, holds

@@ -247,8 +247,9 @@ class MonitoredStep(PendingStep):
     or, inside a subagent, from earlier steps of its current delegation.
     `task_message_ids` holds the ids of the human messages that arrived as a
     run's input; the monitor reads every other human message as a context
-    note. `run_inputs` holds the text of each of them, which the monitor
-    reads even once the request no longer holds it. The middleware counts
+    note. `run_inputs` holds the text of each of them, and of input a run
+    could not confirm, which the monitor reads even once the request no
+    longer holds it, the latter as a note. The middleware counts
     `blocks_in_thread` and `new_subagent_blocks` from the log and from the
     agent's `Delegation`.
     `judged_samples` collects every sample the monitor has judged so far, in
@@ -297,7 +298,8 @@ class MonitoredStep(PendingStep):
         In the monitor's copy of the conversation, every untagged human
         message that did not arrive as a run's input is tagged as a context
         note, so it cannot speak as the task author, and every run's input is
-        there verbatim, even one the request no longer holds.
+        there verbatim, even one the request no longer holds. A turn put back
+        carries its text alone, without any image it held.
         """
         marked = mark_context_notes(conversation, task_message_ids=self.task_message_ids)
         history = restore_run_inputs(

@@ -19,7 +19,10 @@ context note, in the state as well as in what the monitor reads.
   message a tool writes keeps a source only the monitor writes, whatever
   shape the tool's update takes, a command it raises as a `ParentCommand`
   included; a message the tool writes back unchanged, under its id, is left
-  as it was.
+  as it was. A tool's writes to the state keys only the monitor writes,
+  `MONITOR_STATE_KEYS`, are dropped with a warning, so no tool can make a
+  message the task author's, keep a copy of the user's words, or lift a
+  halt.
 - `RUN_OPEN_KEY` is set at the start of a run and of each step, and cleared
   when the run reaches the monitor's `after_agent` hook. A run that starts
   while it is still set follows one that stopped early, or a fork from a
@@ -49,9 +52,11 @@ from langgraph.errors import ParentCommand
 from langgraph.types import Command
 
 from langchain_sync_monitors._langchain import (
+    MONITOR_DELEGATION_KEY,
     AgentStateUpdate,
     ToolCallResult,
     ToolCallResults,
+    remove_update_keys,
     rewrite_update_messages,
 )
 from langchain_sync_monitors.transcript import MONITOR_FEEDBACK_SOURCE, read_message_source
@@ -76,6 +81,19 @@ from one an earlier run that stopped early left behind."""
 
 RESERVED_SOURCES = frozenset({MONITOR_FEEDBACK_SOURCE, UNCONFIRMED_INPUT_SOURCE})
 """The sources only the monitor writes: its feedback, and input it cannot confirm."""
+
+MONITOR_STATE_KEYS = frozenset(
+    {
+        TASK_MESSAGES_KEY,
+        SEEN_HUMAN_MESSAGES_KEY,
+        RUN_OPEN_KEY,
+        "monitor_run_inputs",
+        "monitor_inputs_at_halt",
+        MONITOR_DELEGATION_KEY,
+    },
+)
+"""The state keys only the monitor writes: every key it adds to the agent's state but
+`monitor_log`, which Deep Agents' `task` tool returns from a subagent [@deepagents2026]."""
 
 
 def merge_message_ids(  # lanorme: ignore[KWARG-001]
@@ -326,7 +344,7 @@ def relabel_tool_command(
     tool_name: str,
     existing_messages: Mapping[str, BaseMessage],
 ) -> Command:
-    """Relabel the new or changed messages a tool's `Command` writes, in any update shape.
+    """Relabel the messages a tool's `Command` writes, and drop its monitor state writes.
 
     The messages are read as LangGraph writes them, from an update given as
     a dict, as pairs of key and value, or as an object whose class annotates
@@ -338,14 +356,36 @@ def relabel_tool_command(
     the messages relabelled. A command that writes no messages, such as one
     with only a `goto`, is returned as it is. The reader is private to
     LangGraph; without it, an update other than a dict or pairs raises
-    `MonitorError`.
+    `MonitorError`. The command's writes to `MONITOR_STATE_KEYS`, in any
+    update shape, are dropped first, by `drop_monitor_state_writes`.
     """
     return rewrite_update_messages(
-        command,
+        drop_monitor_state_writes(command, tool_name=tool_name),
         rewrite=lambda message: relabel_unless_written_back(
             message, tool_name=tool_name, existing_messages=existing_messages
         ),
     )
+
+
+def drop_monitor_state_writes(command: Command, *, tool_name: str) -> Command:
+    """Return a tool's command without its writes to the state keys only the monitor writes.
+
+    Through them a tool could record a message it wrote as a run's input,
+    keep words of its own as the user's, or lift a halt, so each such write
+    is dropped, and a warning names the tool and the keys. `monitor_log` is
+    not among them: Deep Agents' `task` tool returns a subagent's records
+    through it [@deepagents2026].
+    """
+    guarded, dropped = remove_update_keys(command, keys=MONITOR_STATE_KEYS)
+    if dropped:
+        logger.warning(
+            "The tool %s wrote the state keys %s, which only the monitor writes, so the "
+            "monitor dropped those writes. A tool cannot decide what the monitor reads as the "
+            "user's words, nor lift a halt.",
+            tool_name,
+            dropped,
+        )
+    return guarded
 
 
 def relabel_tool_result(
@@ -406,7 +446,8 @@ def mark_tool_written_notes(
     Every new or changed message the tool writes loses a source only the
     monitor writes, and a human message left without a source becomes a
     note named after the tool, or `application` for a tool named after one
-    of the monitor's sources. A message the tool writes back under its id,
+    of the monitor's sources. A write to a state key only the monitor
+    writes is dropped. A message the tool writes back under its id,
     unchanged in every field, keeps its author and its source. Tagged where
     it is written, a human message stays a note in every later run, even one
     that starts before the monitor has seen it, and in a history the

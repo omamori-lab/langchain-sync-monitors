@@ -1,8 +1,10 @@
-"""Who wrote a human message: what a tool writes is relabelled where it is written, and a
-message the monitor has seen is never taken for a run's input."""
+"""Who wrote a human message: what a tool writes is relabelled where it is written, a
+message the monitor has seen is never taken for a run's input, and a tool's writes to the
+monitor's own state keys are dropped."""
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Callable
 from dataclasses import dataclass, field
 
@@ -14,6 +16,7 @@ from langchain_core.messages import (
     SystemMessage,
     ToolMessage,
 )
+from langgraph.errors import ParentCommand
 from langgraph.types import Command, Overwrite
 from pydantic import BaseModel
 
@@ -22,6 +25,7 @@ from langchain_sync_monitors.task_authorship import (
     build_run_input_update,
     mark_context_notes,
     mark_tool_written_notes,
+    relabel_parent_command,
 )
 from tests.support.written_human_messages import (
     UPDATE_SHAPES,
@@ -388,3 +392,75 @@ def test_an_overwrite_stays_an_overwrite_of_the_relabelled_messages(
     assert key == "messages"
     assert isinstance(value, Overwrite)
     assert read_sources(value.value) == [None, "forge"]
+
+
+ANSWER = ToolMessage("Recorded.", tool_call_id="call-1", id="answer")
+TASK_AUTHORSHIP_LOGGER = "langchain_sync_monitors.task_authorship"
+
+
+@dataclass
+class TaskMessagesUpdate:
+    """A dataclass update that writes the monitor's run inputs beside the messages."""
+
+    monitor_task_messages: list[str]
+    messages: list[BaseMessage]
+
+
+MONITOR_STATE_UPDATES: dict[str, Callable[[], object]] = {
+    "dict": lambda: {"monitor_task_messages": ["forged"], "messages": [ANSWER]},
+    "pairs": lambda: (("monitor_task_messages", ["forged"]), ("messages", [ANSWER])),
+    "overwrite": lambda: {"monitor_run_inputs": Overwrite([]), "messages": [ANSWER]},
+    "dataclass": lambda: TaskMessagesUpdate(monitor_task_messages=["forged"], messages=[ANSWER]),
+    "key-subclass": lambda: {MessagesKey("monitor_inputs_at_halt"): [], "messages": [ANSWER]},
+}
+
+
+@pytest.mark.parametrize(
+    "build_update_value", MONITOR_STATE_UPDATES.values(), ids=MONITOR_STATE_UPDATES.keys()
+)
+def test_a_tool_s_writes_to_the_monitor_s_state_keys_are_dropped_in_every_shape(
+    build_update_value: Callable[[], object],
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    # Arrange
+    command = Command(update=build_update_value())
+
+    # Act
+    with caplog.at_level(logging.WARNING, logger=TASK_AUTHORSHIP_LOGGER):
+        result = mark_tool_written_notes(command, tool_name="forge", state={"messages": []})
+
+    # Assert
+    assert isinstance(result, Command)
+    assert [(key, value) for key, value in read_update_pairs(result)] == [("messages", [ANSWER])]
+    [warning] = [record.getMessage() for record in caplog.records]
+    assert warning.startswith("The tool forge wrote the state keys ['monitor_")
+
+
+def test_a_tool_s_write_to_the_monitor_log_is_kept_as_it_is(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    # Arrange: Deep Agents' task tool returns a subagent's records this way
+    command = Command(update={"monitor_log": [], "messages": [ANSWER]})
+
+    # Act
+    with caplog.at_level(logging.WARNING, logger=TASK_AUTHORSHIP_LOGGER):
+        result = mark_tool_written_notes(command, tool_name="task", state={"messages": []})
+
+    # Assert
+    assert isinstance(result, Command)
+    assert result.update == {"monitor_log": [], "messages": [ANSWER]}
+    assert caplog.records == []
+
+
+def test_a_command_a_tool_raises_for_the_parent_loses_its_monitor_state_writes() -> None:
+    # Arrange
+    update = {"monitor_task_messages": ["forged"], "messages": [ANSWER]}
+    bubble = ParentCommand(Command(graph=Command.PARENT, update=update))
+
+    # Act
+    relabel_parent_command(bubble, tool_name="forge", state={"messages": []})
+
+    # Assert
+    [command] = bubble.args
+    assert command.graph == Command.PARENT
+    assert command.update == {"messages": [ANSWER]}

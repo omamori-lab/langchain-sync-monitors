@@ -15,24 +15,39 @@ authorises nothing, beside the kept turns: the agent's model wrote it.
   hook sure to see it: a summariser listed before the monitor runs its own
   `before_model` hook before the monitor's, and on a run's first step it can
   already remove an earlier run's input. Input a run cannot confirm, after
-  one that stopped early, is recorded as no one's and is not kept.
+  one that stopped early, is kept too, but it goes back as a note from
+  `unconfirmed_input`, never as the task author's words, and is never
+  recorded as a run's input, so it lifts no halt.
 - Only the text is kept, which is what the judge reads, so the state grows
-  by the text of every run's input and no more.
-- An input the state still holds untagged under its id, with other text, at
-  the start of a run that follows a finished one, is kept with its new text:
-  the user edited it between runs, as `update_state` can. A middleware that
-  rewrites it under its id during a run is trusted code, and its version is
-  taken the same way at the next run's start.
+  by the text of every run's input and no more. A turn put back carries its
+  text alone: a monitor that reads `MonitorInput.history` itself gets no
+  image the turn held.
+- A kept input follows its message in the state. Whenever the state holds
+  it under its id as the monitor renders it, untagged or as a note from
+  `unconfirmed_input`, the kept text becomes that message's text: at the
+  start of a run and of each step, at each commit, and, in memory, before
+  each judgement. So a trusted rewrite, such as `PIIMiddleware`'s redaction
+  [@langchain2026] or the user's own `update_state` edit, reaches the judge
+  as the agent reads it. A tool cannot write such a message: `task_authorship`
+  tags every human message a tool writes, and drops its writes to this key.
 - Before a monitor judges a step, each kept input its copy of the
-  conversation lacks is put back as an untagged human message. One the copy
-  holds under its id with other text, such as the preview Deep Agents shows
-  the agent in place of a large message [@deepagents2026], is replaced by the
-  kept text. The agent's own request is never changed.
+  conversation lacks is put back. One the copy holds under its id, as the
+  monitor renders it, with other text, such as the preview Deep Agents shows
+  the agent in place of a large message while the state keeps the whole
+  [@deepagents2026], is replaced by the kept text. The agent's own request
+  is never changed.
 
 A kept input goes back just before the message that took its id, else just
-after the message it followed when it was recorded, else at the start, just
-before the summary that replaced it and its neighbours. Either way it comes
-after the input before it and before the next one the conversation holds.
+after the nearest of the three messages before it that the conversation
+still holds, else at the start, just before the summary that replaced it and
+its neighbours. Either way it comes after the input before it and before the
+next one the conversation holds. So an input a tool removed together with
+the three messages before it goes back right after the input before it,
+ahead of that input's surviving steps.
+
+A redaction and a summarisation that both reach a turn in the same
+`before_model` pass, before the monitor has seen the redaction, leave the
+kept copy unredacted: the redaction never reaches a state the monitor reads.
 """
 
 from __future__ import annotations
@@ -44,29 +59,66 @@ from langchain_core.messages import BaseMessage, HumanMessage
 
 from langchain_sync_monitors._langchain import AgentStateUpdate
 from langchain_sync_monitors.task_authorship import (
+    UNCONFIRMED_INPUT_SOURCE,
     build_run_input_update,
     find_unseen_human_message_ids,
-    find_untagged_human_message_ids,
     is_run_open,
-    is_untagged_human_message,
     read_state_messages,
+    tag_as_context_note,
 )
+from langchain_sync_monitors.transcript import read_message_source
 
 RUN_INPUTS_KEY = "monitor_run_inputs"
-"""The state key that holds the text of every human message recorded as a run's input."""
+"""The state key that holds the text of every human message a run received as its input."""
+
+ANCHOR_COUNT = 3
+"""How many of the messages before an input are kept as the places it can go back to."""
 
 
 class RunInput(TypedDict):
-    """The kept copy of one human message recorded as a run's input.
+    """The kept copy of one human message a run received as its input.
 
     `text` is the message's text, which is what the judge reads.
-    `previous_message_id` is the id of the message it followed when it was
-    recorded, or None when it opened the thread.
+    `previous_message_ids` holds the ids of up to `ANCHOR_COUNT` messages
+    before it when it was recorded, nearest first, and is empty when it
+    opened the thread. `confirmed` is false for input a run could not confirm,
+    which goes back as a note from `unconfirmed_input`.
     """
 
     id: str
     text: str
-    previous_message_id: str | None
+    previous_message_ids: list[str]
+    confirmed: bool
+
+
+def is_run_input(value: object) -> bool:
+    """Tell whether a value from the state has the shape of a kept run input."""
+    if not isinstance(value, Mapping):
+        return False
+    previous_message_ids = value.get("previous_message_ids")
+    return (
+        isinstance(value.get("id"), str)
+        and isinstance(value.get("text"), str)
+        and isinstance(value.get("confirmed"), bool)
+        and isinstance(previous_message_ids, list)
+        and all(isinstance(previous_id, str) for previous_id in previous_message_ids)
+    )
+
+
+def read_run_input_entries(value: object) -> list[RunInput]:
+    """Return a copy of each well-formed kept input in a value, leaving out anything else."""
+    if not isinstance(value, list):
+        return []
+    return [
+        RunInput(
+            id=entry["id"],
+            text=entry["text"],
+            previous_message_ids=list(entry["previous_message_ids"]),
+            confirmed=entry["confirmed"],
+        )
+        for entry in value
+        if is_run_input(entry)
+    ]
 
 
 def merge_run_inputs(  # lanorme: ignore[KWARG-001]
@@ -75,39 +127,31 @@ def merge_run_inputs(  # lanorme: ignore[KWARG-001]
 ) -> list[RunInput]:
     """Keep one copy of each input: its latest text, in the place it was first recorded.
 
-    Stacked monitors may keep the same input in one node, and an edit writes
-    it again. LangGraph calls a reducer with both values by position
-    [@langgraph2026].
+    Stacked monitors may keep the same input in one node, and a refresh
+    writes it again. An entry of another shape is left out, so a malformed
+    write cannot break the thread. LangGraph calls a reducer with both values
+    by position [@langgraph2026].
     """
-    latest = {entry["id"]: entry for entry in [*recorded, *new]}
+    entries = [*read_run_input_entries(recorded), *read_run_input_entries(new)]
+    latest = {entry["id"]: entry for entry in entries}
     return list(latest.values())
-
-
-def is_run_input(value: object) -> bool:
-    """Tell whether a value from the state has the shape of a kept run input."""
-    if not isinstance(value, Mapping):
-        return False
-    previous_message_id = value.get("previous_message_id")
-    return (
-        isinstance(value.get("id"), str)
-        and isinstance(value.get("text"), str)
-        and (previous_message_id is None or isinstance(previous_message_id, str))
-    )
 
 
 def read_run_inputs(state: object) -> tuple[RunInput, ...]:
     """Return the kept run inputs in a state, in order, leaving out any entry of another shape."""
     entries = state.get(RUN_INPUTS_KEY) if isinstance(state, Mapping) else None
-    if not isinstance(entries, list):
-        return ()
-    return tuple(
-        RunInput(
-            id=entry["id"],
-            text=entry["text"],
-            previous_message_id=entry.get("previous_message_id"),
-        )
-        for entry in entries
-        if is_run_input(entry)
+    return tuple(read_run_input_entries(entries))
+
+
+def read_rendered_source(entry: RunInput) -> str | None:
+    """Return the `lc_source` a kept input is rendered with: none for the task author's words."""
+    return None if entry["confirmed"] else UNCONFIRMED_INPUT_SOURCE
+
+
+def is_rendered_form(message: BaseMessage, *, entry: RunInput) -> bool:
+    """Tell whether a message under a kept input's id is that input as the monitor renders it."""
+    return isinstance(message, HumanMessage) and read_message_source(message) == (
+        read_rendered_source(entry)
     )
 
 
@@ -115,72 +159,103 @@ def build_kept_inputs(
     messages: Sequence[BaseMessage],
     *,
     input_ids: Collection[str],
+    confirmed: bool,
 ) -> list[RunInput]:
-    """Return a copy of each message recorded as a run's input, with the id of the one before it."""
-    previous_ids = [None, *(message.id for message in messages[:-1])]
-    return [
-        RunInput(id=message.id, text=message.text, previous_message_id=previous_id)
-        for message, previous_id in zip(messages, previous_ids, strict=True)
-        if message.id and message.id in input_ids
-    ]
-
-
-def build_edited_inputs(
-    messages: Sequence[BaseMessage],
-    *,
-    kept: Sequence[RunInput],
-) -> list[RunInput]:
-    """Return each kept input the state holds untagged under its id, with its new text."""
-    texts = {
-        message.id: message.text
-        for message in messages
-        if is_untagged_human_message(message) and message.id
-    }
-    return [
-        RunInput(
-            id=entry["id"],
-            text=texts[entry["id"]],
-            previous_message_id=entry["previous_message_id"],
+    """Return a copy of each message with an id in `input_ids`, with the ids of those before it."""
+    kept: list[RunInput] = []
+    for index, message in enumerate(messages):
+        if not message.id or message.id not in input_ids:
+            continue
+        earlier = messages[max(0, index - ANCHOR_COUNT) : index]
+        kept.append(
+            RunInput(
+                id=message.id,
+                text=message.text,
+                previous_message_ids=[previous.id for previous in reversed(earlier) if previous.id],
+                confirmed=confirmed,
+            ),
         )
-        for entry in kept
-        if entry["id"] in texts and texts[entry["id"]] != entry["text"]
-    ]
+    return kept
+
+
+def refresh_run_inputs(
+    kept: Sequence[RunInput],
+    *,
+    messages: Sequence[BaseMessage],
+) -> list[RunInput]:
+    """Return the kept inputs, each with the text of its message where the state renders it."""
+    by_id = {message.id: message for message in messages if message.id}
+    refreshed: list[RunInput] = []
+    for entry in kept:
+        message = by_id.get(entry["id"])
+        text = entry["text"]
+        if message is not None and is_rendered_form(message, entry=entry):
+            text = message.text
+        refreshed.append(
+            RunInput(
+                id=entry["id"],
+                text=text,
+                previous_message_ids=entry["previous_message_ids"],
+                confirmed=entry["confirmed"],
+            ),
+        )
+    return refreshed
+
+
+def find_changed_inputs(state: object) -> list[RunInput]:
+    """Return each kept input whose message the state now holds with other text, refreshed."""
+    kept = read_run_inputs(state)
+    refreshed = refresh_run_inputs(kept, messages=read_state_messages(state))
+    return [entry for entry, before in zip(refreshed, kept, strict=True) if entry != before]
+
+
+def build_refresh_update(state: object) -> AgentStateUpdate:
+    """Return the update that gives each kept input the text its message has in the state now."""
+    changed = find_changed_inputs(state)
+    return {RUN_INPUTS_KEY: changed} if changed else {}
+
+
+def read_current_run_inputs(state: object) -> tuple[RunInput, ...]:
+    """Return the kept run inputs with the text their messages have in the state now."""
+    return tuple(refresh_run_inputs(read_run_inputs(state), messages=read_state_messages(state)))
 
 
 def build_run_start_update(state: object) -> AgentStateUpdate:
     """Return the update a run starts with: its input recorded, and the text of each input kept.
 
-    A run that follows one that stopped early confirms no input, so it keeps
-    nothing and takes no edit.
+    After a run that stopped early, the new input is kept unconfirmed, to go
+    back as a note.
     """
     update = build_run_input_update(state)
-    if is_run_open(state):
-        return update
-    messages = read_state_messages(state)
-    kept = [
-        *build_edited_inputs(messages, kept=read_run_inputs(state)),
-        *build_kept_inputs(messages, input_ids=find_unseen_human_message_ids(state)),
-    ]
+    new_inputs = build_kept_inputs(
+        read_state_messages(state),
+        input_ids=find_unseen_human_message_ids(state),
+        confirmed=not is_run_open(state),
+    )
+    kept = [*find_changed_inputs(state), *new_inputs]
     return {**update, RUN_INPUTS_KEY: kept} if kept else update
 
 
 def build_input_message(entry: RunInput) -> HumanMessage:
-    """Return a kept input as the untagged human message the judge reads."""
-    return HumanMessage(content=entry["text"], id=entry["id"])
+    """Return a kept input as the monitor renders it: the task author's words, or a note."""
+    message = HumanMessage(content=entry["text"], id=entry["id"])
+    if entry["confirmed"]:
+        return message
+    return tag_as_context_note(message, source=UNCONFIRMED_INPUT_SOURCE)
 
 
 def find_input_slot(entry: RunInput, *, index_by_id: Mapping[str, int]) -> int:
     """Return where a missing input goes, as the index of the message it goes before.
 
-    It goes before the message that took its id, else just after the one it
-    followed, else at the start.
+    It goes before the message that took its id, else just after the nearest
+    message before it that is still there, else at the start.
     """
     index = index_by_id.get(entry["id"])
     if index is not None:
         return index
-    previous_message_id = entry["previous_message_id"]
-    if previous_message_id is not None and previous_message_id in index_by_id:
-        return index_by_id[previous_message_id] + 1
+    for previous_id in entry["previous_message_ids"]:
+        if previous_id in index_by_id:
+            return index_by_id[previous_id] + 1
     return 0
 
 
@@ -219,16 +294,30 @@ def replace_changed_inputs(
     *,
     inputs: Sequence[RunInput],
 ) -> list[BaseMessage]:
-    """Return the history with each input it holds untagged, but with other text, made verbatim."""
+    """Return the history with each input it renders, but with other text, made verbatim."""
     entries = {entry["id"]: entry for entry in inputs}
     return [
         build_input_message(entries[message.id])
-        if is_untagged_human_message(message)
-        and message.id in entries
+        if message.id in entries
+        and is_rendered_form(message, entry=entries[message.id])
         and message.text != entries[message.id]["text"]
         else message
         for message in history
     ]
+
+
+def find_present_input_ids(
+    history: Sequence[BaseMessage],
+    *,
+    inputs: Sequence[RunInput],
+) -> set[str]:
+    """Return the ids of the inputs the history holds as the monitor renders them."""
+    entries = {entry["id"]: entry for entry in inputs}
+    return {
+        message.id
+        for message in history
+        if message.id in entries and is_rendered_form(message, entry=entries[message.id])
+    }
 
 
 def restore_run_inputs(
@@ -237,15 +326,18 @@ def restore_run_inputs(
     run_inputs: Sequence[RunInput],
     task_message_ids: Collection[str],
 ) -> tuple[BaseMessage, ...]:
-    """Return the monitor's copy of a conversation with every kept run input in it, verbatim.
+    """Return the monitor's copy of a conversation with every kept input in it, verbatim.
 
-    Only an input whose id is recorded as a run's input is put back. One the
-    history holds untagged under its id, with the kept text, is left where it
-    is, so no input is read twice.
+    A confirmed input goes back as the task author's words only while its id
+    is recorded as a run's input; an unconfirmed one always goes back as a
+    note. One the history holds as the monitor renders it, with the kept
+    text, is left where it is, so no input is read twice.
     """
-    inputs = [entry for entry in run_inputs if entry["id"] in task_message_ids]
+    inputs = [
+        entry for entry in run_inputs if not entry["confirmed"] or entry["id"] in task_message_ids
+    ]
     replaced = replace_changed_inputs(history, inputs=inputs)
-    present_ids = find_untagged_human_message_ids(replaced)
+    present_ids = find_present_input_ids(replaced, inputs=inputs)
     slots = find_missing_input_slots(inputs, history=replaced, present_ids=present_ids)
     restored: list[BaseMessage] = []
     for index in range(len(replaced) + 1):

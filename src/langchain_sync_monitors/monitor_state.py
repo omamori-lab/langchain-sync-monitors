@@ -43,8 +43,9 @@ class MonitorState(AgentState):
     author's, and `monitor_seen_human_messages` the ids of every untagged
     human message the monitor has seen, so a later run can tell its input
     from a message written during an earlier run. `monitor_run_inputs` holds
-    the text of each run's input, so the monitor reads it even once the model
-    request no longer holds it; `run_inputs` has the rule. `monitor_run_open`
+    the text of each run's input, and of input a run could not confirm, so
+    the monitor reads it even once the model request no longer holds it;
+    `run_inputs` has the rule. `monitor_run_open`
     is true from the start of a run until it reaches the monitor's
     `after_agent` hook, so a run can tell that the last one stopped early.
 

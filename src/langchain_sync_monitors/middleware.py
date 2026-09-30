@@ -87,7 +87,11 @@ from langchain_sync_monitors.pending_steps import (
 )
 from langchain_sync_monitors.provider_tools import warn_about_provider_tools
 from langchain_sync_monitors.records import find_monitor_records
-from langchain_sync_monitors.run_inputs import build_run_start_update, read_run_inputs
+from langchain_sync_monitors.run_inputs import (
+    build_refresh_update,
+    build_run_start_update,
+    read_current_run_inputs,
+)
 from langchain_sync_monitors.spans import (
     StepIdentity,
     open_step_span,
@@ -148,9 +152,11 @@ class MonitorMiddleware(AgentMiddleware[MonitorState, AgentContext, StructuredOu
     the task author's. The middleware's `before_agent` hook records them in
     the graph state and keeps their text, so the monitor reads each one
     verbatim even after summarisation or a tool took it out of the model
-    request; `run_inputs` has the rule. Its `before_model` and `after_agent` hooks, and each
-    commit, tag every other untagged human message in the state as a context
-    note, and a human message a tool writes is tagged where it is written.
+    request; `run_inputs` has the rule. Its `before_model` and `after_agent`
+    hooks, and each commit, tag every other untagged human message in the
+    state as a context note, and a human message a tool writes is tagged
+    where it is written. A tool's writes to the state keys only the monitor
+    writes are dropped.
     After a run that stopped before reaching `after_agent`, the next run's
     new messages are notes too, since the monitor cannot tell them from what
     the stopped run left; `task_authorship` has the rule and its limits.
@@ -394,7 +400,7 @@ class MonitorMiddleware(AgentMiddleware[MonitorState, AgentContext, StructuredOu
     @override
     def before_model(self, state: MonitorState, runtime: AgentRuntime) -> AgentStateUpdate | None:
         """Record and tag the human messages so far, and open a step, under `invoke()`."""
-        return build_step_start_update(state)
+        return {**build_step_start_update(state), **build_refresh_update(state)}
 
     @override
     async def abefore_model(  # lanorme: ignore[NAMING-011]
@@ -403,7 +409,7 @@ class MonitorMiddleware(AgentMiddleware[MonitorState, AgentContext, StructuredOu
         runtime: AgentRuntime,
     ) -> AgentStateUpdate | None:
         """Record and tag the human messages so far, and open a step, under `ainvoke()`."""
-        return build_step_start_update(state)
+        return {**build_step_start_update(state), **build_refresh_update(state)}
 
     # Without `can_jump_to`, `create_agent` gives the hook a plain edge and ignores `jump_to`.
     @hook_config(can_jump_to=["end"])
@@ -466,7 +472,7 @@ class MonitorMiddleware(AgentMiddleware[MonitorState, AgentContext, StructuredOu
             monitor=self.monitor,
             task_author=self.task_author,
             task_message_ids=read_message_ids(request.state, key=TASK_MESSAGES_KEY),
-            run_inputs=read_run_inputs(request.state),
+            run_inputs=read_current_run_inputs(request.state),
             previous_records=previous_records,
             blocks_in_thread=count_blocks_in_thread(request.state, monitor=self.label),
             new_subagent_blocks=count_new_subagent_blocks(

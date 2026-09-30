@@ -9,7 +9,7 @@ the built-in general-purpose one.
 from __future__ import annotations
 
 from collections.abc import Iterable, Mapping, Sequence
-from typing import TYPE_CHECKING, TypeGuard
+from typing import TYPE_CHECKING, TypeGuard, cast
 
 from langchain_sync_monitors._langchain import append_subagent_middleware
 from langchain_sync_monitors.errors import ConfigurationError, MissingExtraError
@@ -24,6 +24,9 @@ if TYPE_CHECKING:
     from deepagents import AsyncSubAgent, CompiledSubAgent, SubAgent
 
     type SubagentSpec = SubAgent | CompiledSubAgent | AsyncSubAgent
+
+type SkillSource = str | tuple[str, str]
+"""A skill source Deep Agents reads: a path, or a `(path, label)` pair."""
 
 INSTALL_HINT = (
     "monitor_subagents needs Deep Agents. "
@@ -93,12 +96,27 @@ def build_general_purpose_skills_message(name: str) -> str:
     )
 
 
-def read_skills_option(skills: Iterable[str] | None) -> list[str] | None:
+def is_skill_source(value: object) -> TypeGuard[SkillSource]:
+    """Tell whether a value is a skill source: a path, or a `(path, label)` pair of strings.
+
+    Deep Agents' `SkillsMiddleware` takes both, and checks a pair this way
+    [@deepagents2026].
+    """
+    if isinstance(value, str):
+        return True
+    return (
+        isinstance(value, tuple)
+        and len(value) == len(("path", "label"))
+        and all(isinstance(part, str) for part in value)
+    )
+
+
+def read_skills_option(skills: Iterable[SkillSource] | None) -> list[SkillSource] | None:
     """Return the skill sources as a list, or `None`, raising `ConfigurationError` for others.
 
     A plain string is refused, which a list would split into one source per
-    letter, and so is anything but an iterable of strings. A generator is read
-    once.
+    letter, and so is anything but an iterable of skill sources. A generator
+    is read once.
     """
     if skills is None:
         return None
@@ -115,7 +133,12 @@ def read_skills_option(skills: Iterable[str] | None) -> list[str] | None:
         raise ConfigurationError(error_message)
     sources = list(skills)
     for position, source in enumerate(sources):
-        check_instance_option(source, option_type=str, parameter_name=f"skills[{position}]")
+        if not is_skill_source(source):
+            error_message = (
+                f"skills[{position}] must be a skill source path or a (path, label) pair of "
+                f"strings, got {describe_option_value(source)}"
+            )
+            raise ConfigurationError(error_message)
     return sources
 
 
@@ -168,7 +191,7 @@ def check_overrides_option(overrides: Mapping[str, MonitorMiddleware] | None) ->
 def build_general_purpose_subagent(
     specs: Sequence[SubAgent],
     *,
-    skills: list[str] | None,
+    skills: list[SkillSource] | None,
 ) -> SubAgent | None:
     """Return the general-purpose spec to add, or `None` when `specs` has one.
 
@@ -184,14 +207,15 @@ def build_general_purpose_subagent(
             raise ConfigurationError(build_general_purpose_skills_message(general_purpose["name"]))
         return None
     if skills is not None:
-        general_purpose["skills"] = list(skills)
+        # Deep Agents types a spec's skills as paths, though its middleware also reads pairs.
+        general_purpose["skills"] = cast("list[str]", list(skills))
     return general_purpose
 
 
 def build_declarative_specs(
     subagents: Sequence[SubagentSpec],
     *,
-    skills: list[str] | None,
+    skills: list[SkillSource] | None,
 ) -> list[SubAgent]:
     """Return the specs to monitor, adding the general-purpose one when it is missing.
 
@@ -230,7 +254,7 @@ def monitor_subagents(
     middleware: MonitorMiddleware,
     subagents: Sequence[SubagentSpec] = (),
     overrides: Mapping[str, MonitorMiddleware] | None = None,
-    skills: list[str] | None = None,
+    skills: Sequence[SkillSource] | None = None,
 ) -> list[SubAgent]:
     """Give every subagent a monitor, including the built-in general-purpose one.
 
@@ -270,9 +294,11 @@ def monitor_subagents(
 
     Every option is checked before Deep Agents is imported: `middleware` and
     each override must be a `MonitorMiddleware`, `overrides` a mapping keyed
-    by subagent name, `subagents` an iterable of specs and `skills` one of
-    strings. A subagent's name names its monitor, so it must be a non-blank
-    string without `:` or `|`. Anything else raises `ConfigurationError`.
+    by subagent name, `subagents` an iterable of specs, and `skills` one of
+    skill sources, each a path or a `(path, label)` pair of strings, as Deep
+    Agents' `SkillsMiddleware` takes them. A subagent's name names its
+    monitor, so it must be a non-blank string without `:` or `|`. Anything
+    else raises `ConfigurationError`.
     """
     check_instance_option(middleware, option_type=MonitorMiddleware, parameter_name="middleware")
     given_specs = read_subagent_specs(subagents)

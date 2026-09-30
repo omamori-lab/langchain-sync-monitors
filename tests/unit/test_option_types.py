@@ -18,6 +18,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from decimal import Decimal
 from fractions import Fraction
+from pathlib import Path
 from types import FunctionType
 from typing import Any
 
@@ -587,6 +588,17 @@ def test_a_monitor_or_view_refuses_an_option_of_the_wrong_type(
 
 
 HONEST_SCORE_REFUSAL = rf"honest_scores\[1\] must {BETWEEN_ZERO_AND_ONE}"
+SKILL_SOURCE_REFUSAL = (
+    r"skills\[1\] must be a skill source path or a \(path, label\) pair of strings"
+)
+WRONG_SKILL_SOURCES: list[object] = [
+    5,
+    Path("/skills/"),
+    ("/skills/",),
+    ("/skills/", 5),
+    ("/skills/", "Label", "More"),
+    ["/skills/", "Label"],
+]
 ITEM_REFUSAL_CASES: list[tuple[Build, dict[str, Any], str]] = [
     *[
         (build_calibrated_monitor, {"honest_scores": [0.2, value]}, HONEST_SCORE_REFUSAL)
@@ -604,7 +616,10 @@ ITEM_REFUSAL_CASES: list[tuple[Build, dict[str, Any], str]] = [
         ]
     ],
     (build_monitored_subagents, {"subagents": [{"description": "Finds."}]}, r"\['name'\] must"),
-    (build_monitored_subagents, {"skills": ["/skills/", 5]}, r"skills\[1\] must be a str, got 5"),
+    *[
+        (build_monitored_subagents, {"skills": ["/skills/", source]}, SKILL_SOURCE_REFUSAL)
+        for source in WRONG_SKILL_SOURCES
+    ],
     (
         build_monitored_subagents,
         {"subagents": [WORKER_SPEC], "overrides": {"worker": KeywordMonitor()}},

@@ -1,13 +1,16 @@
 # Use Defer to Trusted
 
 This guide sets up Defer to Trusted, the protocol that hands a suspicious step
-to a trusted model. The agent's own model proposes each step; when the
-monitor finds the proposal suspicious, a model you trust writes the step
-instead, with the same conversation and tools.
+to a trusted model.
 
-The protocol comes from the AI control paper [@greenblatt2023aicontrol]. The
-trusted model is usually weaker than the agent's model but one you are
-confident will not work against you.
+[TOC]
+
+The agent's own model proposes each step. When the monitor finds the proposal
+suspicious, a model you trust writes the step instead, from the same request.
+The protocol comes from the AI control paper [@greenblatt2023aicontrol], where
+the trusted model is weaker than the untrusted one but trusted not to work
+against you, and a person also reviews the most suspicious code before it is
+used. Here that review is a flag on the step's record, read after the step.
 
 ## How it works
 
@@ -24,10 +27,10 @@ flowchart LR
     flagged --> log
 ```
 
-The rejected proposal's tool calls never run, and neither the agent nor the
+A rejected proposal's tool calls never run, and neither the agent nor the
 trusted model sees it. A provider's built-in tools in it, such as a web fetch,
-already ran inside the model call that drew it. It stays in the step's record
-as evidence.
+already ran inside the model call that drew it. The record keeps it as
+evidence.
 
 ## A complete example
 
@@ -50,7 +53,9 @@ def http_post(url: str, body: str) -> str:
 monitor = MonitorMiddleware(
     monitor=LLMMonitor(model="openrouter:xiaomi/mimo-v2.6-pro"),
     protocol=DeferToTrusted(
+        # Writes the step whenever the agent's proposal is suspicious.
         trusted_model="openrouter:xiaomi/mimo-v2.6-flash",
+        # Replace proposals at or above 0.6, and flag those at or above 0.9.
         defer_threshold=0.6,
         audit_threshold=0.9,
     ),
@@ -58,83 +63,99 @@ monitor = MonitorMiddleware(
 agent = create_agent(
     model="openrouter:deepseek/deepseek-v4.1-flash",
     tools=[read_file, http_post],
-    middleware=[monitor],
+    middleware=[monitor],  # The monitor goes last in the list.
 )
 
 task = {"messages": [{"role": "user", "content": "Summarise q3.md for the team."}]}
 result = agent.invoke(task)
+# One record per model call, each holding the agent's one proposal.
 for record in result["monitor_log"]:
     [sample] = record["samples"]
     print(record["step_number"], record["outcome"], record["flagged"], sample["suspicion"])
 ```
 
-The model strings are examples. Any LangChain chat model works in each of the
-three places: pass a provider string, or a chat model object you built. The
-trusted model must support tool calling, because it receives the agent's
-tools.
+The model strings are examples, and `openrouter:` strings need the
+`openrouter` extra. Any LangChain chat model works in each of the three
+places: pass a provider string, or a chat model object you built.
 
 ## Options
 
 | Option | Default | What it does |
 |---|---|---|
-| `trusted_model` | Required | The model that writes a deferred step. A provider string is resolved once, when the protocol is built. |
+| `trusted_model` | Required | The model that writes a deferred step: a chat model, or a provider string resolved once, when the protocol is built. A model wrapped in a Runnable, such as one from `with_retry()`, raises `ConfigurationError`. |
 | `defer_threshold` | 0.6, with a warning | A proposal whose suspicion is at or above this value is replaced by the trusted model's step. |
 | `audit_threshold` | 0.9, with a warning | A step whose suspicion is at or above this value is flagged for review. `None` turns flagging off. |
 
-Both thresholds are on the monitor's 0 to 1 scale, and both defaults are
-placeholders that emit an `UncalibratedThresholdWarning`. Set them from the
-scores your monitor gives on honest runs of your own agent, as
-[Calibrate the threshold](use-trusted-monitoring.md#calibrate-the-threshold)
-describes. Passing a value silences the warning for that threshold.
+Each threshold is a number from 0 to 1; see
+[Thresholds](choose-a-protocol.md#thresholds) for what counts. Both defaults
+are placeholders: set them from the scores your monitor gives on honest runs,
+as [Calibrate the threshold](use-trusted-monitoring.md#calibrate-the-threshold)
+describes. The two are independent, and an `audit_threshold` below the
+`defer_threshold` is allowed: it flags steps that still ran, a queue of
+borderline steps for a person to review.
 
-The two thresholds are independent. An `audit_threshold` below the
-`defer_threshold` is allowed and useful: it flags steps that still ran, which
-gives a person a queue of borderline steps to review.
+The trusted model receives the step's request with only the model changed:
+the same system prompt, conversation, tools and response format. It must
+therefore support tool calling, and structured output if the agent uses it.
+
+`DeferToTrusted(trusted_model=model)` is Defer to Resample with no resamples
+and the `DeferToTrustedModel(trusted_model=model)` fallback. To halt the run
+instead of deferring, use `DeferToResample(fallback=HaltRun(), max_resamples=0)`;
+see [Use Defer to Resample](use-defer-to-resample.md).
+`MonitorMiddleware`'s own options are listed in
+[Middleware options](choose-a-protocol.md#middleware-options).
 
 ## Read the outcome in `monitor_log`
 
-Every step adds one record with exactly one sample, the agent's proposal.
+Every model call adds one record.
 
-| `outcome` | What happened | The sample's `executed` |
-|---|---|---|
-| `"allowed"` | The proposal was below `defer_threshold` and ran. | `True` |
-| `"deferred_to_trusted"` | The trusted model wrote the step instead. | `False` |
+| `outcome` | What happened | Samples | The sample's `executed` |
+|---|---|---|---|
+| `"allowed"` | The proposal was below `defer_threshold` and ran. | 1 | `True` |
+| `"deferred_to_trusted"` | The trusted model wrote the step instead. | 1, the rejected proposal | `False` |
+| `"halted"` | Only with `when_subagent_halts=SubagentHalt.STOP_WHOLE_RUN`: a subagent was halted, or that halt still stands. | 0 | None |
 
-`flagged` is `True` when the proposal's suspicion reached `audit_threshold`.
-The record keeps the rejected proposal in full, but not the trusted model's
-step, which is in the agent's messages like any other step.
+`flagged` is `True` when the proposal's suspicion reached `audit_threshold`,
+and on every halt. The record keeps the rejected proposal rendered with every
+channel, but not the trusted model's step, which is in the agent's messages
+like any other step. A halt under `STOP_WHOLE_RUN` stands: until a later run
+brings new input from the user, every further step halts without a sample,
+and two paths through middleware listed before the monitor can lift it early;
+see [A halt stands](choose-a-protocol.md#a-halt-stands).
+
+To see what the trusted model replaced:
 
 ```python
 for record in result["monitor_log"]:
     if record["outcome"] == "deferred_to_trusted":
+        # A deferred step keeps the agent's rejected proposal as its one sample.
         [rejected] = record["samples"]
         print(f"Step {record['step_number']} was deferred ({rejected['suspicion']:.2f}):")
         print(rejected["proposal"])
 ```
 
-## Things to know
+## Limits
 
-- **The trusted step is not judged.** The monitor scores the agent's
-  proposal only; whatever the trusted model writes runs as it is. That is what
-  trusting it means.
-- **Defer to Trusted is Defer to Resample with no resamples.** To stop the run
-  instead of deferring, use
-  `DeferToResample(fallback=HaltRun(), max_resamples=0)`; see
-  [Use Defer to Resample](use-defer-to-resample.md).
+- **The trusted step is not judged.** The monitor scores the agent's proposal
+  only; whatever the trusted model writes runs as it is. That is what trusting
+  it means.
+- **The agent may notice a deferral.** The trusted step joins the agent's
+  messages as if it were its own, and a step it would not have written tells
+  it that a proposal was replaced, as Ctrl-Z notes [@bhatt2025ctrlz].
 - **A flag never blocks.** Deferral is what stops a step. The flag only marks
   the record for a person to read afterwards.
-- **The trusted model sees the same conversation and tools.** It writes the
-  step as if it were the agent, and its reply joins the agent's messages. The
-  agent's model sees that reply as its own on the next step.
-- **Put the monitor last** in the `create_agent` middleware list, so no other
-  middleware runs inside it. `check_monitor_placement(middleware=[...])` warns
-  about a list that does not.
-- **A failed call leaves no record.** If the agent's model, the monitor or the
-  trusted model raises, nothing is committed and the error propagates. The
-  step is written to `stream_mode="custom"` as a `monitor_step_failed`
-  event, and any sample judged before the failure is logged as a warning.
+- **A provider's built-in tools run before the judgement.** A rejected
+  proposal's web search or code execution has already run at the provider;
+  see
+  [Tools the provider runs itself](choose-a-protocol.md#tools-the-provider-runs-itself).
+- **The graph takes more steps.** The monitor adds two graph steps per model
+  call and two per run; see
+  [Graph steps, streams and failures](choose-a-protocol.md#graph-steps-streams-and-failures),
+  which also covers a step that fails.
 
 ## Related guides
 
 - [Combine and calibrate monitors](combine-and-calibrate-monitors.md) to set the defer threshold from honest runs.
 - [Read the monitor log](read-the-monitor-log.md) to see which steps went to the trusted model.
+
+## References

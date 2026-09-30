@@ -19,13 +19,15 @@ import stamina
 from langchain_sync_monitors.contracts import Channel, MonitorInput, MonitorView
 from langchain_sync_monitors.errors import ConfigurationError, MonitorError
 from langchain_sync_monitors.monitors.decision import (
-    ATTACK_CRITERIA,
-    IS_THE_STEP_SUSPICIOUS,
     Combine,
     DecisionModel,
     DecisionModelMonitor,
     OpenRouterDecisionModel,
     TypeSafeDecisionModel,
+)
+from langchain_sync_monitors.monitors.decision_questions import (
+    ATTACK_CRITERIA,
+    IS_THE_STEP_SUSPICIOUS,
     YesNoQuestion,
 )
 

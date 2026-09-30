@@ -1,3 +1,7 @@
+---
+heading_numbers: false
+---
+
 # langchain-sync-monitors
 
 This page introduces the library and maps the rest of the documentation.

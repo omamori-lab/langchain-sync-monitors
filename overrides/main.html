@@ -12,3 +12,14 @@
   <link rel="icon" type="image/png" sizes="48x48" href="{{ 'assets/brand/favicon-48.png' | url }}">
   <link rel="apple-touch-icon" sizes="180x180" href="{{ 'assets/brand/favicon-180.png' | url }}">
 {% endblock %}
+
+{#-
+  A page whose front matter sets `heading_numbers: false` shows no section
+  numbers. This hidden marker is what docs/stylesheets/site.css looks for.
+-#}
+{% block content %}
+  {{ super() }}
+  {% if page.meta and page.meta.heading_numbers is sameas false %}
+    <span class="md-heading-numbers-off" hidden></span>
+  {% endif %}
+{% endblock %}

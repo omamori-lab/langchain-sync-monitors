@@ -14,7 +14,8 @@ exclude_docs: |
 
 theme:
   name: material
-  # overrides/main.html adds the favicon sizes.
+  # overrides/main.html adds the favicon sizes and the front-matter switch that
+  # turns off a page's section numbers.
   custom_dir: overrides
   logo: assets/brand/omamori-lab.svg
   favicon: assets/brand/favicon-32.png
@@ -68,6 +69,10 @@ markdown_extensions:
   - footnotes
   - toc:
       permalink: true
+      # A page's [TOC] marker and the right-hand contents list both show the h2
+      # and h3 sections, the two levels docs/stylesheets/site.css numbers.
+      title: Contents
+      toc_depth: "2-3"
   - pymdownx.highlight
   - pymdownx.inlinehilite
   - pymdownx.superfences:

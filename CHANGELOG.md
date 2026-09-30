@@ -129,7 +129,8 @@ change raises the minor version.
 - A complete bibliography of every paper, post and code base the library draws
   on, cited where it is used, with a test that keeps the two in step.
 - A [documentation site](https://omamori-lab.github.io/langchain-sync-monitors/),
-  deployed from each release.
+  deployed from each release, in the omamori lab house style in light and dark,
+  with numbered sections and contents lists.
 - A release workflow that publishes to PyPI through trusted publishing, only
   after every CI check passes on the tagged commit and the built wheel installs
   and imports.

@@ -658,8 +658,7 @@ The docs need these changes:
 
 ## The prototype
 
-The scratch files are all outside the repository, in
-`/private/tmp/claude-501/-Users-abo-tresol-Documents-ai-safety-langchain-sync-monitors/63b9c584-4a7f-4495-97c2-1cee02a03cee/scratchpad/tracing/`:
+The scratch files were kept outside the repository, in a session scratch folder:
 
 - `monitor_spans.py` holds the helpers, plus subclasses of
   `MonitorMiddleware`, `SyncPendingStep`, `AsyncPendingStep` and

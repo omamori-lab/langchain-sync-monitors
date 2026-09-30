@@ -311,3 +311,49 @@ def test_a_threshold_given_as_any_real_number_from_zero_to_one_is_kept_as_a_floa
     threshold = getattr(protocol, parameter_name)
     assert type(threshold) is float
     assert threshold == float(value)
+
+
+@pytest.mark.parametrize("parameter_name", THRESHOLD_PARAMETERS)
+@pytest.mark.parametrize(
+    "value",
+    [
+        Decimal("1.0000000000000000001"),
+        Decimal("-1E-400"),
+        Fraction(10**20 + 1, 10**20),
+        Fraction(-1, 10**400),
+        Decimal("NaN"),
+        Decimal("Infinity"),
+        10**400,
+        Fraction(10**400, 1),
+        math.inf,
+    ],
+    ids=[
+        "decimal-just-above-one",
+        "decimal-just-below-zero",
+        "fraction-just-above-one",
+        "fraction-just-below-zero",
+        "decimal-nan",
+        "decimal-infinity",
+        "huge-int",
+        "huge-fraction",
+        "infinity",
+    ],
+)
+def test_a_threshold_just_outside_the_range_is_refused_before_it_is_rounded(
+    parameter_name: str,
+    value: object,
+) -> None:
+    # Act / Assert: a float would round the first four into [0, 1]
+    with pytest.raises(ConfigurationError, match=f"{parameter_name} must be between 0 and 1"):
+        build_protocol_with_threshold(parameter_name, value)
+
+
+def test_a_negative_zero_threshold_is_read_as_zero() -> None:
+    # Act
+    protocol = TrustedMonitoring(flag_threshold=-0.0)
+
+    # Assert
+    threshold = protocol.flag_threshold
+    assert threshold == 0.0
+    assert math.copysign(1.0, threshold) == 1.0
+

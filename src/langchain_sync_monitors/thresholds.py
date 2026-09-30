@@ -8,7 +8,6 @@ library's defaults are placeholders: a protocol built with one emits an
 
 from __future__ import annotations
 
-import math
 import numbers
 import os
 import warnings
@@ -72,10 +71,11 @@ def read_threshold_value(value: object, *, parameter_name: str) -> float:
     """Return a threshold as a float from 0 to 1, raising `ConfigurationError` for anything else.
 
     Any real number counts, a `Fraction` or numpy's floats included, and so
-    does a `Decimal`, which a float holds closely enough for a threshold. A
-    `bool` does not, although Python counts it as a number, and neither does a
-    string such as `"0.6"`. A value outside [0, 1], or NaN, is refused,
-    because suspicion scores never leave that range.
+    does a `Decimal`. A `bool` does not, although Python counts it as a number,
+    and neither does a string such as `"0.6"`. The range is checked on the
+    exact value, before it becomes a float, so a value just outside [0, 1]
+    that a float would round into it is refused, as is NaN, because
+    suspicion scores never leave that range. `-0.0` is read as `0.0`.
     """
     if isinstance(value, bool) or not isinstance(value, numbers.Real | Decimal):
         message = (
@@ -83,13 +83,13 @@ def read_threshold_value(value: object, *, parameter_name: str) -> float:
         )
         raise ConfigurationError(message)
     try:
-        number = float(value)
-    except (ValueError, OverflowError):
-        number = math.nan
-    if math.isnan(number) or not 0.0 <= number <= 1.0:
+        is_in_range = not value < 0 and value <= 1
+    except ArithmeticError:
+        is_in_range = False
+    if not is_in_range:
         message = f"{parameter_name} must be between 0 and 1, got {value!r}"
         raise ConfigurationError(message)
-    return number
+    return float(value) + 0.0
 
 
 def resolve_threshold(*, parameter_name: str, threshold: float | DefaultThreshold) -> float:

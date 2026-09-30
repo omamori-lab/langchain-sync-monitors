@@ -1,0 +1,62 @@
+name: Docs
+
+# Builds the documentation with MkDocs and deploys it to GitHub Pages. The
+# Release workflow calls it once a release is on PyPI, so the site shows the
+# released version. To redeploy a release's docs by hand, run it from that
+# release's tag ("Use workflow from: Tags"); run from main, it deploys docs
+# that may be ahead of the release. CI builds the docs with --strict on every
+# pull request and push to main, so a broken page fails there first.
+#
+# It needs GitHub Pages enabled with "GitHub Actions" as the source, and a v*
+# tag rule on the github-pages environment; CONTRIBUTING.md lists the setup.
+
+on:
+  workflow_call:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build the site
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v10.2.0
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: uv sync --locked --group docs --all-extras
+
+      - name: Build the site
+        run: uv run --no-sync mkdocs build --strict --site-dir site
+
+      - name: Keep the site for deployment
+        uses: actions/upload-pages-artifact@v5
+        with:
+          path: site
+
+  deploy:
+    name: Deploy to GitHub Pages
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    concurrency:
+      group: pages
+      cancel-in-progress: false
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v5

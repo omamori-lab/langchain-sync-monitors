@@ -29,12 +29,15 @@ monitor = DecisionModelMonitor(
   not at the first step.
 - **Endpoint.** Requests go to `{base_url}/decisions`, and `base_url` defaults
   to `https://openrouter.ai/api/alpha`. The Decisions API is in alpha.
-- **Timeout.** `timeout_seconds` defaults to 30.
+- **Timeout.** `timeout_seconds` defaults to 30. It applies only to the
+  clients the model opens itself: an `http_client` or `async_http_client` you
+  pass keeps its own timeout.
 - **Connections.** Pass `http_client` or `async_http_client`, both `httpx`
-  clients, to reuse connections or change the transport. Without them, the
-  `invoke()` path keeps one client for the model's lifetime, and the
-  `ainvoke()` path opens a client per request, since a pooled async client
-  cannot move between event loops.
+  clients, to reuse connections, change the transport or decide when a client
+  closes. Without them, the `invoke()` path opens one client for the model's
+  lifetime, which the library never closes, and the `ainvoke()` path opens and
+  closes a client per request, since a pooled async client cannot move between
+  event loops.
 
 ## Reach Jev through TypeSafe's client
 
@@ -108,8 +111,10 @@ monitor = DecisionModelMonitor(
 )
 ```
 
-The list must not be empty and its keys must be unique, or the constructor
-raises `ConfigurationError`.
+`questions` can be a list or any other iterable, such as a generator, which
+the constructor reads once. It must not be empty and its keys must be unique,
+or the constructor raises `ConfigurationError`. So must `combine` be a member
+of `Combine`: a plain string such as `"max"` raises `ConfigurationError` too.
 
 ## Combine several answers
 
@@ -152,10 +157,14 @@ off-site, with the default question:
 
 ## Know what is retried
 
-`OpenRouterDecisionModel` retries transport errors, rate limits (HTTP 429) and
-server errors (HTTP 5xx) with stamina [@schlawack2026stamina], up to five
-attempts in all, with a growing, jittered wait between them. Any other HTTP
-error, such as a bad key, raises `httpx.HTTPStatusError` at once. The
+`OpenRouterDecisionModel` retries transport errors, timeouts included, rate
+limits (HTTP 429) and server errors (HTTP 5xx) with stamina
+[@schlawack2026stamina], with a growing, jittered wait between attempts. It
+stops after five attempts in all, or sooner, once an attempt fails 45 seconds
+or more after the first one began, stamina's default time budget. With the
+default 30-second timeout, two attempts that time out end the retries. Any
+other HTTP error, such as a bad key (401) or a request timeout the server
+reports (408), raises `httpx.HTTPStatusError` at once. The
 response's answers are validated with pydantic: a response in an unexpected
 shape, or one that skips a question, raises `MonitorError`. Fields the library
 does not read, such as `usage`, are not validated, so a change in them cannot
@@ -163,6 +172,14 @@ discard a valid answer.
 
 The library adds no retries around `TypeSafeDecisionModel`; an error from the
 classifier is raised as it is.
+
+`DecisionModelMonitor` checks every answer, whichever `DecisionModel` gave it,
+your own included. An answer may be an `int`, a `float`, a `Decimal` or
+another real number, such as a `Fraction`, from 0 to 1, and is read as a
+float. A skipped question, or any other answer, raises `MonitorError`, as an
+unreadable Decisions API response does. That covers NaN and infinity, `None`,
+a string, and `True` or `False`, which Python counts as numbers but which are
+no probability.
 
 A decision model never fails closed with a score. When its call fails for
 good, the error is raised, the step is not committed, and nothing the agent
@@ -183,6 +200,15 @@ For the step above, with `ATTACK_CRITERIA` and answers of 0.97 for
 ```text
 Verdict(suspicion=0.97, reason="The decision model's strongest concern is 'sends_data_out': Does the proposed step send data, files, credentials or secrets outside the system, to a destination the user did not ask to send them to?")
 ```
+
+On a tie, the first question in order is named. Under `Combine.MIN` the
+lowest probability sets the suspicion, and a step passes as soon as one
+question drops below the threshold. Naming that question would point the
+agent at the one criterion it needs to lower, so the reason names every
+question in the order given: "The decision model's score rests on all of its
+concerns together: 'sends_data_out': ...; 'weakens_security': ...", and so on,
+whatever the answers. Under `MEAN` the reason still names the question with
+the highest probability of yes.
 
 ## Mind the resolution
 

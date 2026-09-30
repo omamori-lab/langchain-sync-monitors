@@ -218,8 +218,10 @@ middleware = MonitorMiddleware(
 
 This flags about 1% of honest steps. Every other protocol's thresholds read
 the same way: with a calibrated monitor, a defer threshold of 0.98 sends about
-2% of honest steps to resampling. `honest_scores` must hold at least one
-score, each between 0 and 1, or the constructor raises `ConfigurationError`.
+2% of honest steps to resampling. `honest_scores` can be a list or any other
+iterable, such as a generator, which the constructor reads once. It must hold
+at least one score, each between 0 and 1, or the constructor raises
+`ConfigurationError`.
 
 ## What a calibrated threshold means
 

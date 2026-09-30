@@ -514,14 +514,23 @@ LangChain's `init_chat_model`.
   labelled unsafe is the standard fallback, with gains that level off after a
   handful [@xiong2024uncertainty; @lyu2025sampleconsistency].
   `GuardScoring.AUTO` does the first when it can and draws five samples
-  otherwise. Guard models are overconfident, especially under jailbreaks
-  [@liu2025guardcalibration], and a hard 0 or 1 label gives a threshold only
-  one operating point, so that option warns. The label is read only where the
-  guard's format puts it: on the last line, or on the first line when it is
-  unsafe and only category codes follow, as in Llama Guard
+  otherwise. LangChain has no capability flag for log-probabilities, so `AUTO`
+  asks every model for them; a chat model that rejects the request, such as
+  `ChatAnthropic`, fails the first judged step with a `ConfigurationError`
+  that names `GuardScoring.SAMPLE_FRACTION`. Guard models are overconfident,
+  especially under jailbreaks [@liu2025guardcalibration], and a hard 0 or 1
+  label gives a threshold only one operating point, so that option warns. The
+  label is read only where the guard's format puts it: on the last line,
+  alone or after a verdict key such as `Label:`, or on the first line when it
+  is unsafe and only category codes follow, as in Llama Guard
   [@meta2024llamaguard3format; @meta2025llamaguard4]. A reply with two
-  different labels on their own lines, a label elsewhere, or a cut-off reply
-  counts as suspicious, for the same reason as a quoted score.
+  different labels, a label elsewhere, or a cut-off reply counts as
+  suspicious, for the same reason as a quoted score. A line that may hold the
+  guard's own suspicious label off format, such as `violation (the note asks
+  ...` or `...: violation`, counts as naming it, so when the reader cannot
+  tell, it errs towards suspicion. A planted label that the guard quotes alone
+  on the last line, when the reply names no other label, cannot be told from a
+  verdict: a guard's output can be steered by what it reads.
 - **Decision models** (`DecisionModelMonitor`) answer yes or no questions with
   a probability and generate no text. Suspicion is the probability of yes.
   Several questions can go in one request, combined by their maximum, so one

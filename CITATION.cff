@@ -1,0 +1,31 @@
+cff-version: 1.2.0
+message: >-
+  If you use this software, please cite it using these metadata, and cite the
+  research it builds on: docs/references.bib lists every source.
+type: software
+title: langchain-sync-monitors
+abstract: >-
+  AI-control monitors for LangChain agents and Deep Agents: every step an agent
+  proposes is judged before its tools run, and a control protocol decides what
+  runs.
+authors:
+  - given-names: Antonio
+    family-names: Badilla-Olivas
+repository-code: https://github.com/omamori-lab/langchain-sync-monitors
+url: https://omamori-lab.github.io/langchain-sync-monitors/
+license: MIT
+keywords:
+  - ai-safety
+  - ai-control
+  - langchain
+  - langgraph
+  - deepagents
+  - ai-agents
+  - llm-agents
+  - agent-safety
+  - monitoring
+  - guardrails
+  - prompt-injection
+  - llm-security
+  - middleware
+version: "0.1.0.dev0"

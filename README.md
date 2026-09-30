@@ -23,11 +23,13 @@ so a suspicious step can be stopped before it runs.
 pip install "langchain-sync-monitors[openrouter,deepagents]"
 ```
 
+<!-- release-check: the text below describes an unreleased package. scripts/check-release.sh refuses a release while this comment is here; rewrite that text for the release, then delete this comment. -->
+
 The package is not on PyPI yet. Until the first release, install it from
 GitHub:
 
 ```console
-pip install "langchain-sync-monitors[openrouter,deepagents] @ git+https://github.com/Antonio-Tresol/langchain-sync-monitors"
+pip install "langchain-sync-monitors[openrouter,deepagents] @ git+https://github.com/omamori-lab/langchain-sync-monitors"
 ```
 
 | Extra | Adds | Needed for |
@@ -171,7 +173,7 @@ subagents the helper cannot monitor.
 |---|---|
 | build a monitored agent from scratch | [Tutorial: your first monitored agent](docs/tutorials/first-monitored-agent.md) |
 | solve one task, such as calibrating thresholds | [How-to guides](docs/how-to/index.md) |
-| look up a class or a keyword | [API reference](docs/reference/api.md) |
+| look up a class or a keyword | [API reference](https://omamori-lab.github.io/langchain-sync-monitors/reference/api/) |
 | understand how a step flows and why | [How the library is built](docs/explanation/design.md) |
 | see monitored agents run against real models | [Live runs](docs/explanation/live-runs.md) |
 
@@ -189,6 +191,8 @@ credits every source and what it contributed, and
 use this library in research, please cite the original authors.
 
 ## Status and licence
+
+<!-- release-check: the text below describes an unreleased package. scripts/check-release.sh refuses a release while this comment is here; rewrite that text for the release, then delete this comment. -->
 
 Pre-release, version 0.1.0.dev0, and not on PyPI yet. The monitors,
 protocols, middleware and Deep Agents support are built, tested offline and

@@ -69,10 +69,13 @@ safety filters and routing or guardrail decisions [@langsmith2026trajectory].
 def build_internal_call_config(*, source: str) -> RunnableConfig:
     """Tag a model call the library makes itself, such as a monitor's call.
 
-    The tag keeps the call out of the agent's message stream, the mechanism
-    LangChain's ``InternalCallTransformer`` provides for middleware
-    [@langchain2026], and out of LangSmith's Trajectory view
-    [@langsmith2026trajectory]. ``source`` names the caller in traces.
+    The metadata drops the call from the experimental
+    ``stream_events(version="v3")`` projection, through LangChain's
+    ``InternalCallTransformer`` [@langchain2026], and keeps it out of
+    LangSmith's Trajectory view [@langsmith2026trajectory]. It does not
+    filter ``stream_mode="messages"``: the middleware's ``nostream`` block
+    keeps the call out of that stream. ``source`` names the caller in
+    traces.
     """
     return RunnableConfig(
         metadata={

@@ -1,9 +1,10 @@
-"""Constructors check the type of their options when they are built.
+"""Constructors and functions check the type of their options when they are called.
 
-Protocols, fallbacks, the middleware's monitor, protocol and enum options, the
-monitors, their decision models and `MonitorView` refuse an option of the
-wrong type with `ConfigurationError`. The middleware's `label` and
-`agent_name`, and `OpenRouterDecisionModel`'s `api_key`, are not checked here.
+Protocols, fallbacks, the middleware, the monitors, their decision models,
+`MonitorView`, `DefaultThreshold`, `monitor_subagents`,
+`check_monitor_placement` and `resolve_threshold` refuse an option of the
+wrong type with `ConfigurationError`. `OpenRouterDecisionModel`'s `api_key` is
+not checked here.
 A limit given as a float, or a protocol given where a fallback belongs, used to
 build without error and fail only at the first suspicious step: with a
 `TypeError` or an `AttributeError`, during the attack the protocol exists for.
@@ -22,12 +23,14 @@ from typing import Any
 
 import httpx
 import pytest
+from langchain.agents import create_agent
 from langchain_core.language_models.fake_chat_models import FakeListChatModel
 from langchain_core.messages import AIMessage, HumanMessage
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.runnables import RunnableLambda
 
 from langchain_sync_monitors.contracts import Channel, MonitorInput, MonitorView, TaskAuthor
+from langchain_sync_monitors.deepagents import monitor_subagents
 from langchain_sync_monitors.errors import ConfigurationError
 from langchain_sync_monitors.middleware import MonitorMiddleware
 from langchain_sync_monitors.monitors import (
@@ -43,6 +46,7 @@ from langchain_sync_monitors.monitors import (
     YesNoQuestion,
 )
 from langchain_sync_monitors.options import describe_option_value
+from langchain_sync_monitors.placement import check_monitor_placement
 from langchain_sync_monitors.protocols import (
     AutoMode,
     DeferToResample,
@@ -52,6 +56,7 @@ from langchain_sync_monitors.protocols import (
     HaltRun,
     TrustedMonitoring,
 )
+from langchain_sync_monitors.thresholds import DefaultThreshold, resolve_threshold
 from tests.support.monitors import KeywordMonitor
 from tests.support.protocols import AcceptFirst
 from tests.unit.monitors.doubles import CallPath, evaluate_on_path
@@ -464,6 +469,23 @@ def build_cascade_monitor(**options: Any) -> CascadeMonitor:
     return CascadeMonitor(**merge_options(defaults, options))
 
 
+WORKER_SPEC = {"name": "worker", "description": "Finds.", "system_prompt": "Find."}
+
+
+def build_middleware(**options: Any) -> MonitorMiddleware:
+    defaults = {"monitor": KeywordMonitor(), "protocol": AcceptFirst()}
+    return MonitorMiddleware(**merge_options(defaults, options))
+
+
+def build_monitored_subagents(**options: Any) -> list[Any]:
+    return monitor_subagents(**merge_options({"middleware": build_middleware()}, options))
+
+
+def build_resolved_threshold(**options: Any) -> float:
+    defaults = {"parameter_name": "flag_threshold", "threshold": 0.5}
+    return resolve_threshold(**merge_options(defaults, options))
+
+
 type Build = Callable[..., object]
 
 WRONG_WHOLE_NUMBERS: list[object] = [True, 2.5, 2.0, "3", math.nan]
@@ -519,6 +541,20 @@ REFUSAL_RULES: list[tuple[Build, str, list[object], str]] = [
     (MonitorView, "delegation_tools", [*WRONG_OBJECTS, ["task"]], "be a set of strings, such as"),
     (MonitorView, "delegation_tools", [{5}], "hold only strings, got 5"),
     *[(build_question, field, WRONG_TEXTS, "be a str, got") for field in QUESTION_FIELDS],
+    (build_middleware, "label", ["", " ", *WRONG_TEXTS], "be a non-blank string, got"),
+    (build_middleware, "label", ["team:a", "team|a"], "not contain '[:|]', which LangGraph"),
+    (build_middleware, "agent_name", ["", *WRONG_TEXTS], "be a non-blank string, got"),
+    (build_middleware, "agent_name", ["sub:agent", "sub|agent"], "not contain '[:|]'"),
+    (build_monitored_subagents, "middleware", WRONG_OBJECTS, "be a MonitorMiddleware, got"),
+    (build_monitored_subagents, "middleware", [KeywordMonitor()], "be a MonitorMiddleware"),
+    (build_monitored_subagents, "subagents", ["x", True, None, WORKER_SPEC], "be a list of s"),
+    (build_monitored_subagents, "overrides", [["x"], "x", True], "map subagent names to Mon"),
+    (build_monitored_subagents, "overrides", [{1: KeywordMonitor()}], "be keyed by subagent"),
+    (build_monitored_subagents, "skills", ["/skills/"], "be a list of skill source paths, not"),
+    (build_monitored_subagents, "skills", [5, True, b"x"], "be a list of skill source paths, got"),
+    (check_monitor_placement, "middleware", ["m", True, None, iter([])], "be the list given to"),
+    (DefaultThreshold, "value", WRONG_THRESHOLDS, BETWEEN_ZERO_AND_ONE),
+    (build_resolved_threshold, "parameter_name", WRONG_TEXTS, "be a str, got"),
 ]
 
 
@@ -550,28 +586,40 @@ def test_a_monitor_or_view_refuses_an_option_of_the_wrong_type(
         build(**options)
 
 
-ITEM_REFUSAL_CASES = [
+HONEST_SCORE_REFUSAL = rf"honest_scores\[1\] must {BETWEEN_ZERO_AND_ONE}"
+ITEM_REFUSAL_CASES: list[tuple[Build, dict[str, Any], str]] = [
     *[
-        pytest.param(
-            {"honest_scores": [0.2, value]},
-            rf"honest_scores\[1\] must {BETWEEN_ZERO_AND_ONE}",
-            id=f"honest-score-{describe_option_value(value)}",
-        )
+        (build_calibrated_monitor, {"honest_scores": [0.2, value]}, HONEST_SCORE_REFUSAL)
         for value in WRONG_THRESHOLDS
     ],
-    pytest.param(
-        {"questions": [IS_THE_STEP_SUSPICIOUS, "leaks"]},
-        r"questions\[1\] must be a YesNoQuestion, got 'leaks'",
-        id="question-string",
+    (build_decision_monitor, {"questions": [*ONE_QUESTION, "x"]}, r"questions\[1\] must be a Yes"),
+    (build_monitored_subagents, {"subagents": ["worker"]}, r"subagents\[0\] must be a Mapping"),
+    *[
+        (build_monitored_subagents, {"subagents": [{**WORKER_SPEC, "name": name}]}, message)
+        for name, message in [
+            ("sub:agent", r"subagents\[0\]\['name'\] must not contain ':'"),
+            ("sub|agent", r"subagents\[0\]\['name'\] must not contain '\|'"),
+            ("", r"subagents\[0\]\['name'\] must be a non-blank string, got ''"),
+            (5, r"subagents\[0\]\['name'\] must be a non-blank string, got 5"),
+        ]
+    ],
+    (build_monitored_subagents, {"subagents": [{"description": "Finds."}]}, r"\['name'\] must"),
+    (build_monitored_subagents, {"skills": ["/skills/", 5]}, r"skills\[1\] must be a str, got 5"),
+    (
+        build_monitored_subagents,
+        {"subagents": [WORKER_SPEC], "overrides": {"worker": KeywordMonitor()}},
+        r"overrides\['worker'\] must be a MonitorMiddleware",
     ),
+    (check_monitor_placement, {"middleware": [KeywordMonitor()]}, r"middleware\[0\] must be an Ag"),
 ]
 
 
-@pytest.mark.parametrize(("options", "message"), ITEM_REFUSAL_CASES)
-def test_a_refused_item_is_named_by_its_position(options: dict[str, object], message: str) -> None:
-    # Arrange
-    build = build_calibrated_monitor if "honest_scores" in options else build_decision_monitor
-
+@pytest.mark.parametrize(("build", "options", "message"), ITEM_REFUSAL_CASES)
+def test_a_refused_item_is_named_by_its_position(
+    build: Build,
+    options: dict[str, object],
+    message: str,
+) -> None:
     # Act / Assert
     with pytest.raises(ConfigurationError, match=message):
         build(**options)
@@ -618,6 +666,11 @@ ACCEPTED_CASES: list[tuple[Build, dict[str, object], str, object]] = [
     (build_decision_model, {"async_http_client": None}, "async_http_client", None),
     (build_decision_monitor, {"questions": iter(ONE_QUESTION)}, "questions", ONE_QUESTION),
     (build_typesafe_model, {"classifier": RUNNABLE_CLASSIFIER}, "classifier", RUNNABLE_CLASSIFIER),
+    (build_middleware, {"label": "team[a"}, "name", "team[a[main]"),
+    (build_middleware, {"agent_name": "worker[v2]"}, "name", "monitor[worker[v2]]"),
+    (build_middleware, {"label": "team.a", "agent_name": "sub a"}, "name", "team.a[sub a]"),
+    (DefaultThreshold, {"value": 1}, "value", 1.0),
+    (DefaultThreshold, {"value": Decimal("0.6")}, "value", 0.6),
 ]
 
 
@@ -661,3 +714,32 @@ async def test_a_decimal_escalation_threshold_escalates_the_float_score_it_names
 
     # Assert
     assert verdict.suspicion == 0.9
+
+
+def test_a_bracketed_name_builds_an_agent() -> None:
+    # Arrange: LangGraph refuses only ":" and "|" in the node names the hooks become
+    monitor = build_middleware(label="team[a]", agent_name="main")
+
+    # Act
+    agent = create_agent(model=build_trusted_model(), tools=[], middleware=[monitor])
+
+    # Assert
+    assert "team[a][main].before_model" in agent.get_graph().nodes
+
+
+def test_monitor_subagents_reads_generators_of_subagents_and_skills_once() -> None:
+    # Arrange
+    pytest.importorskip("deepagents")
+
+    # Act
+    specs = build_monitored_subagents(subagents=iter([WORKER_SPEC]), skills=iter(["/skills/"]))
+
+    # Assert
+    assert [spec["name"] for spec in specs] == ["worker", "general-purpose"]
+    assert specs[1]["skills"] == ["/skills/"]
+    assert specs[0]["middleware"][-1].name == "monitor[worker]"
+
+
+def test_the_placement_check_takes_a_tuple_as_it_takes_a_list() -> None:
+    # Act / Assert
+    assert check_monitor_placement(middleware=(build_middleware(),)) == []

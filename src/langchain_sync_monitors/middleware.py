@@ -179,9 +179,10 @@ class MonitorMiddleware(AgentMiddleware[MonitorState, AgentContext, StructuredOu
     run input since, each further step halts again without a sample: the
     untrusted model is not called, and the step's record, flagged, holds no
     samples. A human message written between a run's start and its end never
-    lifts the halt. One that another middleware's `before_agent` hook writes,
-    or its `after_agent` hook writes without a return to the model, counts as
-    a run's input and does; `halts` has the rule.
+    lifts the halt. One that a middleware listed before the monitor writes
+    from its `before_agent` hook, or from its `after_agent` hook without a
+    return to the model, counts as a run's input and does; `halts` has the
+    rule.
 
     If a call inside a step raises before the protocol decides, the step is
     not committed. The samples the monitor had judged are logged as a warning

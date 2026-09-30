@@ -517,9 +517,9 @@ its count. A later run that cannot confirm its input, after a halted run that
 stopped before its end, stays halted, since its messages are notes from
 `unconfirmed_input`. The two open paths that [What the monitor
 reads](#what-the-monitor-reads) names reach halts too: an untagged human
-message that another middleware's `before_agent` hook writes, or its
-`after_agent` hook writes without sending the run back to the model, counts
-as a run's input, and lifts the halt in that run.
+message that a middleware listed before the monitor writes from its
+`before_agent` hook, or from its `after_agent` hook without sending the run
+back to the model, counts as a run's input, and lifts the halt in that run.
 
 Nothing inside the model node may escalate to a person by calling LangGraph's
 `interrupt()`: not a monitor, not a protocol and not a fallback. On resume

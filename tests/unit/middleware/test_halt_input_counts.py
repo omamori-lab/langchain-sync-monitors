@@ -11,6 +11,7 @@ cannot keep the user's new message from lifting it. The two open paths that
 from __future__ import annotations
 
 import asyncio
+from dataclasses import dataclass
 from typing import Any
 
 import pytest
@@ -145,7 +146,7 @@ class ContextInjectingMiddleware(AgentMiddleware[Any, Any, Any]):
 
 
 class ReminderAtStartMiddleware(AgentMiddleware[Any, Any, Any]):
-    """A `before_agent` hook, listed before the monitor, that writes an untagged reminder."""
+    """A `before_agent` hook that writes an untagged reminder."""
 
     @property
     def name(self) -> str:
@@ -163,11 +164,11 @@ class ReminderAtStartMiddleware(AgentMiddleware[Any, Any, Any]):
 
 
 class ReminderAtEndMiddleware(AgentMiddleware[Any, Any, Any]):
-    """An `after_agent` hook, listed before the monitor, that writes an untagged reminder.
+    """An `after_agent` hook that writes an untagged reminder, without a return to the model.
 
     LangChain runs `after_agent` hooks in reverse list order [@langchain2026],
-    so it writes after the monitor's own hook has closed the run, and it does
-    not send the run back to the model.
+    so listed before the monitor it writes after the monitor's own hook has
+    closed the run, and listed after it writes before.
     """
 
     @property
@@ -207,6 +208,37 @@ def build_agent(
         middleware=middleware,
         checkpointer=InMemorySaver(),
     )
+
+
+@dataclass(frozen=True, kw_only=True)
+class HaltedThread:
+    """A thread whose first run the monitor halted, with a reminder middleware beside it."""
+
+    agent: CompiledStateGraph[Any, Any, Any, Any]
+    model: ScriptedChatModel
+    workspace: Workspace
+    config: RunnableConfig
+
+
+def build_halted_thread(
+    *,
+    mode: RunMode,
+    hook: str,
+    reminder_listed_first: bool,
+) -> HaltedThread:
+    workspace = Workspace()
+    model = build_model()
+    reminder: AgentMiddleware[Any, Any, Any] = (
+        ReminderAtStartMiddleware() if hook == "before-agent" else ReminderAtEndMiddleware()
+    )
+    monitor = build_halting_monitor()
+    stack: list[AgentMiddleware[Any, Any, Any]] = (
+        [reminder, monitor] if reminder_listed_first else [monitor, reminder]
+    )
+    agent = build_agent(model, workspace=workspace, middleware=stack)
+    config = build_thread_config(f"reminder-{hook}-{reminder_listed_first}-{mode}")
+    assert read_outcomes(run_agent(agent, mode=mode, config=config))[0] == "halted"
+    return HaltedThread(agent=agent, model=model, workspace=workspace, config=config)
 
 
 def run_without_input(agent: Any, *, mode: RunMode, config: RunnableConfig) -> dict[str, Any]:
@@ -282,31 +314,37 @@ def test_the_users_new_message_lifts_the_halt_despite_context_written_after_it(
 
 
 @pytest.mark.parametrize("hook", ["before-agent", "after-agent"])
-def test_a_reminder_another_middleware_writes_at_a_run_s_edge_lifts_the_halt(
+def test_a_reminder_a_middleware_listed_before_the_monitor_writes_lifts_the_halt(
     run_mode: RunMode,
     hook: str,
 ) -> None:
     # Arrange: the two open paths task_authorship names, pinned so a change is deliberate
-    workspace = Workspace()
-    model = build_model()
-    reminder: AgentMiddleware[Any, Any, Any] = (
-        ReminderAtStartMiddleware() if hook == "before-agent" else ReminderAtEndMiddleware()
-    )
-    agent = build_agent(
-        model,
-        workspace=workspace,
-        middleware=[reminder, build_halting_monitor()],
-    )
-    config = build_thread_config(f"reminder-{hook}-{run_mode}")
-    assert read_outcomes(run_agent(agent, mode=run_mode, config=config))[0] == "halted"
+    thread = build_halted_thread(mode=run_mode, hook=hook, reminder_listed_first=True)
 
     # Act: a run with no message of the user's
-    second = run_without_input(agent, mode=run_mode, config=config)
+    second = run_without_input(thread.agent, mode=run_mode, config=thread.config)
 
     # Assert: the reminder counts as the run's input, so the untrusted model runs again
     assert read_outcomes(second)[-1] == "allowed"
-    assert len(model.calls) > 1
-    assert workspace.executed == ["read_file:q3.md"]
+    assert len(thread.model.calls) > 1
+    assert thread.workspace.executed == ["read_file:q3.md"]
+
+
+@pytest.mark.parametrize("hook", ["before-agent", "after-agent"])
+def test_a_reminder_from_a_middleware_listed_after_the_monitor_does_not_lift_the_halt(
+    run_mode: RunMode,
+    hook: str,
+) -> None:
+    # Arrange: the same hooks run on the other side of the monitor's own, as a harness's do
+    thread = build_halted_thread(mode=run_mode, hook=hook, reminder_listed_first=False)
+
+    # Act
+    second = run_without_input(thread.agent, mode=run_mode, config=thread.config)
+
+    # Assert: the reminder stays a note, so the halt stands
+    assert read_outcomes(second)[-1] == "halted"
+    assert len(thread.model.calls) == 1
+    assert thread.workspace.executed == []
 
 
 def test_a_thread_that_halts_again_after_new_input_stands_again(run_mode: RunMode) -> None:
@@ -391,3 +429,16 @@ def test_each_monitor_reads_the_count_of_its_own_latest_halt() -> None:
     assert read_run_inputs_at_halt(state, monitor="monitor[main]") == 2
     assert read_run_inputs_at_halt(state, monitor="other[main]") is None
     assert len(merged) == 2
+
+
+@pytest.mark.parametrize(
+    "state",
+    [{}, {INPUTS_AT_HALT_KEY: None}],
+    ids=["without-counts", "counts-not-a-list"],
+)
+def test_a_state_without_a_list_of_counts_reads_no_count(state: dict[str, object]) -> None:
+    # Act: a missing count must read as none, so that the halt it belongs to stands
+    count = read_run_inputs_at_halt(state, monitor="monitor[main]")
+
+    # Assert
+    assert count is None

@@ -21,9 +21,11 @@ standing. No human message written between a run's start and its end lifts
 it: not a grader's revision request, not a harness nudge, not a note from
 `unconfirmed_input`. A later run with a new message from the user lifts it,
 and so do the two open paths `task_authorship` names: an untagged human
-message that another middleware's `before_agent` hook writes, or its
-`after_agent` hook writes without sending the run back to the model, counts
-as a run's input.
+message that a middleware listed before the monitor writes from its
+`before_agent` hook, or from its `after_agent` hook without sending the run
+back to the model, counts as a run's input. The same hooks of a middleware
+listed after the monitor run on the other side of the monitor's own, so what
+they write stays a note.
 """
 
 from __future__ import annotations
@@ -49,9 +51,9 @@ from langchain_sync_monitors.task_authorship import (
 )
 
 STANDING_HALT_MESSAGE = (
-    "[Safety monitor] This run stays stopped: the safety monitor halted it, and no message "
-    "the monitor could confirm as new input from the user has arrived since. The rejected "
-    "steps are recorded in monitor_log for review."
+    "[Safety monitor] This run stays stopped: the safety monitor halted it, and no new input "
+    "the monitor could confirm has arrived since. The rejected steps are recorded in "
+    "monitor_log for review."
 )
 """The final message of a step the monitor halts again because its earlier halt stands."""
 
@@ -153,6 +155,8 @@ def is_halt_standing(
     """
     if not previous_records or previous_records[-1]["outcome"] != "halted":
         return False
+    # Only a checkpoint written before the count existed holds a halt without one,
+    # and 0.1.0 is the first release, so no released thread does: fail closed.
     return run_inputs_at_halt is None or run_inputs <= run_inputs_at_halt
 
 

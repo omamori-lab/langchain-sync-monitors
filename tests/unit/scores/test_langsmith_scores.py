@@ -2,36 +2,69 @@
 
 The fake LangSmith answers as the REST API does: `404` for a run not ingested
 yet, `409` for a feedback id it has already stored, and `429` with
-`Retry-After` when rate-limited.
+`Retry-After` when rate-limited. Each score carries the connection its
+tracer's client sends through, so the feedback goes where the trace went.
 """
 
 from __future__ import annotations
 
 import logging
+from dataclasses import dataclass
+from unittest.mock import MagicMock
 from uuid import UUID, uuid5
 
 import httpx
 import pytest
+from pydantic import SecretStr
 
 from langchain_sync_monitors.errors import ConfigurationError
 from langchain_sync_monitors.langsmith_scores import (
     LANGSMITH_ENDPOINT,
     LangSmithFeedbackSender,
-    build_langsmith_sender,
+    build_langsmith_client,
+    read_client_connection,
     read_langsmith_credentials,
 )
 from langchain_sync_monitors.score_requests import REQUEST_TIMEOUT_SECONDS
-from langchain_sync_monitors.scores import SCORE_ID_NAMESPACE, PendingScore, Tracer
+from langchain_sync_monitors.scores import (
+    SCORE_ID_NAMESPACE,
+    LangSmithCredentials,
+    PendingScore,
+    Tracer,
+)
 from tests.support.score_services import (
+    CONNECTION,
+    LANGSMITH_KEY,
     PROJECT_ID,
     PROJECT_NAME,
     FakeLangSmith,
     build_step_id,
     read_request_json,
+    set_score_credentials,
+)
+
+OWN_CONNECTION = LangSmithCredentials(
+    api_key=SecretStr("own-tracer-key"),
+    endpoint="https://own-smith.test/api/v1",
+    workspace_id="own-workspace",
 )
 
 
-def build_score(*, project: str = PROJECT_NAME, value: float = 0.9) -> PendingScore:
+@dataclass(frozen=True)
+class StubClient:
+    """Stands in for LangSmith's `Client`, with the public attributes the sender reads."""
+
+    api_url: object = None
+    api_key: object = None
+    workspace_id: object = None
+
+
+def build_score(
+    *,
+    project: str = PROJECT_NAME,
+    value: float = 0.9,
+    connection: LangSmithCredentials | None = CONNECTION,
+) -> PendingScore:
     return PendingScore(
         step_id=build_step_id(),
         name="monitor_suspicion",
@@ -39,17 +72,18 @@ def build_score(*, project: str = PROJECT_NAME, value: float = 0.9) -> PendingSc
         tracer=Tracer.LANGSMITH,
         project=project,
         queued_at=0.0,
+        connection=connection,
     )
 
 
 def build_sender(service: FakeLangSmith) -> LangSmithFeedbackSender:
-    return LangSmithFeedbackSender(http_client=service.build_client())
+    return LangSmithFeedbackSender(build_client=service.build_client)
 
 
 def build_sender_knowing_the_project(service: FakeLangSmith) -> LangSmithFeedbackSender:
     """Return a sender that has already looked up the project, so it asks for none."""
     sender = build_sender(service)
-    sender.project_ids[PROJECT_NAME] = PROJECT_ID
+    sender.project_ids[(CONNECTION, PROJECT_NAME)] = PROJECT_ID
     return sender
 
 
@@ -142,6 +176,38 @@ def test_a_project_lookup_that_fails_does_not_hold_up_the_other_projects() -> No
     assert report.written == [found]
     [post] = service.find_requests("POST", "/feedback")
     assert read_request_json(post)["session_id"] == "b-project-id"
+
+
+def test_a_known_project_is_not_looked_up_again_and_holds_up_no_other() -> None:
+    # Arrange: the sender knows the first project, and not the second
+    service = FakeLangSmith(projects={"a-project": "a-id", "b-project": "b-id"})
+    sender = build_sender(service)
+    sender.project_ids[(CONNECTION, "a-project")] = "a-id"
+    known, unknown = build_score(project="a-project"), build_score(project="b-project")
+
+    # Act
+    report = sender.send([known, unknown])
+
+    # Assert
+    assert report.written == [known, unknown]
+    [lookup] = service.find_requests("GET", "/sessions")
+    assert lookup.url.params["name"] == "b-project"
+
+
+def test_langsmith_workspace_id_comes_before_langchain_workspace_id(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Arrange
+    monkeypatch.setenv("LANGSMITH_API_KEY", "key")
+    monkeypatch.setenv("LANGSMITH_WORKSPACE_ID", "langsmith-workspace")
+    monkeypatch.setenv("LANGCHAIN_WORKSPACE_ID", "langchain-workspace")
+
+    # Act
+    credentials = read_langsmith_credentials()
+
+    # Assert
+    assert credentials is not None
+    assert credentials.workspace_id == "langsmith-workspace"
 
 
 def test_a_run_not_ingested_yet_waits_and_is_written_later() -> None:
@@ -333,31 +399,153 @@ def test_a_key_no_header_may_carry_is_refused(monkeypatch: pytest.MonkeyPatch) -
 @pytest.mark.parametrize(
     ("workspace_id", "expected"), [("workspace-7", "workspace-7"), (None, None)]
 )
-def test_the_sender_authenticates_with_the_key_and_any_workspace(
-    monkeypatch: pytest.MonkeyPatch,
+def test_the_client_authenticates_with_the_key_and_any_workspace(
     workspace_id: str | None,
     expected: str | None,
 ) -> None:
     # Arrange
-    monkeypatch.setenv("LANGSMITH_API_KEY", "key-for-test")
-    monkeypatch.setenv("LANGSMITH_ENDPOINT", "https://smith.example.test/api/v1")
-    for name in ("LANGSMITH_WORKSPACE_ID", "LANGCHAIN_WORKSPACE_ID"):
-        monkeypatch.delenv(name, raising=False)
-    if workspace_id is not None:
-        monkeypatch.setenv("LANGSMITH_WORKSPACE_ID", workspace_id)
-    credentials = read_langsmith_credentials()
-    assert credentials is not None
+    connection = LangSmithCredentials(
+        api_key=SecretStr("key-for-test"),
+        endpoint="https://smith.example.test/api/v1",
+        workspace_id=workspace_id,
+    )
 
     # Act
-    sender = build_langsmith_sender(credentials)
+    client = build_langsmith_client(connection)
 
     # Assert: the feedback path is relative to the endpoint, as the SDK posts it
-    request = sender.http_client.build_request("POST", "/feedback")
+    request = client.build_request("POST", "/feedback")
     assert str(request.url) == "https://smith.example.test/api/v1/feedback"
     assert request.headers["x-api-key"] == "key-for-test"
     assert request.headers.get("X-Tenant-Id") == expected
-    assert sender.http_client.timeout == httpx.Timeout(REQUEST_TIMEOUT_SECONDS)
+    assert client.timeout == httpx.Timeout(REQUEST_TIMEOUT_SECONDS)
+    client.close()
+
+
+def test_the_feedback_goes_through_the_connection_of_the_tracer_that_traced_the_run() -> None:
+    # Arrange: two tracers on two connections, each with a project of the same name
+    service = FakeLangSmith()
+    through_environment = build_score()
+    through_own_client = build_score(connection=OWN_CONNECTION)
+
+    # Act
+    report = build_sender(service).send([through_environment, through_own_client])
+
+    # Assert: one client per connection, and each request carries its own key and workspace
+    assert report.written == [through_environment, through_own_client]
+    assert service.connections == [CONNECTION, OWN_CONNECTION]
+    posts = service.find_requests("POST", "/feedback")
+    assert [(post.url.host, post.headers["x-api-key"]) for post in posts] == [
+        ("langsmith.test", LANGSMITH_KEY),
+        ("own-smith.test", "own-tracer-key"),
+    ]
+    assert [post.headers.get("X-Tenant-Id") for post in posts] == [None, "own-workspace"]
+    assert [read_request_json(post)["run_id"] for post in posts] == [
+        str(through_environment.step_id),
+        str(through_own_client.step_id),
+    ]
+    lookups = service.find_requests("GET", "/sessions")
+    assert [lookup.url.host for lookup in lookups] == ["langsmith.test", "own-smith.test"]
+
+
+def test_a_pause_on_one_connection_holds_the_scores_of_the_next() -> None:
+    # Arrange
+    service = FakeLangSmith(
+        queued_answers=[httpx.Response(429, headers={"Retry-After": "9"})],
+    )
+    first, second = build_score(), build_score(connection=OWN_CONNECTION)
+
+    # Act
+    report = build_sender(service).send([first, second])
+
+    # Assert
+    assert report.waiting == [first, second]
+    assert report.pause_seconds == 9.0
+    assert service.connections == [CONNECTION]
+
+
+def test_a_score_without_a_connection_is_refused() -> None:
+    # Arrange
+    service = FakeLangSmith()
+    score = build_score(connection=None)
+
+    # Act
+    report = build_sender(service).send([score])
+
+    # Assert
+    assert report.refused == [score]
+    assert report.refusal == "the score names no LangSmith connection"
+    assert service.requests == []
+
+
+def test_the_sender_closes_every_client_it_built() -> None:
+    # Arrange
+    service = FakeLangSmith()
+    sender = build_sender(service)
+    sender.send([build_score(), build_score(connection=OWN_CONNECTION)])
+
+    # Act
     sender.close()
+
+    # Assert
+    assert [client.is_closed for client in sender.clients.values()] == [True, True]
+
+
+def test_a_tracer_client_with_a_url_and_a_key_gives_its_own_connection(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Arrange: the environment points elsewhere
+    set_score_credentials(monkeypatch)
+    client = StubClient(
+        api_url="https://own-smith.test/api/v1/",
+        api_key="own-tracer-key",
+        workspace_id="own-workspace",
+    )
+
+    # Act
+    connection = read_client_connection(client)
+
+    # Assert
+    assert connection == OWN_CONNECTION
+    assert "own-tracer-key" not in repr(connection)
+
+
+@pytest.mark.parametrize(
+    "client",
+    [
+        MagicMock(),
+        StubClient(),
+        StubClient(api_url="https://own-smith.test/api/v1", api_key=None),
+        StubClient(api_url="  ", api_key="own-tracer-key"),
+        None,
+    ],
+    ids=["mock", "nothing-set", "no-key", "blank-url", "no-client"],
+)
+def test_a_tracer_client_without_both_a_url_and_a_key_falls_back_to_the_environment(
+    monkeypatch: pytest.MonkeyPatch,
+    client: object,
+) -> None:
+    # Arrange
+    set_score_credentials(monkeypatch)
+
+    # Act
+    connection = read_client_connection(client)
+
+    # Assert: the environment's connection whole, never a mix of the two
+    assert connection == CONNECTION
+
+
+def test_a_tracer_key_no_header_may_carry_is_refused_without_its_value() -> None:
+    # Arrange
+    client = StubClient(api_url="https://own-smith.test", api_key="own\nkey")
+
+    # Act
+    with pytest.raises(ConfigurationError) as raised:
+        read_client_connection(client)
+
+    # Assert
+    assert str(raised.value).startswith("the LangSmith tracer's API key holds a control")
+    assert "own\nkey" not in str(raised.value)
 
 
 def test_the_score_id_is_fixed_by_the_step_the_name_the_tool_and_the_project() -> None:

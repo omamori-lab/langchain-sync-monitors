@@ -20,13 +20,14 @@ import pytest
 
 from langchain_sync_monitors import score_worker
 from langchain_sync_monitors.errors import ConfigurationError
-from langchain_sync_monitors.score_worker import ScoreWorker, WorkerTimings
+from langchain_sync_monitors.score_worker import UNFOUND_STEP_HINTS, ScoreWorker, WorkerTimings
 from langchain_sync_monitors.scores import DeliveryReport, PendingScore, ScoreSender, Tracer
 from tests.support.score_services import FakeClock, build_step_id
 
 type Answer = Callable[[Sequence[PendingScore]], DeliveryReport]
 
 WORKER_LOGGER = "langchain_sync_monitors.score_worker"
+LANGFUSE_HINT = UNFOUND_STEP_HINTS[Tracer.LANGFUSE]
 
 
 def write_all(scores: Sequence[PendingScore]) -> DeliveryReport:
@@ -247,7 +248,30 @@ def test_a_score_is_given_up_exactly_when_it_has_waited_the_limit(
     assert read_messages(caplog) == [
         "score export: gave up on 1 langfuse score(s) after 300 seconds, since their steps "
         "were not found or not accepted",
+        LANGFUSE_HINT,
     ]
+
+
+def test_the_hint_about_unfound_langfuse_steps_is_said_once_and_never_for_langsmith(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    # Arrange
+    case = build_worker_case(langsmith=[keep_waiting], langfuse=[keep_waiting])
+    case.put(tracer=Tracer.LANGFUSE)
+    case.put()
+
+    # Act
+    with caplog.at_level(logging.WARNING, logger=WORKER_LOGGER):
+        case.clock.now += 300.0
+        case.worker.send_window()
+        case.put(tracer=Tracer.LANGFUSE)
+        case.clock.now += 300.0
+        case.worker.send_window()
+
+    # Assert
+    assert read_messages(caplog).count(LANGFUSE_HINT) == 1
+    assert sum("gave up on 1 langfuse" in message for message in read_messages(caplog)) == 2
+    assert sum("gave up on 1 langsmith" in message for message in read_messages(caplog)) == 1
 
 
 def test_refused_scores_are_dropped_with_the_reason(caplog: pytest.LogCaptureFixture) -> None:
@@ -361,8 +385,8 @@ def test_the_drain_sends_what_waits_and_stops_once_nothing_is_left() -> None:
     # Act
     case.worker.drain()
 
-    # Assert: one window found nothing for Langfuse, one pause later it was written
-    assert case.clock.sleeps == [10.0]
+    # Assert: one window found nothing for Langfuse, one drain window later it was written
+    assert case.clock.sleeps == [5.0]
     assert len(case.senders[Tracer.LANGFUSE].calls) == 2
     assert case.worker.waiting.count() == 0
     assert all(sender.closed for sender in case.senders.values())
@@ -382,12 +406,13 @@ def test_the_drain_stops_exactly_at_its_deadline_and_logs_what_it_drops(
     with caplog.at_level(logging.WARNING, logger=WORKER_LOGGER):
         case.worker.drain()
 
-    # Assert: windows at 0, 10, 20 and 20.5 seconds, then nothing is left waiting
-    assert case.clock.sleeps == [10.0, 10.0, 0.5]
-    assert len(case.senders[Tracer.LANGFUSE].calls) == 4
+    # Assert: drain windows every 5 seconds, not the normal 10, up to exactly 20.5 seconds
+    assert case.clock.sleeps == [5.0, 5.0, 5.0, 5.0, 0.5]
+    assert len(case.senders[Tracer.LANGFUSE].calls) == 6
     assert case.worker.waiting.count() == 0
     assert read_messages(caplog) == [
-        "score export: 3 langfuse score(s) dropped: the exit drain ran out of time"
+        "score export: 3 langfuse score(s) dropped: the exit drain ran out of time",
+        LANGFUSE_HINT,
     ]
     assert case.senders[Tracer.LANGFUSE].closed
 
@@ -465,8 +490,8 @@ def test_stop_drains_a_worker_whose_thread_never_started_until_its_deadline() ->
     case.worker.stop()
 
     # Assert
-    assert case.clock.sleeps == [10.0, 10.0, 10.0]
-    assert len(case.senders[Tracer.LANGSMITH].calls) == 4
+    assert case.clock.sleeps == [5.0] * 6
+    assert len(case.senders[Tracer.LANGSMITH].calls) == 7
     assert case.worker.waiting.count() == 0
 
 

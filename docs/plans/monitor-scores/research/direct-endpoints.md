@@ -11,6 +11,7 @@ Contents:
 - [The decision](#the-decision)
 - [LangSmith](#langsmith)
 - [Langfuse](#langfuse)
+- [Where the scores go](#where-the-scores-go)
 - [The worker](#the-worker)
 - [The live check](#the-live-check)
 - [Corrections to the plan](#corrections-to-the-plan)
@@ -89,6 +90,8 @@ Contents:
   - `POST /api/public/scores`, which the docs prefer, takes one score per
     request from the general rate limit, 30 requests a minute on the Hobby
     plan. The lookups spend that same bucket.
+  - The owner accepted the ingestion endpoint for this reason on
+    1 October 2026.
   - The body is the score's fixed `id`, `traceId`, `observationId`, `name`,
     `value`, `dataType` `NUMERIC`, and the observation's `environment`. Each
     event gets a new envelope id.
@@ -99,11 +102,47 @@ Contents:
 - **Credentials.** `LANGFUSE_PUBLIC_KEY`, `LANGFUSE_SECRET_KEY`, and
   `LANGFUSE_BASE_URL` before `LANGFUSE_HOST`, as the SDK reads them.
 
+## Where the scores go
+
+The owner's rule, 1 October 2026: scores go where the traces go, never to
+another project or host.
+
+- **LangSmith follows the tracer.**
+  - The feedback goes to the `LangChainTracer`'s project, through its client's
+    endpoint, key and workspace. These are read from the client's public
+    `api_url`, `api_key` and `workspace_id` (langsmith 0.14.1).
+  - Only a client that gives both a URL and a key is read. Any other, such as
+    a test double, falls back to the environment whole, as a client built
+    with no settings reads it. A key is never sent to another client's
+    endpoint.
+  - The sender keeps one HTTP client per connection, and looks up each
+    project's id once per connection.
+- **Langfuse cannot be read, and needs not be.**
+  - Langfuse 4.16.0 exposes no public accessor for a handler's keys or host.
+    The handler keeps its client in `_langfuse_client`, and the client keeps
+    its keys and base URL private.
+  - The writer uses the environment's keys. It writes a score only on an
+    observation that its own lookup, in the project those keys reach, found
+    for the step's exact `monitor_step_id`.
+  - A handler built with other keys, or another host, traces to a project
+    that lookup never sees, so nothing is written there, or anywhere.
+  - The scores wait, are given up after 300 seconds or dropped at the end of
+    the drain, and the worker says once per process what usually causes it.
+  - The cost to such a run: its Langfuse scores are lost, and at exit the
+    drain runs its full 30 seconds.
+  - An early skip would need a private read or extra calls to Langfuse's
+    SDK, which the library does not make.
+- **The build check.** It still needs `LANGSMITH_API_KEY`, since a tracer's
+  own client is known only during a run. A user whose only LangSmith key
+  lives in an explicit `Client` gets `ConfigurationError`.
+- **Replicas.** With `LANGSMITH_RUNS_ENDPOINTS`, feedback goes only to the
+  client's `api_url`.
+
 ## The worker
 
 - **Putting a score.** A monitor puts the score on a queue and never waits or
   raises. A `LangChainTracer` among the step span's handlers sends to
-  LangSmith, in the tracer's project. A handler whose class comes from the
+  LangSmith, as the section above says. A handler whose class comes from the
   `langfuse` package sends to Langfuse. The library never imports `langfuse`.
 - **Windows.** The worker wakes every 10 seconds and hands each tool all its
   waiting scores at once.
@@ -113,8 +152,13 @@ Contents:
   - A request is retried twice at most, within 10 seconds, on a transport
     failure or a `5xx`.
 - **At exit.** The `atexit` hook drains for up to 30 seconds, one window
-  every 10 seconds, then logs and drops what is left. The thread is a daemon,
+  every 5 seconds, then logs and drops what is left. The thread is a daemon,
   so a drain that overruns never keeps the process alive.
+  - The drain's window is half the normal one, since a step Langfuse has just
+    ingested is found one window after it appears. The owner chose 5 seconds
+    and kept the 30-second limit on 1 October 2026.
+  - A process that exits right after its last step may still drop Langfuse
+    scores that wait.
 
 ## The live check
 
@@ -134,7 +178,8 @@ Contents:
 | LangSmith feedback, both modes, both kinds of run | One `monitor_suspicion` feedback on each of the 8 `monitor step` runs, with the right value, source `model` |
 | Langfuse scores, both modes, both kinds of run | One `monitor_suspicion` score on each of the 8 `monitor step` observations, matched by `monitor_step_id`, with the right value, environment `default` |
 | When LangSmith took the feedback | About 1.5 seconds after the run, in the drain's first window, with no `404` |
-| When Langfuse scores were written, after the run | 12.5 seconds (scripted, `invoke`); 25 seconds (scripted, `ainvoke`); 19 and 22 seconds (real models) |
+| When Langfuse scores were written, after the run, with 10-second drain windows | 12.5 seconds (scripted, `invoke`); 25 seconds (scripted, `ainvoke`); 19 and 22 seconds (real models) |
+| The same with 5-second drain windows, scripted, 1 October 2026 | 13.6 seconds (`invoke`) and 15.5 seconds (`ainvoke`); each process exited at once after. The feedback went through the LangSmith client's public attributes, one per step |
 | A LangSmith feedback posted again with its id | `200`, and still one feedback |
 | A Langfuse score sent again with its id | `207` with success, and still one score |
 | A run that failed with `GraphRecursionError` part way | Its three steps' scores were written in both tools, during the run and at exit |
@@ -164,8 +209,7 @@ Contents:
   feedback at once.
 - LangSmith's OpenTelemetry mode (`LANGSMITH_OTEL_ENABLED`), self-hosted
   LangSmith and Langfuse, and Langfuse's EU region.
-- A tracer built with its own `Client(api_url=...)`, or a Langfuse handler
-  built with its own `public_key`: the writer uses the environment's
-  credentials, so such a run's scores go where the variables point.
+- Feedback through a LangSmith client other than the environment's, against
+  the live service: the tests check the routing with a stand-in client.
 - What each tool's interface shows for the scores: the checks read them back
   through the APIs.

@@ -19,13 +19,17 @@ import httpx
 import pytest
 from langchain_core.tracers.langchain import LangChainTracer
 from langchain_core.utils.uuid import uuid7
+from pydantic import SecretStr
 
 from langchain_sync_monitors import score_export
 from langchain_sync_monitors.langfuse_scores import LangfuseScoreSender
-from langchain_sync_monitors.langsmith_scores import LangSmithFeedbackSender
+from langchain_sync_monitors.langsmith_scores import (
+    LangSmithFeedbackSender,
+    build_langsmith_headers,
+)
 from langchain_sync_monitors.score_export import PROCESS_SCORE_WORKER
 from langchain_sync_monitors.score_worker import ScoreWorker, WorkerTimings
-from langchain_sync_monitors.scores import ScoreSender, Tracer
+from langchain_sync_monitors.scores import LangSmithCredentials, ScoreSender, Tracer
 from tests.support.tracing import RecordingTracer
 
 LANGSMITH_ENDPOINT = "https://langsmith.test/api/v1"
@@ -33,6 +37,11 @@ LANGFUSE_BASE_URL = "https://langfuse.test"
 PROJECT_NAME = "monitor-scores"
 PROJECT_ID = "5b1f7c1e-3e59-4f05-9a3c-0d7b8a0f1c42"
 STEP_SPAN_NAME = "monitor step"
+LANGSMITH_KEY = "test-langsmith-key"
+CONNECTION = LangSmithCredentials(
+    api_key=SecretStr(LANGSMITH_KEY), endpoint=LANGSMITH_ENDPOINT, workspace_id=None
+)
+"""The connection the environment `set_score_credentials` sets up names."""
 
 
 def read_request_json(request: httpx.Request) -> Any:
@@ -41,10 +50,12 @@ def read_request_json(request: httpx.Request) -> Any:
 
 @dataclass
 class FakeLangSmith:
-    """LangSmith's feedback and project endpoints, under `LANGSMITH_ENDPOINT`.
+    """LangSmith's feedback and project endpoints, under any connection's endpoint.
 
     Feedback on a run in `unknown_runs` is answered `404`, as for a run not
-    ingested yet, and a feedback id seen before is answered `409`.
+    ingested yet, and a feedback id seen before is answered `409`. Each
+    client it builds carries the library's own headers for its connection,
+    and `connections` records the connections clients were built for.
     """
 
     projects: dict[str, str] = field(default_factory=lambda: {PROJECT_NAME: PROJECT_ID})
@@ -52,6 +63,7 @@ class FakeLangSmith:
     queued_answers: list[httpx.Response] = field(default_factory=list)
     requests: list[httpx.Request] = field(default_factory=list)
     feedback: dict[str, dict[str, Any]] = field(default_factory=dict)
+    connections: list[LangSmithCredentials] = field(default_factory=list)
 
     def build_reply(self, request: httpx.Request) -> httpx.Response:
         self.requests.append(request)
@@ -72,10 +84,11 @@ class FakeLangSmith:
             return httpx.Response(200, json=body)
         return httpx.Response(404, json={"detail": "Not Found"})
 
-    def build_client(self) -> httpx.Client:
+    def build_client(self, connection: LangSmithCredentials = CONNECTION) -> httpx.Client:
+        self.connections.append(connection)
         return httpx.Client(
-            base_url=LANGSMITH_ENDPOINT,
-            headers={"x-api-key": "test-langsmith-key"},
+            base_url=connection.endpoint,
+            headers=build_langsmith_headers(connection),
             transport=httpx.MockTransport(self.build_reply),
         )
 
@@ -217,18 +230,24 @@ def build_fake_sender(
     langfuse: FakeLangfuse,
 ) -> ScoreSender:
     if tracer is Tracer.LANGSMITH:
-        return LangSmithFeedbackSender(http_client=langsmith.build_client())
+        return LangSmithFeedbackSender(build_client=langsmith.build_client)
     return LangfuseScoreSender(http_client=langfuse.build_client())
 
 
 def set_score_credentials(monkeypatch: pytest.MonkeyPatch) -> None:
     """Set test credentials for both tools, turn tracing by variable off, and fake langfuse."""
-    monkeypatch.setenv("LANGSMITH_API_KEY", "test-langsmith-key")
+    monkeypatch.setenv("LANGSMITH_API_KEY", LANGSMITH_KEY)
     monkeypatch.setenv("LANGSMITH_ENDPOINT", LANGSMITH_ENDPOINT)
     monkeypatch.setenv("LANGFUSE_PUBLIC_KEY", "pk-test")
     monkeypatch.setenv("LANGFUSE_SECRET_KEY", "sk-test")
     monkeypatch.setenv("LANGFUSE_BASE_URL", LANGFUSE_BASE_URL)
-    for name in ("LANGSMITH_TRACING", "LANGCHAIN_TRACING_V2", "LANGCHAIN_TRACING"):
+    for name in (
+        "LANGSMITH_TRACING",
+        "LANGCHAIN_TRACING_V2",
+        "LANGCHAIN_TRACING",
+        "LANGSMITH_WORKSPACE_ID",
+        "LANGCHAIN_WORKSPACE_ID",
+    ):
         monkeypatch.delenv(name, raising=False)
     installed = score_export.is_package_installed
     monkeypatch.setattr(

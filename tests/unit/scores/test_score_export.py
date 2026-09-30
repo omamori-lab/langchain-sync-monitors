@@ -10,11 +10,13 @@ from __future__ import annotations
 
 import logging
 import pickle
+from dataclasses import dataclass
 from typing import Any
 from unittest.mock import MagicMock
 
 import pytest
 from langchain_core.callbacks import BaseCallbackHandler
+from pydantic import SecretStr
 
 from langchain_sync_monitors import score_export
 from langchain_sync_monitors._langchain import TracedRun
@@ -35,9 +37,10 @@ from langchain_sync_monitors.score_export import (
     queue_step_score,
 )
 from langchain_sync_monitors.score_worker import ScoreWorker
-from langchain_sync_monitors.scores import Tracer
+from langchain_sync_monitors.scores import LangSmithCredentials, Tracer
 from tests.support.agents import build_keyword_monitor
 from tests.support.score_services import (
+    CONNECTION,
     PROJECT_NAME,
     LangfuseHandler,
     ScoreServices,
@@ -53,6 +56,31 @@ CREDENTIAL_VARIABLES = (
     "LANGFUSE_PUBLIC_KEY",
     "LANGFUSE_SECRET_KEY",
 )
+
+
+BOTH_TOOLS = frozenset({Tracer.LANGSMITH, Tracer.LANGFUSE})
+OWN_CONNECTION = LangSmithCredentials(
+    api_key=SecretStr("own-tracer-key"),
+    endpoint="https://own-smith.test/api/v1",
+    workspace_id=None,
+)
+
+
+@dataclass(frozen=True, kw_only=True)
+class MonitorSettings:
+    """What `queue_step_score` reads from a monitor: its label and the tools it exports to."""
+
+    label: str = "monitor"
+    export_scores: frozenset[Tracer] = frozenset()
+
+
+def build_own_client() -> MagicMock:
+    """Return a LangSmith client double that names its own endpoint and key."""
+    client = MagicMock()
+    client.api_url = OWN_CONNECTION.endpoint
+    client.api_key = OWN_CONNECTION.api_key.get_secret_value()
+    client.workspace_id = None
+    return client
 
 
 def build_monitor(**options: Any) -> MonitorMiddleware:
@@ -217,14 +245,18 @@ def test_langfuse_handler_is_recognised_by_its_package_and_so_is_a_subclass() ->
     assert recognised == [True, True, False]
 
 
-def test_the_destinations_are_the_tools_asked_for_that_the_run_is_traced_to() -> None:
+def test_the_destinations_are_the_tools_asked_for_that_the_run_is_traced_to(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     # Arrange
+    set_score_credentials(monkeypatch)
     client = MagicMock()
     handlers = [
         RecordingTracer(),
         build_langsmith_tracer(client),
         build_langsmith_tracer(client),
         build_langsmith_tracer(client, project_name="second-project"),
+        build_langsmith_tracer(build_own_client()),
         LangfuseHandler(),
         LangfuseHandler(),
     ]
@@ -236,8 +268,9 @@ def test_the_destinations_are_the_tools_asked_for_that_the_run_is_traced_to() ->
 
     # Assert
     assert both == [
-        ScoreDestination(tracer=Tracer.LANGSMITH, project=PROJECT_NAME),
-        ScoreDestination(tracer=Tracer.LANGSMITH, project="second-project"),
+        ScoreDestination(tracer=Tracer.LANGSMITH, project=PROJECT_NAME, connection=CONNECTION),
+        ScoreDestination(tracer=Tracer.LANGSMITH, project="second-project", connection=CONNECTION),
+        ScoreDestination(tracer=Tracer.LANGSMITH, project=PROJECT_NAME, connection=OWN_CONNECTION),
         ScoreDestination(tracer=Tracer.LANGFUSE),
     ]
     assert langfuse_only == [ScoreDestination(tracer=Tracer.LANGFUSE)]
@@ -254,8 +287,7 @@ def test_a_traced_step_queues_its_highest_suspicion_once_per_tool(
     queue_step_score(
         traced_step,
         record=build_record(0.2, 0.7, 0.4),
-        label="outer",
-        tracers={Tracer.LANGSMITH, Tracer.LANGFUSE},
+        monitor=MonitorSettings(label="outer", export_scores=BOTH_TOOLS),
     )
     score_services.worker.waiting.take_incoming()
 
@@ -269,7 +301,52 @@ def test_a_traced_step_queues_its_highest_suspicion_once_per_tool(
         assert score.tracer is tracer
         assert score.queued_at == score_services.clock.now
     assert queued[Tracer.LANGSMITH][0].project == PROJECT_NAME
+    assert queued[Tracer.LANGSMITH][0].connection == CONNECTION
     assert queued[Tracer.LANGFUSE][0].project is None
+    assert queued[Tracer.LANGFUSE][0].connection is None
+
+
+def test_a_step_traced_through_its_own_client_queues_that_client_connection(
+    score_services: ScoreServices,
+) -> None:
+    # Arrange: the environment names another endpoint and key
+    traced_step = build_traced_step(build_langsmith_tracer(build_own_client()))
+
+    # Act
+    queue_step_score(
+        traced_step,
+        record=build_record(0.6),
+        monitor=MonitorSettings(export_scores=frozenset({Tracer.LANGSMITH})),
+    )
+    score_services.worker.waiting.take_incoming()
+
+    # Assert
+    [score] = score_services.worker.waiting.by_tracer[Tracer.LANGSMITH]
+    assert score.connection == OWN_CONNECTION
+
+
+def test_a_langsmith_tracer_with_no_key_anywhere_sends_nothing_and_says_so(
+    score_services: ScoreServices,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    # Arrange
+    clear_credentials(monkeypatch)
+    traced_step = build_traced_step(build_langsmith_tracer(MagicMock()))
+
+    # Act
+    with caplog.at_level(logging.WARNING, logger="langchain_sync_monitors.score_export"):
+        queue_step_score(
+            traced_step,
+            record=build_record(0.6),
+            monitor=MonitorSettings(export_scores=frozenset({Tracer.LANGSMITH})),
+        )
+
+    # Assert
+    assert score_services.worker.waiting.count() == 0
+    assert [record.getMessage() for record in caplog.records] == [
+        "score export: the LangSmith tracer has no API key, so no score is sent"
+    ]
 
 
 @pytest.mark.parametrize(
@@ -304,7 +381,9 @@ def test_nothing_is_queued_and_no_worker_starts_when_there_is_nothing_to_send(
     monkeypatch.setattr(PROCESS_SCORE_WORKER, "build_worker", refuse_to_start)
 
     # Act
-    queue_step_score(traced_step, record=record, label="monitor", tracers=tracers)
+    queue_step_score(
+        traced_step, record=record, monitor=MonitorSettings(export_scores=frozenset(tracers))
+    )
 
     # Assert
     assert started == []
@@ -326,7 +405,9 @@ def test_a_failure_to_queue_is_logged_and_never_raised(
     # Act
     with caplog.at_level(logging.WARNING, logger="langchain_sync_monitors.score_export"):
         queue_step_score(
-            traced_step, record=build_record(0.9), label="monitor", tracers={Tracer.LANGFUSE}
+            traced_step,
+            record=build_record(0.9),
+            monitor=MonitorSettings(export_scores=frozenset({Tracer.LANGFUSE})),
         )
 
     # Assert
@@ -365,21 +446,19 @@ def test_the_process_worker_starts_once_with_its_exit_drain_and_again_after_a_fo
     assert unregistered == [first.stop]
 
 
-def test_the_senders_are_built_on_the_credentials_in_the_environment(
+def test_the_langfuse_sender_needs_the_environment_and_the_langsmith_one_does_not(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     # Arrange
     set_score_credentials(monkeypatch)
 
     # Act
-    langsmith = build_score_sender(Tracer.LANGSMITH)
     langfuse = build_score_sender(Tracer.LANGFUSE)
     clear_credentials(monkeypatch)
-    missing = [build_score_sender(Tracer.LANGSMITH), build_score_sender(Tracer.LANGFUSE)]
+    without_keys = [build_score_sender(Tracer.LANGSMITH), build_score_sender(Tracer.LANGFUSE)]
 
-    # Assert
-    assert isinstance(langsmith, LangSmithFeedbackSender)
+    # Assert: each LangSmith score carries its own tracer's connection
     assert isinstance(langfuse, LangfuseScoreSender)
-    assert missing == [None, None]
-    langsmith.close()
+    assert isinstance(without_keys[0], LangSmithFeedbackSender)
+    assert without_keys[1] is None
     langfuse.close()

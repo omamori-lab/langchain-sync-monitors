@@ -195,8 +195,7 @@ class MonitorMiddleware(AgentMiddleware[MonitorState, AgentContext, StructuredOu
     In LangChain tracers such as LangSmith and Langfuse, each step is a
     `monitor step` span, with the spans that `spans` describes nested in it.
     `export_scores`, empty by default, names the tools that also get each
-    step's highest suspicion as a score, `<label>_suspicion`, from a
-    background worker; `score_export` has the rules.
+    step's highest suspicion as a score; `score_export` has the rules.
 
     The instance holds configuration only, so it can be copied and pickled.
     Deep Agents runs parallel subagents through shared middleware instances,
@@ -298,9 +297,7 @@ class MonitorMiddleware(AgentMiddleware[MonitorState, AgentContext, StructuredOu
                     step.close()
             record = prepared.identity.build_record(decision)
             trace_decision_sync(traced_step, record=record)
-            queue_step_score(
-                traced_step, record=record, label=self.label, tracers=self.export_scores
-            )
+            queue_step_score(traced_step, record=record, monitor=self)
             return commit_step(
                 request,
                 decision=decision,
@@ -339,9 +336,7 @@ class MonitorMiddleware(AgentMiddleware[MonitorState, AgentContext, StructuredOu
                     raise
             record = prepared.identity.build_record(decision)
             await trace_decision(traced_step, record=record)
-            queue_step_score(
-                traced_step, record=record, label=self.label, tracers=self.export_scores
-            )
+            queue_step_score(traced_step, record=record, monitor=self)
             return commit_step(
                 request,
                 decision=decision,

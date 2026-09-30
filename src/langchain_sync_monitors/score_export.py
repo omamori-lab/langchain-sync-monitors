@@ -13,17 +13,21 @@ sort and chart these, which they do not with metadata [@langsmith2026dashboards;
   `ConfigurationError`. The credentials are the variables each tool's SDK
   reads: `LANGSMITH_API_KEY`, and `LANGFUSE_PUBLIC_KEY` with
   `LANGFUSE_SECRET_KEY`.
-- **Only a traced run sends.** The handlers of the step span name the tools
-  the run is traced to: LangSmith's `LangChainTracer`, whose project the
-  feedback goes to, and Langfuse's LangChain handler, recognised by its
-  package without importing it. A run traced to neither sends nothing, and
-  says nothing.
+- **Only a traced run sends, and only where it is traced.** The handlers of
+  the step span name the tools the run is traced to. For LangSmith's
+  `LangChainTracer`, the feedback goes to the tracer's project, through its
+  client's endpoint, key and workspace. Langfuse's LangChain handler is
+  recognised by its package without importing it. The Langfuse writer uses
+  the environment's keys, and scores only steps it finds in that project by
+  their `monitor_step_id`; a handler built with other keys traces to a
+  project whose steps it never finds, so it writes nothing there, and warns
+  once. A run traced to neither tool sends nothing, and says nothing.
 - **A step with no sample writes no score**, such as a step that halts
   because an earlier step was halted.
 - **The agent never waits.** The score goes on the queue of one worker
   thread per process, which `score_worker` describes: it writes to
   LangSmith within a window of the step, and to Langfuse once Langfuse has
-  ingested the step, about 15 seconds after it in our checks. At exit it
+  ingested the step, 10 to 25 seconds after it in our checks. At exit it
   drains what waits, for up to 30 seconds. Nothing it does raises into a
   run; its failures are logged by `langchain_sync_monitors.score_worker`.
 - **Only numbers and ids leave the process**: the judge's reason is never
@@ -39,6 +43,7 @@ import threading
 from collections.abc import Callable, Sequence
 from collections.abc import Set as AbstractSet
 from dataclasses import dataclass, field
+from typing import Protocol
 from uuid import UUID
 
 from langchain_core.callbacks import BaseCallbackHandler
@@ -49,13 +54,19 @@ from langchain_sync_monitors.contracts import StepRecord
 from langchain_sync_monitors.errors import ConfigurationError
 from langchain_sync_monitors.langfuse_scores import build_langfuse_sender, read_langfuse_credentials
 from langchain_sync_monitors.langsmith_scores import (
-    build_langsmith_sender,
+    LangSmithFeedbackSender,
+    read_client_connection,
     read_langsmith_credentials,
 )
 from langchain_sync_monitors.model_calls import is_package_installed
 from langchain_sync_monitors.options import check_enum_option, describe_option_value
 from langchain_sync_monitors.score_worker import ScoreWorker
-from langchain_sync_monitors.scores import PendingScore, ScoreSender, Tracer
+from langchain_sync_monitors.scores import (
+    LangSmithCredentials,
+    PendingScore,
+    ScoreSender,
+    Tracer,
+)
 from langchain_sync_monitors.spans import find_max_suspicion
 
 logger = logging.getLogger(__name__)
@@ -125,10 +136,11 @@ def is_langfuse_handler(handler: BaseCallbackHandler) -> bool:
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class ScoreDestination:
-    """Where one score goes: a tool, and for LangSmith the project the run is traced to."""
+    """Where one score goes: a tool, and for LangSmith the project and the connection."""
 
     tracer: Tracer
     project: str | None = None
+    connection: LangSmithCredentials | None = None
 
 
 def read_destination(
@@ -136,9 +148,19 @@ def read_destination(
     *,
     tracers: AbstractSet[Tracer],
 ) -> ScoreDestination | None:
-    """Return where the handler traces to, if it is the tracer of a tool among `tracers`."""
+    """Return where the handler traces to, if it is the tracer of a tool among `tracers`.
+
+    A LangSmith tracer whose client has no key, where the environment has
+    none either, gives no destination, with a warning.
+    """
     if Tracer.LANGSMITH in tracers and isinstance(handler, LangChainTracer):
-        return ScoreDestination(tracer=Tracer.LANGSMITH, project=handler.project_name)
+        connection = read_client_connection(handler.client)
+        if connection is None:
+            logger.warning("score export: the LangSmith tracer has no API key, so no score is sent")
+            return None
+        return ScoreDestination(
+            tracer=Tracer.LANGSMITH, project=handler.project_name, connection=connection
+        )
     if Tracer.LANGFUSE in tracers and is_langfuse_handler(handler):
         return ScoreDestination(tracer=Tracer.LANGFUSE)
     return None
@@ -155,10 +177,10 @@ def find_score_destinations(
 
 
 def build_score_sender(tracer: Tracer) -> ScoreSender | None:
-    """Return the tool's sender on the credentials in the environment, or None without them."""
+    """Return the tool's sender: LangSmith's, or Langfuse's on the environment's keys, if any."""
     if tracer is Tracer.LANGSMITH:
-        langsmith = read_langsmith_credentials()
-        return None if langsmith is None else build_langsmith_sender(langsmith)
+        # Each LangSmith score carries its tracer's connection.
+        return LangSmithFeedbackSender()
     langfuse = read_langfuse_credentials()
     return None if langfuse is None else build_langfuse_sender(langfuse)
 
@@ -200,30 +222,43 @@ PROCESS_SCORE_WORKER = ProcessScoreWorker()
 """The score worker of this process."""
 
 
+class ScoreSettings(Protocol):
+    """What `queue_step_score` reads from a monitor: its label and the tools it exports to."""
+
+    @property
+    def label(self) -> str:
+        """The monitor's label, which names its score."""
+        ...
+
+    @property
+    def export_scores(self) -> AbstractSet[Tracer]:
+        """The tools the monitor sends its scores to."""
+        ...
+
+
 def queue_step_score(
     traced_step: TracedRun,
     *,
     record: StepRecord,
-    label: str,
-    tracers: AbstractSet[Tracer],
+    monitor: ScoreSettings,
 ) -> None:
     """Queue the committed step's highest suspicion for each tool its run is traced to.
 
-    Nothing is queued when `tracers` is empty, when the step span had no
-    handler, or when the step judged no sample. It never raises: a failure is
-    logged, and the run goes on.
+    Nothing is queued when the monitor exports to no tool, when the step span
+    had no handler, or when the step judged no sample. It never raises: a
+    failure is logged, and the run goes on.
     """
     value = find_max_suspicion(record["samples"])
-    if not tracers or traced_step.run_id is None or value is None:
+    if not monitor.export_scores or traced_step.run_id is None or value is None:
         return
     try:
-        destinations = find_score_destinations(traced_step.handlers, tracers=tracers)
+        destinations = find_score_destinations(traced_step.handlers, tracers=monitor.export_scores)
         if destinations:
             put_step_scores(
                 PROCESS_SCORE_WORKER.read_worker(),
                 destinations=destinations,
                 step_id=traced_step.run_id,
-                name=build_score_name(label),
+                name=build_score_name(monitor.label),
                 value=value,
             )
     except Exception:
@@ -248,5 +283,6 @@ def put_step_scores(
                 tracer=destination.tracer,
                 project=destination.project,
                 queued_at=worker.clock(),
+                connection=destination.connection,
             ),
         )

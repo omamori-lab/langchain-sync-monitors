@@ -21,6 +21,7 @@ from langchain_core.runnables import Runnable, RunnableConfig
 
 from langchain_sync_monitors.middleware import MonitorMiddleware
 from langchain_sync_monitors.protocols import DeferToResample, HaltRun, TrustedMonitoring
+from langchain_sync_monitors.score_worker import UNFOUND_STEP_HINTS
 from langchain_sync_monitors.scores import Tracer
 from tests.support.agents import (
     RunMode,
@@ -243,6 +244,53 @@ def test_a_step_with_no_sample_writes_no_score(
         first_step: ("monitor_suspicion", EXFILTRATION_SUSPICION)
     }
     assert read_scores(score_services) == read_feedback(score_services)
+
+
+def test_langsmith_feedback_goes_through_the_tracer_client_not_the_environment(
+    run_mode: RunMode,
+    score_services: ScoreServices,
+) -> None:
+    # Arrange: the tracer's client names its own endpoint and key; the environment another
+    client = MagicMock()
+    client.otel_exporter = None
+    client.api_url = "https://own-smith.test/api/v1"
+    client.api_key = "own-tracer-key"
+    client.workspace_id = "own-workspace"
+    handlers: list[BaseCallbackHandler] = [build_langsmith_tracer(client)]
+
+    # Act
+    run_traced(build_agent(build_monitor()), mode=run_mode, handlers=handlers)
+    score_services.send_window()
+
+    # Assert: every request went to the tracer's endpoint, with its key and workspace
+    requests = score_services.langsmith.requests
+    assert {request.url.host for request in requests} == {"own-smith.test"}
+    assert {request.headers["x-api-key"] for request in requests} == {"own-tracer-key"}
+    assert {request.headers["X-Tenant-Id"] for request in requests} == {"own-workspace"}
+    assert len(read_feedback(score_services)) == 2
+
+
+def test_a_langfuse_run_whose_steps_the_environment_project_never_holds_gets_no_score(
+    run_mode: RunMode,
+    score_services: ScoreServices,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    # Arrange: the handler traces elsewhere, as one built with other keys would
+    handlers: list[BaseCallbackHandler] = [LangfuseHandler()]
+    run_traced(build_agent(build_monitor()), mode=run_mode, handlers=handlers)
+
+    # Act: the environment's project is asked for the steps until the scores are given up
+    with caplog.at_level(logging.WARNING, logger="langchain_sync_monitors.score_worker"):
+        for _ in range(31):
+            score_services.send_window()
+
+    # Assert: looked up, never written, and the likely cause said once
+    assert score_services.langfuse.find_requests("GET", "/api/public/v2/observations") != []
+    assert score_services.langfuse.find_requests("POST", "/api/public/ingestion") == []
+    assert score_services.worker.waiting.count() == 0
+    messages = [record.getMessage() for record in caplog.records]
+    assert messages.count(UNFOUND_STEP_HINTS[Tracer.LANGFUSE]) == 1
+    assert any("gave up on 2 langfuse score(s)" in message for message in messages)
 
 
 def test_a_worker_that_fails_never_reaches_the_run(

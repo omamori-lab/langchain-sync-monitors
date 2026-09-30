@@ -9,10 +9,13 @@ window, and is dropped, with a warning, once it has waited
 `give_up_seconds`. A tool that answers `429` gets no call until the pause
 it asked for is over.
 
-At exit, the worker sends what still waits, once a window, until nothing
-waits or `drain_seconds` have passed, and logs what it drops. The thread is
-a daemon, so a drain that overruns never keeps the process alive. Failures,
-a sender's exceptions included, are logged and never reach a run.
+At exit, the worker sends what still waits, once every `drain_window_seconds`,
+a shorter window that finds a step Langfuse has just ingested sooner, until
+nothing waits or `drain_seconds` have passed, and logs what it drops. The
+thread is a daemon, so a drain that overruns never keeps the process alive.
+Failures, a sender's exceptions included, are logged and never reach a run.
+The first time a tool's scores are dropped because their steps were never
+found, the worker also says, once, what usually causes it.
 """
 
 from __future__ import annotations
@@ -40,6 +43,9 @@ GIVE_UP_SECONDS: Final = 300.0
 DRAIN_SECONDS: Final = 30.0
 """How long the exit drain may keep sending."""
 
+DRAIN_WINDOW_SECONDS: Final = 5.0
+"""How often the exit drain sends, and so looks for the steps Langfuse has just ingested."""
+
 MAX_WAITING_SCORES: Final = 10_000
 """The most scores that wait at once; more are dropped, with a warning."""
 
@@ -49,6 +55,15 @@ JOIN_GRACE_SECONDS: Final = 1.0
 type SenderFactory = Callable[[Tracer], ScoreSender | None]
 """Builds the sender of one tool, or returns None when its credentials are missing."""
 
+UNFOUND_STEP_HINTS: Final = {
+    Tracer.LANGFUSE: (
+        "score export: Langfuse scores go only on steps found in the project that "
+        "LANGFUSE_PUBLIC_KEY and LANGFUSE_SECRET_KEY reach. A Langfuse handler built with "
+        "other keys, or another host, traces to a project whose steps are never scored"
+    ),
+}
+"""What usually leaves a tool's steps unfound, said once per process when its scores are dropped."""
+
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class WorkerTimings:
@@ -57,6 +72,7 @@ class WorkerTimings:
     window_seconds: float = WINDOW_SECONDS
     give_up_seconds: float = GIVE_UP_SECONDS
     drain_seconds: float = DRAIN_SECONDS
+    drain_window_seconds: float = DRAIN_WINDOW_SECONDS
     max_waiting: int = MAX_WAITING_SCORES
 
 
@@ -97,11 +113,16 @@ class WaitingScores:
                 self.max_waiting,
             )
 
-    def give_up_on_old(self, *, now: float, limit_seconds: float) -> None:
-        """Drop, with a warning, each score that has waited `limit_seconds` or longer."""
+    def give_up_on_old(self, *, now: float, limit_seconds: float) -> list[Tracer]:
+        """Drop, with a warning, each score that has waited `limit_seconds` or longer.
+
+        Return the tools that lost scores.
+        """
+        gave_up: list[Tracer] = []
         for tracer, scores in self.by_tracer.items():
             kept = [score for score in scores if now - score.queued_at < limit_seconds]
             if len(kept) < len(scores):
+                gave_up.append(tracer)
                 logger.warning(
                     "score export: gave up on %d %s score(s) after %.0f seconds, since "
                     "their steps were not found or not accepted",
@@ -110,12 +131,14 @@ class WaitingScores:
                     limit_seconds,
                 )
             self.by_tracer[tracer] = kept
+        return gave_up
 
-    def drop(self, tracer: Tracer, *, reason: str) -> None:
-        """Drop the tool's waiting scores, with a warning that gives the reason."""
+    def drop(self, tracer: Tracer, *, reason: str) -> int:
+        """Drop the tool's waiting scores, with a warning that gives the reason; return how many."""
         scores = self.by_tracer.pop(tracer, [])
         if scores:
             logger.warning("score export: %d %s score(s) dropped: %s", len(scores), tracer, reason)
+        return len(scores)
 
     def count(self) -> int:
         """Return how many scores wait, queued ones included."""
@@ -145,6 +168,7 @@ class ScoreWorker:
         self.sleep = sleep
         self.waiting = WaitingScores(max_waiting=self.timings.max_waiting)
         self.senders: dict[Tracer, ScoreSender | None] = {}
+        self.explained: set[Tracer] = set()
         self.paused_until: dict[Tracer, float] = {}
         self.window_lock = threading.Lock()
         self.stopping = threading.Event()
@@ -201,7 +225,7 @@ class ScoreWorker:
             if remaining <= 0:
                 self.drop_every_score(reason="the exit drain ran out of time")
                 break
-            self.sleep(min(self.timings.window_seconds, remaining))
+            self.sleep(min(self.timings.drain_window_seconds, remaining))
         self.close_senders()
 
     def send_window(self) -> None:
@@ -211,9 +235,10 @@ class ScoreWorker:
                 self.waiting.take_incoming()
                 for tracer in list(self.waiting.by_tracer):
                     self.send_waiting(tracer)
-                self.waiting.give_up_on_old(
+                gave_up = self.waiting.give_up_on_old(
                     now=self.clock(), limit_seconds=self.timings.give_up_seconds
                 )
+                self.explain_unfound_steps(gave_up)
             except Exception:
                 logger.warning("score export: a send window failed", exc_info=True)
 
@@ -262,8 +287,20 @@ class ScoreWorker:
         """Drop every waiting score, queued ones included, with a warning per tool."""
         with self.window_lock:
             self.waiting.take_incoming()
-            for tracer in list(self.waiting.by_tracer):
-                self.waiting.drop(tracer, reason=reason)
+            dropped = [
+                tracer
+                for tracer in list(self.waiting.by_tracer)
+                if self.waiting.drop(tracer, reason=reason)
+            ]
+            self.explain_unfound_steps(dropped)
+
+    def explain_unfound_steps(self, tracers: list[Tracer]) -> None:
+        """Say, once per tool and process, what usually leaves its steps unfound."""
+        for tracer in tracers:
+            hint = UNFOUND_STEP_HINTS.get(tracer)
+            if hint is not None and tracer not in self.explained:
+                self.explained.add(tracer)
+                logger.warning(hint)
 
     def close_senders(self) -> None:
         """Close every sender's HTTP client; a failure to close is logged."""

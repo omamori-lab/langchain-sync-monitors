@@ -14,6 +14,8 @@ from enum import StrEnum
 from typing import Protocol
 from uuid import NAMESPACE_URL, UUID, uuid5
 
+from pydantic import SecretStr
+
 SCORE_ID_NAMESPACE = uuid5(NAMESPACE_URL, "https://github.com/omamori-lab/langchain-sync-monitors")
 """The namespace of every score id, so the same score always gets the same id."""
 
@@ -30,14 +32,27 @@ class Tracer(StrEnum):
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
+class LangSmithCredentials:
+    """What reaches LangSmith's API: the key, the endpoint, and the workspace a key may need.
+
+    Its repr hides the key, and two equal connections hash alike, so the
+    LangSmith sender keeps one HTTP client per connection.
+    """
+
+    api_key: SecretStr
+    endpoint: str
+    workspace_id: str | None
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
 class PendingScore:
     """One step's highest suspicion, waiting to be written to one tracing tool.
 
     `step_id` is the step span's run id, which the step's spans also carry
-    as `monitor_step_id`. `project` is the LangSmith project the step was
-    traced to, and None for Langfuse. `queued_at` is the worker clock's
-    reading when the score was queued, from which the worker counts how long
-    it has waited.
+    as `monitor_step_id`. For LangSmith, `project` is the project the step
+    was traced to and `connection` the one its tracer sends through; both
+    are None for Langfuse. `queued_at` is the worker clock's reading when the
+    score was queued, from which the worker counts how long it has waited.
     """
 
     step_id: UUID
@@ -46,6 +61,7 @@ class PendingScore:
     tracer: Tracer
     project: str | None
     queued_at: float
+    connection: LangSmithCredentials | None = None
 
     @property
     def score_id(self) -> UUID:

@@ -59,7 +59,8 @@ middleware hook [@langchain2026]:
   Deep Agents adds, around each sample, so a sample sits one level below
   `monitor step` for each of them;
 - a `monitor[main].wrap_tool_call`, or `awrap_tool_call`, around each tool
-  call under `tools`, a Deep Agent's `task` call and the subagent it starts
+  call, under `tools` or inside the hook runs of the middleware listed before
+  the monitor, a Deep Agent's `task` call and the subagent it starts
   included.
 
 ## Know what each span holds
@@ -351,14 +352,16 @@ explains.
   mock client, where it also checks the parent of each span LangSmith
   receives. No test runs Langfuse's handler. Read back through their APIs,
   LangSmith and Langfuse Cloud show the trees, fields and filters on this
-  page as described, and its code runs as written, with langsmith 0.14.1 and
-  langfuse 4.15.6, under `invoke()` and `ainvoke()`. That covers allowed,
-  steered, resampled, deferred, halted and failed steps, a Deep Agents
+  page as described, with langsmith 0.14.1 and langfuse 4.15.6, under
+  `invoke()` and `ainvoke()`. That covers allowed, steered, resampled,
+  deferred and halted steps, a step whose monitor call raised, a Deep Agents
   subagent, the Decisions API monitor against a fake server, and real chat,
-  guard and subagent model calls. Stacked monitors, parallel resampling, a
-  monitor's own `traceable` code, `TypeSafeDecisionModel` and what each
-  tool's UI shows, its Trajectory view included, rest on the tests and the
-  tools' source alone.
+  guard and subagent model calls. The Langfuse handler, the two query
+  examples and the `astream_events` example run as written. A cancelled sample,
+  `SynchronousRunError`, stacked monitors, parallel resampling, a monitor's
+  own `traceable` code, `TypeSafeDecisionModel` and what each tool's UI
+  shows, its Trajectory view included, rest on the tests and the tools'
+  source alone.
 - **Two tracers together can split a trace.** The monitor opens its spans
   from the model node's own callback manager, so they nest under `model` for
   every handler. With LangSmith and a second tracer attached together, other

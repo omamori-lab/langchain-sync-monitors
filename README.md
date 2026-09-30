@@ -115,7 +115,7 @@ What the judge reads by default, and each channel it leaves out: [Choose what th
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/assets/diagrams/subagents-dark.svg">
-  <img alt="In a Deep Agent, the main agent's monitor, monitor[main], reads the user's task. When the main agent calls the task tool, monitor[main] judges that call first, and the subagent then runs under a monitor of its own, monitor[researcher], which reads the task as the parent agent's words, not the user's, and judges each of the subagent's steps. The subagent's final report returns to the main agent. When the subagent returns or halts, its records flow back into the main agent's monitor_log, halts included. monitor_subagents gives every subagent a copy of the monitor, the general-purpose one included." src="docs/assets/diagrams/subagents-light.svg">
+  <img alt="In a Deep Agent, the main agent's monitor, monitor[main], reads the user's task. When the main agent calls the task tool, monitor[main] judges that call first, and the subagent then runs under a monitor of its own, monitor[researcher], which reads the task as the parent agent's words, not the user's, and judges each of the subagent's steps. The subagent's final report returns to the main agent. When the subagent returns, halted or not, its records flow back into the main agent's monitor_log, halts included; a subagent whose run raises returns none. monitor_subagents gives every subagent a copy of the monitor, the general-purpose one included." src="docs/assets/diagrams/subagents-light.svg">
 </picture>
 
 A monitor in every Deep Agents subagent: [Monitor Deep Agents subagents](docs/how-to/monitor-deep-agents-subagents.md).

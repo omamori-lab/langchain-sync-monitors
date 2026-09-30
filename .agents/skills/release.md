@@ -21,30 +21,40 @@ publishing (OIDC, no token anywhere) and then deploys the docs. Nobody runs
 Every release passes the same checks, in two places, and leaves the same
 evidence behind.
 
-`scripts/release.sh` checks the bumped tree on your machine before it commits:
+`scripts/release.sh` checks, on your machine, that the approval gate exists
+and that the bumped tree is ready, before it commits:
 
-1. `scripts/check-release.sh X.Y.Z`: `__version__`, `CITATION.cff` (version and
+1. The `pypi` environment has a required reviewer, and administrators cannot
+   bypass it (read with `gh api`).
+2. `scripts/check-release.sh X.Y.Z`: `__version__`, `CITATION.cff` (version and
    `date-released`) and a dated, non-empty `## [X.Y.Z] - YYYY-MM-DD` section of
    `CHANGELOG.md` with its link reference agree, and `README.md` and
-   `docs/index.md` hold no pre-release text ("not on PyPI", or a `.devN`
-   version).
-2. `scripts/check.sh`: every gate, from the agent-file sync check to the package
+   `docs/index.md` hold no pre-release text: no `release-check` comment, and
+   none of the phrases such text uses, such as "not on PyPI", "Pre-release" or
+   a `.devN` version.
+3. `scripts/check.sh`: every gate, from the agent-file sync check to the package
    build.
-3. A clean `uv build` and `twine check --strict`, with the Markdown renderer, on
+4. A clean `uv build` and `twine check --strict`, with the Markdown renderer, on
    the sdist and the wheel.
 
 The Release workflow checks the tagged commit again before it publishes:
 
-1. The tag is `vX.Y.Z`, names a commit on `main`, and passes
-   `scripts/check-release.sh`.
+1. The GitHub Release is not marked as a pre-release, the tag is `vX.Y.Z` and
+   names a commit on `main`, and the tree passes `scripts/check-release.sh`.
 2. The whole CI workflow: the gates on Python 3.12, 3.13 and 3.14, the offline
    suite at the lowest allowed dependency versions, and without any extra.
 3. One build of the sdist and the wheel, whose names must carry the version,
-   and `twine check --strict`.
+   whose SHA-256 digests are recorded, and which pass `twine check --strict`.
 4. The wheel, installed into fresh environments on Python 3.12, 3.13 and 3.14,
    with and without the extras, imports and reports the version.
-5. A maintainer approves the `pypi` environment; only then are exactly those
-   files published.
+5. A maintainer approves the `pypi` environment. The publish job then checks
+   the files against the recorded digests, and only then publishes exactly
+   those files.
+
+These workflow checks catch mistakes, not a determined insider: they run from
+the tagged commit's own copy of `release.yml`, which anyone with write access
+can change. The controls that hold are the required reviewers on the `pypi`
+environment and the `v*` tag ruleset.
 
 The evidence a release leaves:
 
@@ -97,8 +107,9 @@ Before 1.0:
 
      For the first release, `[0.1.0]` points at
      `https://github.com/omamori-lab/langchain-sync-monitors/releases/tag/v0.1.0`.
-   - Update the install and status text in `README.md` and `docs/index.md` so
-     neither says the package is not on PyPI or names a development version.
+   - In `README.md` and `docs/index.md`, rewrite the text each
+     `release-check` comment marks so it describes the released package, then
+     delete the comments.
    - Leave `__version__` and `CITATION.cff` alone: the script sets them.
    - Preview with `scripts/check-release.sh X.Y.Z`. On this branch it should
      report only the `__version__` and `CITATION.cff` problems.
@@ -111,12 +122,15 @@ Before 1.0:
    ```
 
    It refuses unless you are on `main`, the tree is clean, `main` matches
-   `origin/main`, the dated CHANGELOG section exists and the tag `vX.Y.Z` is new
-   locally and on `origin`. Then it sets `__version__` and `CITATION.cff`
+   `origin/main`, the dated CHANGELOG section exists, the tag `vX.Y.Z` is new
+   locally and on `origin`, and the `pypi` environment has a required reviewer
+   whom administrators cannot bypass. On GitHub's Free plan that needs a public
+   repository; the API shows no reviewers on a private one. Then it sets `__version__` and `CITATION.cff`
    (version and `date-released`, from the CHANGELOG heading), runs `uv lock`,
    runs the checks listed under "The release discipline", commits
    `Release X.Y.Z`, tags it `vX.Y.Z`, pushes `main` and the tag, and creates the
-   GitHub Release with `gh release create --verify-tag`.
+   GitHub Release with `gh release create --repo omamori-lab/langchain-sync-monitors --verify-tag`.
+   It deletes its temporary notes file however it ends.
 4. **Approve the deployment.** Open the Release run in the Actions tab. Once
    every check passes, the `Publish to PyPI` job waits for the `pypi`
    environment; review the run and approve it.
@@ -147,6 +161,11 @@ Before 1.0:
 - A GitHub Release created with the workflow token, `GITHUB_TOKEN`, starts no
   workflow. Create it with your own `gh`, as the script does. A Release published
   from the GitHub web page also starts the workflow, and passes the same checks.
+- A Release marked as a pre-release is refused, because its `vX.Y.Z` would go to
+  PyPI as a final version. Untick the pre-release box and publish it again.
+- The approval is the gate that holds: `scripts/release.sh` refuses until the
+  `pypi` environment has a required reviewer whom administrators cannot
+  bypass, and the `v*` tag ruleset keeps other people from tagging releases.
 - The PyPI page links pages and diagrams at the tag `vX.Y.Z`, through
   hatch-fancy-pypi-readme's `$HFPR_VERSION`. They resolve once the tag is
   pushed, which happens before anything is published.
@@ -202,8 +221,13 @@ the tag exists. Finish by hand, from the step that failed.
   CHANGELOG section as its notes:
 
   ```console
-  scripts/check-release.sh X.Y.Z > release-notes.md
-  gh release create vX.Y.Z --verify-tag --title vX.Y.Z --notes-file release-notes.md
+  notes_file="$(mktemp)"
+  scripts/check-release.sh X.Y.Z > "$notes_file"
+  gh release create vX.Y.Z --repo omamori-lab/langchain-sync-monitors --verify-tag --title vX.Y.Z --notes-file "$notes_file"
+  rm "$notes_file"
   ```
+
+  The notes file lives outside the repository, so the tree stays clean for a
+  later run of the script.
 
   Publishing it starts the Release workflow; continue from step 4 of Steps.

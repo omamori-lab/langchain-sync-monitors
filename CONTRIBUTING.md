@@ -127,12 +127,14 @@ A repository administrator does this once, before the first release:
    `langchain-sync-monitors`, workflow `release.yml`, environment `pypi`. The
    first publish makes it the project's publisher.
 3. Create the `pypi` environment (Settings, Environments). Add the maintainers
-   as required reviewers, and limit its deployment branches and tags to the
-   tag pattern `v*`.
+   as required reviewers, untick "Allow administrators to bypass configured
+   protection rules", and limit its deployment branches and tags to the tag
+   pattern `v*`. `scripts/release.sh` refuses to release until the
+   environment has a required reviewer whom administrators cannot bypass.
 4. Enable GitHub Pages with "GitHub Actions" as the source (Settings, Pages).
-   That creates the `github-pages` environment, which allows only `main` at
-   first: add the tag pattern `v*` to it, because the docs deploy from the
-   release tag.
+   That creates the `github-pages` environment. Limit its deployment branches
+   and tags to `main` and the tag pattern `v*`: the docs deploy from the
+   release tag, so a rule that allows only `main` refuses them.
 5. Enable private vulnerability reporting in the repository's security
    settings; `SECURITY.md` relies on it.
 6. Add a tag ruleset for `v*` that lets only maintainers create, move or
@@ -140,14 +142,18 @@ A repository administrator does this once, before the first release:
    who releases bypass that rule, because the script pushes the release commit
    to `main`.
 
+The required reviewers and the tag ruleset are the controls that hold. The
+Release workflow's own checks catch mistakes, but they run from the tagged
+commit's copy of the workflow, which anyone with write access can change.
+
 ### Release steps
 
 1. **Date the changelog in a pull request.** Move the `## [Unreleased]` entries
    under a new `## [X.Y.Z] - YYYY-MM-DD` heading, leave an empty
    `## [Unreleased]` above it, and update the link references at the bottom of
-   `CHANGELOG.md`. Update the install and status text of `README.md` and
-   `docs/index.md` so neither says the package is not on PyPI or names a
-   development version. `scripts/check-release.sh X.Y.Z` previews the release
+   `CHANGELOG.md`. In `README.md` and `docs/index.md`, rewrite the text each
+   `release-check` comment marks so it describes the released package, and
+   delete the comments. `scripts/check-release.sh X.Y.Z` previews the release
    checks; before the bump it should report only `__version__` and
    `CITATION.cff`. Merge the pull request.
 2. **Run the release script** on a clean `main` that matches `origin/main`:
@@ -167,26 +173,31 @@ A repository administrator does this once, before the first release:
 
 Before it publishes anything, the workflow:
 
+- refuses a GitHub Release marked as a pre-release, which would otherwise go
+  to PyPI as a final version;
 - checks that the tag is `vX.Y.Z`, names a commit on `main`, and agrees with
-  `__version__`, `CITATION.cff` and a dated CHANGELOG section, and that the
-  README holds no pre-release text (`scripts/check-release.sh`);
+  `__version__`, `CITATION.cff` and a dated CHANGELOG section, and that
+  `README.md` and `docs/index.md` hold no pre-release text
+  (`scripts/check-release.sh`);
 - runs the whole CI workflow on the tagged commit: every gate on Python 3.12,
   3.13 and 3.14, the offline suite at the lowest allowed dependency versions,
   and the offline suite without any extra;
-- builds the sdist and the wheel once, checks that their names carry the
-  version, and runs `twine check --strict` on them;
+- builds the sdist and the wheel once, records their SHA-256 digests, checks
+  that their names carry the version, and runs `twine check --strict` on them;
 - installs the wheel into fresh environments on Python 3.12, 3.13 and 3.14,
   with and without the extras, and imports it.
 
-Once approved, it publishes exactly those files to PyPI through trusted
-publishing, attaches the same files to the GitHub Release, and deploys the
-tagged commit's documentation to GitHub Pages.
+Once approved, it checks the files against the recorded digests, publishes
+exactly those files to PyPI through trusted publishing, attaches the same
+files to the GitHub Release, and deploys the tagged commit's documentation to
+GitHub Pages.
 
 ### Recovering from a failed release
 
 - **A failure before publishing** leaves PyPI untouched. Delete the GitHub
-  Release and its tag with `gh release delete vX.Y.Z --cleanup-tag --yes`, fix
-  the cause in a pull request, and run `scripts/release.sh X.Y.Z` again.
+  Release and its tag with `gh release delete vX.Y.Z --cleanup-tag --yes`, and
+  the local tag with `git tag -d vX.Y.Z`. Fix the cause in a pull request, and
+  run `scripts/release.sh X.Y.Z` again.
 - **A failed publish**, such as a PyPI outage or a wrong setting: fix the cause
   and re-run only the failed jobs with `gh run rerun <run-id> --failed`, so the
   files published are the ones that were checked.

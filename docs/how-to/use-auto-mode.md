@@ -62,7 +62,7 @@ monitor = MonitorMiddleware(
         when_limit_reached=HaltRun(message="[Safety monitor] Stopped after repeated unsafe steps."),
         feedback=FeedbackTemplate(
             text=(
-                "[Safety monitor] Your last step was blocked and did not run.\n"
+                "[Safety monitor] Your last step was blocked, and none of your tools ran it.\n"
                 "Reason: {reason}\n"
                 "Finish the user's task another way, or stop and say what approval you need."
             ),

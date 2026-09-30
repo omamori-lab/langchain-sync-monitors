@@ -38,7 +38,9 @@ The first release. Everything below is new.
   `recursion_limit`. They keep three private state keys,
   `monitor_task_messages`, `monitor_seen_human_messages` and
   `monitor_run_open`, which never enter a subagent's input or a run's output
-  but do appear in `stream_mode="updates"`.
+  but do appear in `stream_mode="updates"`. The hooks also write back, by id,
+  the human messages they tag as notes, so `stream_mode="updates"` can carry
+  such a message twice; merge messages by id.
 - Named spans for each monitored step in any LangChain tracer, LangSmith and
   Langfuse among them: a `monitor step` span holds the step's samples, a
   `monitor judgement` span each verdict, a `monitor classifier` span each
@@ -59,6 +61,9 @@ The first release. Everything below is new.
   parallel resampling) and `AutoMode` (blocks a step, tells the agent why with
   a `FeedbackTemplate`, and halts after Claude Code's limits, counted per
   conversation thread), with the `DeferToTrustedModel` and `HaltRun` fallbacks.
+  The default feedback tells the agent that none of its tools ran the blocked
+  step, which stays true when a provider's built-in tool in that step already
+  ran inside the model call.
 - Default thresholds (0.6 to defer, block or flag; 0.9 to audit) that raise
   `UncalibratedThresholdWarning` until you set your own. A flag marks a step
   for audit and never blocks it.
@@ -107,9 +112,12 @@ The first release. Everything below is new.
   such as Deep Agents' video reads and harness nudges. The monitor writes the
   note's tag into the message in the agent's state too, so a saved or
   replayed history keeps it, and a message a tool writes never carries the
-  monitor's own `lc_source`. After a run that stopped before its end, such as
-  one whose model call raised, the next run's new messages are notes too,
-  the user's own included, for the rest of the thread.
+  monitor's own `lc_source`. A tool that writes back a message by id keeps
+  its author only if the message is unchanged. After a run that stopped
+  before its end, such as one whose model call raised or whose client
+  cancelled it, the next run's new messages, the user's own included, are
+  notes from `unconfirmed_input` for the rest of the thread: the judge takes
+  no approval from them, but still applies any limit they set.
 - A call that failed or did not run shows as `<tool_error>`, and a call with
   unreadable arguments as `<malformed_tool_call>`, under every view that shows
   the call. The monitor's own feedback on a blocked step shows as
@@ -118,7 +126,8 @@ The first release. Everything below is new.
   `<provider_tool_call>` and `<provider_tool_result>`: those LangChain maps
   for Anthropic, OpenAI's Responses API and Gemini's code execution, and
   Gemini's Google Search, read from `grounding_metadata`. A part of a reply
-  LangChain cannot map shows whole as `<unrecognised_block>`. Each sample's
+  LangChain cannot map shows whole as `<unrecognised_block>`; a refusal shows
+  as the agent's prose. Each sample's
   `SampleRecord.proposal` keeps the provider tool calls and their full
   results.
 

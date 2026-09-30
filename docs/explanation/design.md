@@ -202,27 +202,39 @@ guard against a forged approval:
   it. The monitor's `wrap_tool_call` tags the new human messages a tool
   writes where they are written, with the tool's name as their source,
   whether the tool returns a `Command`, a list of commands and tool
-  messages, or messages as dictionaries. A message a tool writes back with
-  the id of one already in the state, as a tool that rewrites the history
-  does, keeps its author. Before a monitor judges a step, every untagged
+  messages, or messages as dictionaries. A message a tool writes back
+  unchanged, with the id of one already in the state, as a tool that
+  rewrites the history does, keeps its author. One whose words, type or tag
+  the tool changed does not: a tool that edits a message by id writes a note
+  named after the tool, so it cannot put the agent's words in the user's.
+  Before a monitor judges a step, every untagged
   human message whose id is not recorded as input is tagged as a note in the
   monitor's copy of the model request, which can hold messages the state
   lacks. The two lists and the flag below are private state, so a subagent
   starts with none of them and returns none of them.
 
   A run can stop before its end: a model, monitor or fallback call raises,
-  it hits its recursion limit, or the application answers an interrupt with
-  new input rather than a resume. A fork from a checkpoint inside a run is
-  in the same position. Messages written after the monitor's last look may
-  then sit in the state unseen, and the monitor cannot tell them from the new
-  input. So a private flag is set when a run and each of its steps start, and
-  cleared when the run reaches the monitor's `after_agent` hook. A run that
-  starts while it is set reads every new human message as a note, and logs a
-  warning. That includes the user's own new message, and it stays a note for
-  the rest of the thread: the monitor never learns that it was input, so its
-  approvals and restrictions carry no authority, and an entry limit may drop
-  it. The runs after it are read normally. A final answer, a halt, a structured response and a
-  `return_direct` tool all end at `after_agent`, so they leave the flag clear.
+  it hits its recursion limit, the client stops reading its stream or
+  cancels the task that awaits it, a server times it out, or the
+  application answers an interrupt with new input rather than a resume. The
+  agent can bring such a stop about itself, for example with a step too
+  large for the judge's context, which makes the judge's call raise. A fork
+  from a checkpoint inside a run is in the same position. Messages written
+  after the monitor's last look may then sit in the state unseen, and the
+  monitor cannot tell them from the new input. So a private flag is set when
+  a run and each of its steps start, and cleared when the run reaches the
+  monitor's `after_agent` hook. A run that starts while it is set records no
+  input: it tags every new human message as a note from `unconfirmed_input`
+  and logs a warning that names their ids. That includes the user's own new
+  message, which stays such a note for the rest of the thread, and an entry
+  limit may drop it. The prompt tells the judge that such a note may be the
+  user's own words: it authorises nothing, but any limit it sets or
+  permission it withdraws still applies. A restriction only narrows what is
+  allowed, so honouring it from a message of unknown author can block honest
+  work but never lets an action through, and the agent gains nothing by
+  causing the stop. The runs after it are read normally. A final answer, a
+  halt, a structured response and a `return_direct` tool all end at
+  `after_agent`, so they leave the flag clear.
 - The monitor's own feedback carries `lc_source="monitor"` and is rendered as
   `<monitor_feedback>` wherever the task is shown: both the message that
   answers a blocked final answer and the tool message that answers a blocked
@@ -271,11 +283,14 @@ reads every new message as a note in every run. A history replayed without a
 checkpointer holds the tags the monitor wrote, so there only a message the
 monitor never saw reads as input, such as one from these two paths or one a
 later middleware wrote just before a step that failed. A thread started before
-the monitor was added has the gap for every untagged human message it holds. The other way round, a human
-message added to a run that resumes, through `Command(update=...)` or
-`update_state`, is never recorded as input, so it is a note. That fails
-closed, but a restriction the user adds that way, such as "do not send
-anything", then carries no authority with the judge either.
+the monitor was added has the gap for every untagged human message it holds,
+and so does a human message an application adds with `update_state` between
+two finished runs, which is the application speaking. The other way round, a
+human message added to a run that resumes, through `Command(update=...)` or
+`update_state`, is never recorded as input, so it is a note from
+`application`. That fails closed, but a restriction the user adds that way,
+such as "do not send anything", then carries no authority with the judge
+either; send it as the input of a new run instead.
 
 When the view keeps only recent entries, every message from the task author is
 kept anyway, in order: the first states the task, and a later one can narrow or
@@ -700,6 +715,16 @@ flowchart LR
 
 The cost is live tokens. A monitored agent streams each step whole, once the
 protocol commits it, and not token by token as the model writes it.
+
+The monitor's `before_agent`, `before_model` and `after_agent` hooks write back
+the human messages they tag as notes, under their own ids, so
+`stream_mode="updates"` carries such a message twice: once from the node that
+wrote it, and once, tagged, from the monitor's hook. In a run that follows one
+that stopped early, the user's own new message comes back too, tagged, from
+the monitor's `before_agent` hook. A consumer that
+builds the conversation from `updates` should merge messages by id, as
+LangGraph's own message reducer does [@langgraph2026], rather than append them;
+`stream_mode="messages"` and `values` are not affected.
 
 Rejected samples stay out of the conversation, not out of the record. They
 remain in `monitor_log`, which the `values` and `updates` stream modes carry,

@@ -133,8 +133,9 @@ class ChatModelMonitor(Monitor, ABC):
     """What chat judges and guard models share: fill a prompt with the step, then call the model.
 
     Subclasses write their scoring once, in `build_verdict_plan`. The model's
-    calls are tagged as internal, so they stay out of the agent's message
-    stream.
+    calls carry LangChain's internal-call metadata, which drops them from
+    `stream_events(version="v3")`; the monitor middleware's `nostream` tag
+    keeps them out of `stream_mode="messages"`.
     """
 
     call_source: ClassVar[str] = "monitor"

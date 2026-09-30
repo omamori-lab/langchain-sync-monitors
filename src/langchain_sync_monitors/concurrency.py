@@ -1,8 +1,9 @@
 """Run the library's own concurrent calls so that one failure stops the rest.
 
-Parallel resampling and `RepeatedMonitor` make several model calls at once.
-`asyncio.gather` lets the other calls run on, and spend tokens, after one of
-them has failed; an `asyncio.TaskGroup` cancels them instead.
+Parallel resampling, `RepeatedMonitor` and a chat monitor that draws several
+replies, such as a guard model that samples its label, make several model calls
+at once. `asyncio.gather` lets the other calls run on, and spend tokens, after
+one of them has failed; an `asyncio.TaskGroup` cancels them instead.
 """
 
 from __future__ import annotations

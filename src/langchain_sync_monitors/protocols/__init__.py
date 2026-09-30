@@ -1,7 +1,9 @@
 """Control protocols, which decide what the agent state receives for each step.
 
 Every protocol reaches the model only through a `PendingStep` and awaits
-nothing else, so one copy of each serves both `invoke()` and `ainvoke()`.
+nothing that needs an event loop, only the step's methods and coroutines built
+only on them, such as a fallback's `take_over`, so one copy of each serves both
+`invoke()` and `ainvoke()`.
 Protocols and fallbacks hold configuration only, never state from a run, so
 one instance can serve parallel subagent runs.
 """

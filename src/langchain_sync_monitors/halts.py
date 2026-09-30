@@ -11,6 +11,12 @@ monitor's last step is a halt, every further step halts again, without a
 sample, until the thread has recorded more run inputs than it had at the
 halt.
 
+A fork runs under the main agent's monitor, and a compiled subagent whose own
+monitor keeps the default `agent_name`, `main`, records its steps under the
+main agent's name too, so the halts of either may go unseen, whatever
+`SubagentHalt` says. Set the `agent_name` of a compiled subagent's monitor to
+the subagent's name, and give a monitored agent no forked subagents.
+
 A run's input is what `task_authorship` records under `TASK_MESSAGES_KEY` at
 the start of a run. Each halt stores how many inputs the thread held then,
 under `INPUTS_AT_HALT_KEY`, and the halt stands while that count has not
@@ -51,11 +57,15 @@ from langchain_sync_monitors.task_authorship import (
 )
 
 STANDING_HALT_MESSAGE = (
-    "[Safety monitor] This run stays stopped: the safety monitor halted it, and no new input "
-    "the monitor could confirm has arrived since. The rejected steps are recorded in "
-    "monitor_log for review."
+    "[Safety monitor] This run is stopped: the safety monitor halted an earlier step, and "
+    "that halt stands until a later run brings new input the monitor can confirm. The "
+    "rejected steps are recorded in monitor_log for review."
 )
-"""The final message of a step the monitor halts again because its earlier halt stands."""
+"""The final message of a step halted again, without a sample, while an earlier halt stands.
+
+The earlier halt may belong to this run or to an earlier one, so the message
+does not say which.
+"""
 
 INPUTS_AT_HALT_KEY: Final = "monitor_inputs_at_halt"
 """The state key that holds, for each monitor, how many run inputs the thread had at its halt."""

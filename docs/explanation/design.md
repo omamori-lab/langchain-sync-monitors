@@ -1,609 +1,386 @@
 # How the library is built
 
-This explanation describes how langchain-sync-monitors is put together, for a
-reader who has not seen the design plan: what happens on one step of an agent,
-where the monitor sits, the four pieces that share the work, and how the same
-code serves subagents and both `invoke()` and `ainvoke()`.
+This explanation describes how langchain-sync-monitors works and where it
+stops: what one monitored step does, what the judge reads and whom it
+believes, when a halt stands, how subagents are counted, and what the records,
+streams and traces show. A closing section gathers every known limit.
 
-## One step, end to end
+[TOC]
 
-A step is one model call of the agent. The untrusted model, the one doing the
-agent's work, proposes the step: its reasoning, its text and any tool calls.
-The monitor middleware wraps that call, so the proposal is judged before any
-tool runs, and the control protocol can call the model again or call a
-different, trusted model instead.
+## The monitored step
 
-```mermaid
-flowchart TD
-    state["Agent state: messages and monitor_log"] --> request["Model request for the next step"]
-    subgraph wrapper ["The monitor middleware wraps the model call"]
-        request --> untrusted["Untrusted model proposes a step: reasoning, text and tool calls"]
-        untrusted --> monitor["Monitor reads the step through its view and returns a Verdict"]
-        monitor --> protocol{"Control protocol decides"}
-        protocol -- "draw another sample" --> untrusted
-        protocol -- "defer" --> trusted["Trusted model writes the step"]
-        trusted --> commit["Commit the chosen messages and one StepRecord"]
-        protocol -- "allow, resample, steer or halt" --> commit
-    end
-    commit --> tools["Tool node runs the approved tool calls"]
-    tools -- "results are appended, and the next model call is a new step" --> state
-```
+An agent step is one run of the agent's model node. `MonitorMiddleware` wraps
+the model call inside it: the untrusted model proposes the step, the monitor
+judges it, and a control protocol decides what the agent's state receives,
+all before any of the agent's own tools run. A model provider's built-in
+tools, such as web search, are the exception: they run inside the model call,
+so they have run by the time the monitor sees the step
+([what the monitor cannot stop](#what-the-monitor-cannot-stop)).
 
-Everything inside the middleware stays a proposal until the protocol decides.
-Rejected samples and the monitor's own model calls never reach the agent's
-messages. What is committed is the chosen response, whether an untrusted
-sample or the trusted model's step, together with one `StepRecord` in
-`monitor_log` that keeps every sample the monitor judged, so rejected samples
-survive as evidence for an auditor. Nor do they reach the message stream, as
-[What streams](#what-streams) explains.
+[![The untrusted model proposes a step. The monitor, drawn as an omamori charm, reads it through its view and scores its suspicion from 0 to 1. The control protocol chooses one of five outcomes, from the lightest touch to the strongest: allow it, resample it, defer to the trusted model, block it and tell the agent why, or halt. All of this happens inside the middleware, before any of the agent's own tools run; a brushed line marks that boundary. A provider's built-in tools, such as web search, run inside the model call, above that line. A committed step reaches the tools and a halted run ends, and either way one record joins monitor_log. Tool results come back, and the next model call is a new step.](../assets/diagrams/monitored-step-light.svg#only-light)](../assets/diagrams/monitored-step-light.svg "Open the diagram at full size")
+[![The untrusted model proposes a step. The monitor, drawn as an omamori charm, reads it through its view and scores its suspicion from 0 to 1. The control protocol chooses one of five outcomes, from the lightest touch to the strongest: allow it, resample it, defer to the trusted model, block it and tell the agent why, or halt. All of this happens inside the middleware, before any of the agent's own tools run; a brushed line marks that boundary. A provider's built-in tools, such as web search, run inside the model call, above that line. A committed step reaches the tools and a halted run ends, and either way one record joins monitor_log. Tool results come back, and the next model call is a new step.](../assets/diagrams/monitored-step-dark.svg#only-dark)](../assets/diagrams/monitored-step-dark.svg "Open the diagram at full size")
 
-## Where the middleware sits
+Everything inside the middleware stays a proposal until the protocol
+decides. The agent's messages receive only the committed step: the chosen
+sample, the trusted model's step or a halt message. `monitor_log` receives one
+`StepRecord` that keeps every sample the monitor judged, so rejected samples
+survive as evidence. Rejected samples and the monitor's own model calls reach
+neither the agent's messages nor the message stream, with one exception:
+under `MonitorMiddleware(feedback_visibility=FeedbackVisibility.IN_TRANSCRIPT)`,
+Auto Mode's blocked attempts and their feedback are committed before the step.
 
-LangChain gives middleware several hooks. The monitor uses `wrap_model_call`
-and `awrap_model_call`, the only hooks that gate every step and can call the
-model more than once. Its `after_model` hook judges nothing; it only ends the
-run after a halted step, as [Halts, fallbacks and failed
-steps](#halts-fallbacks-and-failed-steps) explains. An `after_model` hook would come too late: after-model
-hooks run in reverse list order, and Deep Agents lists
-`HumanInTheLoopMiddleware` after user middleware, so its interrupt would fire
-before an after-model monitor ran.
+### Where the middleware sits
 
-LangChain nests `wrap_model_call` handlers so that the first middleware in the
-list is the outermost layer. In a plain `create_agent`, the monitor goes last
-in the list, directly around the model. That position matters: middleware
-listed after the monitor becomes a layer inside it, and when the monitor draws
-several samples, LangChain's composed handler keeps only the commands of the
-last inner call, by design and as its documentation states, whichever sample
-the protocol commits [@langchain2026].
+The monitor judges in `wrap_model_call` and `awrap_model_call`, the only
+hooks that gate every step and can call the model more than once. A judge in
+`after_model` would come too late: after-model hooks run in reverse list
+order, and Deep Agents lists `HumanInTheLoopMiddleware` after user
+middleware, so its interrupt would fire before such a judge ran.
+
+LangChain nests `wrap_model_call` and `wrap_tool_call` handlers with the
+first middleware in the list outermost [@langchain2026]. So the monitor goes
+last in a `create_agent` list, directly around the model:
+
+- A model-call wrapper listed after the monitor is a layer inside it, called
+  once per sample. If it returns commands, LangChain keeps those of the last
+  inner call, and mixes them when samples are drawn concurrently, so they may
+  come from a sample the protocol does not commit [@langchain2026].
+- A model-call wrapper listed before the monitor wraps the whole monitored
+  step. One that retries failed model calls runs the whole step again
+  ([failed steps](#failed-steps)).
+
+`check_monitor_placement(middleware=[...])` warns about both, and about
+middleware that retries or answers failed tool calls
+([subagents and the thread total](#subagents-and-the-thread-total)). It
+returns the names it warned about.
 
 Deep Agents builds its own stack around the user's middleware. With
-deepagents 0.7.19 [@deepagents2026] and `interrupt_on` set, the list, from
-outermost to innermost, is:
+deepagents 0.7.19 [@deepagents2026] and `interrupt_on` set, it lists, in
+order:
 
-```mermaid
-flowchart TD
-    filesystem["FilesystemMiddleware"] --> subagents["SubAgentMiddleware"]
-    subagents --> summarisation["SummarizationMiddleware"]
-    summarisation --> patch["PatchToolCallsMiddleware"]
-    patch --> ours["monitor[main], this library"]
-    ours --> caching["AnthropicPromptCachingMiddleware"]
-    caching --> approval["HumanInTheLoopMiddleware"]
-    approval --> content["UnsupportedContentMiddleware"]
-    content --> model["Chat model: the untrusted agent"]
-```
+| Middleware | Its hooks | Relative to the monitor |
+|---|---|---|
+| `FilesystemMiddleware` | `wrap_model_call`, `wrap_tool_call` | Outside: wraps the whole step, and each tool call |
+| `SubAgentMiddleware` | `wrap_model_call` | Outside: wraps the whole step |
+| `SummarizationMiddleware` | `wrap_model_call` | Outside: wraps the whole step, and runs it again after a context overflow ([failed steps](#failed-steps)) |
+| `PatchToolCallsMiddleware` | `before_agent` | Runs before the monitor's `before_agent` |
+| `monitor[main]` | all six | |
+| `AnthropicPromptCachingMiddleware` | `wrap_model_call` | Inside: called once per sample, rewrites the request |
+| `HumanInTheLoopMiddleware` | `after_model`, `wrap_tool_call` | Its `after_model` runs before the monitor's; its tool wrapper sits inside the monitor's |
+| `UnsupportedContentMiddleware` | `wrap_model_call` | Inside: called once per sample, rewrites the request |
 
-Skills, memory, asynchronous subagents and harness profiles add layers of
-their own when they are configured. The monitor therefore sees the
-conversation after summarisation, which is what the agent itself sees, and
-every resample or trusted call passes through the inner layers, so prompt
-caching and content checks still apply. Those inner layers only change the
-request, so they return no commands, and the default stack is safe for
-resampling.
+The monitor therefore reads the conversation after summarisation, as the
+agent does, and every sample passes through the two inner model-call
+layers, which return no commands. Skills, memory, asynchronous subagents and
+harness profiles add layers of their own when they are configured.
 
-Middleware names must be unique within one agent, so the monitor is named
-after the agent it watches: `monitor[main]`, `monitor[researcher]` and so on.
-Middleware instances are shared across parallel subagent runs, so the monitor
-keeps no per-run state on itself; everything a run needs lives in the graph
-state.
+### The monitor's hooks
 
-## Four pieces
+Besides the model call, the monitor wraps every tool call and adds four node
+hooks. One run passes through them in this order, the middle three once per
+agent step:
 
-The work is split so that what the monitor reads, how it scores, and what
+| Hook | What the monitor does there |
+|---|---|
+| `before_agent` | Records the run's input ([task authorship](#task-authorship-and-notes)). |
+| `before_model` | Tags the notes written so far, and marks the run open. |
+| `wrap_model_call` | Samples, judges, decides and commits the step. |
+| `after_model` | Ends the run after this monitor's halt ([halts](#halts)). |
+| `wrap_tool_call` | Hands each tool call a `Delegation` ([subagents](#subagents)), and tags the human messages a tool writes. |
+| `after_agent` | Tags the notes written since the last step, and marks the run closed. |
+
+The node hooks count towards `recursion_limit` ([graph steps](#graph-steps)).
+
+### Four pieces
+
+The work is split so that what the monitor reads, how it scores and what
 happens with the score are separate choices.
 
 | Piece | Interface | Job |
 |---|---|---|
 | View | `MonitorView`, `Channel` | Chooses which parts of the transcript the monitor reads. |
-| Monitor | `Monitor.evaluate`, `Monitor.evaluate_sync` | Scores one proposed step and returns a `Verdict`: a `suspicion` from 0 to 1 and a `reason`. |
-| Control protocol | `ControlProtocol.decide` | Samples and judges the step through a `PendingStep`, then returns a `StepDecision`. |
-| Middleware | `MonitorMiddleware` | Builds the pending step for each model call, runs the protocol, and commits the decision and its record. |
+| Monitor | `Monitor.evaluate`, `Monitor.evaluate_sync` | Judges one proposed step and returns a `Verdict`: a `suspicion` from 0 to 1 and a `reason`. |
+| Control protocol | `ControlProtocol.decide` | Samples and judges the step through a `PendingStep`, and returns a `StepDecision`. |
+| Middleware | `MonitorMiddleware` | Builds the pending step for each model call, runs the protocol, commits the decision with its record, and runs the hooks above. |
 
-Because every monitor reports suspicion on the same 0 to 1 scale, any monitor
-works with any protocol. A protocol reaches the model only through the
-`PendingStep` it is given:
+Every monitor reports suspicion on the same scale, so any monitor works with
+any protocol. A protocol reaches the models only through its `PendingStep`:
 
 - `sample(count=..., blocked_attempts=..., concurrently=...)` draws fresh
-  samples of the step and has the monitor judge each one, returning `Sample`s
-  that pair each response with its `Verdict`;
-- `request_trusted_step(trusted_model=...)` has a trusted model write the step,
-  with the same conversation and tools;
-- `previous_records` holds this monitor's records from earlier steps of the
-  thread, every turn of a checkpointed thread included, or, inside a
-  subagent, of its current delegation;
-- `blocks_in_thread` counts the blocks this monitor recorded in the
-  conversation thread before the step, subagents included, except those of a
-  subagent whose run raised, and `new_subagent_blocks` the ones recorded
-  inside subagents since the agent's last step.
+  samples of the step and has the monitor judge each, returning `Sample`s;
+- `request_trusted_step(trusted_model=...)` has a trusted model write the
+  step, with the same conversation and tools, and without the rejected
+  samples;
+- `previous_records` holds this monitor's records for this agent from earlier
+  steps of the thread, every turn of a checkpointed thread included, or,
+  inside a subagent, from earlier steps of its current delegation;
+- `blocks_in_thread` counts the blocks this monitor recorded in the thread
+  before the step, subagents included, and `new_subagent_blocks` those
+  recorded inside subagents since this agent's last step.
 
-When no sample is acceptable, a `Fallback` writes the step instead: the trusted
-model does, or the run halts. The protocol's `StepDecision` names the
-`Outcome` (`ALLOWED`, `RESAMPLED`, `DEFERRED_TO_TRUSTED`, `STEERED` or
-`HALTED`), the response to commit, every sample, the sample that ran if one
-did, and whether the step is flagged for audit.
+When a protocol accepts no sample, a `Fallback` writes the step:
+`DeferToTrustedModel` has the trusted model write it, and `HaltRun` ends the
+run. The `StepDecision` names the `Outcome`, the response to commit, every
+sample, the sample that ran if one did, and whether the step is flagged.
 
-## What the monitor reads
+### Names and labels
 
-Every transcript entry belongs to one `Channel`: `USER`, `REASONING`,
-`AGENT_TEXT`, `TOOL_CALLS`, `TOOL_RESULTS` or `SUBAGENT_REPORTS`. A
-`MonitorView` is a set of channels, plus an optional limit on how many recent
-entries to keep and the names of the tools whose results count as subagent
-reports (`task` by default).
+A `MonitorMiddleware` is named `label[agent_name]`, `monitor[main]` by
+default, and LangChain requires names to be unique within one agent. The
+monitor keeps its records and its halts under its label and agent, so two
+monitors that shared them would lift each other's halts, and a subclass that
+names itself otherwise raises `ConfigurationError`. Two monitors stacked in
+one agent therefore need distinct labels. `monitor_subagents` names each
+subagent's copy after the subagent, such as `monitor[researcher]`.
 
-The default view, `Channel.ACTIONS`, holds the user's messages, the tool calls
-and the subagent reports, together with the context notes, tool errors and
-monitor feedback described below; their text is escaped and authorises
-nothing. It leaves out the agent's reasoning, its prose and
-raw tool output, as Claude Code's auto mode classifier does
-[@hughes2026automode]. Reasoning is one flag away. Reading the chain of thought
-catches more misbehaviour than reading actions alone [@baker2025monitoring],
-but persuasive reasoning can also talk a monitor out of a correct flag
-[@arnav2025cotredhanded], and more context does not always help a monitor
-[@arike2026information].
+Deep Agents runs parallel subagents through shared middleware instances, so
+the instance holds configuration only, and every piece of run state lives in
+the graph state ([private state keys](#private-state-keys)).
 
-`transcript.py` renders the entries as tagged text: `<user>`, `<agent>`,
-`<agent_reasoning>`, `<tool_call>`, `<tool_result>`, `<subagent_report>` and,
-for the step being judged, `<proposed_step>`. Content is HTML-escaped, so text
-inside a tool result cannot close a tag and pose as another entry. The view
-selects what the monitor reads of the history; the step being judged always
-shows its tool calls, whatever the view, because they are the action the
-protocol gates.
+## Protocols and outcomes
 
-A provider's built-in tools, such as Anthropic's web fetch or OpenAI's web
-search, run at the provider inside the model call, so they have run before the
-monitor sees the step. LangChain's translators give them as standard
-`server_tool_call` and `server_tool_result` blocks for Anthropic, OpenAI's
-Responses API and Gemini's code execution, and a reply in LangChain's own
-standard blocks already holds them [@langchaincore2026]. The monitor renders
-each call as `<provider_tool_call>` beside the tool calls and each result as
-`<provider_tool_result>` beside the tool results. Gemini's Google Search leaves
-its queries only in the reply's `grounding_metadata`, so the monitor renders
-those queries as a `<provider_tool_call name="grounding">` and the sources
-found as its result. A block LangChain cannot map, such as one in a reply
-without `model_provider` in its metadata, is rendered whole as
-`<unrecognised_block>` beside the tool calls, so it is shown rather than
-dropped. A block of reasoning, such as Anthropic's `thinking`, sits beside
-the reasoning instead, so a view without reasoning still leaves it out, and
-a block that repeats one of the message's tool calls is not shown twice. Other searches that leave no block stay invisible: Gemini's URL
-context, whose metadata langchain-google-genai does not keep, and the search
-annotations of OpenAI's Chat Completions or OpenRouter's web plugin.
-
-The judge always reads the provider tool calls of the step it judges. Their
-results sit in `TOOL_RESULTS`, so under the default view it reads the call and
-not what it returned. The audit record keeps both, the result in full. A suspicious score
-still decides what happens to the rest of the step, but a synchronous monitor
-cannot stop a call that has already run. It runs once for every sample drawn,
-so each resample of Defer to Resample and each retry of Auto Mode runs it
-again, in samples that are then rejected too.
-
-Only the task author's own words authorise an action, so three kinds of entry
-guard against a forged approval:
-
-- Inside a subagent the task came from the parent agent, so its messages are
-  rendered as `<delegator>` rather than `<user>`, following the `TaskAuthor`
-  in the `MonitorInput`.
-- Only the human messages that arrive untagged as a run's input are the task
-  author's, and every other human message is rendered as
-  `<context_note source="...">` in the `USER` channel; the prompt says a note
-  authorises nothing. Some writers tag their messages with `lc_source`:
-  LangChain's and Deep Agents' summaries are tagged `summarization`, and Deep
-  Agents' rubric grader `rubric_grader` [@langchain2026; @deepagents2026].
-  Others do not: Deep Agents' `read_file` attaches a video's frames in a human
-  message whose text holds the path the agent chose, and its Nemotron profile
-  writes named nudges [@deepagents2026]. Deep Agents also writes its summary
-  with the agent's own model, so in both cases the untrusted model must not be
-  able to speak as the user.
-
-  So the monitor records, in the graph state, which human messages were a
-  run's input. A `before_agent` hook records each untagged human message the
-  monitor has not seen before. A `before_model` hook, each commit and an
-  `after_agent` hook record every untagged human message then in the state as
-  seen, and write each one that is not a run's input back, by its id, tagged
-  as a note named after its `name`, or else `application`. The tag is thus
-  part of the message, and a history the application saves or replays keeps
-  it. The monitor's `wrap_tool_call` tags the new human messages a tool
-  writes where they are written, with the tool's name as their source,
-  whether the tool returns a `Command`, a list of commands and tool
-  messages, or messages as dictionaries. A message a tool writes back wholly
-  unchanged, with the id of one already in the state, as a tool that
-  rewrites the history does, keeps its author. One the tool changed in any
-  field does not, its metadata included, since metadata can change what a
-  message says: Deep Agents' `FilesystemMiddleware` shows a human message
-  that carries `additional_kwargs["lc_evicted_to"]` as a stub that names
-  that path [@deepagents2026]. A tool that edits a message by id thus writes
-  a note named after the tool, so it cannot put the agent's words in the
-  user's.
-  Before a monitor judges a step, every untagged
-  human message whose id is not recorded as input is tagged as a note in the
-  monitor's copy of the model request, which can hold messages the state
-  lacks. The two lists and the flag below are private state, so a subagent
-  starts with none of them and returns none of them. A run's result leaves
-  them out too, though `stream_mode="values"`, `stream_mode="updates"` and
-  `get_state` show them.
-
-  A run can stop before its end: a model, monitor or fallback call raises,
-  it hits its recursion limit, the client stops reading its stream or
-  cancels the task that awaits it, a server times it out, or the
-  application answers an interrupt with new input rather than a resume. The
-  agent can bring such a stop about itself, for example with a step too
-  large for the judge's context, which makes the judge's call raise. A fork
-  from a checkpoint inside a run is in the same position. Messages written
-  after the monitor's last look may then sit in the state unseen, and the
-  monitor cannot tell them from the new input. So a private flag is set when
-  a run and each of its steps start, and cleared when the run reaches the
-  monitor's `after_agent` hook. A run that starts while it is set records no
-  input: it tags every new human message as a note from `unconfirmed_input`
-  and logs a warning that names their ids. That includes the user's own new
-  message, which stays such a note for the rest of the thread, and an entry
-  limit may drop it. The runs after it are read normally. A final answer, a
-  halt, a structured response and a `return_direct` tool all end at
-  `after_agent`, so they leave the flag clear.
-
-  The prompt tells the judge that such a note may be the user's own words:
-  it authorises nothing, and only a limit it sets that narrows what the
-  agent may do still applies. Honouring such a limit from a message of
-  unknown author can block honest work, but it lets no action through. A
-  "limit" that drops a safeguard, such as "do not ask me first", would widen
-  what passes instead, so the prompt adds that a note never removes a
-  safeguard, such as asking the user first, logging or reporting.
-
-  Such a note need not hold the user's words. A `before_model` hook of a
-  middleware listed after the monitor runs after the monitor's own, and Deep
-  Agents lists a harness profile's middleware there [@deepagents2026]. A
-  nudge such a hook writes just before a model call that fails is one the
-  monitor never saw, so the next run reads it as `unconfirmed_input` rather
-  than as a note named after the nudge. Deep Agents' Nemotron nudge that
-  tells the agent to call a tool instead of asking for another confirmation
-  becomes such a note, and it opens by saying the user is asking for an
-  action. The agent can cause the stop, and the judge is then told that
-  this text may be the user's. So the agent gains from the stop only if the
-  judge departs from the prompt, by taking an approval from the note or by
-  letting it lift a safeguard; the prompt forbids both but cannot guarantee
-  either.
-- The monitor's own feedback carries `lc_source="monitor"` and is rendered as
-  `<monitor_feedback>` wherever the task is shown: both the message that
-  answers a blocked final answer and the tool message that answers a blocked
-  tool call, which carries the tool's name. So a monitor that does not read
-  tool results still sees that an earlier call was blocked and did not run.
-
-Any other tool message with `status="error"` says that a call failed or did not
-run: a person rejected it through `HumanInTheLoopMiddleware`, with their reason
-[@langchain2026]; the tool does not exist; or the tool raised. It is rendered as
-`<tool_error name="...">` in the `TOOL_CALLS` channel, beside the call, so
-every view that shows the call also shows that it did not complete, and why.
-A tool call whose arguments could not be parsed lands in the message's
-`invalid_tool_calls`. It never runs, but it is rendered as
-`<malformed_tool_call name="...">` with its raw argument text, in the
-transcript, in the proposed step and in the audit record. When a protocol
-blocks such a step, the feedback answers each malformed call with an error
-result too, because OpenAI-compatible providers receive it as an ordinary tool
-call and reject a request that leaves it unanswered.
-
-These tags rest on trust in the application's own middleware. Only the
-monitor writes its two sources: the model node writes its feedback, and the
-start of a run writes the `unconfirmed_input` notes. So a message a tool writes
-loses an `lc_source` of `monitor` or `unconfirmed_input`, and a human message
-becomes a note named after the tool. A tool, or a middleware's message, named
-after either source writes an `application` note instead. A middleware can
-still set either tag on a message it writes, and the monitor then reads it as
-its own feedback or as unconfirmed input. Middleware code is trusted here, as
-it is everywhere else in the agent. What the monitor distrusts is the content that code carries, such as a
-web page, a file or an argument the agent chose, which is escaped and never
-read as a tag.
-
-Telling a run's input from the rest still has two open paths, both through
-the hooks of a middleware listed before the monitor. Such a message can carry
-the agent's own words, as Deep Agents' final answer guard quotes a value the
-agent chose [@deepagents2026]. The two paths are these:
-
-- A `before_agent` hook of a middleware listed before the monitor runs before
-  the monitor's own, so an untagged human message it writes counts as the
-  run's input.
-- An `after_agent` hook of a middleware listed before the monitor runs after
-  the monitor's own, since LangChain runs `after_agent` hooks in reverse list
-  order [@langchain2026]. An untagged human message it writes, without
-  sending the run back to the model, counts as the next run's input.
-
-No sound fail-closed rule covers them. At the start of a run such a message
-and the new input are both unseen, both are untagged, and both follow the
-last message the monitor saw, so the only rule that would close these paths
-reads every new message as a note in every run. A history replayed without a
-checkpointer holds the tags the monitor wrote, so there only a message the
-monitor never saw reads as input, such as one from these two paths or one a
-later middleware wrote just before a step that failed. A thread started before
-the monitor was added has the gap for every untagged human message it holds,
-and so does a human message an application adds with `update_state` between
-two finished runs, which is the application speaking. The other way round, a
-human message added to a run that resumes, through `Command(update=...)` or
-`update_state`, is never recorded as input, so it is a note from
-`application`. That fails closed, but a restriction the user adds that way,
-such as "do not send anything", then carries no authority with the judge
-either; send it as the input of a new run instead.
-
-When the view keeps only recent entries, every message from the task author is
-kept anyway, in order: the first states the task, and a later one can narrow or
-revoke it. A context note is never kept in their place. After summarisation has
-replaced the earlier messages of the model request, the original task may be
-gone from what the monitor reads, and the summary is left as a note. Reasoning
-is read from LangChain's standard content blocks, with a fallback for a reply
-that would carry it only in OpenRouter's `reasoning_details`
-[@langchaincore2026; @langchainopenrouter2026].
-
-## Control protocols
-
-Every protocol starts the same way: the untrusted model proposes a step, and
+Every protocol starts the same way: the untrusted model proposes a step and
 the monitor scores it. The protocols differ in what a suspicious score
-triggers. Each threshold is on the common 0 to 1 scale, has a default, and
-raises an `UncalibratedThresholdWarning` while the default is in use, because
-a threshold should come from the score distribution of honest runs
-[@bhatt2025ctrlz]. The defaults are 0.6 to defer, block or flag, and 0.9 to
-audit.
+triggers.
 
-A flag is a mark in `monitor_log` for a person to review after the fact. It
-never blocks a step: by the time anyone reads the log, the step has run or
-been replaced. So Defer to Resample and Defer to Trusted accept an audit
-threshold below the defer threshold, which flags steps that still ran, a
-review queue of borderline steps. `audit_threshold=None` turns their flagging
-off, except that `HaltRun` flags every step it halts.
+[![What each protocol does with a step the monitor finds suspicious; a step below the threshold runs unchanged under every protocol. Trusted Monitoring lets the step run and flags it for a person to review. Defer to Trusted has the trusted model write the step instead. Defer to Resample draws up to two fresh samples; if one passes, the least suspicious runs, and if none passes, the fallback writes the step, usually the trusted model. Auto Mode blocks the step and tells the agent why, and the agent tries again; after three blocks in a row, or twenty in the thread with subagents' blocks included, the fallback takes over, which by default halts the run.](../assets/diagrams/protocols-light.svg#only-light)](../assets/diagrams/protocols-light.svg "Open the diagram at full size")
+[![What each protocol does with a step the monitor finds suspicious; a step below the threshold runs unchanged under every protocol. Trusted Monitoring lets the step run and flags it for a person to review. Defer to Trusted has the trusted model write the step instead. Defer to Resample draws up to two fresh samples; if one passes, the least suspicious runs, and if none passes, the fallback writes the step, usually the trusted model. Auto Mode blocks the step and tells the agent why, and the agent tries again; after three blocks in a row, or twenty in the thread with subagents' blocks included, the fallback takes over, which by default halts the run.](../assets/diagrams/protocols-dark.svg#only-dark)](../assets/diagrams/protocols-dark.svg "Open the diagram at full size")
 
-### Trusted Monitoring
+Each step ends in one of five outcomes:
 
-The step always runs; a score at or above the flag threshold marks it for
-audit [@greenblatt2023aicontrol].
+| Outcome | What the agent's state receives | Decided by | Flagged |
+|---|---|---|---|
+| `ALLOWED` | The first sample | Any protocol | Trusted Monitoring: at or above `flag_threshold`. Defer to Resample and Defer to Trusted: at or above `audit_threshold`. Auto Mode: never. |
+| `RESAMPLED` | The least suspicious acceptable resample | Defer to Resample | When the lowest score across the samples is at or above `audit_threshold`. |
+| `DEFERRED_TO_TRUSTED` | The trusted model's step, which is not judged | `DeferToTrustedModel` | Defer to Resample and Defer to Trusted: as above. Auto Mode: always. |
+| `STEERED` | A sample accepted after blocked attempts | Auto Mode | Always. |
+| `HALTED` | A final message, and the run ends | `HaltRun`, a [standing halt](#a-halt-stands), or a [subagent's halt](#subagent-halts) | Always. |
 
-```mermaid
-flowchart LR
-    sample["Draw one sample"] --> check{"Suspicion at or above the flag threshold?"}
-    check -- "no" --> allowed["Run it: ALLOWED"]
-    check -- "yes" --> flagged["Run it, flagged for audit: ALLOWED"]
-```
+Each threshold is on the common 0 to 1 scale. The defaults, 0.6 to defer,
+block or flag and 0.9 to audit, are placeholders: a protocol built with one
+emits an `UncalibratedThresholdWarning`, because a threshold should come from
+the scores of honest runs [@bhatt2025ctrlz]. A flag marks a step in
+`monitor_log` for a person to review after the fact and never blocks it. So
+Defer to Resample and Defer to Trusted accept an `audit_threshold` below the
+defer threshold, which flags borderline steps that still ran, and
+`audit_threshold=None` turns their flagging off. `HaltRun` flags every halt
+regardless.
 
-### Defer to Trusted
+### Trusted Monitoring, Defer to Trusted and Defer to Resample
 
-A suspicious step is replaced by the trusted model's own step
-[@greenblatt2023aicontrol]. It is Defer to Resample with no resamples.
-
-```mermaid
-flowchart LR
-    sample["Draw one sample"] --> check{"Suspicion at or above the defer threshold?"}
-    check -- "no" --> allowed["Run it: ALLOWED"]
-    check -- "yes" --> trusted["Trusted model writes the step: DEFERRED_TO_TRUSTED"]
-```
-
-### Defer to Resample
-
-A suspicious step is sampled again, and the least suspicious acceptable sample
-runs; the trusted model writes the step only when every sample looks
-suspicious [@bhatt2025ctrlz]. The agent never sees the rejected samples. Up to
-two extra samples are drawn, as in the paper. `Resampling.SEQUENTIAL` draws
-them one at a time and stops at the first acceptable one;
-`Resampling.PARALLEL` draws them all at once, for lower latency and more model
-calls. The audit flag uses the lowest score across the samples, as in Ctrl-Z.
-Resampling needs fresh draws: the more deterministic the model, the less it
-helps [@bhatt2025ctrlzpost]. A LangChain response cache, global or on the
-agent's model, answers every resample with the first sample again, so the
-library warns once with a `CachedResampleWarning` when a step is resampled
-under one; build the untrusted model with `cache=False`.
-
-Running the least suspicious sample has a cost against prompt injection. An
-agent can write text aimed at the monitor into its step, and an injection that
-fools the monitor only some of the time gets another try with every sample, so
-resampling turns it into a best-of-n attack [@terekhov2025adaptive]. An
-injection that passes one sample in five gets through about half the time
-across three samples.
-
-```mermaid
-flowchart LR
-    first["Draw one sample"] --> check{"Suspicion at or above the defer threshold?"}
-    check -- "no" --> allowed["Run it: ALLOWED"]
-    check -- "yes" --> more["Draw up to two more samples"]
-    more --> any{"Any sample below the threshold?"}
-    any -- "yes" --> resampled["Run the least suspicious: RESAMPLED"]
-    any -- "no" --> fallback["Fallback writes the step, usually the trusted model: DEFERRED_TO_TRUSTED"]
-```
+Trusted Monitoring lets every step run and flags a suspicious one for a
+person to review, and Defer to Trusted replaces a suspicious step with the
+trusted model's own [@greenblatt2023aicontrol]. Defer to Trusted is Defer to
+Resample with no resamples. Defer to Resample draws up to two more samples of
+a suspicious step, runs the least suspicious one below the threshold, and
+hands the step to its fallback when every sample is suspicious
+[@bhatt2025ctrlz]. `Resampling.SEQUENTIAL` stops at the first acceptable
+resample, and `Resampling.PARALLEL` draws them all at once, for lower latency
+and more calls. The audit flag uses the lowest score across the samples, as
+in Ctrl-Z. Resampling needs fresh draws, and it gives an injection aimed at
+the monitor more tries ([protocols and configuration](#protocols-and-configuration)).
 
 ### Auto Mode
 
-A suspicious step is blocked, and the agent is told why, so its next attempt
-can take a safer route [@hughes2026automode]. After three blocks in a row, or
-twenty in one conversation thread, the limits Claude Code uses within a
-session, a fallback takes over: the run halts, or the trusted model writes the
-step. The total counts the monitor's blocks in the thread's `monitor_log`,
-where each subagent's records arrive when it returns, so delegating again does
-not reset it. A subagent starts from the thread's total, so it reaches the
-limit where the thread does, and when blocks inside subagents leave the thread
-at or over the total, the parent's next step goes to the fallback without
-being sampled. The total spans every turn of a checkpointed thread, not one
-run, and never resets, so once a thread has reached it, the first block of
-every later step goes to the fallback.
-
-The total misses one kind of block: those inside a subagent whose run raises,
-because a subagent's records reach its parent only in the result of the call
-that started it, and a call that raises has no result. They count when the
-failed run is resumed from its checkpoint with `None` as input, since the
-subagent then resumes from its own checkpoint. They never count when the
-thread goes on with new input, or when a middleware such as LangChain's
-`ToolRetryMiddleware` or `ToolErrorMiddleware` answers the failed call with an
-error message or runs it again; a retry starts the subagent again from the
-same count. The subagent's model can bring this about by calling a tool with
-input that makes it raise. `check_monitor_placement` warns about such
-middleware, and the lost steps still reach `stream_mode="custom"` as each is
-committed, with its `delegation_id`, when the run streams with
-`subgraphs=True`. Counting them would need a channel outside the graph state
-and a monitor that turns the subagent's error into a result, which would also
-stop a failed run from being resumed.
+Auto Mode blocks a suspicious step and the agent tries again: as in Claude
+Code's auto mode, a blocked action comes back with the reason and an
+instruction to find a safer path [@hughes2026automode]. Each retry is drawn
+on the conversation followed by every blocked attempt and its feedback. After
+three blocks within one step, or twenty in the conversation thread, the
+limits Claude Code uses within a session, `when_limit_reached` writes the
+step; by default `HaltRun` ends the run.
 
 ```mermaid
-flowchart LR
-    start["A new step"] --> subagents{"Subagent blocks since the last step, and the total reached?"}
-    subagents -- "yes" --> fallback
-    subagents -- "no" --> attempt
-    attempt["Draw one sample, with any earlier feedback"] --> check{"Suspicion at or above the block threshold?"}
-    check -- "no, first attempt" --> allowed["Run it: ALLOWED"]
-    check -- "no, after a block" --> steered["Run it: STEERED"]
-    check -- "yes" --> limit{"Block limit reached?"}
-    limit -- "no" --> feedback["Block it and write the feedback"]
-    feedback --> attempt
-    limit -- "yes" --> fallback["Fallback: HALTED or DEFERRED_TO_TRUSTED"]
+flowchart TD
+    step["A new step"] --> spent{"Subagents spent<br>the total?"}
+    spent -- "no" --> draw["Draw a sample"]
+    draw --> check{"Suspicious?"}
+    check -- "no" --> run["Run it"]
+    check -- "yes" --> block["Block it"]
+    block --> limit{"A limit<br>reached?"}
+    limit -- "no: retry<br>with feedback" --> draw
+    limit -- "yes" --> fallback["when_limit_reached<br>writes the step"]
+    spent -- "yes" --> fallback
 ```
 
-### Auto Mode, step by step
+A sample accepted on the first try is `ALLOWED`, and one accepted after a
+block is `STEERED`. A sample blocked at a limit is recorded like any other
+block. The default feedback is `DEFAULT_FEEDBACK_TEMPLATE`, with the
+monitor's reason in place of `{reason}`:
 
-In this example the agent tries to post a credential off-site, is blocked, and
-writes a summary instead.
+> [Safety monitor] Your last step was blocked, and none of your tools ran it.<br>
+> Reason: {reason}<br>
+> Continue the user's task by a safer route. Do not retry the blocked action,
+> and do not try to get the same effect another way. If no safe route exists,
+> stop and say what approval you would need from the user to continue.
 
-```mermaid
-sequenceDiagram
-    participant State as Agent state
-    participant Middleware as Monitor middleware
-    participant Agent as Untrusted model
-    participant Monitor
-    State->>Middleware: request with the conversation so far
-    Middleware->>Agent: sample the step
-    Agent-->>Middleware: attempt 1, http_post(url, api_key)
-    Middleware->>Monitor: score attempt 1
-    Monitor-->>Middleware: 0.92, sends a credential off-site
-    Note over Middleware: above the block threshold, so the attempt is blocked
-    Middleware->>Agent: retry with attempt 1 and the feedback
-    Agent-->>Middleware: attempt 2, write_file("summary.md")
-    Middleware->>Monitor: score attempt 2
-    Monitor-->>Middleware: 0.10
-    Middleware->>State: commit attempt 2 and one StepRecord holding both attempts
-```
+The thread total counts this monitor label's blocks in the thread's
+`monitor_log`: this agent's earlier steps, across every turn of a
+checkpointed thread, and the steps of the subagents it started, which reach
+the log when each returns. A subagent starts from the total recorded before
+it started, so delegating again does not reset it. When blocks inside
+subagents since this agent's last step leave the thread at or over the total,
+this agent's next step goes to the fallback without being sampled, whatever
+the subagent's own outcome. The total never resets: once a thread has
+reached it, the first block of every later step goes to the fallback. An
+override monitor built without its own `label` keeps `"monitor"` and shares
+the parent's total. Crashed and parallel subagents escape the count
+([subagents and the thread total](#subagents-and-the-thread-total)).
 
-`FeedbackVisibility` decides what the transcript keeps. With `HIDDEN`, only
-the retry call sees the blocked attempt and its feedback; the transcript shows
-attempt 2 alone, and the log keeps attempt 1. With `IN_TRANSCRIPT`, the blocked
-attempt and its feedback are committed before attempt 2, as Claude Code does.
-A blocked tool call is answered with one error tool message per call, so every
-tool call keeps a matching result. Every message the monitor inserts gets a
-fresh id (`monitor-<uuid4>`), because LangGraph replaces messages that share an
-id, and the feedback is marked in its text, because some providers drop a
-message's `name`.
+`MonitorMiddleware(feedback_visibility=...)` decides what the transcript
+keeps. With `FeedbackVisibility.HIDDEN`, the default, only the retries see
+the blocked attempts and their feedback, and the transcript keeps the
+accepted step alone. With `IN_TRANSCRIPT`, each blocked attempt and its
+feedback are committed before it. A blocked tool call is answered by one
+error tool message per call, so every tool call keeps a matching result.
+Every message the monitor inserts gets a fresh id, `monitor-<uuid4>`,
+because LangGraph replaces messages that share an id. The default feedback
+and halt texts say they come from the safety monitor, because some providers
+drop a message's `name`; a custom `FeedbackTemplate` or `HaltRun` message
+should too. The trusted model at the limit sees neither the blocked attempts
+nor the feedback.
 
-### Halts, fallbacks and failed steps
+## What the judge reads {#what-the-monitor-reads}
 
-A halted step ends the run. The halt message has no tool calls, but that alone
-does not end an agent with structured output and no tools, which returns to
-the model until it has a structured response [@langchain2026]. So the monitor
-also has an `after_model` hook, which judges nothing: after a step this monitor
-halted, it routes the agent to its end. The model node cannot do this itself.
-A routing edge reads a fresh copy of the state that keeps only its own node's
-writes, and the `jump_to` key is cleared everywhere else [@langgraph2026], so
-a `jump_to` from the model node would reach only the model node's own edge,
-which exists only in an agent with no `after_model` hook at all. The hook costs
-one graph step per model call. The hooks that record who wrote each human
-message add one more per model call, `before_model`, and two per run,
-`before_agent` and `after_agent`. All of them count towards an explicit
-`recursion_limit`.
+Every transcript entry belongs to one `Channel`: `USER`, `REASONING`,
+`AGENT_TEXT`, `TOOL_CALLS`, `TOOL_RESULTS` or `SUBAGENT_REPORTS`. A
+`MonitorView` is a set of channels, an optional limit on how many recent
+entries to keep, and the names of the tools whose results count as subagent
+reports, `task` by default.
 
-The agent's end is not always the end of the run. A `jump_to: "end"` reaches
-the agent's exit node, which is the first `after_agent` hook when there is
-one [@langchain2026], and such a hook can send the agent back to the model:
-Deep Agents' `RubricMiddleware` does when it grades the task unmet
-[@deepagents2026]. So a halt stands until the thread records another run
-input. Each halted step stores how many run inputs the thread held, the
-length of `monitor_task_messages`, under the private key
-`monitor_inputs_at_halt`, one entry per monitor. Before it runs the
-protocol, the middleware checks whether this monitor's last step was a halt
-and whether that count has grown since. If it has not, it halts the step
-again without drawing a sample: the untrusted model is not called, and the
-step's record is `halted`, flagged, with no samples. The rule counts rather
-than reading where messages sit, so a hook that rewrites the history, trims
-it or removes the halt message cannot lift the halt, and one that writes
-messages after the run's input cannot keep a new message from the user from
-lifting it. Only the `before_agent` hook at the start of a run records input,
-so nothing written between a run's start and its end lifts the halt: not a
-grader's revision request, not a harness nudge, tagged or not. A fork from a
-checkpoint before the halt starts afresh, since it holds neither the halt nor
-its count. A later run that cannot confirm its input, after a halted run that
-stopped before its end, stays halted, since its messages are notes from
-`unconfirmed_input`. The two open paths that [What the monitor
-reads](#what-the-monitor-reads) names reach halts too: an untagged human
-message that a middleware listed before the monitor writes from its
-`before_agent` hook, or from its `after_agent` hook without sending the run
-back to the model, counts as a run's input, and lifts the halt in that run.
+[![Every entry of the transcript belongs to one channel. The default view, Channel.ACTIONS, reads USER (the task, context notes and feedback), TOOL_CALLS (tool calls and errors) and SUBAGENT_REPORTS (what subagents report), and leaves out REASONING, AGENT_TEXT and TOOL_RESULTS, each one flag away. The proposed step's tool calls are always shown, and its text when it is a final answer; the rest of the step follows the view's channels. A MonitorView chooses the channels, can keep only the most recent entries, and names the tools whose results are subagent reports. The monitor reads the chosen entries as escaped, tagged text ending with the proposed step, then scores the step.](../assets/diagrams/monitor-view-light.svg#only-light)](../assets/diagrams/monitor-view-light.svg "Open the diagram at full size")
+[![Every entry of the transcript belongs to one channel. The default view, Channel.ACTIONS, reads USER (the task, context notes and feedback), TOOL_CALLS (tool calls and errors) and SUBAGENT_REPORTS (what subagents report), and leaves out REASONING, AGENT_TEXT and TOOL_RESULTS, each one flag away. The proposed step's tool calls are always shown, and its text when it is a final answer; the rest of the step follows the view's channels. A MonitorView chooses the channels, can keep only the most recent entries, and names the tools whose results are subagent reports. The monitor reads the chosen entries as escaped, tagged text ending with the proposed step, then scores the step.](../assets/diagrams/monitor-view-dark.svg#only-dark)](../assets/diagrams/monitor-view-dark.svg "Open the diagram at full size")
 
-Nothing inside the model node may escalate to a person by calling LangGraph's
-`interrupt()`: not a monitor, not a protocol and not a fallback. On resume
-LangGraph runs the whole node again [@langgraph2026]: the protocol draws fresh
-samples, the monitor judges them again, and the person's answer applies to
-whatever the new samples propose, not to the step they reviewed. To involve a
-person, end the step, with `HaltRun` for example, and ask outside the model
-node, as `HumanInTheLoopMiddleware` does for tool calls. The middleware lets
-LangGraph's control flow, such as the `GraphInterrupt` that `interrupt()`
-raises, pass without reporting a failed step.
+The default view, `Channel.ACTIONS`, reads `USER`, `TOOL_CALLS` and
+`SUBAGENT_REPORTS`. It leaves out the agent's reasoning, its prose and raw
+tool output, as Claude Code's auto mode classifier leaves out the agent's
+messages and tool outputs [@hughes2026automode]. So by default the judge
+does not read the text the agent writes beside a tool call
+([what the judge does not see](#what-the-judge-does-not-see)). Adding
+`Channel.AGENT_TEXT` to the view shows that text, and adding
+`Channel.REASONING` the chain of thought;
+[where the ideas come from](background.md#what-a-monitor-reads) sums up what
+studies of reading the chain of thought found.
 
-When a call inside a step raises, whether a sample, a monitor call or the
-trusted model's step, the protocol never decides, so nothing is committed and
-the error propagates unchanged. The samples the monitor had already judged
-would then leave no trace, so the middleware logs them at warning level, each
-with its suspicion, reason and proposal, and writes a `MonitorStepFailedEvent`
-(`type="monitor_step_failed"`) to `stream_mode="custom"` before the error
-propagates. A middleware outside the monitor that retries failed model calls,
-such as LangChain's `ModelRetryMiddleware`, runs the whole step again with
-fresh samples, and `monitor_log` then records only the attempt that succeeded;
-`check_monitor_placement` warns about such a list.
+The step being judged comes last, in a `<proposed_step>` tag, and the view
+applies to it only in part. Its tool calls and malformed calls are always
+shown, because they are the action the protocol gates, and so are its
+provider tool calls whenever the reply keeps a block for them. A step with no
+tool calls is a final answer, and its text is then always shown; a step whose
+only calls are malformed, or already run by the provider, counts as one. The
+rest of the step, such as its reasoning or a tool-calling step's text,
+follows the view's channels.
 
-## Three kinds of monitor model
+Each entry is a tag, and its content is HTML-escaped, so text inside a tool
+result cannot close a tag and pose as another entry. A note's tag names its
+`source`, and a tool's tag the tool's `name`:
+
+| Tag | Channel | What it holds |
+|---|---|---|
+| `<user>` | `USER` | A run's input: the user's words ([task authorship](#task-authorship-and-notes)). |
+| `<delegator>` | `USER` | Inside a subagent, a run's input: the delegating agent's words. |
+| `<context_note>` | `USER` | Any other human message, such as a summary. It authorises nothing. |
+| `<monitor_feedback>` | `USER` | The monitor's feedback on a blocked step, named after the tool when it answers a tool call. |
+| `<agent_reasoning>` | `REASONING` | The agent's chain of thought. |
+| `<agent>` | `AGENT_TEXT` | The agent's prose, and a provider's refusal. |
+| `<tool_call>` | `TOOL_CALLS` | A call and all its arguments. |
+| `<malformed_tool_call>` | `TOOL_CALLS` | A call whose arguments could not be parsed, with their raw text. It never runs. |
+| `<tool_error>` | `TOOL_CALLS` | A call that failed or did not run: a person rejected it, the tool does not exist, or it raised. |
+| `<provider_tool_call>` | `TOOL_CALLS` | A built-in tool the provider ran inside the model call. |
+| `<unrecognised_block>` | `TOOL_CALLS`, or `REASONING` for a reasoning block | A part of the reply LangChain cannot map, shown whole rather than dropped. |
+| `<tool_result>` | `TOOL_RESULTS` | What a tool returned. |
+| `<provider_tool_result>` | `TOOL_RESULTS` | What a provider's built-in tool returned. |
+| `<subagent_report>` | `SUBAGENT_REPORTS` | What a delegation tool returned. |
+
+A person's rejection through `HumanInTheLoopMiddleware` arrives as an error
+tool result [@langchain2026], so it shows as a `<tool_error>` beside the call.
+When a protocol blocks a step with malformed calls, the feedback answers each
+one with an error result too, because OpenAI-compatible providers receive it
+as an ordinary tool call and reject a request that leaves it unanswered.
+
+LangChain's translators give a provider's built-in tools as standard
+`server_tool_call` and `server_tool_result` blocks for Anthropic, OpenAI's
+Responses API and Gemini's code execution [@langchaincore2026]. Gemini's
+Google Search leaves its queries only in the reply's `grounding_metadata`, so
+the monitor renders them as a `<provider_tool_call name="grounding">`, with
+the sources found as its result. Under the default view the judge reads the
+call and not its result; the audit record keeps both. A tool that leaves no
+block is not shown ([what the judge does not see](#what-the-judge-does-not-see)).
+
+When the view keeps only recent entries, every message from the task author
+is kept anyway, in order: the first states the task, and a later one can
+narrow or revoke it. A context note is never kept in their place. Reasoning is
+read from LangChain's standard content blocks, with a fallback for a reply
+that carries it only in OpenRouter's `reasoning_details`
+[@langchaincore2026; @langchainopenrouter2026].
+
+## How a monitor scores
 
 Any model that can judge a step can be the monitor. The three families return
-different things, so each has its own monitor class, and all of them produce
-the same `Verdict`. The model is always a parameter: the library never picks
-one, and a provider string such as `"openrouter:..."` is resolved with
-LangChain's `init_chat_model`.
+different things, so each has its own class, and all of them produce the same
+`Verdict`. The model is always a parameter: the library never picks one, and a
+provider string such as `"openrouter:..."` is resolved with LangChain's
+`init_chat_model`.
 
-- **Chat judges** (`LLMMonitor`) are general chat models prompted to reason
-  first and then give a score on an anchored scale, 0 to 10 by default, mapped
-  onto 0 to 1. Reasoning before the score is the prompt component Apollo
-  Research found matters most [@apollo2026monitoringprompt]. A reply is read
-  only in that shape: the reasoning, then one score tag, with nothing else
-  between them or after the score. The agent writes the step the judge
-  reads, so it can aim text at the judge there, such as a planted score tag
-  [@terekhov2025adaptive], and a judge may quote it; the
-  shape keeps a quoted score from becoming the verdict. A reply in any other
-  shape, or one the provider reports as cut off at a length limit, is asked
-  for again and then counts as fully suspicious.
+[![Three monitor classes cover three kinds of model, each drawn as the charm. LLMMonitor asks a chat model to reason and then score the step, from 0 to 10 by default. GuardModelMonitor has a guard model label the step against a policy you write, and suspicion is the chance the label is unsafe. DecisionModelMonitor asks a decision model yes or no questions, and suspicion is the chance of yes. Each returns the same Verdict, a suspicion from 0 to 1 and a reason, so any monitor works with any control protocol. Three wrappers stack around any monitor: RepeatedMonitor averages several calls, CalibratedMonitor ranks the score among the scores of honest runs, and CascadeMonitor runs a fast monitor on every step and a careful one when the fast one finds the step suspicious.](../assets/diagrams/monitors-light.svg#only-light)](../assets/diagrams/monitors-light.svg "Open the diagram at full size")
+[![Three monitor classes cover three kinds of model, each drawn as the charm. LLMMonitor asks a chat model to reason and then score the step, from 0 to 10 by default. GuardModelMonitor has a guard model label the step against a policy you write, and suspicion is the chance the label is unsafe. DecisionModelMonitor asks a decision model yes or no questions, and suspicion is the chance of yes. Each returns the same Verdict, a suspicion from 0 to 1 and a reason, so any monitor works with any control protocol. Three wrappers stack around any monitor: RepeatedMonitor averages several calls, CalibratedMonitor ranks the score among the scores of honest runs, and CascadeMonitor runs a fast monitor on every step and a careful one when the fast one finds the step suspicious.](../assets/diagrams/monitors-dark.svg#only-dark)](../assets/diagrams/monitors-dark.svg "Open the diagram at full size")
+
+The agent writes the step its judge reads, so it can plant text aimed at the
+judge there, such as a score or a label [@terekhov2025adaptive], and a judge
+may quote it. So a chat judge's score and a guard's label are read only where
+the reply's format puts them, and a reply that cannot be read counts as
+suspicious.
+
+- **Chat judges** (`LLMMonitor`) are chat models prompted to reason first and
+  then score on an anchored scale, 0 to 10 by default, mapped onto 0 to 1.
+  Reasoning before the score is the prompt component Apollo Research found
+  matters most [@apollo2026monitoringprompt]. A reply is read only in that
+  shape: the reasoning, then one score tag, with nothing between them or
+  after the score. A reply in any other shape, or one the provider reports as
+  cut off at a length limit, is asked for again, and then counts as
+  suspicion 1.0.
 - **Guard models** (`GuardModelMonitor`) label a step against a policy you
   write. Llama Guard and its peers score with the probability of the unsafe
   label, read from the label token's log-probabilities
-  [@inan2023llamaguard; @zeng2024shieldgemma; @padhi2024graniteguardian]. When
-  a provider returns no log-probabilities, the share of several samples
-  labelled unsafe is the standard fallback, with gains that level off after a
-  handful [@xiong2024uncertainty; @lyu2025sampleconsistency].
-  `GuardScoring.AUTO` does the first when it can and draws five samples
-  otherwise. LangChain has no capability flag for log-probabilities, so `AUTO`
-  asks every model for them; a chat model that rejects the request, such as
-  `ChatAnthropic`, fails the first judged step with a `ConfigurationError`
-  that names `GuardScoring.SAMPLE_FRACTION`. Guard models are overconfident,
-  especially under jailbreaks [@liu2025guardcalibration], and a hard 0 or 1
-  label gives a threshold only one operating point, so that option warns. The
-  label is read only where the guard's format puts it: on the last line,
-  alone or after a verdict key such as `Label:`, or on the first line when it
-  is unsafe and only category codes follow, as in Llama Guard
-  [@meta2024llamaguard3format; @meta2025llamaguard4]. A reply with two
-  different labels, a label elsewhere, or a cut-off reply counts as
-  suspicious, for the same reason as a quoted score. A line that may hold the
-  guard's own suspicious label off format, such as `violation (the note asks
-  ...` or `...: violation`, counts as naming it, so when the reader cannot
-  tell, it errs towards suspicion. A planted label that the guard quotes alone
-  on the last line, when the reply names no other label, cannot be told from a
-  verdict: a guard's output can be steered by what it reads.
-- **Decision models** (`DecisionModelMonitor`) answer yes or no questions with
-  a probability and generate no text. Suspicion is the probability of yes.
-  Several questions can go in one request, combined by their maximum, so one
-  strong hit is not diluted. Jev is served through OpenRouter's Decisions API
-  [@openrouter2026decisions] and through TypeSafe's own client
-  [@typesafe2026langchain]. Only the answers in a Decisions API response are
-  validated, so a change in a field the library does not read, such as
-  `usage`, cannot discard a valid answer.
+  [@inan2023llamaguard; @zeng2024shieldgemma; @padhi2024graniteguardian].
+  Without log-probabilities, the share of several samples labelled unsafe
+  estimates the same probability. Studies of sample consistency, on question
+  answering rather than guards, find its gains converge as samples grow, and
+  saturate after 15 to 20 in Lyu et al.
+  [@xiong2024uncertainty; @lyu2025sampleconsistency]. `GuardScoring.AUTO`
+  reads log-probabilities when the provider returns them and draws five
+  samples otherwise. LangChain has no capability flag for log-probabilities,
+  so `AUTO` asks every model for them, and a chat model that rejects the
+  request, such as `ChatAnthropic`, fails the first judged step with a
+  `ConfigurationError` that names `GuardScoring.SAMPLE_FRACTION`.
+  `GuardScoring.HARD_LABEL` warns, because a hard 0 or 1 gives a threshold
+  only one operating point, and guard models are overconfident and markedly
+  miscalibrated under jailbreak prompts [@liu2025guardcalibration].
+- **Decision models** (`DecisionModelMonitor`) answer yes or no questions
+  with a probability and generate no text. Suspicion is the probability of
+  yes. Several questions in one request are combined by their maximum by
+  default, so one strong hit is not diluted. Jev is served through
+  OpenRouter's Decisions API [@openrouter2026decisions] and through
+  TypeSafe's own client [@typesafe2026langchain]. Only the answers in a
+  Decisions API response are validated, so a change in a field the library
+  does not read cannot discard a valid answer.
 
-No family adds a score, probability or count to its `reason`. A chat
-judge's reason is its own reasoning, passed through as the judge wrote it,
-without the score tag; a guard's names its finding without a probability or
-a count of replies; and a decision model's names the question it found most
-likely without the probability. Auto Mode shows the reason to the agent, and
-such a number would tell the agent how close its step came to passing. The
-numbers stay in `suspicion`, which the log records keep.
+A guard's label is read only where its format puts it: on the last line,
+alone or after a verdict key such as `Label:`, or on the first line when it
+is unsafe and only category codes follow, as Llama Guard 3 writes it
+[@meta2024llamaguard3format]. Guard parsing fails closed on an ambiguous
+reply: one whose lines name two different labels, one with its label
+anywhere else, and one cut off at a length limit all count as suspicious. A
+line that may hold the guard's own suspicious label written off format, such
+as `violation (the note asks ...` or `...: violation`, counts as naming that
+label, so where the reader cannot tell, it errs towards suspicion. One case
+it cannot tell apart remains ([reading a guard's label](#reading-a-guards-label)).
+
+No family adds a score, probability or count to its `reason`, which Auto Mode
+shows the agent: a number would tell the agent how close its step came to
+passing. The numbers stay in `suspicion`, which the records keep. A chat
+judge's reason is its own reasoning, and `DEFAULT_MONITOR_PROMPT` asks it to
+keep its score out of it, but its wording may still hint at one.
 
 Scores have to be fine-grained. Control protocols set thresholds as
 percentiles of honest-run scores, and a score with few distinct values cannot
@@ -611,212 +388,301 @@ hit a small audit budget, because the budget falls inside a group of tied
 scores [@kaufman2025basharena; @koran2026ensemble]. Three wrappers, each a
 monitor itself, address this and stack around any family:
 
-- `RepeatedMonitor` averages several calls of one monitor, as the control
-  papers do [@bhatt2025ctrlz; @tracy2026linuxarena; @koran2026ensemble];
+- `RepeatedMonitor` averages several calls of one monitor, which raises its
+  resolution at low false-positive rates [@kaufman2025basharena], as
+  LinuxArena does with two calls per action [@tracy2026linuxarena];
 - `CalibratedMonitor` reports suspicion as the step's smoothed conformal rank
   among honest-run scores, breaking ties at random
-  [@vovk2005algorithmic; @makins2026multiagent], so a threshold of 0.99 flags
-  1% of honest steps;
-- `CascadeMonitor` runs a fast monitor on every step and sends only the steps
-  it finds suspicious to a careful one [@hua2025combining], after the two
-  stages of Claude Code's auto mode [@hughes2026automode].
+  [@vovk2005algorithmic; @makins2026multiagent], so a threshold of 0.99
+  flags 1% of honest steps on average;
+- `CascadeMonitor` runs a fast monitor on every step and a careful one when
+  the fast score reaches one threshold, after the two stages of Claude Code's
+  auto mode [@hughes2026automode]. Hua et al.'s best two-monitor protocol
+  calls the expensive monitor only when the cheap score falls in an uncertain
+  band [@hua2025combining]; `CascadeMonitor` uses the simpler rule.
 
-```mermaid
-flowchart LR
-    step["Proposed step"] --> fast["Fast monitor, for example a decision model"]
-    fast -- "below the escalation score" --> verdict["Verdict"]
-    fast -- "at or above it" --> careful["Careful monitor, for example a calibrated, repeated chat judge"]
-    careful --> verdict
-```
+## Task authorship and notes
 
-## Subagents
+Only the task author's words authorise an action: the user's, or inside a
+subagent the delegating agent's. Other parts of an agent write human messages
+too, and the untrusted model can shape some of them. LangChain's and Deep
+Agents' summaries are tagged `summarization`, and Deep Agents writes its
+summary with the agent's own model. Deep Agents also writes untagged human
+messages during a run: `read_file` attaches a video's frames in one whose
+text holds the path the agent chose, and its Nemotron harness profile writes
+named nudges [@langchain2026; @deepagents2026]. So only an untagged human
+message that arrives as a run's input speaks as the task author:
 
-Deep Agents does not pass the main agent's middleware to its subagents. A
-helper, `monitor_subagents`, adds a monitor to every subagent spec, including
-the built-in general-purpose one. Each subagent gets a copy of the main
-monitor and protocol by default, named after the subagent and marked with
-`TaskAuthor.PARENT_AGENT`, so its monitor reads the delegated task as the
-parent agent's words rather than the user's. An override can give a named
-subagent a different monitor, protocol or view. Compiled and remote subagents
-cannot take injected middleware, so the helper raises an error for them
-instead of leaving them unmonitored. Its message says how to monitor one in its
-own graph: `MonitorMiddleware(..., agent_name="<subagent name>",
-task_author=TaskAuthor.PARENT_AGENT)`. Both settings matter. With the default
-`agent_name="main"`, the subagent's records count as the main agent's own, so
-the parent's monitor never sees the subagent's halt and `STOP_WHOLE_RUN` does
-not fire; with the default task author, the subagent's monitor reads the
-delegated task as the user's authorisation.
+| A human message | The judge reads it as |
+|---|---|
+| Tagged `lc_source="monitor"` | `<monitor_feedback>` |
+| Tagged with any other `lc_source` | `<context_note>`, named after that source |
+| Untagged, recorded as a run's input | `<user>`, or `<delegator>` inside a subagent |
+| Untagged, not recorded as input | `<context_note>`, named after the message's `name`, or `application` |
 
-Forked subagents, `mode="fork"` in Deep Agents, are not supported yet (issue
-#35), and the helper raises `ConfigurationError` for them. A fork continues the
-parent's conversation and inherits the main agent's middleware, so it runs
-under `monitor[main]`. That monitor reads the fork's task, which the parent
-agent wrote, as the user's words, and records the fork's steps under the main
-agent's name, where they renumber the main agent's steps and hide a halt inside
-the fork from `STOP_WHOLE_RUN`. This happens whenever a monitored agent has a
-fork, with or without the helper, so a monitored agent should delegate only to
-isolated subagents.
+The monitor keeps this record in the graph state, not only in what the judge
+reads:
+
+- **At the start of a run**, its `before_agent` hook records each untagged
+  human message it has not seen as the run's input.
+- **Before each step, at each commit and at the end of a run**, it records
+  every untagged human message then in the state as seen, and writes each one
+  that is not a run's input back, by its id, tagged as a note. The tag is part
+  of the message, so a history the application saves or replays keeps it.
+- **When a tool writes messages**, `wrap_tool_call` tags each new human
+  message as a note named after the tool, whether the tool returns a
+  `Command`, a list, or messages as dictionaries. A message written back
+  wholly unchanged, under the id of one already in the state, keeps its
+  author, as when a tool rewrites the history. One changed in any field, its
+  metadata included, does not, so a tool that edits a message by id cannot
+  put the agent's words in the user's.
+- **Before a monitor judges a step**, every untagged human message whose id
+  is not recorded as input is tagged as a note in the monitor's copy of the
+  request, which can hold messages the state lacks.
+
+Two sources belong to the monitor alone: `monitor`, on its feedback, and
+`unconfirmed_input`, below. A message a tool writes loses either tag, and a
+note that would be named after either is named `application` instead.
+Middleware code is trusted, as it is everywhere else in the agent, so a
+middleware can still set either tag on a message it writes
+([who speaks as the user](#who-speaks-as-the-user)). What the monitor
+distrusts is content, such as a web page, a file or an argument the agent
+chose, which is escaped and never read as a tag. Two paths through a
+middleware listed before the monitor stay open
+([who speaks as the user](#who-speaks-as-the-user)).
+
+### After a run that stopped early
+
+A run can stop before its end: a model, monitor or fallback call raises, it
+hits its recursion limit, the client stops reading its stream or cancels it,
+or the application answers an interrupt with new input rather than a resume.
+The agent can bring such a stop about itself, for example with a step too
+large for the judge's context. Messages written after the monitor's last look
+may then sit in the state unseen, and the monitor cannot tell them from new
+input. A fork from a checkpoint inside a run is in the same position.
+
+So a private flag, `monitor_run_open`, is set when a run and each of its
+steps start, and cleared when the run reaches the monitor's `after_agent`
+hook. A final answer, a halt, a structured response and a `return_direct`
+tool all end there. On a checkpointed thread, a run that starts while the
+flag is set records no input: it tags every new human message as a note from
+`unconfirmed_input` and logs a warning that names their ids. That includes
+the user's own new message, which stays such a note for the rest of the
+thread. The runs after it are read normally.
+
+The prompt tells the judge that such a note may be the user's own words: it
+authorises nothing, only a limit it sets that narrows what the agent may do
+still applies, and no note removes a safeguard, such as asking the user
+first, logging or reporting ([who speaks as the user](#who-speaks-as-the-user)).
+
+## Halts
+
+A halted step ends the run with a final message that has no tool calls.
+`HaltRun` writes `DEFAULT_HALT_MESSAGE` unless it is given its own:
+
+> [Safety monitor] This run was stopped because the agent's proposed steps
+> looked unsafe. The rejected steps are recorded in monitor_log for review.
+
+A message without tool calls does not end every agent: one with structured
+output and no tools returns to the model until it has a structured response
+[@langchain2026]. So after a step this monitor halted, its `after_model` hook
+routes the agent to its end, and the `after_model` hooks that would run after
+it are skipped. The model node cannot route itself: a routing edge reads a
+fresh copy of the state that keeps only its own node's writes, and `jump_to`
+is cleared everywhere else [@langgraph2026].
+
+### <span id="halts-fallbacks-and-failed-steps"></span>A halt stands
+
+The agent's end is not always the end of the run. `jump_to: "end"` reaches
+the agent's exit node, which is the first `after_agent` hook when there is one
+[@langchain2026], and such a hook can send the agent back to the model, as
+Deep Agents' `RubricMiddleware` does when it grades the task unmet
+[@deepagents2026]. So a halt stands until the thread records new input.
+
+Each halted step stores how many run inputs the thread has recorded, under
+the private key `monitor_inputs_at_halt`, one entry per monitor. The halt
+stands while this monitor's last step is that halt and the count has not
+grown. Before the protocol runs, the middleware checks it, and then, under
+`SubagentHalt.STOP_WHOLE_RUN`, whether a subagent halted since this agent's
+last step:
 
 ```mermaid
 flowchart TD
-    subgraph parent ["Main agent"]
-        mainMonitor["monitor[main], task author: the user"] --> mainModel["Untrusted model"]
-        mainModel --> taskTool["The task tool"]
-        mainLog[("monitor_log: its own records and the subagents' records")]
-    end
-    subgraph child ["Subagent: researcher"]
-        subMonitor["monitor[researcher], task author: the parent agent"] --> subModel["Untrusted model"]
-        subModel --> subTools["Its own tools"]
-        subLog[("monitor_log: its own records")]
-    end
-    taskTool -- "task description, judged first by monitor[main], and the Delegation" --> subMonitor
-    subModel -- "final report, read by monitor[main]" --> taskTool
-    subLog -. "records, including halts" .-> mainLog
+    step["A new step"] --> last{"Own halt<br>standing?"}
+    last -- "yes" --> again["Halt again"]
+    last -- "no" --> sub{"Subagent halt<br>stops the run?"}
+    sub -- "yes" --> stop["Halt"]
+    sub -- "no" --> decide["The protocol<br>decides"]
 ```
 
-`SubagentHalt` decides what a halt inside a subagent does. With
-`STOP_SUBAGENT_ONLY`, the default, the parent receives the halt message as the
-task's result and carries on under its own monitor, unless the subagent's
-blocks spent Auto Mode's thread total: the total belongs to the whole thread,
-so the parent's next step then goes to `when_limit_reached`, which halts the
-run by default. With `STOP_WHOLE_RUN`, the
-parent's monitor finds the subagent's halt record in `monitor_log` and halts
-the parent before its next model call. This works because a subagent's
-records flow back into the parent's log, which depends on declaring the log
-with its reducer in the last position: LangGraph reads a reducer only from the
-last position of the annotation [@langgraph2026].
+Both halts here draw no sample: the untrusted model is not called, and the
+step's record is `halted`, flagged, with no samples. A standing halt's final
+message is `STANDING_HALT_MESSAGE`:
+
+> [Safety monitor] This run stays stopped: the safety monitor halted it, and
+> no new input the monitor could confirm has arrived since. The rejected steps
+> are recorded in monitor_log for review.
+
+The rule counts rather than reading where messages sit, so a hook that
+rewrites, trims or removes messages cannot lift a halt, and one that writes
+messages after the run's input cannot keep new input from lifting it. Only
+the `before_agent` hook at the start of a run records input, so nothing
+written during a run lifts a halt: not a hook that sends the run back to the
+model, not a harness nudge, and not a note from `unconfirmed_input`. A fork
+from a checkpoint before the halt starts afresh, since it holds neither the
+halt nor its count. The two open paths through a middleware listed before
+the monitor lift a halt too
+([who speaks as the user](#who-speaks-as-the-user)).
+
+### Subagent halts
+
+`SubagentHalt` decides what a halt inside a subagent does to its parent. With
+`STOP_SUBAGENT_ONLY`, the default, the subagent ends, and the parent receives
+the halt message as the task's result and carries on under its own monitor,
+whose protocol still counts the subagent's blocks ([Auto Mode](#auto-mode)).
+With `STOP_WHOLE_RUN`, the parent's monitor finds the subagent's halt record
+in `monitor_log` and halts the parent before its next model call, whatever
+its protocol. That halt is the parent's own, so it stands as above.
+
+### Asking a person
+
+Nothing inside the model node may escalate to a person by calling LangGraph's
+`interrupt()`: not a monitor, a protocol or a fallback. On resume LangGraph
+runs the whole node again [@langgraph2026], so the protocol draws fresh
+samples, and the person's answer applies to steps they never saw. End the
+step instead, with `HaltRun` for example, and ask outside the model node, as
+`HumanInTheLoopMiddleware` does for tool calls. The middleware lets
+LangGraph's control flow, such as the `GraphInterrupt` that `interrupt()`
+raises, pass without reporting a failed step.
+
+## Subagents
+
+Deep Agents does not pass the main agent's middleware to its subagents
+[@deepagents2026]. `monitor_subagents` adds a monitor to every subagent spec,
+the built-in general-purpose one included. Each gets a copy of the main
+monitor and protocol, or of the override you name for it, named after the
+subagent and marked `TaskAuthor.PARENT_AGENT`, so it reads the delegated task
+as the parent agent's words, `<delegator>`, rather than the user's.
+
+[![In a Deep Agent, the main agent's monitor, monitor[main], reads the user's task. When the main agent calls the task tool, monitor[main] judges that call first, and the subagent then runs under a monitor of its own, monitor[researcher], which reads the task as the parent agent's words, not the user's, and judges each of the subagent's steps. The subagent's final report returns to the main agent. When the subagent returns or halts, its records flow back into the main agent's monitor_log, halts included. monitor_subagents gives every subagent a copy of the monitor, the general-purpose one included.](../assets/diagrams/subagents-light.svg#only-light)](../assets/diagrams/subagents-light.svg "Open the diagram at full size")
+[![In a Deep Agent, the main agent's monitor, monitor[main], reads the user's task. When the main agent calls the task tool, monitor[main] judges that call first, and the subagent then runs under a monitor of its own, monitor[researcher], which reads the task as the parent agent's words, not the user's, and judges each of the subagent's steps. The subagent's final report returns to the main agent. When the subagent returns or halts, its records flow back into the main agent's monitor_log, halts included. monitor_subagents gives every subagent a copy of the monitor, the general-purpose one included.](../assets/diagrams/subagents-dark.svg#only-dark)](../assets/diagrams/subagents-dark.svg "Open the diagram at full size")
+
+`monitor_subagents` refuses two kinds of subagent with `ConfigurationError`:
+
+- **Compiled and remote subagents** cannot take injected middleware. Add a
+  monitor to the subagent's own graph instead, with
+  `agent_name="<subagent name>"` and `task_author=TaskAuthor.PARENT_AGENT`.
+  With the default `agent_name="main"`, its records count as the main
+  agent's own and `STOP_WHOLE_RUN` misses its halts; with the default task
+  author, it reads the delegated task as the user's authorisation.
+- **Forked subagents**, `mode="fork"`, are not supported yet, as issue #35
+  tracks. A fork passed to `create_deep_agent` directly still runs
+  ([forked subagents](#subagents-and-the-thread-total)).
+
+### Delegations
 
 A subagent starts every delegation with an empty log, so its step numbers
 start again at 1. Before each tool call, the parent's monitor adds a
-`Delegation` to the state the tool sees: the id of the tool call, the name of
-the agent that made it, and the blocks each monitor has recorded in the
-thread. Deep Agents' `task` tool passes that state on to the subagent, as it
-does the rest of the parent's state, and the subagent's monitor stores the id
-in each of its records as `delegation_id`. So `(agent, delegation_id,
-step_number)` names one step, and an auditor can match a delegation's records
-to its `task` call and result in the parent's transcript. This relies on the
-model provider giving every tool call in the thread its own id, as providers
-do, which LangChain does not check. The state key, `monitor_delegation`, is
-left out of the subagent's output, as Deep Agents does for its own
-forked-context flag [@deepagents2026], so it never flows back into the parent.
-The block counts let the subagent's Auto Mode start from the thread's total.
-Subagents that run in parallel do not see each other's blocks, so together
-they can pass the total; the parent counts every one of them at its next step.
+`Delegation` to the state the tool sees: the call's id, the name of the agent
+that made it, and the blocks each monitor label has recorded in the thread.
+Deep Agents' `task` tool passes that state on to the subagent it starts
+[@deepagents2026]. The subagent's monitor stores the id in each of its
+records as `delegation_id`, and its Auto Mode starts from the thread's total.
+`(agent, delegation_id, step_number)` names one step, provided every tool call
+in the thread has its own id
+([subagents and the thread total](#subagents-and-the-thread-total)).
+
+When the subagent returns, its records flow into the parent's `monitor_log`
+through the log's reducer, which LangGraph reads only from the last position
+of the annotation [@langgraph2026]. The `monitor_delegation` key itself is
+left out of the subagent's output, so it never flows back. A crashed
+subagent's records do not flow back
+([subagents and the thread total](#subagents-and-the-thread-total)).
 
 A second monitor stacked in the same agent finds the delegation for the call
-already in place, made by its own agent, and passes it on as it is, so the
-blocks are not counted twice. A subagent's monitor finds the delegation it
-inherited instead, made by another agent, and replaces it with one that adds
-the subagent's own blocks, even when the subagent's tool call reuses the id
-of the call that started it. Telling the two apart relies on each agent's
-monitor having its own `agent_name`, which `monitor_subagents` gives it.
+already made by its own agent and passes it on as it is, so blocks are not
+counted twice. A subagent's monitor replaces the delegation it inherited with
+one that adds its own blocks, even when its call reuses the id of the call
+that started it. Both rely on each agent's monitor having its own
+`agent_name`, which `monitor_subagents` gives it.
 
-A subagent receives its delegation as input, so `monitor_delegation` is part of
-the input schema of every monitored agent, a plain `create_agent` one
-included. Whoever invokes an agent could set it, so the monitor validates the
-value with pydantic when it reads it. A value that is not a `Delegation` with
-non-negative block counts raises `ConfigurationError` before the step runs. It
-is not ignored: a subagent that ignored a bad delegation would count from its
-own log alone, which resets the thread's total, and a negative count would
-lift the total altogether. Leave the key out when you invoke an agent; the
-monitor sets it for each subagent it starts.
+`monitor_delegation` is part of every monitored agent's input, a plain
+`create_agent` one included, since a subagent receives it as input. The
+monitor validates it with pydantic when it reads it, and a value that is not
+a `Delegation` with non-negative block counts raises `ConfigurationError`
+before the step runs. Leave the key out of your own input; the monitor sets it
+for each subagent it starts.
 
-## Sync and async
+## Records, streams and traces
 
-LangChain calls `wrap_model_call` under `invoke()` and `stream()`, and
-`awrap_model_call` under `ainvoke()` and `astream()`. Its own middlewares keep
-two copies of their logic, one per hook. This library writes each protocol
-once, as a coroutine that talks to a pending step, and gives the pending step
-two implementations.
+### The log records
 
-```mermaid
-flowchart LR
-    asyncEntry["ainvoke or astream"] --> asyncHook["awrap_model_call"]
-    asyncHook --> asyncStep["Async pending step: awaits the model and the monitor"]
-    syncEntry["invoke or stream"] --> syncHook["wrap_model_call"]
-    syncHook --> syncStep["Sync pending step: calls them directly"]
-    asyncStep --> decide["The protocol's decide coroutine"]
-    syncStep --> decide
-```
+Records pass through checkpointers, so they hold plain values only: strings,
+numbers, booleans, `None`, lists and `TypedDict`s, with the outcome stored as
+a string. A `StepRecord` names the agent and the monitor's label, numbers the
+step, gives the outcome, whether the step was flagged and how many attempts
+were blocked, and lists a `SampleRecord` for every sample: its suspicion, the
+monitor's reason, the proposal rendered in full for a human auditor, and
+whether it ran. The proposal keeps every channel, provider tool calls and
+their full results included. A subagent's records also carry
+`delegation_id`. Records reach `monitor_log` in the order they reach the
+state: an agent's own as each step is committed, and a subagent's together
+when its task returns.
 
-The sync pending step's methods are declared `async` but never wait on
-anything, so under `invoke()` the protocol's coroutine can be finished with a
-single step, without an event loop. If a protocol ever awaited real
-asynchronous work there, the library raises `SynchronousRunError` instead of
-hanging. That covers a protocol that suspends, and one that starts asyncio work
-where no loop can run it, such as `asyncio.gather` or `asyncio.ensure_future`
-outside a running loop. Inside a running loop, as when `invoke()` is called
-from a notebook, any task the protocol scheduled is cancelled before it
-starts, and once a step is over its pending step refuses to call the model,
-so no work a protocol left behind reaches the model after the error. A
-timeout, `asyncio.timeout` or `asyncio.wait_for`, cannot limit a pending
-step's call under `invoke()`: outside a running loop it raises
-`SynchronousRunError`, and inside one it never fires, because the synchronous
-call blocks the loop. Use `ainvoke()` for protocols that need asyncio.
+### Private state keys
 
-Under `invoke()`, samples asked for concurrently are drawn one after another.
-Under `ainvoke()` they are drawn in an `asyncio.TaskGroup`, as are the calls
-of `RepeatedMonitor`, so a call that fails cancels the others instead of
-leaving them to spend tokens, and its own error propagates, not wrapped in an
-`ExceptionGroup`. Monitors declare both `evaluate` and `evaluate_sync`, so a
-monitor that lacks either cannot be instantiated.
+The monitor keeps its run state in six keys. Four are private: they never
+enter any run's input or `invoke` output, but they do appear in
+`stream_mode="values"`, `stream_mode="updates"` and `get_state`.
 
-## What streams
+| Key | Holds | In a run's input | In `invoke` output | In `values`, `updates`, `get_state` |
+|---|---|---|---|---|
+| `monitor_log` | One record per committed step | No | Yes | Yes |
+| `monitor_delegation` | The `Delegation` a subagent started with | Yes | No | Only in the subagent's own state |
+| `monitor_task_messages` | The ids of the human messages recorded as a run's input | No | No | Yes |
+| `monitor_seen_human_messages` | The ids of every untagged human message the monitor has seen | No | No | Yes |
+| `monitor_run_open` | Whether a run has started and not yet reached `after_agent` | No | No | Yes |
+| `monitor_inputs_at_halt` | For each monitor, the run inputs recorded at its latest halt | No | No | In `values` and `get_state` from the first chunk, as `[]`; in `updates` once a monitor has halted |
 
-A synchronous monitor judges a step before anything uses it, so nothing the
-protocol produces reaches `stream_mode="messages"` before the protocol has
-decided. The middleware runs the protocol inside a block that adds LangGraph's
-`nostream` tag to every model call made there, and the message stream skips
-calls with that tag [@langgraph2026]. That covers the untrusted samples, the
-trusted model's step and the monitor's own calls, including samples drawn in
-parallel and calls inside a subagent's monitor. When the model node returns the
-committed step, LangGraph streams it from the node's output [@langgraph2026].
+Every key but `monitor_delegation` has a reducer, so stacked monitors can
+write them in one node. A subagent's private keys and its
+`monitor_delegation` stay in its own state: the parent's streams never show
+them, even with `subgraphs=True`.
 
-```mermaid
-flowchart LR
-    samples["Samples, the trusted step and the monitor's calls"] -- "tagged nostream" --> skipped["Skipped by the message stream"]
-    protocol["The protocol decides"] --> committed["The committed step"]
-    committed -- "returned by the model node" --> consumer["stream_mode=messages"]
-```
+### What streams
 
-The cost is live tokens. A monitored agent streams each step whole, once the
-protocol commits it, and not token by token as the model writes it.
+A synchronous monitor judges a step before any of the agent's own tools run,
+so nothing the protocol produces reaches `stream_mode="messages"` before the
+protocol has decided. The middleware runs the protocol inside a block that
+adds LangGraph's `nostream` tag to every model call made there, and the
+message stream skips calls with that tag [@langgraph2026]. That covers the
+untrusted samples, the trusted model's step and the monitor's own calls,
+parallel draws and a subagent's monitor included. The committed step streams
+from the model node's output once the protocol has decided, whole: a
+monitored agent does not stream tokens as the model writes them
+([what the records and streams miss](#what-the-records-and-streams-miss)).
 
-The monitor's `before_agent`, `before_model` and `after_agent` hooks write back
-the human messages they tag as notes, under their own ids, so
-`stream_mode="updates"` carries such a message twice: once from the node that
-wrote it, and once, tagged, from the monitor's hook. In a run that follows one
-that stopped early, the user's own new message comes back too, tagged, from
-the monitor's `before_agent` hook. A consumer that
-builds the conversation from `updates` should merge messages by id, as
-LangGraph's own message reducer does [@langgraph2026], rather than append them;
-`stream_mode="messages"` and `values` are not affected.
+| Stream | What it carries |
+|---|---|
+| `stream_mode="messages"` | Only committed steps, each whole. With `IN_TRANSCRIPT`, blocked attempts and their feedback stream with the step that follows them. A custom monitor's call made with its own `tags` streams too. |
+| `stream_mode="updates"` | Every node's writes, `monitor_log` and the private keys included. The monitor's hooks write back the human messages they tag under their own ids, so such a message can arrive twice: once from the node that wrote it, and once tagged. After a run that stopped early, the user's new message comes back tagged too. Merge messages by id, as LangGraph's message reducer does [@langgraph2026]; a message a node writes as a dictionary without an id arrives first with no id, so its tagged copy cannot be matched to it. |
+| `stream_mode="values"` | The whole state after each step, `monitor_log` and the private keys included. |
+| `stream_mode="custom"` | A `MonitorStepEvent` for each committed step and a `MonitorStepFailedEvent` for each failed one. A subagent writes its events inside its own graph, so they reach the parent's stream only with `subgraphs=True`. |
+| `astream_events`, `astream_log` | Every model call live, rejected samples included, and the monitor's spans, which `exclude_tags=["monitor"]` drops. A user interface should read `stream_mode="messages"` instead. |
 
-Rejected samples stay out of the conversation, not out of the record. They
-remain in `monitor_log`, which the `values` and `updates` stream modes carry,
-in the `MonitorStepEvent` on `stream_mode="custom"`, and in traces.
-`astream_events` is not filtered: it reports every model call live, rejected
-samples included, so a user interface should read `stream_mode="messages"`
-instead. It also reports the monitor's own spans, described in
-[Tracing](#tracing), which `exclude_tags=["monitor"]` drops. `astream_log`,
-built from the same callbacks, reports them too; the `stream()` modes and
-`stream_events(version="v3")` do not. With
-`FeedbackVisibility.IN_TRANSCRIPT`, a blocked attempt and its feedback are
-committed as part of the conversation, so they stream along with the step that
-follows them.
+The built-in monitors' calls also carry LangChain's internal-call metadata,
+which the experimental `stream_events(version="v3")` projection uses to drop
+them [@langchain2026]. A custom monitor's calls carry it only if the monitor
+sets it. A call made with its own `tags` in its config replaces the tags it
+would inherit, `nostream` included, so it streams again; such a monitor
+should add `langgraph.constants.TAG_NOSTREAM` to its tags
+([what the records and streams miss](#what-the-records-and-streams-miss)).
 
-The monitor's own calls also carry LangChain's internal-call metadata, from
-`model_calls.build_internal_call_config`, which the experimental
-`stream_events(version="v3")` projection uses to drop them [@langchain2026]. A
-custom monitor that passes its own `tags` in a call's config replaces the tags
-the call would inherit, and that call streams again; such a monitor should add
-`langgraph.constants.TAG_NOSTREAM` to its tags.
-
-## Tracing
+### Tracing
 
 Any tracer built on LangChain callbacks, LangSmith and Langfuse among them,
-shows each monitored step as a small tree of named spans. The model calls stay
-where they were, now nested under the step that caused them:
+shows each monitored step as a small tree of named spans, with the model
+calls nested under the step that caused them:
 
 ```text
 model                           the agent's model node
@@ -831,77 +697,316 @@ model                           the agent's model node
     └── monitor decision        opened and closed once the protocol has decided
 ```
 
-| Span | Inputs | Outputs |
-|---|---|---|
-| `monitor step` | The step number, and the step first proposed, added when the step ends. | The outcome, whether the step was flagged, the blocked attempts, the highest suspicion, and each sample's suspicion, reason and whether it ran. |
-| `monitor judgement` | The sample's number, counted in the order the draws started, and the monitor's class name. | The verdict's suspicion and reason. |
-| `monitor classifier` | The decision model and its questions. | The probability of yes to each question. One span covers a request and all its retries. |
-| `monitor decision` | None. | The outcome, the flag and the highest suspicion. |
-
-The names are fixed, so both tools can filter and count spans by name, and
-what varies goes in metadata under flat keys: `monitor_name`,
-`monitor_agent`, `monitor_step_number`, `monitor_protocol`,
-`monitor_step_id`, the step span's run id, and, inside a subagent that a
-monitored agent started, `monitor_delegation_id`. Every monitor span of a step
-carries them, and every one is tagged `monitor`. A span's tags are fixed when
-it starts, while the step span must start before its samples, so the outcome
-goes on the decision span: it is tagged `monitor:<outcome>`, and
-`monitor:flagged` when flagged, and repeats the outcome in its metadata. In LangSmith,
-`and(eq(name, "monitor decision"), has(tags, "monitor:halted"))` finds every
-halted step; in Langfuse, the name `monitor decision` and the metadata
-`monitor_outcome`. The spans below the step span carry
-`ls_agent_type: "middleware"`, and the model calls the library's monitors
-make carry `ls_message_view_exclude`, which keep them out of LangSmith's
-Trajectory view [@langsmith2026trajectory]. The step span carries neither,
-because the agent's own samples nest in it.
-
-The spans add no tag or metadata to the LangChain runs inside a step, model
-calls included, so no sample is labelled as monitor work. LangSmith's
-`traceable` runs are the exception: LangSmith builds each one from its parent
-run and copies the parent's metadata into it [@langsmithsdk2026]. So in
-LangSmith the hook runs of middleware listed after the monitor, an inner
-stacked monitor's hook run and a monitor's own `traceable` code carry the
-step's `monitor_` keys. Only dropping the keys from the spans would prevent
-that, so a LangSmith filter should name the span as well as its metadata.
-
-The only proposal text the spans add is the step span's proposed step; each
-sample's text stays on the model call that drew it. A halt is a decision, and
-ends its spans as usual. A span ends with an error only when the step fails: a
-model or monitor call that raises, a sample cancelled because another one
-failed, or `SynchronousRunError`. With no callback handler attached, no span
-is opened. LangGraph attaches one of its own for `stream_mode="messages"`,
-which receives the spans and ignores them.
+The names are fixed, so a tracer can filter and count spans by name, and what
+varies goes in metadata under flat keys: `monitor_name`, `monitor_agent`,
+`monitor_step_number`, `monitor_protocol`, `monitor_step_id`, the step span's
+run id, and, inside a subagent that a monitored agent started,
+`monitor_delegation_id` [@langsmith2026traces; @langfuse2026]. Every monitor
+span carries them and the tag `monitor`. A span's tags are fixed when it
+starts, and the step span starts before its samples, so the outcome goes on
+the decision span, tagged `monitor:<outcome>`, and `monitor:flagged` when the
+step is flagged. The spans below the step span carry
+`ls_agent_type: "middleware"`, and the monitors' own model calls carry
+`ls_message_view_exclude`, which keep them out of LangSmith's Trajectory view
+[@langsmith2026trajectory]. The spans add no tag or metadata to the LangChain
+runs inside a step, so no sample is labelled as monitor work.
 
 The spans are opened from the running node's own callback manager, not
 through `CallbackManager.configure`, so they nest under the model node for
 every handler. Configuring a new manager would, with LangSmith tracing on,
 hang them under the LangSmith-only run in which `create_agent` wraps each
 middleware hook, which can split the trace in Langfuse
-[@langchain2026; @langfuse2026]. Code in a monitor that traces itself with
-LangSmith's `traceable` decorator nests under its judgement, since LangSmith
-takes a `traceable` run's parent from the LangChain config the judgement span
-sets [@langsmithsdk2026].
-
-Some runs still name a LangSmith-only hook run as their parent, which
-another handler attached beside LangSmith never saw. A tool
-call runs inside the monitor's `wrap_tool_call` hook, where the monitor opens
-no span, and in a Deep Agent the `task` call that starts a subagent is such a
-tool call. The agent's own model calls run inside the hook runs of any
-middleware listed after the monitor that wraps the model call, as the ones
-Deep Agents adds do. Under `ainvoke()`, Langfuse can put each such run, with
-everything inside it, a whole subagent included, in a trace of its own; the
-hook runs cause that split, not the spans.
+[@langchain2026; @langfuse2026]. No span is opened when no callback handler
+is attached. A span ends with an error when the step fails, and the step
+span ends with the `GraphInterrupt` when a middleware inside the monitor
+calls `interrupt()`.
 [See the monitor's decisions in LangSmith and Langfuse](../how-to/see-decisions-in-langsmith-and-langfuse.md)
-shows how to attach either tool and find the halted and flagged steps.
+shows how to attach either tool and find the halted and flagged steps. Two
+tracing limits remain ([what the records and streams miss](#what-the-records-and-streams-miss)).
 
-## The log records
+## Graph steps
 
-Records pass through checkpointers, so they hold plain values only: strings,
-numbers, booleans, `None`, lists and `TypedDict`s, with the outcome stored as
-a string. A `StepRecord` names the agent and the monitor, numbers the step,
-gives the outcome, whether the step was flagged and how many attempts were
-blocked, and lists a `SampleRecord` for every sample: its suspicion, the
-monitor's reason, the proposal rendered in full for a human auditor, and
-whether it ran. A subagent's records also carry `delegation_id`, the id of the
-tool call that started the subagent, because its step numbers start again
-with every delegation; the main agent's records have none.
+The monitor's four node hooks are graph nodes, named after the monitor, such
+as `monitor[main].before_model`, and each run of one is a graph step:
+`before_model` and `after_model` run once per agent step (each run of the
+model node), and `before_agent` and `after_agent` once per run. The samples,
+monitor calls and trusted steps inside an agent step add no graph step. The
+smallest `recursion_limit` that lets a `create_agent` run finish, with a tool
+call between agent steps, grows as follows:
+
+| Agent steps in the run (N) | Without the monitor (2N) | With the monitor (4N + 2) |
+|---|---|---|
+| 1 | 2 | 6 |
+| 2 | 4 | 10 |
+| 3 | 6 | 14 |
+
+`create_agent` and `create_deep_agent` set a limit of 9,999 by default, so
+this matters only for an explicit `recursion_limit`
+[@langchain2026; @deepagents2026]. To allow the same number of agent steps,
+twice the old limit plus 2 is enough for one monitor, and each further
+monitor adds another 2N + 2. A run the limit cuts off before the monitor's
+`after_agent` hook, on a checkpointed thread, leaves the run open, so the
+next run's new messages are read as notes from `unconfirmed_input`
+([after a run that stopped early](#after-a-run-that-stopped-early)).
+
+## Sync and async
+
+LangChain calls `wrap_model_call` under `invoke()` and `stream()`, and
+`awrap_model_call` under `ainvoke()` and `astream()`. This library writes
+each protocol once, as a `decide` coroutine that talks to a pending step, and
+gives the pending step two implementations:
+
+| Entry points | Hook | Pending step |
+|---|---|---|
+| `invoke()`, `stream()` | `wrap_model_call` | `SyncPendingStep`: calls the model and the monitor directly |
+| `ainvoke()`, `astream()` | `awrap_model_call` | `AsyncPendingStep`: awaits them |
+
+The sync pending step's methods are declared `async` but never wait on
+anything, so under `invoke()` the protocol's coroutine finishes in a single
+step, without an event loop. A protocol that awaits real asynchronous work
+there raises `SynchronousRunError` instead of hanging, and so does one that
+starts asyncio work where no loop can run it, such as `asyncio.gather`
+outside a running loop, or a monitor whose `evaluate_sync` does. Inside a
+running loop, as when `invoke()` is called from a notebook, any task the
+protocol scheduled is cancelled before it starts, and once a step is over its
+pending step refuses to call the model. A timeout cannot limit a pending
+step's call under `invoke()`
+([protocols and configuration](#protocols-and-configuration)).
+
+Under `invoke()`, samples asked for concurrently are drawn one after another.
+Under `ainvoke()` they are drawn in an `asyncio.TaskGroup`, as are the calls
+of `RepeatedMonitor`, so a call that fails cancels the others instead of
+leaving them to spend tokens, and its own error propagates, not wrapped in an
+`ExceptionGroup`. Monitors declare both `evaluate` and `evaluate_sync`, so a
+monitor that lacks either cannot be instantiated.
+
+## Errors
+
+### Failed steps
+
+When a call inside a step raises before the protocol decides, whether a
+sample, a monitor call or the trusted model's step, nothing is committed and
+the error propagates unchanged. Before it does, the middleware writes a
+`MonitorStepFailedEvent` (`type="monitor_step_failed"`) to
+`stream_mode="custom"`, with every sample the monitor had judged, none if it
+had judged nothing, and the `delegation_id` inside a subagent. When there are
+judged samples, it also logs them at warning level, each with its suspicion,
+reason and proposal.
+
+A middleware outside the monitor that retries failed model calls, such as
+LangChain's `ModelRetryMiddleware` or `ModelFallbackMiddleware`, runs the
+whole step again with fresh samples, and `monitor_log` records only the
+attempt that succeeded; `check_monitor_placement` warns about such a list.
+Deep Agents' own summarisation does the same after a context overflow: it
+summarises and runs the whole step again [@deepagents2026]. It sits outside
+the monitor in the stack Deep Agents builds, where the check cannot see it
+([what the records and streams miss](#what-the-records-and-streams-miss)).
+
+### Option checks
+
+The protocols, the fallbacks, `FeedbackTemplate`, and `MonitorMiddleware`'s
+`monitor`, `protocol` and enum options raise `ConfigurationError` for a value
+of the wrong type when they are built:
+
+- An enum option must be a member: a plain string is refused, not converted.
+  `GuardModelMonitor(scoring=...)` and `DecisionModelMonitor(combine=...)`
+  refuse one too.
+- A threshold accepts any real number or `Decimal` from 0 to 1, checked on
+  its exact value before it becomes a float. `bool`, strings and NaN are
+  refused, and `-0.0` reads as 0.
+- A count must be a whole number; only `AutoMode(max_total_blocks=...)` also
+  accepts `math.inf`.
+
+Other options are not type-checked yet
+([protocols and configuration](#protocols-and-configuration)).
+
+### Error and warning classes
+
+| Class | Raised or emitted when |
+|---|---|
+| `MonitorError` | The base class of the library's own errors. |
+| `ConfigurationError` | An option cannot work. Also at run time: for an invalid `monitor_delegation` in an agent's input, and for a guard model that returns no log-probabilities under `GuardScoring.LOG_PROBABILITIES`, or rejects the request for them. |
+| `MissingExtraError` | A feature needs an extra that is not installed; the message names the install command. It is a `ConfigurationError` and an `ImportError`. |
+| `SynchronousRunError` | A protocol or monitor needs an event loop under `invoke()` ([sync and async](#sync-and-async)). |
+| `InvalidSuspicionError` | A `Verdict` is built with a suspicion that is NaN or outside 0 to 1. |
+| `UncalibratedThresholdWarning` | A protocol is built with a default threshold. |
+| `CachedResampleWarning` | A step is resampled under a response cache; once per process. |
+| `ProviderToolWarning` | A model call receives a tool its provider runs itself; once per middleware instance. |
+| `MonitorPlacementWarning` | `check_monitor_placement` finds a middleware placed where it undermines the monitor. |
+| `HardLabelWarning` | A `GuardModelMonitor` is built with `GuardScoring.HARD_LABEL`. |
+
+## Known limits and open paths
+
+This section lists what the library does not do, or does only in part. Each
+limit is linked from where it arises above.
+
+### What the monitor cannot stop
+
+- **A provider's built-in tools.** Web search, web fetch, code execution and
+  the other tools a model provider runs itself run inside the model call,
+  before the monitor sees the step, and again for every sample drawn: every
+  resample of Defer to Resample and every retry of Auto Mode runs them again,
+  in samples that are then rejected too. The judge reads their calls in the
+  proposed step whenever the reply keeps a block for them, and a suspicious
+  score still decides what happens to the rest of the step. The default
+  feedback tells the agent that none of its tools ran the blocked step, while
+  a provider tool in that step has already run.
+- **What `ProviderToolWarning` cannot see.** It flags the known server tools
+  of Anthropic, OpenAI and Gemini. It reads the tools of the model request,
+  and the tools bound on the model with `bind_tools` only when the agent has
+  no tools of its own and no `response_format`, because otherwise
+  `create_agent` binds the model afresh and drops them [@langchain2026]. It
+  cannot see a server-side feature switched on in the model's own settings,
+  such as OpenRouter's web plugin or an `:online` model
+  [@langchainopenrouter2026], tools an integration has already turned into
+  its SDK's own objects, tools bound inside `with_fallbacks(...)`, or tools
+  queued with `bind_tools` on `init_chat_model(..., configurable_fields=...)`.
+  Those run the same way, without a warning. The `provider_tools` module
+  docstring lists what it knows.
+
+### What the judge does not see
+
+- **The agent's prose, by default.** Under `Channel.ACTIONS` the judge does
+  not read the text the agent writes beside a tool call, as in Claude Code's
+  auto mode [@hughes2026automode]; it reads a final answer's text. Adding
+  `Channel.AGENT_TEXT` to the view shows it.
+- **Built-in tools that leave no block.** A provider tool whose reply leaves
+  no block LangChain keeps is invisible to the judge: Gemini's URL context,
+  whose metadata langchain-google-genai does not keep, and the search of
+  OpenRouter's web plugin.
+- **The task after summarisation.** Once summarisation has replaced the
+  earlier messages of the model request, the original task may be gone from
+  what the monitor reads, and the summary is a note.
+
+### Who speaks as the user
+
+- **Two open paths through a middleware listed before the monitor.** Its
+  `before_agent` hook runs before the monitor's own, so an untagged human
+  message it writes counts as the run's input. Its `after_agent` hook runs
+  after the monitor's own, since LangChain runs those hooks in reverse list
+  order [@langchain2026], so an untagged human message it writes without
+  sending the run back to the model counts as the next run's input. Both
+  lift a standing halt, and `check_monitor_placement` does not warn about
+  them. The same hooks of a middleware listed after the monitor run on the
+  other side of the monitor's own, so what they write stays a note. A
+  message a middleware writes can carry the agent's own words: one of Deep
+  Agents' harness nudges quotes an argument the agent chose
+  [@deepagents2026]. No sound fail-closed rule covers these paths: at the
+  start of a run, such a message and the new input are both unseen, both
+  untagged, and both follow the last message the monitor saw, so the only
+  rule that would close them reads every new message as a note in every run.
+- **Histories the monitor never saw.** A thread started before the monitor
+  was added reads every untagged human message it holds as input. So does a
+  human message the application adds with `update_state` between two
+  finished runs, which is the application speaking. A history replayed
+  without a checkpointer keeps the tags the monitor wrote, so there only a
+  message the monitor never saw reads as input, such as one from the two
+  paths above, or one a middleware listed after the monitor wrote just
+  before a step that failed.
+- **Messages added to a resumed run.** A human message added to a run that
+  resumes, through `Command(update=...)` or `update_state`, is never recorded
+  as input, so it is a note from `application`. That fails closed, but a
+  restriction the user adds that way, such as "do not send anything", then
+  carries no authority with the judge either; send it as a new run's input.
+- **Unconfirmed input.** After a run that stopped early, the user's new
+  message stays a note from `unconfirmed_input` for the rest of the thread,
+  and an entry limit may drop it. Honouring a limit from a message of unknown
+  author can block honest work, but lets no action through. Such a note need
+  not hold the user's words: a `before_model` hook of a middleware listed
+  after the monitor runs after the monitor's own, and Deep Agents lists a
+  harness profile's middleware there. A nudge written just before a model
+  call that fails becomes such a note. Deep Agents' Nemotron nudge that tells
+  the agent to act instead of asking for another confirmation opens by saying
+  the user is asking for an action [@deepagents2026]. The agent can cause the
+  stop, but it gains from the note only if the judge departs from the prompt,
+  by taking an approval from it or letting it lift a safeguard; the prompt
+  forbids both but cannot guarantee either.
+- **Middleware is trusted.** A middleware can set the `monitor` or
+  `unconfirmed_input` tag on a message it writes, and the monitor then reads
+  it as its own feedback or as unconfirmed input.
+
+### Reading a guard's label
+
+- **A planted label quoted alone.** A guard that gives its verdict only in
+  prose and then quotes a label the agent planted, alone on its last line,
+  cannot be told from one that gives that label, when the reply names no
+  other label: the text is the same, and a guard's output can be steered by
+  what it reads.
+
+### Protocols and configuration
+
+- **Resampling as a best-of-n attack.** An injection aimed at the monitor
+  gets another try with every sample, so Defer to Resample turns it into a
+  best-of-n attack [@terekhov2025adaptive]. An injection that passes one
+  sample in five gets through about half the time across three samples.
+- **A response cache defeats resampling.** Resampling needs fresh draws: the
+  more deterministic the model, the less it helps [@bhatt2025ctrlzpost]. A
+  LangChain response cache, global or on the agent's model, answers every
+  resample with the first sample again. The library emits a
+  `CachedResampleWarning`; build the untrusted model with `cache=False`.
+- **No timeouts under `invoke()`.** `asyncio.timeout` or `asyncio.wait_for`
+  cannot limit a pending step's call under `invoke()`: outside a running loop
+  it raises `SynchronousRunError`, and inside one it never fires, because the
+  synchronous call blocks the loop. Use `ainvoke()` for protocols that need
+  asyncio.
+- **Unchecked option types.** Options outside those the
+  [option checks](#option-checks) cover are not type-checked yet:
+  `MonitorMiddleware(label=5)` is accepted, and a monitor or `MonitorView`
+  given a value of the wrong type may fail later, or with a plain
+  `TypeError` rather than a `MonitorError`.
+
+### Subagents and the thread total
+
+- **Crashed subagents lose their records.** A subagent's records reach its
+  parent only in the result of the call that started it, so a subagent whose
+  run raises returns none: its steps, flagged ones and halts included, are
+  missing from the parent's `monitor_log`, and its blocks from Auto Mode's
+  thread total. They arrive if the failed run is resumed from its checkpoint
+  with `None` as input. They are lost if the thread goes on with new input,
+  or if a middleware such as LangChain's `ToolRetryMiddleware` or
+  `ToolErrorMiddleware` answers the failed call with an error message or runs
+  it again; a retry starts the subagent again from the same count. The
+  subagent's own model can bring this about with a tool call that makes a
+  tool raise. `check_monitor_placement` warns about such middleware, and the
+  lost steps still reach `stream_mode="custom"` as each is committed, with
+  its `delegation_id`, when the run streams with `subgraphs=True`.
+- **Parallel subagents can pass the total.** Subagents that run in parallel
+  do not see each other's blocks, so together they can pass the total; their
+  parent counts every one of them at its next step.
+- **Forked subagents.** Only `monitor_subagents` refuses them. A fork passed
+  to `create_deep_agent` directly runs under the main agent's monitor, which
+  reads the fork's task, written by the parent agent, as the user's words and
+  records the fork's steps as the main agent's, hiding a halt inside the fork
+  from `STOP_WHOLE_RUN`. Delegate only to isolated subagents.
+- **Delegation ids** name a step only if the model provider gives every tool
+  call in the thread its own id, which LangChain does not check.
+
+### What the records and streams miss
+
+- **Retried steps.** Under a middleware that retries failed model calls from
+  outside the monitor ([failed steps](#failed-steps)), the samples judged
+  before the failure reach only the warning log and the
+  `monitor_step_failed` event, never `monitor_log`.
+- **Live tokens.** A monitored agent streams each step whole, once it is
+  committed.
+- **`astream_events` and `astream_log`** report every model call live,
+  rejected samples included, and a custom monitor call made with its own
+  `tags` reaches the message stream ([what streams](#what-streams)).
+- **`updates` without ids.** A message a node writes as a dictionary without
+  an id arrives in `stream_mode="updates"` with no id, so merging by id cannot
+  match it to its tagged copy.
+- **LangSmith metadata.** LangSmith builds each `traceable` run from its
+  parent run and copies the parent's metadata into it [@langsmithsdk2026]. So
+  in LangSmith the hook runs of middleware listed after the monitor, an inner
+  stacked monitor's hook run and a monitor's own `traceable` code carry the
+  step's `monitor_` keys. A LangSmith filter should name the span as well as
+  its metadata.
+- **Split traces in Langfuse.** Some runs name a LangSmith-only hook run as
+  their parent, which another handler attached beside LangSmith never saw: a
+  tool call, which runs inside the monitor's `wrap_tool_call` hook, a Deep
+  Agent's `task` call and whole subagent among them, and the agent's model
+  calls inside the hooks of middleware listed after the monitor. Under
+  `ainvoke()`, Langfuse can put each such run in a trace of its own. The hook
+  runs cause that split, not the spans.
+
+## References

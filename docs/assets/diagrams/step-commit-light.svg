@@ -1,0 +1,56 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1000" height="434" viewBox="0 0 1000 434" role="img" aria-labelledby="title desc">
+  <title id="title">A committed step and a failed one</title>
+  <desc id="desc">A monitored step ends in one of three ways. When it is decided, by the protocol or by a halt found before any sample, it is committed: one StepRecord joins monitor_log, and a monitor_step event is written to the custom stream. When a call inside it raises first, whether one of the agent&#x27;s samples, one of the monitor&#x27;s calls or the trusted model&#x27;s step, it is not committed: none of the agent&#x27;s own tools run, no record joins monitor_log, a monitor_step_failed event lists the samples judged so far, and the error is raised again. LangGraph&#x27;s own control flow, such as the interrupt that interrupt() raises, passes through with no record and no event.</desc>
+  <!-- Colours come from the brand tokens: diagrams/render.py fills this style block. -->
+  <style>
+    svg { color-scheme: light; }
+    text { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans", "Noto Sans JP", Helvetica, Arial, sans-serif; font-size: 15px; fill: #111111; }
+    .title { font-size: 17px; font-weight: 600; }
+    .small { font-size: 14px; fill: #5B5B57; }
+    .mono { font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace; font-size: 13.5px; }
+    .soft { fill: #5B5B57; }
+    .dashed { stroke-dasharray: 5 4; fill: none; stroke: #9A9A94; }
+    .box { fill: #FFFFFF; stroke: #111111; stroke-width: 1.4; }
+    .charm { fill: #111111; }
+    .on-charm { fill: #FFFFFF; }
+    .charm-cord { fill: none; stroke: #111111; stroke-width: 2.2; }
+    .seal { fill: #BF3A22; }
+    .allow { fill: #FFFFFF; stroke: #111111; stroke-width: 1.4; }
+    .resample { fill: #F2F1EC; stroke: #111111; stroke-width: 1.4; }
+    .defer { fill: #DCDBD4; stroke: #111111; stroke-width: 1.4; }
+    .steer { fill: #3A3A38; stroke: #3A3A38; stroke-width: 1.4; }
+    .on-steer { fill: #FFFFFF; }
+    .halt { fill: #BF3A22; stroke: #BF3A22; stroke-width: 1.4; }
+    .on-halt { fill: #FFFFFF; }
+    .frame { fill: none; stroke: #9A9A94; stroke-width: 1.2; stroke-dasharray: 6 4; }
+    .edge { fill: none; stroke: #2B2B2B; stroke-width: 1.5; }
+    .loop { fill: none; stroke: #2B2B2B; stroke-width: 1.5; stroke-dasharray: 5 4; }
+    .head { fill: #2B2B2B; }
+    .brush { fill: #111111; }
+  </style>
+  <defs><marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="9" markerHeight="9" markerUnits="userSpaceOnUse" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="head"/></marker></defs>
+  <rect class="box" x="520.0" y="40.0" width="448.0" height="102.0" rx="6"/>
+  <text x="744.0" y="71.0" text-anchor="middle" class="title">Committed</text>
+  <text x="744.0" y="93.0" text-anchor="middle"><tspan class="small">one </tspan><tspan class="mono">StepRecord</tspan><tspan class="small"> joins </tspan><tspan class="mono">monitor_log</tspan><tspan class="small">,</tspan></text>
+  <text x="744.0" y="114.0" text-anchor="middle"><tspan class="small">and a </tspan><tspan class="mono">monitor_step</tspan><tspan class="small"> event is written</tspan></text>
+  <rect class="box" x="520.0" y="170.0" width="448.0" height="102.0" rx="6"/>
+  <text x="744.0" y="201.0" text-anchor="middle" class="title">Not committed</text>
+  <text x="744.0" y="223.0" text-anchor="middle"><tspan class="small">a </tspan><tspan class="mono">monitor_step_failed</tspan><tspan class="small"> event lists the</tspan></text>
+  <text x="744.0" y="244.0" text-anchor="middle" class="small">judged samples; the error is raised again</text>
+  <rect class="dashed" x="520.0" y="300.0" width="448.0" height="102.0" rx="6"/>
+  <text x="744.0" y="331.0" text-anchor="middle" class="title">Passed through</text>
+  <text x="744.0" y="353.0" text-anchor="middle" class="small">LangGraph&#x27;s own control flow, such as</text>
+  <text x="744.0" y="374.0" text-anchor="middle" class="small">an interrupt: no record and no event</text>
+  <rect class="box" x="32.0" y="170.0" width="300.0" height="102.0" rx="6"/>
+  <text x="182.0" y="201.0" text-anchor="middle" class="title">A monitored step</text>
+  <text x="182.0" y="223.0" text-anchor="middle" class="small">its samples drawn and judged, or</text>
+  <text x="182.0" y="244.0" text-anchor="middle" class="small">a halt found before any sample</text>
+  <path class="edge" d="M332.0,221.0 L372.0,221.0"/>
+  <path class="edge" d="M372.0,91.0 L372.0,351.0"/>
+  <path class="edge" d="M372.0,91.0 L518.0,91.0" marker-end="url(#arrow)"/>
+  <path class="edge" d="M372.0,221.0 L518.0,221.0" marker-end="url(#arrow)"/>
+  <path class="edge" d="M372.0,351.0 L518.0,351.0" marker-end="url(#arrow)"/>
+  <text x="446.0" y="79.0" text-anchor="middle" class="small">decided</text>
+  <text x="446.0" y="209.0" text-anchor="middle" class="small">a call raised</text>
+  <text x="446.0" y="339.0" text-anchor="middle" class="small">control flow</text>
+</svg>

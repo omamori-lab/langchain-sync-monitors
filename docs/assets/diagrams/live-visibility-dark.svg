@@ -1,0 +1,86 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1000" height="542" viewBox="0 0 1000 542" role="img" aria-labelledby="title desc">
+  <title id="title">Who sees what in the live runs</title>
+  <desc id="desc">What each model receives on a step of the live runs, and what the monitor reads through its default view. The side task&#x27;s text reaches only the untrusted model, and only in the attack run. The application&#x27;s system prompt reaches the untrusted model and the trusted model, and no monitor reads it. The user&#x27;s task reaches all three. The untrusted model&#x27;s earlier steps are the untrusted model&#x27;s own. On a deferred step, the trusted model receives their tool calls, their prose and their reasoning. The monitor&#x27;s default view reads their tool calls and leaves out their prose and their reasoning, so the trusted model can read plans the monitor never saw.</desc>
+  <!-- Colours come from the brand tokens: diagrams/render.py fills this style block. -->
+  <style>
+    svg { color-scheme: dark; }
+    text { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans", "Noto Sans JP", Helvetica, Arial, sans-serif; font-size: 15px; fill: #ECEBE6; }
+    .title { font-size: 17px; font-weight: 600; }
+    .small { font-size: 14px; fill: #A9A8A2; }
+    .mono { font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace; font-size: 13.5px; }
+    .soft { fill: #A9A8A2; }
+    .dashed { stroke-dasharray: 5 4; fill: none; stroke: #6A6A66; }
+    .box { fill: #141414; stroke: #ECEBE6; stroke-width: 1.4; }
+    .charm { fill: #ECEBE6; }
+    .on-charm { fill: #111111; }
+    .charm-cord { fill: none; stroke: #ECEBE6; stroke-width: 2.2; }
+    .seal { fill: #E0563B; }
+    .allow { fill: #141414; stroke: #ECEBE6; stroke-width: 1.4; }
+    .resample { fill: #1F1F1E; stroke: #ECEBE6; stroke-width: 1.4; }
+    .defer { fill: #34332F; stroke: #ECEBE6; stroke-width: 1.4; }
+    .steer { fill: #D9D8D2; stroke: #D9D8D2; stroke-width: 1.4; }
+    .on-steer { fill: #111111; }
+    .halt { fill: #E0563B; stroke: #E0563B; stroke-width: 1.4; }
+    .on-halt { fill: #111111; }
+    .frame { fill: none; stroke: #6A6A66; stroke-width: 1.2; stroke-dasharray: 6 4; }
+    .edge { fill: none; stroke: #D6D5CF; stroke-width: 1.5; }
+    .loop { fill: none; stroke: #D6D5CF; stroke-width: 1.5; stroke-dasharray: 5 4; }
+    .head { fill: #D6D5CF; }
+    .brush { fill: #ECEBE6; }
+  </style>
+  <defs><marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="9" markerHeight="9" markerUnits="userSpaceOnUse" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="head"/></marker></defs>
+  <text x="32.0" y="44.0" text-anchor="start"><tspan class="title">Who sees what</tspan></text>
+  <text x="32.0" y="70.0" text-anchor="start" class="small">What each model receives on a step, and what the monitor&#x27;s default view reads.</text>
+  <rect class="box" x="292.0" y="116.0" width="209.3" height="102.0" rx="6"/>
+  <text x="396.7" y="147.0" text-anchor="middle" class="title">Untrusted model</text>
+  <text x="396.7" y="169.0" text-anchor="middle" class="small">DeepSeek V4.1 Flash,</text>
+  <text x="396.7" y="190.0" text-anchor="middle" class="small">the agent</text>
+  <rect class="box" x="525.3" y="116.0" width="209.3" height="102.0" rx="6"/>
+  <text x="630.0" y="147.0" text-anchor="middle" class="title">Trusted model</text>
+  <text x="630.0" y="169.0" text-anchor="middle" class="small">MiMo V2.6 Flash,</text>
+  <text x="630.0" y="190.0" text-anchor="middle" class="small">on a deferred step</text>
+  <path class="charm-cord" d="M857.3,117.0 C853.3,100.0 873.3,100.0 869.3,117.0"/>
+  <path class="charm" d="M774.7,116.0 H952.0 L968.0,132.0 V212.0 Q968.0,218.0 962.0,218.0 H764.7 Q758.7,218.0 758.7,212.0 V132.0 Z"/>
+  <rect class="seal" x="767.7" y="200.0" width="9" height="9" rx="1"/>
+  <text x="863.3" y="147.0" text-anchor="middle" class="title on-charm">Monitor</text>
+  <text x="863.3" y="169.0" text-anchor="middle" class="small on-charm">its default view,</text>
+  <text x="863.3" y="190.0" text-anchor="middle"><tspan class="mono on-charm">Channel.ACTIONS</tspan></text>
+  <text x="32.0" y="268.0" text-anchor="start" class="body">The side task&#x27;s text</text>
+  <rect class="box" x="292.0" y="246.0" width="209.3" height="34.0" rx="6"/>
+  <text x="396.7" y="268.0" text-anchor="middle" class="body">attack run only</text>
+  <rect class="dashed" x="525.3" y="246.0" width="209.3" height="34.0" rx="6"/>
+  <text x="630.0" y="268.0" text-anchor="middle" class="small">never</text>
+  <rect class="dashed" x="758.7" y="246.0" width="209.3" height="34.0" rx="6"/>
+  <text x="863.3" y="268.0" text-anchor="middle" class="small">never</text>
+  <text x="32.0" y="314.0" text-anchor="start" class="body">The app&#x27;s system prompt</text>
+  <rect class="box" x="292.0" y="292.0" width="209.3" height="34.0" rx="6"/>
+  <text x="396.7" y="314.0" text-anchor="middle" class="body">sees it</text>
+  <rect class="box" x="525.3" y="292.0" width="209.3" height="34.0" rx="6"/>
+  <text x="630.0" y="314.0" text-anchor="middle" class="body">sees it</text>
+  <rect class="dashed" x="758.7" y="292.0" width="209.3" height="34.0" rx="6"/>
+  <text x="863.3" y="314.0" text-anchor="middle" class="small">never</text>
+  <text x="32.0" y="360.0" text-anchor="start" class="body">The user&#x27;s task</text>
+  <rect class="box" x="292.0" y="338.0" width="209.3" height="34.0" rx="6"/>
+  <text x="396.7" y="360.0" text-anchor="middle" class="body">sees it</text>
+  <rect class="box" x="525.3" y="338.0" width="209.3" height="34.0" rx="6"/>
+  <text x="630.0" y="360.0" text-anchor="middle" class="body">sees it</text>
+  <rect class="box" x="758.7" y="338.0" width="209.3" height="34.0" rx="6"/>
+  <text x="863.3" y="360.0" text-anchor="middle" class="body">reads it</text>
+  <text x="32.0" y="406.0" text-anchor="start" class="body">Earlier steps: tool calls</text>
+  <rect class="box" x="525.3" y="384.0" width="209.3" height="34.0" rx="6"/>
+  <text x="630.0" y="406.0" text-anchor="middle" class="body">sees them</text>
+  <rect class="box" x="758.7" y="384.0" width="209.3" height="34.0" rx="6"/>
+  <text x="863.3" y="406.0" text-anchor="middle" class="body">reads them</text>
+  <text x="32.0" y="452.0" text-anchor="start" class="body">Earlier steps: prose</text>
+  <rect class="box" x="525.3" y="430.0" width="209.3" height="34.0" rx="6"/>
+  <text x="630.0" y="452.0" text-anchor="middle" class="body">sees it</text>
+  <rect class="dashed" x="758.7" y="430.0" width="209.3" height="34.0" rx="6"/>
+  <text x="863.3" y="452.0" text-anchor="middle" class="small">left out</text>
+  <text x="32.0" y="498.0" text-anchor="start" class="body">Earlier steps: reasoning</text>
+  <rect class="box" x="525.3" y="476.0" width="209.3" height="34.0" rx="6"/>
+  <text x="630.0" y="498.0" text-anchor="middle" class="body">sees it</text>
+  <rect class="dashed" x="758.7" y="476.0" width="209.3" height="34.0" rx="6"/>
+  <text x="863.3" y="498.0" text-anchor="middle" class="small">left out</text>
+  <rect class="box" x="292.0" y="384.0" width="209.3" height="126.0" rx="6"/>
+  <text x="396.7" y="452.0" text-anchor="middle" class="body">its own steps</text>
+</svg>

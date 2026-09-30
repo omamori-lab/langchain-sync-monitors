@@ -28,17 +28,11 @@ report, but it never sees the steps the subagent takes in between.
 `monitor_subagents` closes that gap: it gives every subagent a monitor of its
 own, the built-in general-purpose subagent included.
 
-```mermaid
-flowchart TD
-    main["monitor[main] judges each step of the main agent, the task call included"]
-    main -- "task" --> analyst["monitor[analyst], a copy"]
-    main -- "task" --> publisher["monitor[publisher], an override"]
-    main -- "task" --> general["monitor[general-purpose], a copy"]
-    analyst -. "records" .-> log[("The main agent's monitor_log")]
-    publisher -. "records" .-> log
-    general -. "records" .-> log
-```
+[![monitor_subagents gives each subagent of a Deep Agent a monitor of its own. The main agent's monitor, monitor[main], judges each of the main agent's steps, the task call that delegates work included, and each task call starts a subagent. In this example the analyst's monitor, monitor[analyst], is a copy of the main monitor. The publisher's, monitor[publisher], is a copy of its entry in overrides, so it keeps that entry's own protocol and options. The general-purpose subagent's, monitor[general-purpose], is a copy of the main monitor, and monitor_subagents adds that subagent when no spec you pass is named general-purpose. Every copy is named after its subagent and reads the delegated task as the parent agent's words, not the user's. When a task returns, the subagent's records, halts included, join the main agent's monitor_log.](../assets/diagrams/subagent-monitors-light.svg#only-light)](../assets/diagrams/subagent-monitors-light.svg "Open the diagram at full size")
+[![monitor_subagents gives each subagent of a Deep Agent a monitor of its own. The main agent's monitor, monitor[main], judges each of the main agent's steps, the task call that delegates work included, and each task call starts a subagent. In this example the analyst's monitor, monitor[analyst], is a copy of the main monitor. The publisher's, monitor[publisher], is a copy of its entry in overrides, so it keeps that entry's own protocol and options. The general-purpose subagent's, monitor[general-purpose], is a copy of the main monitor, and monitor_subagents adds that subagent when no spec you pass is named general-purpose. Every copy is named after its subagent and reads the delegated task as the parent agent's words, not the user's. When a task returns, the subagent's records, halts included, join the main agent's monitor_log.](../assets/diagrams/subagent-monitors-dark.svg#only-dark)](../assets/diagrams/subagent-monitors-dark.svg "Open the diagram at full size")
 
+The figure follows the example below: the analyst and the general-purpose
+subagent get a copy of the main monitor, and the publisher gets an override.
 Each subagent's monitor reads the delegated task as the parent agent's words,
 and its records, halts included, reach the main agent's `monitor_log` when
 the task returns.
@@ -222,12 +216,8 @@ subagents' copies inherit it.
 | `SubagentHalt.STOP_SUBAGENT_ONLY`, the default | The subagent ends. The parent receives the halt message as the task's result, and carries on under its own monitor. |
 | `SubagentHalt.STOP_WHOLE_RUN` | The parent's monitor finds the subagent's halt record in `monitor_log` and halts the parent before its next model call. |
 
-```mermaid
-flowchart LR
-    halt["A subagent's monitor halts it"] --> choice{"when_subagent_halts on the parent's monitor"}
-    choice -- "STOP_SUBAGENT_ONLY" --> report["The parent reads the halt message as the task's result and goes on"]
-    choice -- "STOP_WHOLE_RUN" --> stop["The parent halts before its next model call"]
-```
+[![A subagent's monitor halts it, and the halt record reaches the parent agent's monitor_log when the task returns. What happens next depends on when_subagent_halts, an option of the parent's monitor that every copy of that monitor inherits. With SubagentHalt.STOP_SUBAGENT_ONLY, the default, the parent reads the halt message as the task's result and goes on under its own monitor. With SubagentHalt.STOP_WHOLE_RUN, the parent's monitor finds the halt record and halts the parent at its next model call, without drawing a sample; that halt is flagged, and it stands as the parent's own.](../assets/diagrams/subagent-halts-light.svg#only-light)](../assets/diagrams/subagent-halts-light.svg "Open the diagram at full size")
+[![A subagent's monitor halts it, and the halt record reaches the parent agent's monitor_log when the task returns. What happens next depends on when_subagent_halts, an option of the parent's monitor that every copy of that monitor inherits. With SubagentHalt.STOP_SUBAGENT_ONLY, the default, the parent reads the halt message as the task's result and goes on under its own monitor. With SubagentHalt.STOP_WHOLE_RUN, the parent's monitor finds the halt record and halts the parent at its next model call, without drawing a sample; that halt is flagged, and it stands as the parent's own.](../assets/diagrams/subagent-halts-dark.svg#only-dark)](../assets/diagrams/subagent-halts-dark.svg "Open the diagram at full size")
 
 A subagent is halted when its protocol's fallback is `HaltRun`: Auto Mode's
 default when it reaches a block limit, or Defer to Resample's when you choose

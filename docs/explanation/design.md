@@ -362,8 +362,10 @@ suspicious.
   default, so one strong hit is not diluted. Jev is served through
   OpenRouter's Decisions API [@openrouter2026decisions] and through
   TypeSafe's own client [@typesafe2026langchain]. Only the answers in a
-  Decisions API response are validated, so a change in a field the library
-  does not read cannot discard a valid answer.
+  Decisions API response are validated, each a JSON number from 0 to 1, so a
+  change in a field the library does not read cannot discard a valid answer.
+  TypeSafe's client reads its answers leniently first
+  ([reading a decision model's answers](#reading-a-decision-models-answers)).
 
 A guard's label is read only where its format puts it: on the last line,
 alone or after a verdict key such as `Label:`, or on the first line when it
@@ -944,6 +946,14 @@ limit is linked from where it arises above.
   or after a verdict key, cannot be told from one that gives that label, when
   the reply names no other label: the text is the same, and a guard's output
   can be steered by what it reads.
+
+### Reading a decision model's answers
+
+- **Lenient answers through TypeSafe's client.** `langchain-typesafe` parses
+  the API's answers before `TypeSafeDecisionModel` sees them, and it reads
+  them leniently, so a `false` from the API arrives as 0.0, and a `true` or a
+  numeric string as a number. The monitor cannot tell such an answer from a
+  real probability. `OpenRouterDecisionModel` refuses them.
 
 ### Protocols and configuration
 

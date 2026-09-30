@@ -185,13 +185,21 @@ it, your own included:
 |---|---|
 | An `int`, a `float`, a `Decimal`, a `Fraction` or another real number from 0 to 1 | Read as a float |
 | `True` or `False`, which Python counts as numbers | `MonitorError` |
-| NaN, infinity, or a number outside 0 to 1 | `MonitorError` |
+| NaN, infinity, or a number outside 0 to 1, compared exactly, so `10**400` or a `Fraction` just above 1 is not rounded into range | `MonitorError` |
 | `None`, a string, or a question with no answer | `MonitorError` |
 
-`OpenRouterDecisionModel` also validates the response with pydantic: a
-response in an unexpected shape raises `MonitorError`. Fields the library does
-not read, such as `usage`, are not validated, so a change in them cannot
-discard a valid answer.
+`OpenRouterDecisionModel` also validates the response with pydantic, before
+the monitor's own check. Each answer must be a JSON number from 0 to 1, an
+integer such as `0` or `1` included: `true`, `false`, a string such as `"0"`
+or `"0.5"`, `null` and a number outside the range raise `MonitorError`, and
+so does a response in an unexpected shape. Fields the library does not read,
+such as `usage`, are not validated, so a change in them cannot discard a
+valid answer.
+
+`TypeSafeDecisionModel` has a known limit here: `langchain-typesafe` parses
+the API's answers leniently before the library sees them, so a `false` from
+the API arrives as 0.0, and a `true` or a numeric string as a number. The
+monitor cannot tell such an answer from a real probability.
 
 It retries transport errors, timeouts included, rate limits (HTTP 429) and
 server errors (HTTP 5xx) with stamina [@schlawack2026stamina], with a growing,

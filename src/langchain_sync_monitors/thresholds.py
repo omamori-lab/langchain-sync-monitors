@@ -85,10 +85,12 @@ def read_threshold_value(value: object, *, parameter_name: str) -> float:
     try:
         is_in_range = not value < 0 and value <= 1
     except ArithmeticError:
+        # A Decimal NaN raises `InvalidOperation` when compared, and is out of range too.
         is_in_range = False
     if not is_in_range:
         message = f"{parameter_name} must be between 0 and 1, got {value!r}"
         raise ConfigurationError(message)
+    # Adding 0.0 turns -0.0 into 0.0.
     return float(value) + 0.0
 
 

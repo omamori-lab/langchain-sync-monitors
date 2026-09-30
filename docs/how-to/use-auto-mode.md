@@ -269,9 +269,12 @@ sequenceDiagram
     Middleware->>Model: the conversation, attempt 1 and an error result with the feedback
     Model-->>Middleware: attempt 2, the final answer
     Note over Middleware: suspicion 0.10, runs
+    %% Two one-branch blocks rather than alt/else: Material's Mermaid theme
+    %% leaves an else label black, unreadable on the dark page.
     alt FeedbackVisibility.HIDDEN
         Middleware->>Messages: attempt 2 only
-    else FeedbackVisibility.IN_TRANSCRIPT
+    end
+    alt FeedbackVisibility.IN_TRANSCRIPT
         Middleware->>Messages: attempt 1, its feedback, then attempt 2
     end
 ```

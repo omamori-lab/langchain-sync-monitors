@@ -33,9 +33,10 @@ class Channel(Flag):
     tool output, following Claude Code's auto mode classifier
     [@hughes2026automode]; reasoning is one flag away, since reading it catches
     more misbehaviour [@baker2025monitoring] but can also mislead a monitor
-    [@arnav2025cotredhanded]. Whether a call ran is never left out: a tool
-    error travels with the call, and monitor feedback and context notes with
-    the task.
+    [@arnav2025cotredhanded]. Whether a call ran travels with what it belongs
+    to: a tool error with the call, and monitor feedback and context notes
+    with the task. The channels select what a monitor reads of the history;
+    the step it judges always shows its tool calls, whatever the channels.
     """
 
     USER = auto()
@@ -120,7 +121,12 @@ class MonitorView:
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class MonitorInput:
-    """What a monitor judges: the conversation so far and the step not yet taken."""
+    """What a monitor judges: the conversation so far and the step not yet taken.
+
+    Inside an agent, every human message in `history` that did not arrive as
+    a run's input carries an `lc_source` tag, so only the task author's
+    messages are untagged.
+    """
 
     history: tuple[BaseMessage, ...]
     proposal: AIMessage

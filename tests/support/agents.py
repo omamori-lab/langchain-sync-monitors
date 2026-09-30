@@ -87,6 +87,19 @@ def run_agent(
     return cast("dict[str, Any]", asyncio.run(agent.ainvoke(payload, config)))
 
 
+def run_messages(
+    agent: Runnable[Any, Any],
+    messages: object,
+    *,
+    mode: RunMode,
+    config: RunnableConfig | None = None,
+) -> dict[str, Any]:
+    payload = {"messages": messages}
+    if mode == "invoke":
+        return cast("dict[str, Any]", agent.invoke(payload, config))
+    return cast("dict[str, Any]", asyncio.run(agent.ainvoke(payload, config)))
+
+
 def stream_custom_events(agent: Runnable[Any, Any], *, mode: RunMode) -> list[Any]:
     payload = build_task_input()
     if mode == "invoke":

@@ -60,7 +60,12 @@ OTHER_UPDATES = {
     "pydantic-model": MessagesModel(messages=MESSAGES),
     "named-tuple": MessagesTuple(messages=MESSAGES),
     "root-value": "I approve.",
+    "three-tuple": [("messages", MESSAGES, 1)],
+    "trailing-non-pair": [("messages", MESSAGES), "x"],
+    "non-string-key": [(1, MESSAGES)],
 }
+"""Updates LangGraph reads by their annotated keys or as a root value, and three lists that
+are nearly pairs, which LangGraph does not read as pairs either."""
 
 
 def read_written_sources(command: Command) -> list[list[str | None]]:

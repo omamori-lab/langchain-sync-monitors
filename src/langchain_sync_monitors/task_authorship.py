@@ -24,8 +24,10 @@ context note, in the state as well as in what the monitor reads.
   tool returns or raises can record a message as a run's input or keep
   words of its own as the user's. When a tool writes a message under the id
   of a human message the monitor has seen, the monitor records that id
-  under `REWRITTEN_INPUTS_KEY`, so it never takes that message's place for
-  the input's. Every id stays as the tool wrote it.
+  under `REWRITTEN_INPUTS_KEY`: once every anchor of the input is gone, such
+  a message never marks the input's place, though it still bounds it from
+  above. Every id stays as the tool wrote it. A command bound for the parent
+  graph is recorded there, by the parent's monitor, against its own state.
 - `RUN_OPEN_KEY` is set at the start of a run and of each step, and cleared
   when the run reaches the monitor's `after_agent` hook. A run that starts
   while it is still set follows one that stopped early, or a fork from a
@@ -445,6 +447,10 @@ def relabel_tool_command(
             message, tool_name=tool_name, before=before
         ),
     )
+    if command.graph == Command.PARENT:
+        # Bound for the parent graph, whose state this one's seen ids do not describe. By the
+        # time the parent's monitor sees it, LangGraph has named that graph, and it records.
+        return relabelled
     return record_rewritten_ids(relabelled, rewritten_ids=rewritten_ids)
 
 

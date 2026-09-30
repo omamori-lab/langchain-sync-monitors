@@ -1,12 +1,12 @@
 """The text of every run's input, kept so the judge reads each one after it leaves the history.
 
 Every human message recorded as a run's input, under `TASK_MESSAGES_KEY`,
-reaches the judge as the task author's words, verbatim and in its original
-order, even once the model request no longer holds it: after LangChain's
-`SummarizationMiddleware` replaces earlier messages in the state, Deep Agents
-replaces them in the request [@langchain2026; @deepagents2026], or a tool
-removes it by id [@langgraph2026]. The summary stays a context note beside
-the kept turns, since the agent's model wrote it.
+reaches the judge as the task author's words, verbatim, even once the model
+request no longer holds it: after LangChain's `SummarizationMiddleware`
+replaces earlier messages in the state, Deep Agents replaces them in the
+request [@langchain2026; @deepagents2026], or a tool removes it by id
+[@langgraph2026]. The inputs put back keep their order. The summary stays a
+context note beside the kept turns, since the agent's model wrote it.
 
 - Each new input's text is kept under `RUN_INPUTS_KEY` at the start of its
   run, in the update that records its id: the one hook sure to see it, since
@@ -36,7 +36,10 @@ since LangGraph adds a message under an id the state lacks at the end; a
 tool's rewrite in place keeps the input's neighbour, so the input still goes
 back there. It comes before the next input still there and any message under
 its id, and after the input before it, which wins where the two disagree, so
-the inputs always keep their order.
+the inputs put back keep their order. The inputs the state still holds are
+read where they stand: a tool that reorders them, by writing the whole
+history back in a new order or by removing an input and writing it back at
+the end in parallel calls, reorders them for the judge as for the agent.
 
 The judge reads every input whole on every step, even one Deep Agents shows
 the agent only as a preview, over 50,000 tokens by default, so a very large
@@ -269,8 +272,8 @@ def find_missing_input_slots(
 
     Each one comes after the input before it, and before both the next input
     the history holds and a message that took its id, which was written after
-    it. Where the two bounds cross, the lower one wins, so the inputs always
-    keep their order.
+    it. Where the two bounds cross, the lower one wins, so the inputs put back
+    keep their order among themselves and with the ones the history holds.
     """
     index_by_id = {message.id: index for index, message in enumerate(history) if message.id}
     slots: dict[str, int] = {}

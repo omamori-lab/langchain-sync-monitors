@@ -454,12 +454,18 @@ def test_an_input_whose_neighbours_are_all_gone_goes_back_before_its_rewrite() -
 
 
 def test_an_input_goes_back_before_a_message_a_tool_wrote_under_its_id_later() -> None:
-    # Arrange: the reply the second turn followed now sits after the tool's note under its id
+    # Arrange: the reply the second turn followed now sits after the tool's note under its id,
+    # which the monitor recorded as a tool's write, as it does in a run
     note = HumanMessage("noted", id="narrowing", additional_kwargs={"lc_source": "pin"})
     history: list[BaseMessage] = [TASK, note, READ, REPLY]
 
     # Act
-    restored = restore(history, KEPT_TASK, KEPT_NARROWING)
+    restored = restore_run_inputs(
+        history,
+        run_inputs=[KEPT_TASK, KEPT_NARROWING],
+        task_message_ids=TASK_IDS,
+        rewritten_ids=frozenset({"narrowing"}),
+    )
 
     # Assert
     assert read_ids(restored) == ["task", "narrowing", "narrowing", "read", "reply"]

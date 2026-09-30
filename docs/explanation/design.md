@@ -405,9 +405,10 @@ When the view keeps only recent entries, every message from the task author is
 kept anyway, in order: the first states the task, and a later one can narrow or
 revoke it. A context note is never kept in their place. After summarisation,
 or after a tool removes a message by id, every run's input still reaches the
-monitor, verbatim and in order, from the text the monitor keeps in its private
-state, and the summary stays a note; input after a run that stopped early
-comes back as a note from `unconfirmed_input`. Reasoning
+monitor, verbatim, from the text the monitor keeps in its private state, put
+back in order, and the summary stays a note; input after a run that stopped early
+comes back as a note from `unconfirmed_input`. A tool that reorders the inputs
+the state still holds reorders them for the judge as for the agent. Reasoning
 is read from LangChain's standard content blocks, with a fallback for a reply
 that would carry it only in OpenRouter's `reasoning_details`
 [@langchaincore2026; @langchainopenrouter2026].

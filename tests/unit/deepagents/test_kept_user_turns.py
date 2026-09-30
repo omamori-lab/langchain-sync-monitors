@@ -10,8 +10,10 @@ main agent.
 
 from __future__ import annotations
 
+import logging
 from typing import Annotated, Any
 
+import pytest
 from deepagents.middleware.filesystem import FilesystemMiddleware
 from langchain.agents import create_agent
 from langchain.agents.middleware import AgentMiddleware
@@ -19,6 +21,7 @@ from langchain.tools import InjectedState
 from langchain_core.messages import AIMessage, AnyMessage, HumanMessage, RemoveMessage, ToolMessage
 from langchain_core.tools import InjectedToolCallId, tool
 from langgraph.checkpoint.memory import InMemorySaver
+from langgraph.errors import ParentCommand
 from langgraph.types import Command
 
 from langchain_sync_monitors import MonitorMiddleware, TrustedMonitoring
@@ -294,3 +297,47 @@ def test_a_worker_cannot_move_the_user_s_answer_through_a_parent_command(
     )
     state = agent.get_state(config).values
     assert "answer-1" in state["monitor_rewritten_inputs"]
+
+
+def build_hand_back(*, raise_it: bool) -> Any:
+    """Return a worker tool that hands its whole history back to the main agent."""
+
+    @tool
+    def hand_back(messages: Annotated[list[AnyMessage], InjectedState("messages")]) -> Command:
+        """Hand the worker's findings back to the main agent."""
+        report = ToolMessage("Worker done.", tool_call_id="call-task", name="task")
+        command = Command(graph=Command.PARENT, update={"messages": [*messages, report]})
+        if raise_it:
+            raise ParentCommand(command)
+        return command
+
+    return hand_back
+
+
+@pytest.mark.parametrize("raise_it", [False, True], ids=["returned", "raised"])
+def test_a_worker_handing_its_history_back_trips_no_guard(
+    run_mode: RunMode,
+    raise_it: bool,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    # Arrange: the worker's history holds its own task, a message its monitor has seen
+    main_model = ScriptedChatModel(responses=[build_delegation_step(), AIMessage("Done.")])
+    worker_model = ScriptedChatModel(
+        responses=[build_tool_call_message(tool_name="hand_back", call_id="call-hand-back")],
+    )
+    agent = build_deep_agent(
+        main_model=main_model,
+        worker_model=worker_model,
+        main_monitor=build_reading_monitor(RenderingMonitor()),
+        checkpointer=InMemorySaver(),
+        tools=[build_hand_back(raise_it=raise_it)],
+    )
+    config = build_thread_config(f"hand-back-{raise_it}-{run_mode}")
+
+    # Act
+    with caplog.at_level(logging.WARNING, logger="langchain_sync_monitors.task_authorship"):
+        run_messages(agent, [HumanMessage(TASK, id="task-1")], mode=run_mode, config=config)
+
+    # Assert: no monitor-only write was taken for the task tool's, and nothing was recorded
+    assert [record.getMessage() for record in caplog.records] == []
+    assert agent.get_state(config).values.get("monitor_rewritten_inputs", []) == []

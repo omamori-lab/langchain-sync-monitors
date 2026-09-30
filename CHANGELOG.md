@@ -136,8 +136,8 @@ change raises the minor version.
   the history.
 - Only the human messages a run receives as its input render as `<user>`, or
   `<delegator>` inside a subagent.
-- Every run's input reaches the judge verbatim and in order even after
-  summarisation or a tool has taken it out of the model request, since
+- Every run's input reaches the judge verbatim even after summarisation or a
+  tool has taken it out of the model request, put back in order, since
   `monitor_run_inputs` keeps its text, which grows the state by the size of
   the user's turns; input after a stopped run comes back as a note from
   `unconfirmed_input`. The judge reads each input whole on every step, even

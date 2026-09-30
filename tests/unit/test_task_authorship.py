@@ -23,7 +23,11 @@ from langgraph.graph.message import REMOVE_ALL_MESSAGES
 from langgraph.types import Command, Overwrite
 from pydantic import BaseModel
 
-from langchain_sync_monitors._langchain import ToolCallResult, read_update_pairs
+from langchain_sync_monitors._langchain import (
+    ToolCallResult,
+    ToolCallResults,
+    read_update_pairs,
+)
 from langchain_sync_monitors.task_authorship import (
     build_run_input_update,
     mark_context_notes,
@@ -506,16 +510,19 @@ def test_a_tool_s_write_under_a_seen_id_keeps_the_id_and_is_recorded(
     state: dict[str, object],
     message_id: str,
     expected_record: list[list[str]],
+    caplog: pytest.LogCaptureFixture,
 ) -> None:
     # Arrange
     command = Command(update={"messages": [HumanMessage("noted", id=message_id)]})
 
     # Act
-    result = mark_tool_written_notes(command, tool_name="pin", state=state)
+    with caplog.at_level(logging.WARNING, logger=TASK_AUTHORSHIP_LOGGER):
+        result = mark_tool_written_notes(command, tool_name="pin", state=state)
 
-    # Assert
+    # Assert: the monitor's own record is kept, and is not taken for the tool's write
     assert read_written_ids(result) == [message_id]
     assert read_written(result, key="monitor_rewritten_inputs") == expected_record
+    assert caplog.records == []
 
 
 def test_a_removal_is_not_recorded_and_a_tool_message_is_recorded_in_a_command() -> None:
@@ -554,27 +561,47 @@ def test_a_later_item_writing_back_what_an_earlier_one_removed_is_the_tool_s_not
     assert read_written(written[1], key="monitor_rewritten_inputs") == [["task"]]
 
 
-def test_a_write_back_in_the_same_item_as_its_removal_keeps_its_author() -> None:
+@pytest.mark.parametrize("as_list", [False, True], ids=["one-command", "one-item-list"])
+def test_a_write_back_in_the_same_item_as_its_removal_keeps_its_author(as_list: bool) -> None:
     # Arrange: LangGraph puts a message removed and written in one write back in its place
     state = {"messages": [TASK_MESSAGE, REPLY_MESSAGE], "monitor_seen_human_messages": ["task"]}
     command = Command(update={"messages": [RemoveMessage(id="task"), TASK_MESSAGE]})
+    results: ToolCallResults = [command] if as_list else command
 
     # Act
-    written = mark_tool_written_notes(command, tool_name="backup", state=state)
+    written = mark_tool_written_notes(results, tool_name="backup", state=state)
 
     # Assert
-    [messages] = read_written(written, key="messages")
+    item = written[0] if isinstance(written, list) else written
+    [messages] = read_written(item, key="messages")
     assert read_sources(messages) == [None, None]
 
 
-def test_a_command_a_tool_raises_for_the_parent_records_the_seen_ids_it_writes_under() -> None:
+PARENT_COMMAND_GRAPHS = {
+    "named-for-this-graph": ("tools:0d3c", [["task"]]),
+    "bound-for-the-parent": (Command.PARENT, []),
+}
+"""The graph a command raised for the parent names: the parent's wrapper sees the namespace
+LangGraph resolved it to, and the worker's wrapper still sees `Command.PARENT`."""
+
+
+@pytest.mark.parametrize(
+    ("graph", "expected_record"),
+    PARENT_COMMAND_GRAPHS.values(),
+    ids=PARENT_COMMAND_GRAPHS.keys(),
+)
+def test_a_raised_command_is_recorded_only_by_the_graph_it_writes_to(
+    graph: str,
+    expected_record: list[list[str]],
+) -> None:
     # Arrange
     update = {"messages": [HumanMessage("noted", id="task"), ANSWER]}
-    bubble = ParentCommand(Command(graph=Command.PARENT, update=update))
+    bubble = ParentCommand(Command(graph=graph, update=update))
 
     # Act
     relabel_parent_command(bubble, tool_name="report", state=SEEN_TASK_STATE)
 
     # Assert
     [command] = bubble.args
-    assert read_written(command, key="monitor_rewritten_inputs") == [["task"]]
+    assert command.graph == graph
+    assert read_written(command, key="monitor_rewritten_inputs") == expected_record

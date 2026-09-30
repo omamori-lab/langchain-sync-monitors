@@ -1,10 +1,11 @@
-"""The state keys only the monitor writes, which a tool's writes to are dropped.
+"""The monitor's state keys, and `MONITOR_STATE_KEYS`, the ones only the monitor writes.
 
-`MonitorState` declares a field under each. They live apart from the modules
-that write them, so that `task_authorship`, which those modules import, can
-guard every one of them against a tool's writes. The monitor's other two
-keys, `monitor_log` and `monitor_delegation`, are defined in `_langchain`,
-beside the readers that parse them.
+`MonitorState` declares a field under each. `task_authorship` drops a tool's
+writes to every key in `MONITOR_STATE_KEYS`, which is why these live apart
+from the modules that write them: those modules import `task_authorship`.
+`MONITOR_STATE_KEYS` also holds `monitor_delegation`, defined in `_langchain`
+beside the reader that parses it; `monitor_log`, also defined there, is the
+one monitor key a tool may write.
 """
 
 from langchain_sync_monitors._langchain import MONITOR_DELEGATION_KEY

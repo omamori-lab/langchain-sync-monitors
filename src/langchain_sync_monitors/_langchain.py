@@ -10,15 +10,7 @@ managers, through which the monitor's spans reach every tracer.
 from __future__ import annotations
 
 import logging
-from collections.abc import (
-    AsyncIterator,
-    Awaitable,
-    Callable,
-    Collection,
-    Iterator,
-    Mapping,
-    Sequence,
-)
+from collections.abc import AsyncIterator, Awaitable, Callable, Iterator, Mapping, Sequence
 from contextlib import asynccontextmanager, contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass, field, replace
@@ -249,28 +241,6 @@ def rewrite_update_messages(command: Command[Any], *, rewrite: MessageRewrite) -
     if isinstance(command.update, dict):
         return replace(command, update=dict(rewritten))
     return replace(command, update=tuple(rewritten))
-
-
-def remove_update_keys(
-    command: Command[Any],
-    *,
-    keys: Collection[str],
-) -> tuple[Command[Any], list[str]]:
-    """Return the command without the writes its update makes to `keys`, and the keys it wrote.
-
-    The pairs are read as LangGraph writes them, so every update shape is
-    covered, and a value goes with its key whatever its form, an `Overwrite`
-    included. A key is compared with `==`, as `rewrite_update_pairs` compares
-    it. A dict stays a dict, and any other shape becomes the pairs LangGraph
-    reads from it. A command that writes none of `keys` is returned as it is.
-    """
-    pairs = read_update_pairs(command)
-    removed = [str(key) for key, _ in pairs if any(key == name for name in keys)]
-    if not removed:
-        return command, []
-    kept = [(key, value) for key, value in pairs if not any(key == name for name in keys)]
-    update = dict(kept) if isinstance(command.update, dict) else tuple(kept)
-    return replace(command, update=update), removed
 
 
 MONITOR_LOG_KEY = "monitor_log"

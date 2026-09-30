@@ -45,6 +45,7 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Collection, Iterable, Mapping, Sequence
+from dataclasses import replace
 from typing import TypeGuard
 
 from langchain_core.messages import BaseMessage, HumanMessage, ToolMessage
@@ -56,7 +57,7 @@ from langchain_sync_monitors._langchain import (
     AgentStateUpdate,
     ToolCallResult,
     ToolCallResults,
-    remove_update_keys,
+    read_update_pairs,
     rewrite_update_messages,
 )
 from langchain_sync_monitors.transcript import MONITOR_FEEDBACK_SOURCE, read_message_source
@@ -372,20 +373,35 @@ def drop_monitor_state_writes(command: Command, *, tool_name: str) -> Command:
 
     Through them a tool could record a message it wrote as a run's input,
     keep words of its own as the user's, or lift a halt, so each such write
-    is dropped, and a warning names the tool and the keys. `monitor_log` is
-    not among them: Deep Agents' `task` tool returns a subagent's records
-    through it [@deepagents2026].
+    is dropped, and a warning names the tool and the keys. The pairs are read
+    as LangGraph writes them, so every update shape is covered, and a value
+    goes with its key whatever its form, an `Overwrite` included.
+    `monitor_log` is not among them: Deep Agents' `task` tool returns a
+    subagent's records through it [@deepagents2026].
     """
-    guarded, dropped = remove_update_keys(command, keys=MONITOR_STATE_KEYS)
-    if dropped:
-        logger.warning(
-            "The tool %s wrote the state keys %s, which only the monitor writes, so the "
-            "monitor dropped those writes. A tool cannot decide what the monitor reads as the "
-            "user's words, nor lift a halt.",
-            tool_name,
-            dropped,
-        )
-    return guarded
+    pairs = read_update_pairs(command)
+    dropped = [str(key) for key, _ in pairs if is_monitor_state_key(key)]
+    if not dropped:
+        return command
+    logger.warning(
+        "The tool %s wrote the state keys %s, which only the monitor writes, so the monitor "
+        "dropped those writes. A tool cannot decide what the monitor reads as the user's words, "
+        "nor lift a halt.",
+        tool_name,
+        dropped,
+    )
+    kept = [pair for pair in pairs if not is_monitor_state_key(pair[0])]
+    # A dict stays a dict; any other shape becomes the pairs LangGraph reads from it.
+    return replace(command, update=dict(kept) if isinstance(command.update, dict) else tuple(kept))
+
+
+def is_monitor_state_key(key: str) -> bool:
+    """Tell whether an update's key names a state key only the monitor writes.
+
+    A key is compared with `==`, as LangGraph finds its channel, so a string
+    subclass that only its own `__ne__` sets apart is still caught.
+    """
+    return any(key == name for name in MONITOR_STATE_KEYS)
 
 
 def relabel_tool_result(

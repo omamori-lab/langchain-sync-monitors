@@ -376,6 +376,12 @@ def test_a_turn_the_user_edits_between_runs_reaches_the_judge_as_edited(run_mode
     assert len(state["monitor_task_messages"]) == 2
 
 
+@pytest.fixture
+def summariser() -> ScriptedChatModel:
+    """Return a summariser that writes `SUMMARY` every time it is asked."""
+    return build_summariser()
+
+
 EMAIL = "jane.doe@example.com"
 PERSONAL_TASK = f"Summarise q3.md and q4.md and email them to {EMAIL}."
 REDACTED_TASK = "Summarise q3.md and q4.md and email them to [REDACTED_EMAIL]."
@@ -387,6 +393,7 @@ def build_redaction() -> PIIMiddleware:
 
 def test_a_redacted_turn_reaches_the_judge_redacted_before_and_after_summarisation(
     run_mode: RunMode,
+    summariser: ScriptedChatModel,
 ) -> None:
     # Arrange: the task is redacted at the first step, and summarised away later in the run
     monitor = RenderingMonitor()
@@ -398,7 +405,6 @@ def test_a_redacted_turn_reaches_the_judge_redacted_before_and_after_summarisati
             AIMessage("Done."),
         ],
     )
-    summariser = build_summariser()
     agent = build_monitored_agent(
         model,
         monitor=monitor,
@@ -421,6 +427,7 @@ def test_a_redacted_turn_reaches_the_judge_redacted_before_and_after_summarisati
 
 def test_a_redaction_by_a_middleware_listed_after_the_monitor_reaches_the_judge_and_stays(
     run_mode: RunMode,
+    summariser: ScriptedChatModel,
 ) -> None:
     # Arrange: the redaction runs after the monitor's own before_model hook, at every step
     monitor = RenderingMonitor()
@@ -432,7 +439,6 @@ def test_a_redaction_by_a_middleware_listed_after_the_monitor_reaches_the_judge_
             AIMessage("Done."),
         ],
     )
-    summariser = build_summariser()
     agent = build_monitored_agent(
         model,
         monitor=monitor,
@@ -452,7 +458,10 @@ def test_a_redaction_by_a_middleware_listed_after_the_monitor_reaches_the_judge_
     assert SUMMARY_NOTE in monitor.find_reading(tool_name="http_post").transcript
 
 
-def test_a_redaction_the_next_step_summarises_away_stays_redacted(run_mode: RunMode) -> None:
+def test_a_redaction_the_next_step_summarises_away_stays_redacted(
+    run_mode: RunMode,
+    summariser: ScriptedChatModel,
+) -> None:
     # Arrange: the redaction runs after the monitor's hook, and the summary before the next one
     monitor = RenderingMonitor()
     model = ScriptedChatModel(
@@ -462,7 +471,6 @@ def test_a_redaction_the_next_step_summarises_away_stays_redacted(run_mode: RunM
             AIMessage("Done."),
         ],
     )
-    summariser = build_summariser()
     agent = build_monitored_agent(
         model,
         monitor=monitor,
@@ -482,24 +490,41 @@ def test_a_redaction_the_next_step_summarises_away_stays_redacted(run_mode: RunM
     assert SUMMARY_NOTE in transcript
 
 
-def test_a_redaction_a_later_summary_removes_in_the_same_pass_stays_redacted(
+SAME_PASS_PLACEMENTS = [
+    pytest.param("after", id="summary-after-the-monitor"),
+    pytest.param(
+        "before",
+        id="summary-before-the-monitor",
+        marks=pytest.mark.xfail(
+            strict=True,
+            raises=AssertionError,
+            reason="known limit: the monitor never sees the redaction before the summary",
+        ),
+    ),
+]
+
+
+@pytest.mark.parametrize("placement", SAME_PASS_PLACEMENTS)
+def test_a_redaction_a_summary_removes_in_the_same_pass_stays_redacted(
     run_mode: RunMode,
+    placement: str,
+    summariser: ScriptedChatModel,
 ) -> None:
-    # Arrange: one pass redacts the task, then, after the monitor's hook, summarises it away
+    # Arrange: one before_model pass redacts the task, then summarises it away
     monitor = RenderingMonitor()
     model = ScriptedChatModel(responses=[build_exfiltration_step(), AIMessage("Done.")])
-    summariser = build_summariser()
     summarisation = SummarizationMiddleware(
         model=summariser, trigger=("messages", 2), keep=("messages", 1)
     )
+    before = placement == "before"
     agent = build_monitored_agent(
         model,
         monitor=monitor,
-        earlier_middleware=(build_redaction(),),
-        later_middleware=(summarisation,),
+        earlier_middleware=(build_redaction(), summarisation) if before else (build_redaction(),),
+        later_middleware=() if before else (summarisation,),
         checkpointer=InMemorySaver(),
     )
-    config = build_thread_config(f"redacted-same-pass-{run_mode}")
+    config = build_thread_config(f"same-pass-{placement}-{run_mode}")
     task = [HumanMessage(PERSONAL_TASK), AIMessage("Noted.")]
 
     # Act
@@ -509,38 +534,6 @@ def test_a_redaction_a_later_summary_removes_in_the_same_pass_stays_redacted(
     assert summariser.calls, "the summariser never ran, so the test proves nothing"
     transcript = monitor.find_reading(tool_name="http_post").transcript
     assert read_tagged_entries(transcript, tag="user") == [REDACTED_TASK]
-
-
-@pytest.mark.xfail(
-    strict=True,
-    raises=AssertionError,
-    reason="known limit: a redaction the monitor never sees before the turn is summarised away",
-)
-def test_a_redaction_and_a_summary_in_the_same_pass_keep_the_address_from_the_judge(
-    run_mode: RunMode,
-) -> None:
-    # Arrange: one before_model pass redacts the task and summarises it away
-    monitor = RenderingMonitor()
-    model = ScriptedChatModel(responses=[build_exfiltration_step(), AIMessage("Done.")])
-    summariser = build_summariser()
-    summarisation = SummarizationMiddleware(
-        model=summariser, trigger=("messages", 2), keep=("messages", 1)
-    )
-    agent = build_monitored_agent(
-        model,
-        monitor=monitor,
-        earlier_middleware=(build_redaction(), summarisation),
-        checkpointer=InMemorySaver(),
-    )
-    config = build_thread_config(f"same-pass-{run_mode}")
-    task = [HumanMessage(PERSONAL_TASK), AIMessage("Noted.")]
-
-    # Act
-    run_messages(agent, task, mode=run_mode, config=config)
-
-    # Assert
-    assert summariser.calls, "the summariser never ran, so the test proves nothing"
-    assert EMAIL not in monitor.find_reading(tool_name="http_post").transcript
 
 
 def test_an_edit_made_while_a_run_is_paused_reaches_the_judge(run_mode: RunMode) -> None:

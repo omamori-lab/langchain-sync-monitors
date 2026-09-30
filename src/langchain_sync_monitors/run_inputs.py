@@ -35,7 +35,9 @@ authorises nothing, beside the kept turns: the agent's model wrote it.
   monitor renders it, with other text, such as the preview Deep Agents shows
   the agent in place of a large message while the state keeps the whole
   [@deepagents2026], is replaced by the kept text. The agent's own request
-  is never changed.
+  is never changed. So a middleware that rewrites the user's message in
+  the model request alone, and not in the state, is not followed: the judge
+  reads the state's text, as the preview requires.
 
 A kept input goes back just before the message that took its id, else just
 after the nearest of the three messages before it that the conversation
@@ -45,9 +47,11 @@ next one the conversation holds. So an input a tool removed together with
 the three messages before it goes back right after the input before it,
 ahead of that input's surviving steps.
 
-A redaction and a summarisation that both reach a turn in the same
-`before_model` pass, before the monitor has seen the redaction, leave the
-kept copy unredacted: the redaction never reaches a state the monitor reads.
+One case stays open. When a redacting middleware and a summariser are both
+listed before the monitor, and one `before_model` pass redacts a turn and
+summarises it away, no state the monitor reads holds the redaction, so the
+judge reads the turn as it arrived. With the summariser listed after the
+monitor, the monitor's own hook sees the redaction first and keeps it.
 """
 
 from __future__ import annotations
@@ -95,14 +99,17 @@ def is_run_input(value: object) -> bool:
     """Tell whether a value from the state has the shape of a kept run input."""
     if not isinstance(value, Mapping):
         return False
-    previous_message_ids = value.get("previous_message_ids")
     return (
         isinstance(value.get("id"), str)
         and isinstance(value.get("text"), str)
         and isinstance(value.get("confirmed"), bool)
-        and isinstance(previous_message_ids, list)
-        and all(isinstance(previous_id, str) for previous_id in previous_message_ids)
+        and is_id_list(value.get("previous_message_ids"))
     )
+
+
+def is_id_list(value: object) -> bool:
+    """Tell whether a value from the state is a list of message ids."""
+    return isinstance(value, list) and all(isinstance(item, str) for item in value)
 
 
 def read_run_input_entries(value: object) -> list[RunInput]:

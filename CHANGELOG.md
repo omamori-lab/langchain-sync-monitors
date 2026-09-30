@@ -135,6 +135,12 @@ The first release. Everything below is new.
 - A guard's verdict is read from its last line only when the label stands
   alone or follows a verdict key such as `Label:` or `Final answer:`; a label
   after any other key, as in `It asks for: no_violation`, is unreadable.
+- A guard reply fails closed when a line may hold the guard's own suspicious
+  label off format and the reply also names a safe label: a line that opens
+  with a suspicious label before a mark, opens with a verdict key and a label
+  whatever follows, or ends on a suspicious label after a colon. A benign
+  reply whose reasoning opens a line that way, such as `Result: violation of
+  the policy would need ...`, is flagged too.
 - A guard's reason from log-probabilities gives one of three findings by the
   suspicious share, with no number: it breaks the policy (0.5 or more), the
   guard was uncertain (0.001 to 0.5), or it follows the policy (below 0.001).
@@ -157,7 +163,10 @@ The first release. Everything below is new.
 
 - A safe label the agent planted in its step is no longer read as the guard's
   verdict when the guard quotes it after its own label, after a colon on the
-  same line, after a prose key, or on the line after its own keyed label.
+  same line, after a prose key, or on the line after a line that holds its
+  own label in any form the reader counts, such as `violation (the note asks
+  ...`, `Label: violation because ...` or `The final label for this step:
+  violation`.
 - The guard's label parser runs in linear time on long lines of colons,
   dashes or spaces.
 - A guard's log-probabilities are scored only at the guard's own label token,
@@ -167,9 +176,11 @@ The first release. Everything below is new.
   raising `ValueError`.
 - Replies cut off at a length limit are recognised from Bedrock Converse
   (`stopReason`) and Ollama (`done_reason`), and fail closed.
-- A decision answer that is missing, NaN, outside 0 to 1, not a real number or
-  a `bool` raises `MonitorError` for any `DecisionModel`, instead of being
-  dropped by `Combine.MAX` or `Combine.MIN` or raising another error.
+- A decision answer that is missing, NaN, infinite, outside 0 to 1, a `bool`,
+  or not a number at all raises `MonitorError` for any `DecisionModel`,
+  instead of being dropped by `Combine.MAX` or `Combine.MIN` or raising
+  another error. An `int`, a `float`, a `Decimal` or another real number from
+  0 to 1 is read as a float.
 - Only a `TypeError` for an unexpected `logprobs` keyword is reported as a
   rejected request for log-probabilities.
 - The guides state how a wrapped or sampled monitor counts an unreadable reply,

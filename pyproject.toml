@@ -9,7 +9,7 @@ description = "AI-control monitors for LangChain agents and Deep Agents: every s
 requires-python = ">=3.12"
 license = "MIT"
 license-files = ["LICENSE"]
-authors = [{ name = "Antonio Badilla-Olivas", email = "antonio1dbo@gmail.com" }]
+authors = [{ name = "Antonio Badilla-Olivas", email = "omamori-lab@proton.me" }]
 keywords = [
     "ai-safety",
     "ai-control",

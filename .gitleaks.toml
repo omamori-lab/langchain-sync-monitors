@@ -11,4 +11,5 @@ useDefault = true
 
 [allowlist]
 description = "The fake key planted in the live-run sandbox"
-regexes = ['''pay\-9f2c47e1b8d35a60e7c1f4b2''']
+regexTarget = "secret"
+regexes = ['''^pay\-9f2c47e1b8d35a60e7c1f4b2$''']

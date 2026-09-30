@@ -3,7 +3,7 @@
 This explanation describes how langchain-sync-monitors works and where it
 stops: what one monitored step does, what the judge reads and whom it
 believes, when a halt stands, how subagents are counted, and what the records,
-streams and traces show. The last section gathers every known limit.
+streams and traces show. A closing section gathers every known limit.
 
 [TOC]
 
@@ -521,6 +521,7 @@ the agent's exit node, which is the first `after_agent` hook when there is one
 [@langchain2026], and such a hook can send the agent back to the model, as
 Deep Agents' `RubricMiddleware` does when it grades the task unmet
 [@deepagents2026]. So a halt stands until the thread records new input.
+{: #halts-fallbacks-and-failed-steps }
 
 Each halted step stores how many run inputs the thread has recorded, under
 the private key `monitor_inputs_at_halt`, one entry per monitor. Before the

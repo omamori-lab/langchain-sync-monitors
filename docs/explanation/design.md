@@ -74,7 +74,8 @@ flowchart TD
 
 Skills, memory, asynchronous subagents and harness profiles add layers of
 their own when they are configured. The monitor therefore sees the
-conversation after summarisation, which is what the agent itself sees, and
+conversation after summarisation, which is what the agent itself sees, with
+each of the user's turns put back where the summary replaced it, and
 every resample or trusted call passes through the inner layers, so prompt
 caching and content checks still apply. Those inner layers only change the
 request, so they return no commands, and the default stack is safe for
@@ -402,9 +403,12 @@ either; send it as the input of a new run instead.
 
 When the view keeps only recent entries, every message from the task author is
 kept anyway, in order: the first states the task, and a later one can narrow or
-revoke it. A context note is never kept in their place. After summarisation has
-replaced the earlier messages of the model request, the original task may be
-gone from what the monitor reads, and the summary is left as a note. Reasoning
+revoke it. A context note is never kept in their place. After summarisation,
+or after a tool removes a message by id, every run's input still reaches the
+monitor, verbatim, from the text the monitor keeps in its private state, put
+back in order, and the summary stays a note; input after a run that stopped early
+comes back as a note from `unconfirmed_input`. A tool that reorders the inputs
+the state still holds reorders them for the judge as for the agent. Reasoning
 is read from LangChain's standard content blocks, with a fallback for a reply
 that would carry it only in OpenRouter's `reasoning_details`
 [@langchaincore2026; @langchainopenrouter2026].

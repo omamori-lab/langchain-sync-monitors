@@ -33,6 +33,7 @@ from langchain_sync_monitors.feedback import build_blocked_attempt_messages
 from langchain_sync_monitors.halts import build_halt_inputs_update
 from langchain_sync_monitors.pending_steps import MonitoredStep
 from langchain_sync_monitors.records import build_sample_record
+from langchain_sync_monitors.run_inputs import build_refresh_update
 from langchain_sync_monitors.spans import StepIdentity, build_step_span_inputs
 from langchain_sync_monitors.task_authorship import build_note_update
 
@@ -122,6 +123,8 @@ def commit_step(
         # A middleware listed after the monitor runs its `before_model` hook after the
         # monitor's own, so a human message it wrote is first recorded here.
         **build_note_update(request.state),
+        # A middleware listed after the monitor may have rewritten a kept input since.
+        **build_refresh_update(request.state),
         **build_halt_inputs_update(record, state=request.state, monitor=middleware_name),
     }
     return ExtendedModelResponse(model_response=response, command=Command(update=update))

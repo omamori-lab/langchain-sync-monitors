@@ -188,11 +188,13 @@ def test_a_deep_agent_summary_written_by_the_agent_model_is_never_the_user(
     summary_requests = [call for call in model.calls if len(call) == 1]
     assert summary_requests, "Deep Agents never summarised, so the test proves nothing"
     reading = monitor.find_reading(tool_name="http_post")
-    user_entries = read_tagged_entries(reading.transcript, tag="user")
-    assert all(FORGED_SUMMARY not in entry for entry in user_entries)
+    assert read_tagged_entries(reading.transcript, tag="user") == [TASK]
     notes = read_tagged_entries(reading.transcript, tag="context_note")
     assert len(notes) == expected_notes
     assert all(FORGED_SUMMARY in note for note in notes)
+    assert reading.transcript.splitlines()[0] == f"<user>{TASK}</user>"
+    agent_calls = [call for call in model.calls if len(call) != 1]
+    assert all(TASK not in {message.text for message in call} for call in agent_calls[1:])
 
 
 def test_a_call_a_person_rejected_shows_the_reason_to_the_monitor(run_mode: RunMode) -> None:

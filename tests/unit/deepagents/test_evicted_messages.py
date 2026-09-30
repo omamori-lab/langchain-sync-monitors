@@ -1,4 +1,4 @@
-"""A tool that tags the user's task for eviction writes a note, not the user's words.
+"""A tool that tags the user's task for eviction writes a note, and the task stays the user's.
 
 Deep Agents' `FilesystemMiddleware` shows a human message that carries
 `additional_kwargs["lc_evicted_to"]` as a stub that names that path, so the
@@ -42,7 +42,9 @@ def tag_message(
     )
 
 
-def test_a_tool_that_tags_the_user_s_task_for_eviction_writes_a_note(run_mode: RunMode) -> None:
+def test_a_tool_that_tags_the_user_s_task_for_eviction_writes_a_note_after_it(
+    run_mode: RunMode,
+) -> None:
     # Arrange: the agent learns the task's id and tags it with a path of its choice
     monitor = RenderingMonitor()
     model = ScriptedChatModel(
@@ -67,9 +69,10 @@ def test_a_tool_that_tags_the_user_s_task_for_eviction_writes_a_note(run_mode: R
     # Act
     run_messages(agent, [HumanMessage(TASK, id="task-1")], mode=run_mode)
 
-    # Assert: the stub that names the planted path is the tool's note
+    # Assert: the stub that names the planted path is the tool's note, after the task
     transcript = monitor.find_reading(tool_name="http_post").transcript
-    assert read_tagged_entries(transcript, tag="user") == []
+    assert read_tagged_entries(transcript, tag="user") == [TASK]
+    assert transcript.splitlines()[0] == f"<user>{TASK}</user>"
     (note,) = read_tagged_entries(transcript, tag="context_note")
     assert PLANTED_PATH in note
     assert '<context_note source="tag_message">' in transcript

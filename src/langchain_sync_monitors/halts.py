@@ -37,7 +37,7 @@ they write stays a note.
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
-from typing import Final, TypedDict
+from typing import TypedDict
 
 from langchain.agents.middleware.types import ModelResponse
 from langchain_core.messages import AIMessage
@@ -50,11 +50,8 @@ from langchain_sync_monitors.delegation import (
 )
 from langchain_sync_monitors.feedback import build_monitor_message_id
 from langchain_sync_monitors.records import find_monitor_records
-from langchain_sync_monitors.task_authorship import (
-    TASK_MESSAGES_KEY,
-    read_message_ids,
-    read_state_messages,
-)
+from langchain_sync_monitors.state_keys import INPUTS_AT_HALT_KEY, TASK_MESSAGES_KEY
+from langchain_sync_monitors.task_authorship import read_message_ids, read_state_messages
 
 STANDING_HALT_MESSAGE = (
     "[Safety monitor] This run is stopped: the safety monitor halted an earlier step, and "
@@ -66,9 +63,6 @@ STANDING_HALT_MESSAGE = (
 The earlier halt may belong to this run or to an earlier one, so the message
 does not say which.
 """
-
-INPUTS_AT_HALT_KEY: Final = "monitor_inputs_at_halt"
-"""The state key that holds, for each monitor, how many run inputs the thread had at its halt."""
 
 
 class InputsAtHalt(TypedDict):

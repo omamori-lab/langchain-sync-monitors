@@ -61,11 +61,11 @@ change raises the minor version.
   `after_agent` hooks, which show as graph nodes in a trace and add two graph
   steps per model call and two per run, all counted by an explicit
   `recursion_limit`.
-- Four private state keys, `monitor_task_messages`,
-  `monitor_seen_human_messages`, `monitor_run_open` and
-  `monitor_inputs_at_halt`, which never enter a subagent's input or a run's
-  output but do appear in `stream_mode="values"`, `stream_mode="updates"` and
-  `get_state`.
+- Six private state keys, `monitor_task_messages`,
+  `monitor_seen_human_messages`, `monitor_run_inputs`,
+  `monitor_rewritten_inputs`, `monitor_run_open` and `monitor_inputs_at_halt`,
+  which never enter a subagent's input or a run's output but do appear in
+  `stream_mode="values"`, `stream_mode="updates"` and `get_state`.
 - `monitor_inputs_at_halt` keeps how many run inputs the thread had at each
   monitor's latest halt.
 - The monitor's hooks write back, by id, the human messages they tag as notes,
@@ -136,6 +136,14 @@ change raises the minor version.
   the history.
 - Only the human messages a run receives as its input render as `<user>`, or
   `<delegator>` inside a subagent.
+- Every run's input reaches the judge verbatim even after summarisation or a
+  tool has taken it out of the model request, put back in order, since
+  `monitor_run_inputs` keeps its text, which grows the state by the size of
+  the user's turns; input after a stopped run comes back as a note from
+  `unconfirmed_input`. The judge reads each input whole on every step, even
+  one Deep Agents shows the agent only as a preview.
+- A tool's `Command` writes to the state keys only the monitor writes, every
+  monitor key but `monitor_log`, are dropped with a warning.
 - Every other human message renders as `<context_note>`, which authorises
   nothing: one another component tagged, such as a conversation summary, and
   one written during a run without a tag, such as Deep Agents' video reads and

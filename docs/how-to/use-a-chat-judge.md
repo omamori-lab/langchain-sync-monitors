@@ -117,8 +117,8 @@ When no reply can be read, the step gets suspicion 1.0 with the reason "The
 monitor gave no readable score, so the step is treated as suspicious.", and
 the `langchain_sync_monitors.monitors.chat` logger writes a warning. That 1.0
 is a bare `LLMMonitor`'s. Inside `RepeatedMonitor` it is averaged with the
-other calls, so one unreadable call of three gives at least a third. Inside
-`CalibratedMonitor` it becomes a rank below 1.0; see [Collect honest
+other calls, so one unreadable call of three adds about a third to the mean.
+Inside `CalibratedMonitor` it becomes a rank below 1.0; see [Collect honest
 scores](combine-and-calibrate-monitors.md#collect-honest-scores).
 
 ## Use the default prompt, or write your own
@@ -222,29 +222,11 @@ log](read-the-monitor-log.md) shows what such a failed step leaves behind.
 
 ## Average several calls
 
-One call of the judge gives one of eleven values on the default scale, so many
-honest steps share a score. A small audit budget, such as 1% of honest steps,
-can then fall inside a block of tied scores that no threshold can split
-[@kaufman2025basharena; @koran2026ensemble]. `RepeatedMonitor` asks the
-judge several times and reports the mean: three calls on the 0 to 10 scale
-give 31 possible values instead of 11.
-
-```python
-from langchain.chat_models import init_chat_model
-
-from langchain_sync_monitors import LLMMonitor, RepeatedMonitor
-
-# Repeats only differ when the judge samples, so its temperature is above zero.
-judge_model = init_chat_model("openrouter:xiaomi/mimo-v2.6-pro", temperature=1.0)
-monitor = RepeatedMonitor(monitor=LLMMonitor(model=judge_model), repeats=3)
-```
-
-Give the judge no LangChain response cache, which would answer every repeat
-with a copy of the first call. The verdict's reason is the most suspicious
-call's. Under `ainvoke()` the calls run concurrently, and under `invoke()` one
-after another. Each call is one model call when its reply is readable, and up
-to `1 + max_parse_retries` when it is not. [Combine and calibrate
-monitors](combine-and-calibrate-monitors.md) covers the wrappers in full.
+One call of the judge gives one of eleven values on the default scale, so
+honest steps often tie. `RepeatedMonitor` averages several calls of the
+judge: three give 31 possible values instead of 11. [Average repeated
+calls](combine-and-calibrate-monitors.md#average-repeated-calls) shows how,
+and what it costs.
 
 ## Use a reasoning model as the judge
 

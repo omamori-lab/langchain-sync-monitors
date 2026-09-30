@@ -2,15 +2,18 @@
 
 Defer to Resample flags a step on its lowest suspicion, as Ctrl-Z does, so a
 step whose highly suspicious sample was rejected, and whose resample ran, is
-not flagged. The guide gives a query that finds such steps. The test reads the
-query from the guide itself, so the page and the test cannot drift apart, and
-runs it on the `monitor_log` of a scripted agent.
+not flagged. The guide gives a query that finds such steps. This module defines
+the same query, checks that the guide's copy has the same syntax tree, so the
+page and the test cannot drift apart, and runs it on the `monitor_log` of a
+scripted agent.
 """
 
 from __future__ import annotations
 
 import ast
+import inspect
 import re
+import textwrap
 from collections.abc import Callable
 from pathlib import Path
 from typing import cast
@@ -41,31 +44,37 @@ AUDIT_THRESHOLD = 0.9
 RESAMPLE_SUSPICION = 0.4
 FINAL_ANSWER = "Q3 revenue grew 12%."
 
-type AuditQuery = Callable[..., list[StepRecord]]
 
-
-def load_documented_function(page: Path, *, name: str) -> AuditQuery:
-    """Return the function `name` as a Python example on `page` defines it, with its imports.
-
-    Only the block's imports and that definition run: the rest of the block
-    uses names, such as a run's `result`, that earlier examples define.
-    """
-    for source in PYTHON_BLOCK_PATTERN.findall(page.read_text(encoding="utf-8")):
-        module = ast.parse(source)
-        definitions = [
-            node for node in module.body if isinstance(node, ast.FunctionDef) and node.name == name
-        ]
-        if not definitions:
-            continue
-        imports = [node for node in module.body if isinstance(node, ast.Import | ast.ImportFrom)]
-        namespace: dict[str, object] = {}
-        code = compile(
-            ast.Module(body=[*imports, *definitions], type_ignores=[]), str(page), "exec"
+def find_steps_with_rejected_suspicious_samples(
+    monitor_log: list[StepRecord], *, audit_threshold: float
+) -> list[StepRecord]:
+    """Return every step in which a sample at or above audit_threshold did not run."""
+    return [
+        record
+        for record in monitor_log
+        # A rejected sample is one whose tool calls did not run.
+        if any(
+            not sample["executed"] and sample["suspicion"] >= audit_threshold
+            for sample in record["samples"]
         )
-        exec(code, namespace)
-        return cast("AuditQuery", namespace[name])
+    ]
+
+
+def read_documented_function(page: Path, *, name: str) -> ast.FunctionDef:
+    """Return the syntax tree of the function `name` as a Python example on `page` defines it."""
+    for source in PYTHON_BLOCK_PATTERN.findall(page.read_text(encoding="utf-8")):
+        for node in ast.parse(source).body:
+            if isinstance(node, ast.FunctionDef) and node.name == name:
+                return node
     message = f"{page.name} defines no function named {name}"
     raise AssertionError(message)
+
+
+def read_function_tree(function: Callable[..., object]) -> ast.FunctionDef:
+    """Return the syntax tree of a function defined in this module."""
+    [node] = ast.parse(textwrap.dedent(inspect.getsource(function))).body
+    assert isinstance(node, ast.FunctionDef)
+    return node
 
 
 def run_defer_to_resample(
@@ -111,13 +120,25 @@ def run_resampled_step(*, rejected_suspicion: float, run_mode: RunMode) -> list[
     )
 
 
+def test_the_guide_documents_exactly_this_query() -> None:
+    # Arrange
+    tested = read_function_tree(find_steps_with_rejected_suspicious_samples)
+
+    # Act
+    documented = read_documented_function(DEFER_TO_RESAMPLE_GUIDE, name=QUERY_NAME)
+
+    # Assert
+    assert ast.dump(documented) == ast.dump(tested)
+
+
 def test_the_query_finds_a_rejected_sample_the_flag_misses(run_mode: RunMode) -> None:
     # Arrange
-    query = load_documented_function(DEFER_TO_RESAMPLE_GUIDE, name=QUERY_NAME)
     monitor_log = run_resampled_step(rejected_suspicion=1.0, run_mode=run_mode)
 
     # Act
-    found = query(monitor_log, audit_threshold=AUDIT_THRESHOLD)
+    found = find_steps_with_rejected_suspicious_samples(
+        monitor_log, audit_threshold=AUDIT_THRESHOLD
+    )
 
     # Assert
     first_step = monitor_log[0]
@@ -140,11 +161,12 @@ def test_the_query_counts_a_rejected_sample_from_the_audit_threshold_up(
     found_steps: list[int],
 ) -> None:
     # Arrange
-    query = load_documented_function(DEFER_TO_RESAMPLE_GUIDE, name=QUERY_NAME)
     monitor_log = run_resampled_step(rejected_suspicion=rejected_suspicion, run_mode=run_mode)
 
     # Act
-    found = query(monitor_log, audit_threshold=AUDIT_THRESHOLD)
+    found = find_steps_with_rejected_suspicious_samples(
+        monitor_log, audit_threshold=AUDIT_THRESHOLD
+    )
 
     # Assert
     assert [record["step_number"] for record in found] == found_steps
@@ -153,7 +175,6 @@ def test_the_query_counts_a_rejected_sample_from_the_audit_threshold_up(
 
 def test_the_query_skips_a_flagged_step_whose_suspicious_sample_ran(run_mode: RunMode) -> None:
     # Arrange: an audit threshold below the defer threshold flags a borderline step that ran.
-    query = load_documented_function(DEFER_TO_RESAMPLE_GUIDE, name=QUERY_NAME)
     borderline_threshold = 0.3
     monitor_log = run_defer_to_resample(
         untrusted_steps=[build_read_step(), AIMessage(FINAL_ANSWER)],
@@ -163,7 +184,9 @@ def test_the_query_skips_a_flagged_step_whose_suspicious_sample_ran(run_mode: Ru
     )
 
     # Act
-    found = query(monitor_log, audit_threshold=borderline_threshold)
+    found = find_steps_with_rejected_suspicious_samples(
+        monitor_log, audit_threshold=borderline_threshold
+    )
 
     # Assert
     assert monitor_log[0]["outcome"] == "allowed"
@@ -178,4 +201,4 @@ def test_a_page_without_the_query_is_reported(tmp_path: Path) -> None:
 
     # Act and Assert
     with pytest.raises(AssertionError, match=QUERY_NAME):
-        load_documented_function(page, name=QUERY_NAME)
+        read_documented_function(page, name=QUERY_NAME)

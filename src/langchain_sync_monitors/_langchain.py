@@ -13,7 +13,8 @@ import logging
 from collections.abc import AsyncIterator, Awaitable, Callable, Iterator, Mapping, Sequence
 from contextlib import asynccontextmanager, contextmanager
 from contextvars import ContextVar
-from dataclasses import dataclass, field, replace
+from copy import copy
+from dataclasses import dataclass, field, fields, is_dataclass, replace
 from typing import Any, Literal, NotRequired, TypedDict, cast
 from uuid import UUID
 
@@ -25,13 +26,14 @@ from langchain.agents.middleware.types import (
 )
 from langchain.tools import ToolRuntime
 from langchain_core.callbacks import AsyncCallbackManager, BaseCallbackManager, CallbackManager
-from langchain_core.messages import AnyMessage, BaseMessage, ToolMessage
+from langchain_core.messages import AnyMessage, BaseMessage, ToolMessage, convert_to_messages
 from langchain_core.runnables import RunnableBinding, RunnableConfig
 from langchain_core.runnables.config import ensure_config, patch_config, var_child_runnable_config
+from langgraph.channels.binop import _get_overwrite
 from langgraph.constants import TAG_NOSTREAM
 from langgraph.runtime import Runtime
-from langgraph.types import Command
-from pydantic import TypeAdapter, ValidationError
+from langgraph.types import Command, Overwrite
+from pydantic import BaseModel, TypeAdapter, ValidationError
 
 from langchain_sync_monitors.contracts import Delegation, SampleRecord, StepRecord
 from langchain_sync_monitors.errors import ConfigurationError
@@ -92,6 +94,138 @@ type AsyncToolCallHandler = Callable[[ToolCallRequest], Awaitable[ToolCallResult
 def cast_to_tool_call_result(results: ToolCallResults) -> ToolCallResult:
     """Return a tool call's result as LangChain's hook types declare it, a list included."""
     return cast("ToolCallResult", results)
+
+
+MESSAGES_KEY = "messages"
+"""The state key that holds an agent's conversation."""
+
+type MessagesRewrite = Callable[[list[BaseMessage]], list[BaseMessage]]
+"""Returns the messages to write in place of the ones a command's update writes."""
+
+type UpdateValue = Any
+"""A value a state update writes under one key, which LangGraph leaves untyped."""
+
+type UpdatePairs = Sequence[tuple[str, UpdateValue]]
+"""A state update as pairs of key and value, the form in which LangGraph writes one."""
+
+type WrittenMessages = list[BaseMessage] | Overwrite
+"""What an update writes to `messages` once rewritten: messages, or an `Overwrite` of them."""
+
+
+def read_update_pairs(command: Command[Any]) -> UpdatePairs:
+    """Return the pairs of key and value a command's update writes, as LangGraph reads them.
+
+    LangGraph accepts an update as a dict, as pairs, or as an object whose
+    class annotates its keys, such as a dataclass or a pydantic model, and
+    reads anything else as a value for a root channel. Its own reader,
+    `Command._update_as_tuples`, is the one it writes the update with
+    [@langgraph2026], so the monitor reads exactly what the graph writes.
+    """
+    return command._update_as_tuples()
+
+
+def rewrite_messages_value(value: UpdateValue, *, rewrite: MessagesRewrite) -> WrittenMessages:
+    """Return what to write to `messages` in place of one value an update writes there.
+
+    The value is converted to messages first, as LangGraph's message reducer
+    converts one message or a list, given as messages, dictionaries, tuples
+    or strings. A value LangGraph reads as an `Overwrite`, in any of its
+    forms, bypasses the reducer and replaces the conversation
+    [@langgraph2026], so it stays an `Overwrite`, of the rewritten messages.
+    """
+    is_overwrite, overwritten = _get_overwrite(value)
+    written = overwritten if is_overwrite else value
+    messages = rewrite(convert_to_messages(written if isinstance(written, list) else [written]))
+    return Overwrite(messages) if is_overwrite else messages
+
+
+def rewrite_update_pairs(pairs: UpdatePairs, *, rewrite: MessagesRewrite) -> UpdatePairs:
+    """Return the pairs with every value written to `messages` rewritten.
+
+    A value written twice, as by a dataclass that annotates `messages` in two
+    of its classes, is rewritten once, so both writes stay the same object,
+    as LangGraph would write them.
+    """
+    rewrites: dict[int, WrittenMessages] = {}
+    rewritten: list[tuple[str, UpdateValue]] = []
+    for key, value in pairs:
+        if key != MESSAGES_KEY:
+            rewritten.append((key, value))
+            continue
+        if id(value) not in rewrites:
+            rewrites[id(value)] = rewrite_messages_value(value, rewrite=rewrite)
+        rewritten.append((key, rewrites[id(value)]))
+    return rewritten
+
+
+def rebuild_update(update: object, *, pairs: UpdatePairs, rewritten: UpdatePairs) -> object | None:
+    """Return the update in its own shape, writing the rewritten pairs, or None if it cannot be.
+
+    Pairs, a dict, a pydantic model and a dataclass with a `messages` field
+    are rebuilt as copies, without calling the update's own code: a
+    pydantic copy is not validated again, and a dataclass copy does not run
+    its `__init__` or `__post_init__` again, which could add to the messages.
+    Any other object LangGraph reads by its annotated keys, such as a
+    NamedTuple, has no such copy.
+    """
+    if update is pairs:
+        return tuple(rewritten) if isinstance(update, tuple) else list(rewritten)
+    messages = next(value for key, value in rewritten if key == MESSAGES_KEY)
+    if isinstance(update, dict):
+        return {**update, MESSAGES_KEY: messages}
+    if isinstance(update, BaseModel):
+        return update.model_copy(update={MESSAGES_KEY: messages})
+    return copy_dataclass_with_messages(update, messages=messages)
+
+
+def copy_dataclass_with_messages(update: object, *, messages: UpdateValue) -> object | None:
+    """Return a copy of a dataclass update that holds these messages, or None for any other.
+
+    The copy is made as `copy.copy` makes one, without the class's
+    `__init__`, and the field is set as a frozen dataclass sets its own.
+    """
+    if not is_dataclass(update) or isinstance(update, type):
+        return None
+    if all(item.name != MESSAGES_KEY for item in fields(update)):
+        return None
+    rebuilt = copy(update)
+    object.__setattr__(rebuilt, MESSAGES_KEY, messages)
+    return rebuilt
+
+
+def is_read_back(command: Command[Any], *, rewritten: UpdatePairs) -> bool:
+    """Tell whether LangGraph reads from the command's update exactly the rewritten messages."""
+    expected = [value for key, value in rewritten if key == MESSAGES_KEY]
+    read = [value for key, value in read_update_pairs(command) if key == MESSAGES_KEY]
+    return len(read) == len(expected) and all(
+        found is wanted for found, wanted in zip(read, expected, strict=True)
+    )
+
+
+def rewrite_update_messages(command: Command[Any], *, rewrite: MessagesRewrite) -> Command[Any]:
+    """Return the command with every value its update writes to `messages` rewritten.
+
+    The update keeps its shape when it is a dict, pairs, a pydantic model or
+    a dataclass with a `messages` field. Any other shape LangGraph accepts,
+    such as a NamedTuple or another class that annotates its keys, becomes
+    the pairs LangGraph reads from it, with the messages rewritten, so the
+    state receives the same writes. So does a rebuilt update from which
+    LangGraph would not read the rewritten messages back, as when a
+    descriptor on a dataclass's `messages` field copies what it is given. A
+    command whose update writes no messages is returned as it is. That
+    includes an update LangGraph reads as a value for a root channel, which
+    an agent's state does not have, so it writes nothing to the state.
+    """
+    pairs = read_update_pairs(command)
+    if all(key != MESSAGES_KEY for key, _ in pairs):
+        return command
+    rewritten = rewrite_update_pairs(pairs, rewrite=rewrite)
+    rebuilt = rebuild_update(command.update, pairs=pairs, rewritten=rewritten)
+    if rebuilt is not None:
+        rebuilt_command = replace(command, update=rebuilt)
+        if is_read_back(rebuilt_command, rewritten=rewritten):
+            return rebuilt_command
+    return replace(command, update=tuple(rewritten))
 
 
 MONITOR_LOG_KEY = "monitor_log"

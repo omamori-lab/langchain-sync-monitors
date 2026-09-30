@@ -203,7 +203,9 @@ guard against a forged approval:
   it. The monitor's `wrap_tool_call` tags the new human messages a tool
   writes where they are written, with the tool's name as their source,
   whether the tool returns a `Command`, a list of commands and tool
-  messages, or messages as dictionaries. A message a tool writes back wholly
+  messages, or messages as dictionaries, and whether a command's update is
+  a dict, pairs of key and value, a dataclass, a pydantic model or another
+  shape LangGraph accepts [@langgraph2026]. A message a tool writes back wholly
   unchanged, with the id of one already in the state, as a tool that
   rewrites the history does, keeps its author. One the tool changed in any
   field does not, its metadata included, since metadata can change what a

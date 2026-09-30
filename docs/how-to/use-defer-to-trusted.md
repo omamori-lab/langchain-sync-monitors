@@ -24,8 +24,10 @@ flowchart LR
     flagged --> log
 ```
 
-The rejected proposal never runs, and neither the agent nor the trusted model
-sees it. It stays in the step's record as evidence.
+The rejected proposal's tool calls never run, and neither the agent nor the
+trusted model sees it. A provider's built-in tools in it, such as a web fetch,
+already ran inside the model call that drew it. It stays in the step's record
+as evidence.
 
 ## A complete example
 

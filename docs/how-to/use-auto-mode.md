@@ -24,9 +24,10 @@ flowchart TD
     limit -- "yes" --> fallback["when_limit_reached writes the step, flagged: halted or deferred_to_trusted"]
 ```
 
-A blocked attempt never runs. The next attempt is drawn with the blocked
-proposal and the feedback in view, so the agent knows what was refused and
-why.
+The tool calls of a blocked attempt never run. A provider's built-in tools in
+it, such as a web fetch, already ran inside the model call that drew it, once
+per attempt. The next attempt is drawn with the blocked proposal and the
+feedback in view, so the agent knows what was refused and why.
 
 ## A complete example
 
@@ -63,7 +64,7 @@ monitor = MonitorMiddleware(
         when_limit_reached=HaltRun(message="[Safety monitor] Stopped after repeated unsafe steps."),
         feedback=FeedbackTemplate(
             text=(
-                "[Safety monitor] Your last step was blocked and did not run.\n"
+                "[Safety monitor] Your last step was blocked, and none of your tools ran it.\n"
                 "Reason: {reason}\n"
                 "Finish the user's task another way, or stop and say what approval you need."
             ),
@@ -187,9 +188,11 @@ To write your own, pass `FeedbackTemplate(text=...)`:
 - Start the text with a marker such as `[Safety monitor]`. Some providers drop
   a message's `name`, so the text itself must say where it comes from.
 
-The reason is the monitor's own words. The library's monitors keep scores and
-probabilities out of it, so the agent does not learn how close its step came
-to passing. A monitor you write yourself should do the same.
+The reason is the monitor's own words. The library adds no score or probability
+to it, so the agent does not learn how close its step came to passing from
+the library. A chat judge's reason is its own reasoning: the default prompt
+asks it to keep its score out, but its wording may still hint at one. A
+monitor you write yourself should keep scores out too.
 
 ### What the agent sees
 
@@ -271,8 +274,10 @@ records' `blocked_count`.
   middleware runs inside it and returns commands for attempts the monitor
   blocks. `check_monitor_placement(middleware=[...])` warns about such a list.
 - **A halt ends the run.** The middleware's `after_model` hook routes the
-  agent to its end after a halt. The hook costs one graph step per model call,
-  which counts towards an explicit `recursion_limit`.
+  agent to its end after a halt. The middleware's hooks cost two graph steps
+  per model call, `before_model` and `after_model`, and two per run,
+  `before_agent` and `after_agent`, all of which count towards an explicit
+  `recursion_limit`.
 - **A failed call leaves no record.** If an attempt, a monitor call or the
   fallback raises, nothing is committed and the error propagates. The attempts
   judged before the failure are logged as a warning and written to

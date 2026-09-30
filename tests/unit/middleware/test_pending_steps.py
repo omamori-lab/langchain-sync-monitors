@@ -68,6 +68,27 @@ def blocked_attempt() -> BlockedAttempt:
     )
 
 
+def test_without_recorded_input_the_monitor_reads_no_human_message_as_the_task_author(
+    untrusted_model: ScriptedChatModel,
+    monitor: KeywordMonitor,
+) -> None:
+    # Arrange: a request whose state holds no run input, as when no before_agent hook ran
+    step = SyncPendingStep(
+        request=build_request(untrusted_model),
+        handler=RecordingHandler(),
+        monitor=monitor,
+        task_author=TaskAuthor.USER,
+    )
+
+    # Act
+    run_synchronously(step.sample(count=1))
+
+    # Assert
+    [task] = monitor.inputs[0].history
+    assert task.additional_kwargs == {"lc_source": "application"}
+    assert TASK.additional_kwargs == {}
+
+
 async def test_async_samples_see_each_blocked_attempt_and_its_feedback(
     untrusted_model: ScriptedChatModel,
     monitor: KeywordMonitor,
@@ -80,6 +101,7 @@ async def test_async_samples_see_each_blocked_attempt_and_its_feedback(
         handler=handler.run_async,
         monitor=monitor,
         task_author=TaskAuthor.PARENT_AGENT,
+        task_message_ids=frozenset({"task"}),
     )
 
     # Act

@@ -76,7 +76,8 @@ restore_on_exit=yes
 finish() {
   if [[ "${restore_on_exit}" == yes ]]; then
     echo "release: restoring ${bumped_files[*]}" >&2
-    git checkout --quiet -- "${bumped_files[@]}"
+    # From HEAD, not the index: a failed commit leaves the bump staged.
+    git checkout --quiet HEAD -- "${bumped_files[@]}"
   fi
   rm -f "${notes_file}"
 }

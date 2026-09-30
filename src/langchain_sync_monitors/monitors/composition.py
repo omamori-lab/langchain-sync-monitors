@@ -154,11 +154,13 @@ class CalibratedMonitor(Monitor):
     thousand scores give a spread of about 0.3 percentage points.
 
     Collect `honest_scores` by running the wrapped monitor, with the same
-    settings, on steps from runs you trust. With `random_seed`, `U` is derived
-    from the seed and the step's content, so a step always gets the same
-    suspicion, whatever else the instance has scored and however many runs
-    share it. Without a seed, `U` is drawn afresh on every call. The reason is
-    the wrapped monitor's, unchanged.
+    settings, on steps from runs you trust, and pass them as Python floats or
+    numpy float64s: each is read as a float, so a float32 0.1 becomes
+    0.10000000149011612 and no longer ties with a score of 0.1. With
+    `random_seed`, `U` is derived from the seed and the step's content, so a
+    step always gets the same suspicion, whatever else the instance has
+    scored and however many runs share it. Without a seed, `U` is drawn afresh
+    on every call. The reason is the wrapped monitor's, unchanged.
     """
 
     def __init__(

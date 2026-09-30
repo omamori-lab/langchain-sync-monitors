@@ -27,6 +27,7 @@ from langchain_sync_monitors.monitors.decision import (
     OpenRouterDecisionModel,
     TypeSafeDecisionModel,
     YesNoQuestion,
+    read_decisions_probabilities,
 )
 
 from .doubles import CallPath, evaluate_on_path
@@ -113,6 +114,37 @@ def answer_with(probabilities: dict[str, float], *, status_code: int = 200) -> R
         "provider": "TypeSafe",
     }
     return lambda _request: httpx.Response(status_code, json=body)
+
+
+def build_raw_answer_body(raw_answer: str) -> bytes:
+    """Build a Decisions API response body whose one answer is `raw_answer`, as JSON text."""
+    return f'{{"answers": {{"leaks": {{"type": "noul", "noul": {raw_answer}}}}}}}'.encode()
+
+
+def answer_with_raw(raw_answer: str) -> Responder:
+    """Build a responder whose one answer is `raw_answer`, sent as it is written."""
+    body = build_raw_answer_body(raw_answer)
+    headers = {"content-type": "application/json"}
+    return lambda _request: httpx.Response(200, content=body, headers=headers)
+
+
+REFUSED_RAW_ANSWERS = [
+    pytest.param("false", id="false"),
+    pytest.param("true", id="true"),
+    pytest.param('"0"', id="the string 0"),
+    pytest.param('"0.5"', id="the string 0.5"),
+    pytest.param("1.5", id="above one"),
+    pytest.param("-0.1", id="below zero"),
+    pytest.param("null", id="null"),
+    pytest.param("NaN", id="NaN"),
+]
+"""Answers that are no JSON number from 0 to 1; read leniently, `false` would be a 0."""
+READ_RAW_ANSWERS = [
+    pytest.param("0", 0.0, id="the integer 0"),
+    pytest.param("1", 1.0, id="the integer 1"),
+    pytest.param("0.5", 0.5, id="a half"),
+]
+"""JSON numbers from 0 to 1, integers included, and the probability each is read as."""
 
 
 def fail_with(status_code: int) -> Responder:
@@ -253,6 +285,68 @@ def test_a_probability_outside_zero_to_one_is_rejected() -> None:
     # Act and Assert
     with pytest.raises(MonitorError, match="unexpected shape"):
         server.build_model().estimate_probabilities_sync(context="x", questions=[LEAK_QUESTION])
+
+
+@pytest.mark.parametrize("raw_answer", REFUSED_RAW_ANSWERS)
+def test_a_decisions_answer_that_is_no_json_number_from_zero_to_one_is_refused(
+    raw_answer: str,
+) -> None:
+    # Arrange
+    content = build_raw_answer_body(raw_answer)
+
+    # Act and Assert
+    with pytest.raises(MonitorError, match="unexpected shape"):
+        read_decisions_probabilities(content, questions=[LEAK_QUESTION])
+
+
+@pytest.mark.parametrize(("raw_answer", "probability"), READ_RAW_ANSWERS)
+def test_a_decisions_answer_that_is_a_json_number_from_zero_to_one_is_read(
+    raw_answer: str,
+    probability: float,
+) -> None:
+    # Arrange
+    content = build_raw_answer_body(raw_answer)
+
+    # Act
+    probabilities = read_decisions_probabilities(content, questions=[LEAK_QUESTION])
+
+    # Assert
+    assert probabilities == {"leaks": probability}
+    assert type(probabilities["leaks"]) is float
+
+
+@pytest.mark.parametrize("raw_answer", REFUSED_RAW_ANSWERS)
+async def test_the_monitor_fails_on_a_decisions_answer_that_is_no_json_number(
+    monitor_input: MonitorInput,
+    call_path: CallPath,
+    raw_answer: str,
+) -> None:
+    # Arrange: the step fails, so nothing it proposed runs.
+    server = DecisionsServer(responders=[answer_with_raw(raw_answer)])
+    monitor = DecisionModelMonitor(decision_model=server.build_model(), questions=[LEAK_QUESTION])
+
+    # Act and Assert
+    with pytest.raises(MonitorError, match="unexpected shape"):
+        await evaluate_on_path(monitor, monitor_input, call_path=call_path)
+
+
+@pytest.mark.parametrize(("raw_answer", "suspicion"), READ_RAW_ANSWERS)
+async def test_the_monitor_scores_a_decisions_answer_that_is_a_json_number(
+    monitor_input: MonitorInput,
+    call_path: CallPath,
+    raw_answer: str,
+    suspicion: float,
+) -> None:
+    # Arrange
+    server = DecisionsServer(responders=[answer_with_raw(raw_answer)])
+    monitor = DecisionModelMonitor(decision_model=server.build_model(), questions=[LEAK_QUESTION])
+
+    # Act
+    verdict = await evaluate_on_path(monitor, monitor_input, call_path=call_path)
+
+    # Assert
+    assert verdict.suspicion == suspicion
+    assert type(verdict.suspicion) is float
 
 
 async def test_a_question_left_unanswered_is_a_monitor_error() -> None:
@@ -485,6 +579,10 @@ async def test_the_reason_names_the_concern_without_numbers(
         {"leaks": 0.2, "suspicious_step": Decimal("sNaN")},
         {"leaks": 0.2, "suspicious_step": Decimal("Infinity")},
         {"leaks": 0.2, "suspicious_step": Decimal("1.5")},
+        {"leaks": 0.2, "suspicious_step": 10**400},
+        {"leaks": 0.2, "suspicious_step": Fraction(10**400, 1)},
+        {"leaks": 0.2, "suspicious_step": Fraction(10**400 + 1, 10**400)},
+        {"leaks": 0.2, "suspicious_step": Fraction(-1, 10**400)},
     ],
     ids=[
         "not a number",
@@ -499,6 +597,10 @@ async def test_the_reason_names_the_concern_without_numbers(
         "a Decimal signalling NaN",
         "a Decimal infinity",
         "a Decimal above one",
+        "an integer too large for a float",
+        "a Fraction too large for a float",
+        "a Fraction a float would round down to one",
+        "a Fraction a float would round up to zero",
     ],
 )
 async def test_an_answer_that_is_no_probability_is_a_monitor_error(
@@ -529,8 +631,9 @@ async def test_an_answer_that_is_no_probability_is_a_monitor_error(
         {"leaks": 0, "suspicious_step": 1},
         {"leaks": Decimal("0.0"), "suspicious_step": Decimal("1")},
         {"leaks": Fraction(0), "suspicious_step": Fraction(1, 1)},
+        {"leaks": Fraction(1, 10**400), "suspicious_step": Fraction(10**400 - 1, 10**400)},
     ],
-    ids=["floats", "integers", "Decimals", "Fractions"],
+    ids=["floats", "integers", "Decimals", "Fractions", "Fractions a float rounds to 0 and 1"],
 )
 async def test_answers_at_zero_and_one_are_read_as_floats(
     monitor_input: MonitorInput,

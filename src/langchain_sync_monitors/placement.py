@@ -178,8 +178,12 @@ def check_monitor_placement(*, middleware: Sequence[AnyAgentMiddleware]) -> list
 
     A middleware whose `after_agent` hook sends a finished run back to the
     model needs no warning: after a halt, the monitor halts every further step
-    until a later run brings new input, and nothing a hook writes during a run
-    counts as input.
+    until the thread records another run input, and nothing written between a
+    run's start and its end becomes one. An untagged human message that
+    another middleware's `before_agent` hook writes, or its `after_agent` hook
+    writes without a return to the model, does count as a run's input and
+    lifts a halt. The check does not warn about those hooks, which many
+    middleware have for sound reasons.
 
     Returns the names of the middleware it warned about.
     """

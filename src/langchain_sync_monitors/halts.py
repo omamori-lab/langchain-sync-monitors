@@ -8,22 +8,31 @@ cannot route the agent to its end itself, so the monitor middleware's
 the agent back to the model, as Deep Agents' `RubricMiddleware` does when it
 grades the task unmet [@deepagents2026]. So the halt stands: while this
 monitor's last step is a halt, every further step halts again, without a
-sample, until a message the monitor recorded as a run's input follows the
+sample, until the thread has recorded more run inputs than it had at the
 halt.
 
 A run's input is what `task_authorship` records under `TASK_MESSAGES_KEY` at
-the start of a run, and nothing a hook writes during a run can join it. A
-human message written after the halt, tagged or not, never lifts it: not a
-grader's revision request, not a harness nudge, not a note from
-`unconfirmed_input`. Only a later run with a new message from the user does.
+the start of a run. Each halt stores how many inputs the thread held then,
+under `INPUTS_AT_HALT_KEY`, and the halt stands while that count has not
+grown. The rule counts rather than reading where messages sit, so a hook that
+rewrites the history, trims it or removes the halt message cannot lift the
+halt, and one that writes messages after the run's input cannot keep it
+standing. No human message written between a run's start and its end lifts
+it: not a grader's revision request, not a harness nudge, not a note from
+`unconfirmed_input`. A later run with a new message from the user lifts it,
+and so do the two open paths `task_authorship` names: an untagged human
+message that another middleware's `before_agent` hook writes, or its
+`after_agent` hook writes without sending the run back to the model, counts
+as a run's input.
 """
 
 from __future__ import annotations
 
-from collections.abc import Collection, Mapping, Sequence
+from collections.abc import Mapping, Sequence
+from typing import Final, TypedDict
 
 from langchain.agents.middleware.types import ModelResponse
-from langchain_core.messages import AIMessage, BaseMessage
+from langchain_core.messages import AIMessage
 
 from langchain_sync_monitors._langchain import AgentStateUpdate, read_monitor_log
 from langchain_sync_monitors.contracts import Outcome, StepDecision, StepRecord, SubagentHalt
@@ -45,6 +54,64 @@ STANDING_HALT_MESSAGE = (
     "steps are recorded in monitor_log for review."
 )
 """The final message of a step the monitor halts again because its earlier halt stands."""
+
+INPUTS_AT_HALT_KEY: Final = "monitor_inputs_at_halt"
+"""The state key that holds, for each monitor, how many run inputs the thread had at its halt."""
+
+
+class InputsAtHalt(TypedDict):
+    """How many run inputs the thread had recorded when one monitor last halted.
+
+    `monitor` is the middleware's name, such as `monitor[main]`, which is
+    unique within an agent, so stacked monitors count apart.
+    """
+
+    monitor: str
+    run_inputs: int
+
+
+def merge_inputs_at_halt(  # lanorme: ignore[KWARG-001]
+    recorded: list[InputsAtHalt],
+    new: list[InputsAtHalt],
+) -> list[InputsAtHalt]:
+    """Keep one entry per monitor, the latest, so stacked monitors can write in one node.
+
+    LangGraph calls a reducer with both values by position [@langgraph2026].
+    """
+    latest = {entry["monitor"]: entry for entry in [*recorded, *new]}
+    return list(latest.values())
+
+
+def count_run_inputs(state: Mapping[str, object]) -> int:
+    """Return how many human messages the thread has recorded as a run's input."""
+    return len(read_message_ids(state, key=TASK_MESSAGES_KEY))
+
+
+def read_run_inputs_at_halt(state: Mapping[str, object], *, monitor: str) -> int | None:
+    """Return how many run inputs the thread had at this monitor's latest halt, or None."""
+    entries = state.get(INPUTS_AT_HALT_KEY)
+    if not isinstance(entries, list):
+        return None
+    counts = [
+        entry.get("run_inputs")
+        for entry in entries
+        if isinstance(entry, Mapping) and entry.get("monitor") == monitor
+    ]
+    latest = counts[-1] if counts else None
+    return latest if isinstance(latest, int) else None
+
+
+def build_halt_inputs_update(
+    record: StepRecord,
+    *,
+    state: Mapping[str, object],
+    monitor: str,
+) -> AgentStateUpdate:
+    """Return the update that stores the run inputs at a halted step, or none for another step."""
+    if record["outcome"] != "halted":
+        return {}
+    entry = InputsAtHalt(monitor=monitor, run_inputs=count_run_inputs(state))
+    return {INPUTS_AT_HALT_KEY: [entry]}
 
 
 def build_end_run_update() -> AgentStateUpdate:
@@ -74,37 +141,19 @@ def has_just_halted(state: Mapping[str, object], *, monitor: str, agent: str) ->
     )
 
 
-def has_run_input_arrived_since_last_step(
-    messages: Sequence[BaseMessage],
-    *,
-    task_message_ids: Collection[str],
-) -> bool:
-    """Tell whether a message recorded as a run's input follows the last AI message."""
-    for message in reversed(messages):
-        if isinstance(message, AIMessage):
-            return False
-        if message.id is not None and message.id in task_message_ids:
-            return True
-    return False
-
-
 def is_halt_standing(
     previous_records: Sequence[StepRecord],
     *,
-    messages: Sequence[BaseMessage],
-    task_message_ids: Collection[str],
+    run_inputs: int,
+    run_inputs_at_halt: int | None,
 ) -> bool:
-    """Tell whether this monitor's last step halted and no run's input has arrived since.
+    """Tell whether this monitor's last step halted and no run's input has been recorded since.
 
-    After a halt nothing runs until a hook sends the agent back to the model,
-    so the halt message is the last AI message, and only a run's input after
-    it lifts the halt.
+    A halt whose count is missing stands, so the rule fails closed.
     """
-    return (
-        bool(previous_records)
-        and previous_records[-1]["outcome"] == "halted"
-        and not has_run_input_arrived_since_last_step(messages, task_message_ids=task_message_ids)
-    )
+    if not previous_records or previous_records[-1]["outcome"] != "halted":
+        return False
+    return run_inputs_at_halt is None or run_inputs <= run_inputs_at_halt
 
 
 def build_standing_halt_decision() -> StepDecision:
@@ -128,18 +177,19 @@ def find_halt_decision(
     *,
     previous_records: Sequence[StepRecord],
     agent: str,
+    monitor: str,
     when_subagent_halts: SubagentHalt,
 ) -> StepDecision | None:
     """Return the halt a step gets without a sample, or None when the protocol decides it.
 
-    The step halts again while this monitor's own halt stands, and halts when
-    a subagent halted since this agent's last step and the monitor stops the
-    whole run.
+    `monitor` is the middleware's name. The step halts again while this
+    monitor's own halt stands, and halts when a subagent halted since this
+    agent's last step and the monitor stops the whole run.
     """
     if is_halt_standing(
         previous_records,
-        messages=read_state_messages(state),
-        task_message_ids=read_message_ids(state, key=TASK_MESSAGES_KEY),
+        run_inputs=count_run_inputs(state),
+        run_inputs_at_halt=read_run_inputs_at_halt(state, monitor=monitor),
     ):
         return build_standing_halt_decision()
     if when_subagent_halts is SubagentHalt.STOP_SUBAGENT_ONLY:

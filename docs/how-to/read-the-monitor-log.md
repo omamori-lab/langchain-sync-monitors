@@ -106,11 +106,11 @@ dictionaries, so they pass through checkpointers and `json.dumps` unchanged.
 A step halted because a subagent was halted has no samples of its own; the
 subagent's record holds them. Neither has a step halted because an earlier
 halt still stands: when a hook sends a halted run back to the model, the
-monitor halts each further step without drawing a sample, until a later run
-brings a new message the monitor records as the user's input. The record
-before such a step tells the two apart: a halt that stands follows this
-agent's own halted record, and a halt after a subagent's follows the
-subagent's records.
+monitor halts each further step without drawing a sample, until the thread
+records another run input. This monitor's previous record for this agent
+tells the two apart: before a halt that stands it is a halt too, and before a
+halt after a subagent's it is not, and the subagent's halted record comes
+after it. Other monitors' records may sit in between.
 
 ## Find the steps flagged for audit
 
@@ -276,6 +276,7 @@ The library logs through Python's `logging`, under `langchain_sync_monitors`:
 | `langchain_sync_monitors.monitors.chat` | `WARNING` | No reply from a chat judge was readable, so the step is treated as suspicious |
 | `langchain_sync_monitors.monitors.guard` | `DEBUG` | A guard model returned log-probabilities in a format the monitor cannot read |
 | `langchain_sync_monitors.monitors.guard` | `WARNING` | A guard model returned log-probabilities without a readable label, so the step is treated as suspicious |
+| `langchain_sync_monitors.task_authorship` | `WARNING` | A run started after one that stopped before its end, so its new human messages are notes from unconfirmed input: they authorise nothing and do not lift a halt |
 | `langchain_sync_monitors.concurrency` | `WARNING` | A concurrent call failed after another one already had |
 | `langchain_sync_monitors._langchain` | `ERROR` | Writing a monitor event to the custom stream failed; the step stands |
 

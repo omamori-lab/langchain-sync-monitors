@@ -16,7 +16,7 @@ from typing import Any
 import pytest
 from langchain.agents import create_agent
 from langchain.agents.middleware.types import AgentMiddleware, AgentState, hook_config
-from langchain_core.messages import AIMessage, BaseMessage, HumanMessage
+from langchain_core.messages import AIMessage, HumanMessage
 from langchain_core.runnables import Runnable, RunnableConfig
 from langgraph.checkpoint.memory import InMemorySaver
 from langgraph.graph.state import CompiledStateGraph
@@ -464,53 +464,37 @@ def build_record(*, outcome: OutcomeName) -> StepRecord:
     )
 
 
-TASK = HumanMessage("Summarise q3.md.", id="task")
-HALT = AIMessage("[Safety monitor] Stopped.", id="halt")
-REVISION = HumanMessage(
-    REVISION_REQUEST,
-    id="revision",
-    additional_kwargs={"lc_source": REVIEWER_SOURCE},
-)
-NEW_TASK = HumanMessage("Summarise q4.md instead.", id="new-task")
-NUDGE_MESSAGE = HumanMessage(NUDGE, id="nudge", name=NUDGE_NAME)
-UNCONFIRMED = HumanMessage(
-    "Go on, safely.",
-    id="unconfirmed",
-    additional_kwargs={"lc_source": "unconfirmed_input"},
-)
-RUN_INPUTS = frozenset({"task", "new-task"})
-
-
 @pytest.mark.parametrize(
-    ("records", "messages", "stands"),
+    ("records", "run_inputs", "run_inputs_at_halt", "stands"),
     [
-        ([build_record(outcome="halted")], [TASK, HALT], True),
-        ([build_record(outcome="halted")], [TASK, HALT, REVISION], True),
-        ([build_record(outcome="halted")], [TASK, HALT, REVISION, NUDGE_MESSAGE], True),
-        ([build_record(outcome="halted")], [TASK, HALT, UNCONFIRMED], True),
-        ([build_record(outcome="halted")], [TASK, HALT, REVISION, NEW_TASK], False),
-        ([build_record(outcome="halted")], [TASK, HALT, NEW_TASK, REVISION], False),
-        ([build_record(outcome="allowed")], [TASK, HALT, REVISION], False),
-        ([], [TASK], False),
+        ([build_record(outcome="halted")], 1, 1, True),
+        ([build_record(outcome="halted")], 2, 1, False),
+        ([build_record(outcome="halted")], 1, None, True),
+        ([build_record(outcome="allowed")], 1, 1, False),
+        ([build_record(outcome="allowed")], 1, None, False),
+        ([], 1, None, False),
     ],
     ids=[
-        "right-after-the-halt",
-        "after-a-tagged-message",
-        "after-an-untagged-nudge",
-        "after-unconfirmed-input",
-        "after-a-run-input",
-        "after-a-run-input-then-a-tagged-message",
+        "no-input-since-the-halt",
+        "a-run-input-since-the-halt",
+        "a-halt-without-its-count",
         "after-an-allowed-step",
+        "after-an-allowed-step-without-a-count",
         "before-any-step",
     ],
 )
-def test_a_halt_stands_until_a_run_input_arrives_after_it(
+def test_a_halt_stands_until_the_thread_records_another_run_input(
     records: list[StepRecord],
-    messages: list[BaseMessage],
+    run_inputs: int,
+    run_inputs_at_halt: int | None,
     stands: bool,
 ) -> None:
     # Act
-    standing = is_halt_standing(records, messages=messages, task_message_ids=RUN_INPUTS)
+    standing = is_halt_standing(
+        records,
+        run_inputs=run_inputs,
+        run_inputs_at_halt=run_inputs_at_halt,
+    )
 
     # Assert
     assert standing is stands

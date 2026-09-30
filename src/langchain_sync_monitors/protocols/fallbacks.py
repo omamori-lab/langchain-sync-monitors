@@ -101,10 +101,11 @@ class HaltRun(Fallback):
     that would otherwise loop until it has a structured response. A halted
     step is always flagged, since a person should look at why the run stopped.
 
-    The halt stands until a later run brings new input. When a hook sends the
-    finished run back to the model, as Deep Agents' `RubricMiddleware` does
-    [@deepagents2026], the monitor middleware halts each further step itself,
-    without drawing a sample, and with a final message of its own.
+    The halt stands until the thread records another run input. When a hook
+    sends the finished run back to the model, as Deep Agents'
+    `RubricMiddleware` does [@deepagents2026], the monitor middleware halts
+    each further step itself, without drawing a sample, and with a final
+    message of its own.
     """
 
     message: str = DEFAULT_HALT_MESSAGE

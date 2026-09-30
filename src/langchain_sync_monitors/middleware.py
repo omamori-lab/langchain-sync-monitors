@@ -73,7 +73,12 @@ from langchain_sync_monitors.delegation import (
     read_delegation_id,
 )
 from langchain_sync_monitors.feedback import build_blocked_attempt_messages
-from langchain_sync_monitors.halts import build_end_run_update, find_halt_decision, has_just_halted
+from langchain_sync_monitors.halts import (
+    build_end_run_update,
+    build_halt_inputs_update,
+    find_halt_decision,
+    has_just_halted,
+)
 from langchain_sync_monitors.monitor_state import MonitorState
 from langchain_sync_monitors.options import check_enum_option, check_instance_option
 from langchain_sync_monitors.pending_steps import (
@@ -168,11 +173,13 @@ class MonitorMiddleware(AgentMiddleware[MonitorState, AgentContext, StructuredOu
     A halt stands until a later run brings new input. An `after_agent` hook
     can send a finished run back to the model, as Deep Agents'
     `RubricMiddleware` does when it grades the task unmet [@deepagents2026].
-    While this monitor's last step is a halt and no message recorded as a
-    run's input has followed it, each further step halts again without a
-    sample: the untrusted model is not called, and the step's record, flagged,
-    holds no samples. A human message a hook writes during the run never
-    lifts the halt, and `halts` has the rule.
+    While this monitor's last step is a halt and the thread has recorded no
+    run input since, each further step halts again without a sample: the
+    untrusted model is not called, and the step's record, flagged, holds no
+    samples. A human message written between a run's start and its end never
+    lifts the halt. One that another middleware's `before_agent` hook writes,
+    or its `after_agent` hook writes without a return to the model, counts as
+    a run's input and does; `halts` has the rule.
 
     If a call inside a step raises before the protocol decides, the step is
     not committed. The samples the monitor had judged are logged as a warning
@@ -257,6 +264,7 @@ class MonitorMiddleware(AgentMiddleware[MonitorState, AgentContext, StructuredOu
                 request.state,
                 previous_records=previous_records,
                 agent=self.agent_name,
+                monitor=self.name,
                 when_subagent_halts=self.when_subagent_halts,
             )
             if decision is None:
@@ -304,6 +312,7 @@ class MonitorMiddleware(AgentMiddleware[MonitorState, AgentContext, StructuredOu
                 request.state,
                 previous_records=previous_records,
                 agent=self.agent_name,
+                monitor=self.name,
                 when_subagent_halts=self.when_subagent_halts,
             )
             if decision is None:
@@ -514,5 +523,9 @@ class MonitorMiddleware(AgentMiddleware[MonitorState, AgentContext, StructuredOu
             result=messages,
             structured_response=decision.response.structured_response,
         )
-        update = {MONITOR_LOG_KEY: [record], **build_note_update(request.state)}
+        update = {
+            MONITOR_LOG_KEY: [record],
+            **build_note_update(request.state),
+            **build_halt_inputs_update(record, state=request.state, monitor=self.name),
+        }
         return ExtendedModelResponse(model_response=response, command=Command(update=update))

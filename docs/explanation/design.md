@@ -498,20 +498,24 @@ The agent's end is not always the end of the run. A `jump_to: "end"` reaches
 the agent's exit node, which is the first `after_agent` hook when there is
 one [@langchain2026], and such a hook can send the agent back to the model:
 Deep Agents' `RubricMiddleware` does when it grades the task unmet
-[@deepagents2026]. So a halt stands until a later run brings new input.
-Before it runs the protocol, the middleware checks whether this monitor's
-last step was a halt and whether a message recorded as a run's input, in
-`monitor_task_messages`, has come after the last AI message. If none has, it
-halts the step again without drawing a sample: the untrusted model is not
-called, and the step's record is `halted`, flagged, with no samples. Only
-the `before_agent` hook at the start of a run records input, so nothing a
-hook writes during the run lifts the halt: not a grader's revision request,
-not a harness nudge, tagged or not. A new message from the user in a later
-run starts afresh, and so does a fork from a
-checkpoint before the halt, since the rule reads only the conversation, the
-recorded input and the log. A later run that cannot confirm its input, after
-a halted run that stopped before its end, stays halted, since its messages
-are notes from `unconfirmed_input`. The two open paths that [What the monitor
+[@deepagents2026]. So a halt stands until the thread records another run
+input. Each halted step stores how many run inputs the thread held, the
+length of `monitor_task_messages`, under the private key
+`monitor_inputs_at_halt`, one entry per monitor. Before it runs the
+protocol, the middleware checks whether this monitor's last step was a halt
+and whether that count has grown since. If it has not, it halts the step
+again without drawing a sample: the untrusted model is not called, and the
+step's record is `halted`, flagged, with no samples. The rule counts rather
+than reading where messages sit, so a hook that rewrites the history, trims
+it or removes the halt message cannot lift the halt, and one that writes
+messages after the run's input cannot keep a new message from the user from
+lifting it. Only the `before_agent` hook at the start of a run records input,
+so nothing written between a run's start and its end lifts the halt: not a
+grader's revision request, not a harness nudge, tagged or not. A fork from a
+checkpoint before the halt starts afresh, since it holds neither the halt nor
+its count. A later run that cannot confirm its input, after a halted run that
+stopped before its end, stays halted, since its messages are notes from
+`unconfirmed_input`. The two open paths that [What the monitor
 reads](#what-the-monitor-reads) names reach halts too: an untagged human
 message that another middleware's `before_agent` hook writes, or its
 `after_agent` hook writes without sending the run back to the model, counts

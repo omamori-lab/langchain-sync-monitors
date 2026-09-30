@@ -6,7 +6,8 @@ in sync by `scripts/sync-agents.sh`; edit this file, then run that script.
 
 langchain-sync-monitors adds control monitors to LangChain agents and Deep
 Agents as middleware. A monitor judges every step an agent proposes before
-anything runs; a control protocol decides what happens with that judgement.
+any of the agent's own tools run; a control protocol decides what happens
+with that judgement.
 
 ## Before you finish a change
 

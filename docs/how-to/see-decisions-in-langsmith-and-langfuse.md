@@ -289,7 +289,8 @@ observations = get_client().api.observations.get_many(
     fields="core,basic,metadata",
 )
 for observation in observations.data:
-    print(observation.trace_id, observation.metadata)
+    metadata = observation.metadata
+    print(observation.trace_id, metadata["monitor_agent"], metadata["monitor_step_number"])
 ```
 
 For flagged steps, filter on the key `monitor_flagged` with the value

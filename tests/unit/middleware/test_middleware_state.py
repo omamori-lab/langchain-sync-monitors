@@ -19,7 +19,7 @@ from langgraph.types import Command
 from langchain_sync_monitors.contracts import StepRecord, SubagentHalt, TaskAuthor
 from langchain_sync_monitors.middleware import MonitorMiddleware
 from langchain_sync_monitors.monitor_state import MonitorState
-from langchain_sync_monitors.task_authorship import MONITOR_STATE_KEYS
+from langchain_sync_monitors.state_keys import MONITOR_STATE_KEYS
 from tests.support.agents import (
     RunMode,
     build_keyword_monitor,

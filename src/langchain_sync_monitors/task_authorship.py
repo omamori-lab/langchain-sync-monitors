@@ -19,10 +19,13 @@ context note, in the state as well as in what the monitor reads.
   message a tool writes keeps a source only the monitor writes, whatever
   shape the tool's update takes, a command it raises as a `ParentCommand`
   included; a message the tool writes back unchanged, under its id, is left
-  as it was. A tool's writes to the state keys only the monitor writes,
-  `MONITOR_STATE_KEYS`, are dropped with a warning, so no tool can make a
-  message the task author's, keep a copy of the user's words, or lift a
-  halt.
+  as it was, and one it writes under the id of a human message the monitor
+  saw and the state no longer holds loses that id. A tool's `Command` writes
+  to the state keys only the monitor writes, `MONITOR_STATE_KEYS`, are
+  dropped with a warning, so no command a tool returns or raises can record
+  a message as a run's input or keep words of its own as the user's. A
+  `Send` a tool's command carries reaches another node's input, not these
+  writes, and stays open (#76).
 - `RUN_OPEN_KEY` is set at the start of a run and of each step, and cleared
   when the run reaches the monitor's `after_agent` hook. A run that starts
   while it is still set follows one that stopped early, or a fork from a
@@ -45,33 +48,30 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Collection, Iterable, Mapping, Sequence
-from dataclasses import replace
+from dataclasses import dataclass
 from typing import TypeGuard
 
-from langchain_core.messages import BaseMessage, HumanMessage, ToolMessage
+from langchain_core.messages import BaseMessage, HumanMessage, RemoveMessage, ToolMessage
 from langgraph.errors import ParentCommand
 from langgraph.types import Command
 
 from langchain_sync_monitors._langchain import (
-    MONITOR_DELEGATION_KEY,
     AgentStateUpdate,
     ToolCallResult,
     ToolCallResults,
     read_update_pairs,
+    replace_update_pairs,
     rewrite_update_messages,
+)
+from langchain_sync_monitors.state_keys import (
+    MONITOR_STATE_KEYS,
+    RUN_OPEN_KEY,
+    SEEN_HUMAN_MESSAGES_KEY,
+    TASK_MESSAGES_KEY,
 )
 from langchain_sync_monitors.transcript import MONITOR_FEEDBACK_SOURCE, read_message_source
 
 logger = logging.getLogger(__name__)
-
-TASK_MESSAGES_KEY = "monitor_task_messages"
-"""The state key that holds the ids of the human messages that arrived as a run's input."""
-
-SEEN_HUMAN_MESSAGES_KEY = "monitor_seen_human_messages"
-"""The state key that holds the ids of every untagged human message the monitor has seen."""
-
-RUN_OPEN_KEY = "monitor_run_open"
-"""The state key that is true from the start of a run until the run reaches its end."""
 
 APPLICATION_SOURCE = "application"
 """The source of a context note made from a human message that names no source of its own."""
@@ -82,19 +82,6 @@ from one an earlier run that stopped early left behind."""
 
 RESERVED_SOURCES = frozenset({MONITOR_FEEDBACK_SOURCE, UNCONFIRMED_INPUT_SOURCE})
 """The sources only the monitor writes: its feedback, and input it cannot confirm."""
-
-MONITOR_STATE_KEYS = frozenset(
-    {
-        TASK_MESSAGES_KEY,
-        SEEN_HUMAN_MESSAGES_KEY,
-        RUN_OPEN_KEY,
-        "monitor_run_inputs",
-        "monitor_inputs_at_halt",
-        MONITOR_DELEGATION_KEY,
-    },
-)
-"""The state keys only the monitor writes: every key it adds to the agent's state but
-`monitor_log`, which Deep Agents' `task` tool returns from a subagent [@deepagents2026]."""
 
 
 def merge_message_ids(  # lanorme: ignore[KWARG-001]
@@ -321,29 +308,75 @@ def is_unchanged_write_back(
     what a message says, too: Deep Agents' `FilesystemMiddleware` shows a
     human message that carries `additional_kwargs["lc_evicted_to"]` as a stub
     that names that path [@deepagents2026]. So the whole message is compared,
-    its type included.
+    its exact type included, field by field through `model_dump`: a subclass
+    whose own `__eq__` calls it equal to anything is still told apart, since
+    Python asks a subclass first.
     """
     existing = existing_messages.get(message.id) if message.id else None
-    return existing is not None and existing == message
+    return (
+        existing is not None
+        and type(message) is type(existing)
+        and message.model_dump() == existing.model_dump()
+    )
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class StateBeforeTool:
+    """What the state held when a tool ran, as the relabelling of its writes reads it.
+
+    `existing_messages` holds its messages by id. `removed_seen_ids` holds
+    the ids of the human messages the monitor has seen that it no longer
+    holds, such as a run's input a tool removed.
+    """
+
+    existing_messages: Mapping[str, BaseMessage]
+    removed_seen_ids: frozenset[str]
+
+
+def read_state_before_tool(state: object) -> StateBeforeTool:
+    """Return what the state held when a tool ran: its messages, and the seen ids it lost."""
+    existing_messages = read_existing_messages(state)
+    seen_ids = read_message_ids(state, key=SEEN_HUMAN_MESSAGES_KEY)
+    return StateBeforeTool(
+        existing_messages=existing_messages,
+        removed_seen_ids=seen_ids - existing_messages.keys(),
+    )
+
+
+def reissue_removed_seen_id(message: BaseMessage, *, before: StateBeforeTool) -> BaseMessage:
+    """Return a tool's message without an id when it names a seen human message the state lost.
+
+    LangGraph adds a message under an id the state lacks at the end
+    [@langgraph2026], far from where the message that had the id stood. The
+    monitor places a kept run input just before a message under its id, which
+    is right for a rewrite in place, so such a message must not keep the id:
+    a tool could otherwise move the user's answer after a question the agent
+    asked later. Without an id, LangGraph gives it a fresh one. A
+    `RemoveMessage` keeps its id, which is what it removes.
+    """
+    if isinstance(message, RemoveMessage) or message.id not in before.removed_seen_ids:
+        return message
+    return message.model_copy(update={"id": None})
 
 
 def relabel_unless_written_back(
     message: BaseMessage,
     *,
     tool_name: str,
-    existing_messages: Mapping[str, BaseMessage],
+    before: StateBeforeTool,
 ) -> BaseMessage:
     """Relabel a message a tool writes, unless the tool writes it back unchanged."""
-    if is_unchanged_write_back(message, existing_messages=existing_messages):
+    if is_unchanged_write_back(message, existing_messages=before.existing_messages):
         return message
-    return relabel_tool_written_message(message, tool_name=tool_name)
+    reissued = reissue_removed_seen_id(message, before=before)
+    return relabel_tool_written_message(reissued, tool_name=tool_name)
 
 
 def relabel_tool_command(
     command: Command,
     *,
     tool_name: str,
-    existing_messages: Mapping[str, BaseMessage],
+    before: StateBeforeTool,
 ) -> Command:
     """Relabel the messages a tool's `Command` writes, and drop its monitor state writes.
 
@@ -363,7 +396,7 @@ def relabel_tool_command(
     return rewrite_update_messages(
         drop_monitor_state_writes(command, tool_name=tool_name),
         rewrite=lambda message: relabel_unless_written_back(
-            message, tool_name=tool_name, existing_messages=existing_messages
+            message, tool_name=tool_name, before=before
         ),
     )
 
@@ -372,27 +405,27 @@ def drop_monitor_state_writes(command: Command, *, tool_name: str) -> Command:
     """Return a tool's command without its writes to the state keys only the monitor writes.
 
     Through them a tool could record a message it wrote as a run's input,
-    keep words of its own as the user's, or lift a halt, so each such write
-    is dropped, and a warning names the tool and the keys. The pairs are read
-    as LangGraph writes them, so every update shape is covered, and a value
-    goes with its key whatever its form, an `Overwrite` included.
-    `monitor_log` is not among them: Deep Agents' `task` tool returns a
-    subagent's records through it [@deepagents2026].
+    keep words of its own as the user's, or change a halt's count, so each
+    such write is dropped, and a warning names the tool and the keys. The
+    pairs are read as LangGraph writes them, so every update shape is
+    covered, and a value goes with its key whatever its form, an `Overwrite`
+    included. Only the command's own update is read: a `Send` it carries
+    reaches another node's input and stays open (#76). `monitor_log` is not
+    among the keys: Deep Agents' `task` tool returns a subagent's records
+    through it [@deepagents2026].
     """
     pairs = read_update_pairs(command)
     dropped = [str(key) for key, _ in pairs if is_monitor_state_key(key)]
     if not dropped:
         return command
     logger.warning(
-        "The tool %s wrote the state keys %s, which only the monitor writes, so the monitor "
-        "dropped those writes. A tool cannot decide what the monitor reads as the user's words, "
-        "nor lift a halt.",
+        "The tool %s wrote the state keys %s, which only the monitor writes, in a command's "
+        "update, so the monitor dropped those writes.",
         tool_name,
         dropped,
     )
     kept = [pair for pair in pairs if not is_monitor_state_key(pair[0])]
-    # A dict stays a dict; any other shape becomes the pairs LangGraph reads from it.
-    return replace(command, update=dict(kept) if isinstance(command.update, dict) else tuple(kept))
+    return replace_update_pairs(command, pairs=kept)
 
 
 def is_monitor_state_key(key: str) -> bool:
@@ -408,18 +441,17 @@ def relabel_tool_result(
     result: ToolCallResult,
     *,
     tool_name: str,
-    existing_messages: Mapping[str, BaseMessage],
+    before: StateBeforeTool,
 ) -> ToolCallResult:
     """Relabel what one item of a tool's result writes, a tool message or a `Command`."""
     if isinstance(result, Command):
-        return relabel_tool_command(
-            result, tool_name=tool_name, existing_messages=existing_messages
-        )
-    if read_message_source(result) not in RESERVED_SOURCES or is_unchanged_write_back(
-        result, existing_messages=existing_messages
-    ):
+        return relabel_tool_command(result, tool_name=tool_name, before=before)
+    if is_unchanged_write_back(result, existing_messages=before.existing_messages):
         return result
-    relabelled = relabel_tool_written_message(result, tool_name=tool_name)
+    reissued = reissue_removed_seen_id(result, before=before)
+    if read_message_source(reissued) not in RESERVED_SOURCES:
+        return reissued if isinstance(reissued, ToolMessage) else result
+    relabelled = relabel_tool_written_message(reissued, tool_name=tool_name)
     # A tool message stays one; the check only narrows the type for the type checker.
     return relabelled if isinstance(relabelled, ToolMessage) else result
 
@@ -440,9 +472,8 @@ def relabel_parent_command(bubble: ParentCommand, *, tool_name: str, state: obje
     as LangGraph itself replaces it on the way up.
     """
     [command] = bubble.args
-    existing_messages = read_existing_messages(state)
     relabelled = relabel_tool_command(
-        command, tool_name=tool_name, existing_messages=existing_messages
+        command, tool_name=tool_name, before=read_state_before_tool(state)
     )
     bubble.args = (relabelled,)
 
@@ -463,16 +494,17 @@ def mark_tool_written_notes(
     monitor writes, and a human message left without a source becomes a
     note named after the tool, or `application` for a tool named after one
     of the monitor's sources. A write to a state key only the monitor
-    writes is dropped. A message the tool writes back under its id,
+    writes is dropped, and a message written under the id of a human message
+    the monitor saw and the state no longer holds loses that id, by
+    `reissue_removed_seen_id`. A message the tool writes back under its id,
     unchanged in every field, keeps its author and its source. Tagged where
     it is written, a human message stays a note in every later run, even one
     that starts before the monitor has seen it, and in a history the
     application stores and replays.
     """
-    existing_messages = read_existing_messages(state)
+    before = read_state_before_tool(state)
     if isinstance(results, list):
         return [
-            relabel_tool_result(result, tool_name=tool_name, existing_messages=existing_messages)
-            for result in results
+            relabel_tool_result(result, tool_name=tool_name, before=before) for result in results
         ]
-    return relabel_tool_result(results, tool_name=tool_name, existing_messages=existing_messages)
+    return relabel_tool_result(results, tool_name=tool_name, before=before)

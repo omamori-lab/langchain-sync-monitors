@@ -39,13 +39,22 @@ authorises nothing, beside the kept turns: the agent's model wrote it.
   the model request alone, and not in the state, is not followed: the judge
   reads the state's text, as the preview requires.
 
-A kept input goes back just before the message that took its id, else just
-after the nearest of the three messages before it that the conversation
-still holds, else at the start, just before the summary that replaced it and
-its neighbours. Either way it comes after the input before it and before the
-next one the conversation holds. So an input a tool removed together with
-the three messages before it goes back right after the input before it,
-ahead of that input's surviving steps.
+A kept input goes back just after the nearest of the three messages before
+it that the conversation still holds, else just before a message that took
+its id in place, else at the start, just before the summary that replaced it
+and its neighbours. Either way it comes after the input before it, and before
+both the next input the conversation holds and any message under its id,
+which came after it. A message under its id marks the input's place only
+because a tool cannot put one anywhere else: `task_authorship` takes the id
+from a message a tool writes once the state no longer holds the input, since
+LangGraph would add that message at the end. So an input a tool removed
+together with the three messages before it goes back right after the input
+before it, ahead of that input's surviving steps.
+
+The judge reads every run's input whole on every step, including one that
+Deep Agents shows the agent only as a preview, over 50,000 tokens by default.
+A very large input therefore costs the judge its full size at every step,
+and can exceed a small judge's context, when that step fails.
 
 One case stays open. When a redacting middleware and a summariser are both
 listed before the monitor, and one `before_model` pass redacts a turn and
@@ -62,6 +71,7 @@ from typing import TypedDict
 from langchain_core.messages import BaseMessage, HumanMessage
 
 from langchain_sync_monitors._langchain import AgentStateUpdate
+from langchain_sync_monitors.state_keys import RUN_INPUTS_KEY
 from langchain_sync_monitors.task_authorship import (
     UNCONFIRMED_INPUT_SOURCE,
     build_run_input_update,
@@ -71,9 +81,6 @@ from langchain_sync_monitors.task_authorship import (
     tag_as_context_note,
 )
 from langchain_sync_monitors.transcript import read_message_source
-
-RUN_INPUTS_KEY = "monitor_run_inputs"
-"""The state key that holds the text of every human message a run received as its input."""
 
 ANCHOR_COUNT = 3
 """How many of the messages before an input are kept as the places it can go back to."""
@@ -244,7 +251,12 @@ def build_run_start_update(state: object) -> AgentStateUpdate:
 
 
 def build_input_message(entry: RunInput) -> HumanMessage:
-    """Return a kept input as the monitor renders it: the task author's words, or a note."""
+    """Return a kept input as the monitor renders it: the task author's words, or a note.
+
+    It keeps its input's id rather than a fresh `monitor-` one: it exists only
+    in the monitor's copy of the conversation and never reaches the state, and
+    the id is how the rest of that copy is read against it.
+    """
     message = HumanMessage(content=entry["text"], id=entry["id"])
     if entry["confirmed"]:
         return message
@@ -254,16 +266,13 @@ def build_input_message(entry: RunInput) -> HumanMessage:
 def find_input_slot(entry: RunInput, *, index_by_id: Mapping[str, int]) -> int:
     """Return where a missing input goes, as the index of the message it goes before.
 
-    It goes before the message that took its id, else just after the nearest
-    message before it that is still there, else at the start.
+    It goes just after the nearest message before it that is still there,
+    else just before the message that took its id in place, else at the start.
     """
-    index = index_by_id.get(entry["id"])
-    if index is not None:
-        return index
     for previous_id in entry["previous_message_ids"]:
         if previous_id in index_by_id:
             return index_by_id[previous_id] + 1
-    return 0
+    return index_by_id.get(entry["id"], 0)
 
 
 def find_missing_input_slots(
@@ -274,8 +283,9 @@ def find_missing_input_slots(
 ) -> dict[str, int]:
     """Return, for each input the history lacks, the index of the message it goes before.
 
-    Each one comes after the input before it and before the next input the
-    history holds, so the inputs keep their order.
+    Each one comes after the input before it, and before both the next input
+    the history holds and a message that took its id, which was written after
+    it. So the inputs keep their order.
     """
     index_by_id = {message.id: index for index, message in enumerate(history) if message.id}
     slots: dict[str, int] = {}
@@ -289,7 +299,8 @@ def find_missing_input_slots(
             for later in inputs[position + 1 :]
             if later["id"] in present_ids
         ]
-        highest = min(later_present, default=len(history))
+        taken_at = index_by_id.get(entry["id"])
+        highest = min([*later_present, len(history) if taken_at is None else taken_at])
         slot = min(max(find_input_slot(entry, index_by_id=index_by_id), lowest), highest)
         slots[entry["id"]] = slot
         lowest = slot

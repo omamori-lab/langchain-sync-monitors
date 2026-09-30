@@ -140,9 +140,10 @@ change raises the minor version.
   summarisation or a tool has taken it out of the model request, since
   `monitor_run_inputs` keeps its text, which grows the state by the size of
   the user's turns; input after a stopped run comes back as a note from
-  `unconfirmed_input`.
-- A tool's writes to the state keys only the monitor writes, every monitor key
-  but `monitor_log`, are dropped with a warning.
+  `unconfirmed_input`. The judge reads each input whole on every step, even
+  one Deep Agents shows the agent only as a preview.
+- A tool's `Command` writes to the state keys only the monitor writes, every
+  monitor key but `monitor_log`, are dropped with a warning.
 - Every other human message renders as `<context_note>`, which authorises
   nothing: one another component tagged, such as a conversation summary, and
   one written during a run without a tag, such as Deep Agents' video reads and

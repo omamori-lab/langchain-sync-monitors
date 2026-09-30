@@ -428,6 +428,44 @@ def test_a_rewritten_input_whose_neighbours_were_summarised_stays_before_its_not
     assert restored[3] is note
 
 
+def test_an_input_follows_its_nearest_neighbour_not_a_message_a_tool_wrote_under_its_id() -> None:
+    # Arrange: a tool removed the second turn, and later wrote a note under its id, at the end
+    note = HumanMessage("noted", id="narrowing", additional_kwargs={"lc_source": "pin"})
+    history: list[BaseMessage] = [TASK, REPLY, READ, RESULT, note]
+
+    # Act
+    restored = restore(history, KEPT_TASK, KEPT_NARROWING)
+
+    # Assert
+    assert read_ids(restored) == ["task", "reply", "narrowing", "read", "result", "narrowing"]
+
+
+def test_an_input_whose_neighbours_are_all_gone_goes_back_before_its_rewrite() -> None:
+    # Arrange: the messages before the second turn are gone, and a tool rewrote it in place
+    note = HumanMessage("noted", id="narrowing", additional_kwargs={"lc_source": "pin"})
+    second = keep("narrowing", NARROWING.text, "reply", "result", "read")
+    history: list[BaseMessage] = [TASK, GREETING, note]
+
+    # Act
+    restored = restore(history, KEPT_TASK, second)
+
+    # Assert
+    assert read_ids(restored) == ["task", "greeting", "narrowing", "narrowing"]
+
+
+def test_an_input_goes_back_before_a_message_a_tool_wrote_under_its_id_later() -> None:
+    # Arrange: the reply the second turn followed now sits after the tool's note under its id
+    note = HumanMessage("noted", id="narrowing", additional_kwargs={"lc_source": "pin"})
+    history: list[BaseMessage] = [TASK, note, READ, REPLY]
+
+    # Act
+    restored = restore(history, KEPT_TASK, KEPT_NARROWING)
+
+    # Assert
+    assert read_ids(restored) == ["task", "narrowing", "narrowing", "read", "reply"]
+    assert restored[2] is note
+
+
 def test_an_input_whose_neighbour_is_gone_follows_an_earlier_input_put_back_later_on() -> None:
     # Arrange: the first turn goes back after the reply it followed; the second has no anchor
     first = keep("task", TASK.text, "reply")

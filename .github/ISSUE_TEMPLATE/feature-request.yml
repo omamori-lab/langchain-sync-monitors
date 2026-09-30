@@ -1,0 +1,41 @@
+name: Feature request
+description: Suggest a new monitor, protocol or view, or a change to an existing one.
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thank you for the suggestion. For anything larger than a fix, the design is
+        agreed on the issue before the code;
+        [CONTRIBUTING.md](https://github.com/omamori-lab/langchain-sync-monitors/blob/main/CONTRIBUTING.md)
+        explains how to contribute.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What you are trying to do, and what stops you today.
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposal
+      description: The change you have in mind, with a short code sample of the API if you can.
+    validations:
+      required: true
+
+  - type: textarea
+    id: sources
+    attributes:
+      label: Sources
+      description: |
+        The paper, post or code base the idea comes from, if any. The library cites
+        the source of every protocol and monitor it implements.
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives
+      description: Other ways to solve the problem that you considered.

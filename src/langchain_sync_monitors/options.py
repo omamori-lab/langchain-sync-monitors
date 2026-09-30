@@ -19,7 +19,7 @@ import operator
 from collections.abc import Set as AbstractSet
 from decimal import Decimal
 from enum import Enum
-from typing import TypeGuard
+from typing import Final, TypeGuard
 
 from langchain_sync_monitors.errors import ConfigurationError
 
@@ -111,6 +111,30 @@ def check_string_set_option(value: object, *, parameter_name: str, example: str)
         if not isinstance(item, str):
             message = f"{parameter_name} must hold only strings, got {describe_option_value(item)}"
             raise ConfigurationError(message)
+
+
+RESERVED_NODE_NAME_CHARACTERS: Final = (":", "|")
+"""The characters LangGraph refuses in a graph node's name [@langgraph2026]."""
+
+
+def check_name_part_option(value: object, *, parameter_name: str) -> None:
+    """Raise `ConfigurationError` unless `value` is a non-blank string that fits in a node name.
+
+    A middleware's hooks become graph nodes named after it, such as
+    `monitor[main].before_model`, so a part of the name that holds a
+    character LangGraph refuses there would fail only when the agent is built.
+    """
+    if not isinstance(value, str) or not value.strip():
+        message = f"{parameter_name} must be a non-blank string, got {describe_option_value(value)}"
+        raise ConfigurationError(message)
+    reserved = [character for character in RESERVED_NODE_NAME_CHARACTERS if character in value]
+    if reserved:
+        characters = " or ".join(map(repr, reserved))
+        message = (
+            f"{parameter_name} must not contain {characters}, which LangGraph refuses in the "
+            f"names of the graph nodes the monitor's hooks become, got {value!r}"
+        )
+        raise ConfigurationError(message)
 
 
 def is_whole_number(value: object) -> TypeGuard[numbers.Integral]:

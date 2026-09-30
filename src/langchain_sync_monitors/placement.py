@@ -14,7 +14,9 @@ from collections.abc import Sequence
 from langchain.agents.middleware.types import AgentMiddleware
 
 from langchain_sync_monitors._langchain import AnyAgentMiddleware
+from langchain_sync_monitors.errors import ConfigurationError
 from langchain_sync_monitors.middleware import MonitorMiddleware
+from langchain_sync_monitors.options import check_instance_option, describe_option_value
 
 REQUEST_ONLY_MIDDLEWARE = frozenset(
     {
@@ -152,6 +154,26 @@ def find_middleware_handling_tool_failures(
     return [item for item in middleware if is_tool_failure_handling_middleware(item)]
 
 
+def check_middleware_list_option(middleware: object) -> None:
+    """Raise `ConfigurationError` unless `middleware` is a sequence of middleware.
+
+    It is the list given to `create_agent`. The check slices it and walks it
+    more than once, so a generator, which one walk would use up, is refused.
+    """
+    if isinstance(middleware, str | bytes) or not isinstance(middleware, Sequence):
+        message = (
+            "middleware must be the list given to create_agent, "
+            f"got {describe_option_value(middleware)}"
+        )
+        raise ConfigurationError(message)
+    for position, item in enumerate(middleware):
+        check_instance_option(
+            item,
+            option_type=AgentMiddleware,
+            parameter_name=f"middleware[{position}]",
+        )
+
+
 def warn_about_placement(names: Sequence[str], *, reason: str) -> None:
     """Warn once for each named middleware, giving the reason its placement matters."""
     for name in names:
@@ -189,8 +211,10 @@ def check_monitor_placement(*, middleware: Sequence[AnyAgentMiddleware]) -> list
     as a run's input and lifts a halt. The check does not warn about those
     hooks, which many middleware have for sound reasons.
 
-    Returns the names of the middleware it warned about.
+    Returns the names of the middleware it warned about. A `middleware` that
+    is not a list or tuple of middleware raises `ConfigurationError`.
     """
+    check_middleware_list_option(middleware)
     misplaced_inside = [
         item.name
         for item in find_middleware_inside_monitor(middleware)

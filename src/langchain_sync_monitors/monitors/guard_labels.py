@@ -5,7 +5,8 @@ guard reads, so it can plant a label there for the guard to quote; the reader
 takes the label only from a line whose shape is a verdict, and treats a reply
 whose lines name two labels as unreadable. Markup around a key or a label, as
 in `**Label**: __violation__`, and a list marker or heading at the start of a
-line, as in `1. Label:` or `## Label:`, do not change what a line names.
+line, as in `1. Label:` or `## Label:`, do not change what a line names; a
+label with no key in a list item or a quote is no verdict.
 `GuardModelMonitor` reads labels through `find_reply_label`.
 """
 
@@ -28,8 +29,10 @@ It is a number, one letter or a roman numeral up to five letters, then a full
 stop or a bracket. No space need follow it, so `1.Label:` counts as a list
 item as `1. Label:` does.
 """
-LINE_OPENING = rf"{MARKUP}(?:{LIST_MARKER}{MARKUP})?"
+LINE_OPENING = rf"{MARKUP}(?:(?P<list_marker>{LIST_MARKER}){MARKUP})?"
 """The start of a line before its key or label: markup, then maybe a list marker and markup."""
+BULLET_OR_QUOTE_PATTERN = re.compile(r"\s*+(?:>|[-*+•]\s)")
+"""A line that opens as a bullet or a quote, as in `- no_violation` or `> no_violation`."""
 KEY = r"[A-Za-z](?:[A-Za-z *_`]{0,18}[A-Za-z])?"
 """A short key: at most 20 letters, spaces and `*`, `_` or backtick markup, from letter to letter.
 
@@ -100,8 +103,9 @@ class LabelMatch:
     """A known label found in a reply, where it starts, and whether its line can be the verdict.
 
     A line can be the verdict when it holds the label alone, or after a
-    verdict key such as `Label:`. A label after any other key, or at the start
-    of a longer line, still names that label for the conflict check.
+    verdict key such as `Label:`. A label after any other key, alone in a
+    list item or a quote, or at the start of a longer line, still names that
+    label for the conflict check.
     """
 
     label: str
@@ -116,6 +120,11 @@ def match_label_line(line: re.Match[str], *, labels: frozenset[str]) -> LabelMat
     name two labels, so it holds none. The key's words are read without the
     markup around them, so `**Final** **answer**` is the verdict key
     `Final answer`.
+
+    A label with no key in a list item or a quote, as in `2. no_violation`,
+    `- no_violation` or `> no_violation`, is no verdict: the guard may be
+    quoting a list from the step. After a verdict key, as in `1. Label:
+    no_violation`, the line is still the guard's verdict.
     """
     match = LABEL_LINE_PATTERN.fullmatch(line.group())
     if match is None or match["label"].lower() not in labels:
@@ -123,11 +132,21 @@ def match_label_line(line: re.Match[str], *, labels: frozenset[str]) -> LabelMat
     key = match["key"]
     if key and any(word.lower() in labels for word in KEY_WORD_PATTERN.findall(key)):
         return None
+    if key:
+        is_verdict_line = VERDICT_KEY_PATTERN.fullmatch(key) is not None
+    else:
+        is_verdict_line = not is_list_item(match)
     return LabelMatch(
         label=match["label"].lower(),
         offset=line.start() + match.start("label"),
-        is_verdict_line=key is None or VERDICT_KEY_PATTERN.fullmatch(key) is not None,
+        is_verdict_line=is_verdict_line,
     )
+
+
+def is_list_item(match: re.Match[str]) -> bool:
+    """Tell whether a matched label line opens as a list item or a quote: `2.`, `- ` or `> `."""
+    has_list_marker = match["list_marker"] is not None
+    return has_list_marker or BULLET_OR_QUOTE_PATTERN.match(match.string) is not None
 
 
 def match_keyed_label_start(line: re.Match[str], *, labels: frozenset[str]) -> LabelMatch | None:
@@ -233,10 +252,11 @@ def find_reply_label(
     errs towards suspicion. Each rule reads through markup: `*`, `_`,
     backticks, quotes and other marks around a key or a label, between a key
     and its colon, and a list marker or heading before either, so
-    `- **Label**: __violation__ (...` names `violation`. A guard that gives
-    its verdict only in prose and then quotes a planted label alone on the
-    last line cannot be told from one that gives that label: the text is the
-    same.
+    `- **Label**: __violation__ (...` names `violation`. A label with no key
+    in a list item or a quote, as in `2. no_violation`, is no verdict, since
+    the guard may be quoting a list from the step. A guard that gives its
+    verdict only in prose and then quotes a planted label alone on the last
+    line cannot be told from one that gives that label: the text is the same.
     """
     lines = list(NON_EMPTY_LINE_PATTERN.finditer(text))
     label_lines = find_label_lines(lines, labels=suspicious_labels | safe_labels)

@@ -66,8 +66,8 @@ from tests.support.written_human_messages import (
     UPDATE_SHAPES,
     AnswerGuardMiddleware,
     ClosingNoteMiddleware,
+    MessagesKey,
     NudgingMiddleware,
-    UpdateShape,
     attach_as_list,
     attach_frames,
     attach_video,
@@ -778,10 +778,19 @@ def test_a_tool_cannot_write_a_source_only_the_monitor_writes(
     ) in transcript
 
 
-@pytest.mark.parametrize("shape", UPDATE_SHAPES)
+FORGING_TOOLS: dict[str, BaseTool] = {
+    **{shape: build_forging_tool(shape) for shape in UPDATE_SHAPES},
+    "dict-with-a-key-subclass": build_forging_tool("dict", key=MessagesKey("messages")),
+    "pairs-with-a-key-subclass": build_forging_tool("pairs", key=MessagesKey("messages")),
+}
+"""A forging tool per update shape, and two whose `messages` key is a string subclass that
+`!=` calls unequal to it."""
+
+
+@pytest.mark.parametrize("forging_tool", FORGING_TOOLS.values(), ids=FORGING_TOOLS.keys())
 def test_a_tool_s_update_is_relabelled_whatever_its_shape(
     run_mode: RunMode,
-    shape: UpdateShape,
+    forging_tool: BaseTool,
 ) -> None:
     # Arrange: the tool writes the monitor's source, and an untagged message as the user
     monitor = RenderingMonitor(view=MonitorView(channels=Channel.ALL))
@@ -796,7 +805,7 @@ def test_a_tool_s_update_is_relabelled_whatever_its_shape(
     )
     agent = create_agent(
         model=model,
-        tools=[build_forging_tool(shape), *Workspace().build_tools()],
+        tools=[forging_tool, *Workspace().build_tools()],
         middleware=[
             MonitorMiddleware(monitor=monitor, protocol=TrustedMonitoring(flag_threshold=0.6))
         ],

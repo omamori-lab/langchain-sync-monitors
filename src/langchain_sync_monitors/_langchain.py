@@ -197,19 +197,21 @@ def rewrite_messages_value(value: UpdateValue, *, rewrite: MessagesRewrite) -> W
 def rewrite_update_pairs(pairs: UpdatePairs, *, rewrite: MessagesRewrite) -> UpdatePairs:
     """Return the pairs with every value written to `messages` rewritten.
 
-    A value written twice, as by a dataclass that annotates `messages` in two
+    A key is compared with `==`, as LangGraph finds its channel, so a key
+    that only its own `__ne__` sets apart is still read as `messages`. A
+    value written twice, as by a dataclass that annotates `messages` in two
     of its classes, is rewritten once, so both writes stay the same object,
     as LangGraph would write them.
     """
     rewrites: dict[int, WrittenMessages] = {}
     rewritten: list[tuple[str, UpdateValue]] = []
     for key, value in pairs:
-        if key != MESSAGES_KEY:
+        if key == MESSAGES_KEY:
+            if id(value) not in rewrites:
+                rewrites[id(value)] = rewrite_messages_value(value, rewrite=rewrite)
+            rewritten.append((key, rewrites[id(value)]))
+        else:
             rewritten.append((key, value))
-            continue
-        if id(value) not in rewrites:
-            rewrites[id(value)] = rewrite_messages_value(value, rewrite=rewrite)
-        rewritten.append((key, rewrites[id(value)]))
     return rewritten
 
 
@@ -225,7 +227,7 @@ def rewrite_update_messages(command: Command[Any], *, rewrite: MessagesRewrite) 
     as a value for a root channel, which an agent's state does not have.
     """
     pairs = read_update_pairs(command)
-    if all(key != MESSAGES_KEY for key, _ in pairs):
+    if not any(key == MESSAGES_KEY for key, _ in pairs):
         return command
     rewritten = rewrite_update_pairs(pairs, rewrite=rewrite)
     if isinstance(command.update, dict):

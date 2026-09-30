@@ -35,14 +35,19 @@ main thing to report. In scope:
   how its reply is read, beyond fooling the monitor model itself;
 - a failure that opens instead of closing: an error or an unreadable monitor
   reply that lets a step through;
-- a subagent that runs without the monitor its parent configured, or an Auto
-  Mode limit that an agent can reset;
+- a subagent that runs without the monitor its parent configured, beyond the
+  limits listed below, or an Auto Mode limit that an agent can reset;
 - data reaching a stream, a log or a trace that the documentation says it does
   not reach, such as a rejected sample in `stream_mode="messages"`;
 - a weakness in the release process or the published package.
 
 Out of scope:
 
+- limits the documentation already states. `monitor_subagents` refuses
+  forked subagents (`mode="fork"`), and compiled or remote subagents, rather
+  than leave them unmonitored; a compiled subagent needs its monitor added to
+  its own graph by hand. The guide to monitoring Deep Agents subagents covers
+  these;
 - a monitor model that scores a harmful step too low. Monitors are models and
   make mistakes; if the default prompt or view could do better, open an
   ordinary issue;

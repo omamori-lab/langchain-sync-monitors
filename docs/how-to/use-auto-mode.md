@@ -12,14 +12,15 @@ After three blocks in a row within one step, or twenty in the conversation
 thread, a fallback writes the step, and by default the run halts. The
 protocol follows Claude Code's auto mode [@hughes2026automode], which stops a
 session after three denials in a row or twenty in all and hands it to a
-person. Here the total counts per thread, and the fallback takes the person's
-place.
+person, or, in headless mode, ends the process. Here the total counts per
+conversation thread, and the default fallback ends the run, as headless mode
+does.
 
 ## How it works
 
 ```mermaid
 flowchart TD
-    start{"New subagent blocks took the thread to max_total_blocks?"}
+    start{"New subagent blocks since the last step, and the thread at or over max_total_blocks?"}
     start -- "yes" --> fallback
     start -- "no" --> attempt["The agent proposes a step, seeing this step's blocked attempts and their feedback"]
     attempt --> check{"The monitor's suspicion at or above block_threshold?"}
@@ -33,8 +34,8 @@ flowchart TD
 
 The block limits are `max_consecutive_blocks` within the step and
 `max_total_blocks` in the thread. A step goes to the fallback before any
-attempt only when blocks inside subagents, recorded since this agent's last
-step, took the thread to the total.
+attempt only when blocks inside subagents since this agent's last step leave
+the thread at or over the total.
 
 The tool calls of a blocked attempt never run. A provider's built-in tools in
 it, such as a web fetch, already ran inside the model call that drew it, once
@@ -182,8 +183,8 @@ Two limits of the count follow:
 
 The count is kept per `label`. `monitor_subagents` gives each subagent a copy
 of the parent's monitor with the same label. An override with a label of its
-own counts apart; one built without a `label` keeps `"monitor"` and shares
-the parent's total.
+own counts apart. One built without a `label` keeps `"monitor"`, so it shares
+the parent's total when the parent keeps the default label too.
 
 ### When a limit is reached
 
@@ -204,8 +205,10 @@ the parent's total.
   [A halt stands](choose-a-protocol.md#a-halt-stands).
 - `DeferToTrustedModel(trusted_model=...)` has a trusted model write the step
   from the step's request with only the model changed, and the run goes on.
-  The trusted model does not see the blocked attempts or their feedback, and
-  its step is not judged.
+  The trusted model does not see this step's blocked attempts or their
+  feedback, and its step is not judged. With `IN_TRANSCRIPT`, the blocked
+  attempts and feedback of earlier steps are part of the conversation it
+  receives.
 
 A fallback must not ask a person by calling LangGraph's `interrupt()`. It runs
 inside the model node, and on resume LangGraph runs the whole node again: the
@@ -277,9 +280,9 @@ sequenceDiagram
   attempts and their feedback. The agent's messages show the accepted step
   alone, and `monitor_log` keeps the blocked attempts.
 - With `IN_TRANSCRIPT`, the blocked attempts and their feedback are committed
-  before the accepted step, as Claude Code does. The agent remembers them on
-  later steps, and so does the monitor, which reads earlier feedback as
-  `<monitor_feedback>`.
+  before the accepted step, as Claude Code does [@hughes2026automode]. The
+  agent remembers them on later steps, and so does the monitor, which reads
+  earlier feedback as `<monitor_feedback>`.
 
 Every message the monitor inserts gets a fresh id of the form
 `monitor-<uuid4>`, because LangGraph replaces messages that share an id.
@@ -295,7 +298,7 @@ judged.
 | `"steered"` | One or more attempts were blocked, then one was accepted. | 1 or more | 2 or more | The last |
 | `"halted"` | A limit was reached, and `HaltRun` ended the run. | 1 or more | As many as blocked | None |
 | `"deferred_to_trusted"` | A limit was reached, and the trusted model wrote the step. | 1 or more | As many as blocked | None |
-| `"halted"` or `"deferred_to_trusted"` | Blocks inside subagents took the thread to the total, so the step went to the fallback unsampled. | 0 | 0 | None |
+| `"halted"` or `"deferred_to_trusted"` | Blocks inside subagents since this agent's last step left the thread at or over the total, so the step went to the fallback unsampled. | 0 | 0 | None |
 | `"halted"` | A halt stood, or a subagent was halted under `SubagentHalt.STOP_WHOLE_RUN`. | 0 | 0 | None |
 
 Every step except `allowed` is flagged.
@@ -334,8 +337,8 @@ blocks_in_thread = sum(record["blocked_count"] for record in records)
 - **A provider's built-in tools run once per attempt.** A blocked attempt's
   web search or code execution has already run at the provider; see
   [Tools the provider runs itself](choose-a-protocol.md#tools-the-provider-runs-itself).
-- **The graph takes more steps.** The monitor adds two graph steps per model
-  call and two per run; see
+- **The graph takes more steps.** The monitor adds two graph steps per agent
+  step and two per run; see
   [Graph steps, streams and failures](choose-a-protocol.md#graph-steps-streams-and-failures),
   which also covers a step that fails.
 

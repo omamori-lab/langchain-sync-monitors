@@ -99,7 +99,7 @@ built.
 | `fallback` | Required | What writes the step when no sample is acceptable. A protocol here, such as `DeferToTrusted` in place of `DeferToTrustedModel`, raises `ConfigurationError`. |
 | `defer_threshold` | 0.6, with a warning | A sample whose suspicion is at or above this value is not acceptable. |
 | `audit_threshold` | 0.9, with a warning | A step is flagged when the lowest suspicion across its samples is at or above this value. `None` turns flagging off. |
-| `max_resamples` | 2 | How many more samples to draw after a suspicious first one, a whole number of at least 0. Two, three samples in all, is what Ctrl-Z draws. With 0 and the `DeferToTrustedModel` fallback, the protocol is Defer to Trusted. |
+| `max_resamples` | 2 | How many more samples to draw after a suspicious first one, a whole number of at least 0. Two, three samples in all, is what Ctrl-Z's basic Defer to Resample draws. With 0 and the `DeferToTrustedModel` fallback, the protocol is Defer to Trusted. |
 | `resampling` | `Resampling.SEQUENTIAL` | `SEQUENTIAL` or `PARALLEL`, as below. A plain string raises `ConfigurationError`. |
 
 Each threshold is a number from 0 to 1; see
@@ -139,13 +139,17 @@ model node.
 
 | | `Resampling.SEQUENTIAL`, the default | `Resampling.PARALLEL` |
 |---|---|---|
-| How it draws | One resample at a time, stopping at the first acceptable one, as Ctrl-Z's appendix words the protocol | All `max_resamples` at once |
+| How it draws | One resample at a time, stopping at the first acceptable one | All `max_resamples` at once |
 | Extra samples on a suspicious step | 1 to `max_resamples` | Always `max_resamples` |
-| Rounds on a suspicious step, with the defaults | 2 or 3 | 2 |
+| Rounds on a suspicious step, with the defaults | 2 or 3 | 2 under `ainvoke()`, 3 under `invoke()` |
 | Under `ainvoke()` | One after another | Concurrently; one draw that fails cancels the others |
 | Under `invoke()` | One after another | One after another, so no time is saved |
 
 A round is one call of the agent's model followed by one call of the monitor.
+Ctrl-Z's authors describe the protocol as asking again after each suspicious
+sample [@bhatt2025ctrlzpost]. The paper's own statement, which draws up to two
+new samples and runs the least suspicious acceptable one, fits either way of
+drawing them [@bhatt2025ctrlz].
 
 ## Read the outcome in `monitor_log`
 
@@ -206,8 +210,8 @@ for record in result["monitor_log"]:
   `check_monitor_placement(middleware=[...])` warns about such a list.
 - **A flag never blocks.** The step has run, or been replaced, by the time
   anyone reads the log.
-- **The graph takes more steps.** The monitor adds two graph steps per model
-  call and two per run; see
+- **The graph takes more steps.** The monitor adds two graph steps per agent
+  step and two per run; see
   [Graph steps, streams and failures](choose-a-protocol.md#graph-steps-streams-and-failures),
   which also covers a step that fails.
 

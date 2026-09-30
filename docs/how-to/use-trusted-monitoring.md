@@ -105,7 +105,7 @@ flag_threshold = statistics.quantiles(honest_scores, n=100)[97]
 
 A single chat judge scores in steps of 0.1, so many honest steps share a
 score, and the share of honest steps flagged can land well away from the
-percentile you chose.
+percentile you chose [@kaufman2025basharena; @koran2026ensemble].
 [Combine and calibrate monitors](combine-and-calibrate-monitors.md) shows how
 `RepeatedMonitor` spreads the scores out and `CalibratedMonitor` turns them
 into ranks among honest-run scores.
@@ -153,8 +153,8 @@ for record in result["monitor_log"]:
   Anthropic's web fetch run inside the model call, so the step has used them
   before the monitor scores it; see
   [Tools the provider runs itself](choose-a-protocol.md#tools-the-provider-runs-itself).
-- **The graph takes more steps.** The monitor adds two graph steps per model
-  call and two per run, which count towards a `recursion_limit` you pass; see
+- **The graph takes more steps.** The monitor adds two graph steps per agent
+  step and two per run, which count towards a `recursion_limit` you pass; see
   [Graph steps, streams and failures](choose-a-protocol.md#graph-steps-streams-and-failures).
 
 ## Related guides

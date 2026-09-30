@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import math
+
 import pytest
 from langchain_core.messages import AIMessage
 
@@ -147,6 +149,23 @@ def test_blocks_elsewhere_in_the_thread_count_towards_the_total(
     # Assert
     assert decision.outcome is Outcome.HALTED
     assert len(decision.blocked_attempts) == blocks_this_step
+
+
+def test_an_infinite_total_never_hands_a_step_to_the_fallback(drive: StepDriver) -> None:
+    # Arrange
+    protocol = AutoMode(block_threshold=0.6, max_total_blocks=math.inf)
+    step = ScriptedPendingStep(
+        suspicions=[0.9, 0.9, 0.1],
+        blocks_in_thread=10_000,
+        new_subagent_blocks=5,
+    )
+
+    # Act
+    decision = drive(protocol.decide(step))
+
+    # Assert: the thread's many blocks do not stop the step, which is steered
+    assert decision.outcome is Outcome.STEERED
+    assert len(decision.blocked_attempts) == 2
 
 
 def test_subagent_blocks_that_reach_the_total_hand_the_next_step_to_the_fallback(

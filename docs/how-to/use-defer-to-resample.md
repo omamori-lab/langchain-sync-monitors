@@ -84,10 +84,10 @@ object you built.
 
 | Option | Default | What it does |
 |---|---|---|
-| `fallback` | Required | What writes the step when no sample is acceptable. |
+| `fallback` | Required | What writes the step when no sample is acceptable. A protocol here, such as `DeferToTrusted` in place of `DeferToTrustedModel`, raises `ConfigurationError`. |
 | `defer_threshold` | 0.6, with a warning | A sample whose suspicion is at or above this value is not acceptable. |
 | `audit_threshold` | 0.9, with a warning | A step is flagged when the lowest suspicion across its samples is at or above this value. `None` turns flagging off. |
-| `max_resamples` | 2 | How many more samples to draw after a suspicious first one. 0 draws no resample, so with the `DeferToTrustedModel` fallback the protocol behaves as Defer to Trusted; a negative number raises `ConfigurationError`. |
+| `max_resamples` | 2 | How many more samples to draw after a suspicious first one. 0 draws no resample, so with the `DeferToTrustedModel` fallback the protocol behaves as Defer to Trusted; anything but a whole number of at least 0 raises `ConfigurationError`. |
 | `resampling` | `Resampling.SEQUENTIAL` | `SEQUENTIAL` or `PARALLEL`, as below. A plain string raises `ConfigurationError`. |
 
 ### Fallbacks
@@ -193,7 +193,10 @@ for record in result["monitor_log"]:
   to its end, even an agent that would otherwise loop until it has a
   structured response. The middleware's hooks cost two graph steps per model
   call, `before_model` and `after_model`, and two per run, `before_agent` and
-  `after_agent`, all of which count towards an explicit `recursion_limit`.
+  `after_agent`, all of which count towards an explicit `recursion_limit`. If
+  a hook such as Deep Agents' `RubricMiddleware` sends the run back to the
+  model, each further step halts again without a sample, until a later run
+  brings a new message the monitor records as the user's input.
 
 ## Related guides
 

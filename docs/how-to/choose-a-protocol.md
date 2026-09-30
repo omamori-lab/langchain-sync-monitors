@@ -83,6 +83,36 @@ Whichever you choose, every threshold defaults to a placeholder and warns with
 an `UncalibratedThresholdWarning` until you pass your own value. The protocol
 guides say how to choose one.
 
+Whichever you choose, too, the library warns about a setup it cannot monitor
+in full. `check_monitor_placement(middleware=[...])` warns about middleware
+placed where it undermines the monitor, and the middleware emits a
+`ProviderToolWarning`, once, when the agent's model is given a tool its
+provider runs itself. The provider runs such a tool inside the model call,
+before the monitor judges the step and again for every resample, so no
+protocol can stop it. The warning knows these server tools:
+
+- Anthropic's web search, web fetch, code execution and MCP connector
+  [@anthropic2026tooluse];
+- OpenAI's web search, file search, code interpreter, image generation and
+  remote MCP [@openai2026tools];
+- Gemini's Google Search, Google Maps, code execution and URL context
+  [@google2026geminitools].
+
+It reads the tools in the model request. It also reads the tools bound on
+the model with `bind_tools` before the agent was built, but only for an agent
+with no tools of its own and no `response_format`, since otherwise
+`create_agent` binds the model afresh and those tools never reach it. It
+cannot see a server-side feature switched on in the model's own settings,
+such as OpenRouter's web plugin or an `:online` model, a tool an integration
+has already turned into an object of its own SDK, tools bound inside a
+wrapper such as `with_fallbacks(...)`, or tools queued with `bind_tools` on a
+configurable model from `init_chat_model(..., configurable_fields=...)`;
+those run the same way without a warning. The tool search
+of Anthropic and OpenAI is not named either, since it acts on nothing outside
+the provider. Tools the agent runs itself, Anthropic's bash, text editor,
+memory and computer use tools and OpenAI's computer use and patch tools
+included, come back as tool calls, which the monitor judges before they run.
+
 ## Related guides
 
 - [Use a chat judge](use-a-chat-judge.md) for the monitor most setups start with.

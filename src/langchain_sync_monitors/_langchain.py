@@ -26,7 +26,7 @@ from langchain.agents.middleware.types import (
 from langchain.tools import ToolRuntime
 from langchain_core.callbacks import AsyncCallbackManager, BaseCallbackManager, CallbackManager
 from langchain_core.messages import AnyMessage, BaseMessage, ToolMessage
-from langchain_core.runnables import RunnableConfig
+from langchain_core.runnables import RunnableBinding, RunnableConfig
 from langchain_core.runnables.config import ensure_config, patch_config, var_child_runnable_config
 from langgraph.constants import TAG_NOSTREAM
 from langgraph.runtime import Runtime
@@ -227,6 +227,23 @@ def build_tool_request_with_delegation(
         return request
     state = {**request.state, MONITOR_DELEGATION_KEY: delegation}
     return replace(request, state=state, runtime=replace(runtime, state=state))
+
+
+def read_bound_tools(model: object) -> list[object]:
+    """Return the tools a chat model was bound to before the agent was built.
+
+    `bind_tools` returns a `RunnableBinding` that keeps the tools among its
+    keyword arguments [@langchaincore2026]. A model can sit inside several
+    bindings, and each passes its own keyword arguments over those of the one
+    inside it, so the tools of the outermost binding that sets them are the
+    ones the model receives. A model with no binding has none.
+    """
+    while isinstance(model, RunnableBinding):
+        bound: object = model.kwargs.get("tools")
+        if isinstance(bound, list):
+            return list(bound)
+        model = model.bound
+    return []
 
 
 def build_request_with_messages(

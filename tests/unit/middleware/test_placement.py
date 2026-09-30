@@ -16,10 +16,13 @@ from langchain.agents.middleware import (
 )
 from langchain.agents.middleware.types import (
     AgentMiddleware,
+    AgentState,
     ModelRequest,
     ModelResponse,
     ToolCallRequest,
+    hook_config,
 )
+from langgraph.runtime import Runtime
 
 from langchain_sync_monitors.middleware import MonitorMiddleware
 from langchain_sync_monitors.placement import MonitorPlacementWarning, check_monitor_placement
@@ -73,6 +76,23 @@ def test_a_model_call_wrapper_inside_the_monitor_is_named_in_a_warning(
 ) -> None:
     # Arrange
     stack = [monitor_middleware, CommandingMiddleware()]
+
+    # Act
+    with pytest.warns(MonitorPlacementWarning, match="CommandingMiddleware"):
+        misplaced = check_monitor_placement(middleware=stack)
+
+    # Assert
+    assert misplaced == ["CommandingMiddleware"]
+
+
+class TeamMonitorMiddleware(MonitorMiddleware):
+    """A user's own subclass of the monitor middleware."""
+
+
+def test_a_model_call_wrapper_inside_a_monitor_subclass_is_named_in_a_warning() -> None:
+    # Arrange
+    monitor = TeamMonitorMiddleware(monitor=KeywordMonitor(), protocol=AcceptFirst())
+    stack = [monitor, CommandingMiddleware()]
 
     # Act
     with pytest.warns(MonitorPlacementWarning, match="CommandingMiddleware"):
@@ -136,6 +156,63 @@ def test_a_retrying_middleware_outside_the_monitor_is_named_in_a_warning(
     # Assert
     assert misplaced == [retrying.name]
     assert "monitor_step_failed" in str(caught[0].message)
+
+
+class PatientRetryMiddleware(ModelRetryMiddleware):
+    """A project's own retry policy, built on LangChain's."""
+
+
+class HouseFallbackMiddleware(ModelFallbackMiddleware):
+    """A project's own fallback chain, built on LangChain's."""
+
+
+@pytest.mark.parametrize(
+    "retrying",
+    [
+        PatientRetryMiddleware(),
+        HouseFallbackMiddleware(ScriptedChatModel(responses=[])),
+    ],
+    ids=["retry", "fallback"],
+)
+def test_a_subclass_of_a_retrying_middleware_outside_the_monitor_is_named_in_a_warning(
+    monitor_middleware: MonitorMiddleware,
+    retrying: AgentMiddleware[Any, Any, Any],
+) -> None:
+    # Act
+    with pytest.warns(MonitorPlacementWarning, match="retries failed model calls"):
+        misplaced = check_monitor_placement(middleware=[retrying, monitor_middleware])
+
+    # Assert
+    assert misplaced == [retrying.name]
+
+
+class ReturningToModelMiddleware(AgentMiddleware[Any, Any, Any]):
+    """Stands in for a grader whose `after_agent` hook can send the run back to the model."""
+
+    @hook_config(can_jump_to=["model"])
+    def after_agent(self, state: AgentState[Any], runtime: Runtime[Any]) -> dict[str, Any] | None:
+        return None
+
+
+@pytest.mark.parametrize("position", ["outside", "inside"])
+def test_a_middleware_that_can_send_the_run_back_to_the_model_is_not_named(
+    monitor_middleware: MonitorMiddleware,
+    position: str,
+) -> None:
+    # Arrange: a halt stands against such a hook, whatever human message it adds
+    returning = ReturningToModelMiddleware()
+    if position == "outside":
+        stack = [returning, monitor_middleware]
+    else:
+        stack = [monitor_middleware, returning]
+
+    # Act
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        misplaced = check_monitor_placement(middleware=stack)
+
+    # Assert
+    assert misplaced == []
 
 
 def render_error_message(error: Exception, request: ToolCallRequest) -> str:
@@ -224,7 +301,9 @@ def test_a_middleware_named_like_a_tool_retry_that_wraps_no_tool_call_is_not_nam
 
 def test_a_stack_without_a_monitor_has_nothing_to_check() -> None:
     # Act
-    misplaced = check_monitor_placement(middleware=[CommandingMiddleware(), ToolRetryMiddleware()])
+    misplaced = check_monitor_placement(
+        middleware=[CommandingMiddleware(), ToolRetryMiddleware()],
+    )
 
     # Assert
     assert misplaced == []

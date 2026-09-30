@@ -1,4 +1,4 @@
-"""Errors raised by the library.
+"""Errors raised by the library, and the warning about what a monitor cannot gate.
 
 Every error derives from `MonitorError`, so a caller can catch the library's
 failures in one place without catching unrelated exceptions.
@@ -30,4 +30,24 @@ class InvalidSuspicionError(MonitorError, ValueError):
 
 
 class SynchronousRunError(MonitorError):
-    """A control protocol awaited real asynchronous work during a synchronous `invoke()`."""
+    """A control protocol or a monitor needed an event loop during a synchronous `invoke()`.
+
+    The message names which one: a protocol that awaited real asynchronous
+    work or started asyncio work, or a monitor whose `evaluate_sync` started
+    asyncio work. It is also raised when a pending step is used after its
+    `invoke()` step ended.
+    """
+
+
+class ProviderToolWarning(UserWarning):
+    """The agent's model is given tools that the model provider runs itself.
+
+    A provider runs its server-side tools, such as Anthropic's `web_fetch` or
+    OpenAI's `web_search`, inside the model call, before the monitor judges
+    the step, and again for every sample a protocol draws, so no monitor can
+    stop them. The monitor middleware emits this warning once per middleware
+    instance. It knows the server tools of Anthropic, OpenAI and Gemini that
+    `provider_tools` lists, and reads only the tools of a model request: a
+    server-side feature set on the model itself, such as OpenRouter's web
+    plugin, runs without a warning.
+    """

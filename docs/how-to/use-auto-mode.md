@@ -97,10 +97,10 @@ what the total block limit counts; see
 | Option | Default | What it does |
 |---|---|---|
 | `block_threshold` | 0.6, with a warning | An attempt whose suspicion is at or above this value is blocked. |
-| `max_consecutive_blocks` | 3 | When the blocks within one step reach this number, `when_limit_reached` writes the step. |
-| `max_total_blocks` | 20 | When this monitor's blocks across the thread, subagents' included, reach this number, `when_limit_reached` writes the step. |
-| `when_limit_reached` | `HaltRun()` | The fallback that writes the step once a limit is reached. |
-| `feedback` | `DEFAULT_FEEDBACK_TEMPLATE` | The message the agent receives when a step is blocked. |
+| `max_consecutive_blocks` | 3 | When the blocks within one step reach this number, `when_limit_reached` writes the step. Anything but a whole number of at least 1 raises `ConfigurationError`. |
+| `max_total_blocks` | 20 | When this monitor's blocks across the thread, subagents' included, reach this number, `when_limit_reached` writes the step. `math.inf` turns the total limit off; anything but that or a whole number of at least 1 raises `ConfigurationError`. |
+| `when_limit_reached` | `HaltRun()` | The fallback that writes the step once a limit is reached. A protocol here, such as `DeferToTrusted` in place of `DeferToTrustedModel`, raises `ConfigurationError`. |
+| `feedback` | `DEFAULT_FEEDBACK_TEMPLATE` | The message the agent receives when a step is blocked, a `FeedbackTemplate`. |
 
 `MonitorMiddleware` adds one option that matters here:
 
@@ -245,6 +245,9 @@ Every step adds one record, which keeps every attempt the monitor judged.
 | `"halted"` | A limit was reached and `HaltRun` ended the run. | 1 or more | `True` | None |
 | `"deferred_to_trusted"` | A limit was reached and the trusted model wrote the step. | 1 or more | `True` | None |
 
+A hook that sends a halted run back to the model meets a halt again: each such
+step is `"halted"`, flagged, with a `blocked_count` of 0 and no samples.
+
 To review what was blocked:
 
 ```python
@@ -277,7 +280,10 @@ records' `blocked_count`.
   agent to its end after a halt. The middleware's hooks cost two graph steps
   per model call, `before_model` and `after_model`, and two per run,
   `before_agent` and `after_agent`, all of which count towards an explicit
-  `recursion_limit`.
+  `recursion_limit`. If a hook such as Deep Agents' `RubricMiddleware` sends
+  the run back to the model, each further step halts again without a sample,
+  until a later run brings a new message the monitor records as the user's
+  input.
 - **A failed call leaves no record.** If an attempt, a monitor call or the
   fallback raises, nothing is committed and the error propagates. The attempts
   judged before the failure are logged as a warning and written to

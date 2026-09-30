@@ -191,8 +191,11 @@ def test_two_monitors_on_one_agent_count_their_own_steps(run_mode: RunMode) -> N
     assert all(record["monitor"] == "monitor" for record in inner_protocol.seen_previous_records[1])
 
 
-@pytest.mark.parametrize("key", ["monitor_task_messages", "monitor_seen_human_messages"])
-def test_the_message_ids_the_monitor_records_are_private(
+@pytest.mark.parametrize(
+    "key",
+    ["monitor_task_messages", "monitor_seen_human_messages", "monitor_inputs_at_halt"],
+)
+def test_the_message_ids_and_halt_counts_the_monitor_records_are_private(
     middleware: MonitorMiddleware,
     key: str,
 ) -> None:

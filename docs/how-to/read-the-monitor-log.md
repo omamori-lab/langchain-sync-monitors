@@ -101,10 +101,23 @@ dictionaries, so they pass through checkpointers and `json.dumps` unchanged.
 | `resampled` | Defer to Resample | The least suspicious acceptable resample | That sample |
 | `steered` | Auto Mode | The first acceptable sample after one or more blocks | That sample |
 | `deferred_to_trusted` | Defer to Trusted, and any protocol whose fallback is `DeferToTrustedModel` | The trusted model's step | None |
-| `halted` | The `HaltRun` fallback, or a subagent's halt under `SubagentHalt.STOP_WHOLE_RUN` | A final message that ends the run | None |
+| `halted` | The `HaltRun` fallback, a subagent's halt under `SubagentHalt.STOP_WHOLE_RUN`, Auto Mode's thread total reached inside subagents, or an earlier halt that still stands | A final message that ends the run | None |
 
-A step halted because a subagent was halted has no samples of its own; the
-subagent's record holds them.
+Three kinds of halted step draw no sample, so their records hold no samples:
+
+- a halt because a subagent was halted, under `SubagentHalt.STOP_WHOLE_RUN`;
+  the subagent's halted record holds its samples;
+- a halt because blocks inside subagents reached Auto Mode's
+  `max_total_blocks`, when `when_limit_reached` is `HaltRun`; no subagent
+  halted, and their records show the blocks;
+- a halt that still stands: when a hook sends a halted run back to the model,
+  the monitor halts each further step without drawing a sample, until the
+  thread records another run input.
+
+This monitor's previous record for this agent tells the last kind apart: it is
+a halt too. For the other two it is not, and subagent records come after it;
+read their outcomes to tell a subagent's halt from blocks that reached the
+total. Other monitors' records may sit in between.
 
 ## Find the steps flagged for audit
 
@@ -245,7 +258,7 @@ what they show:
 |---|---|
 | `stream_mode="messages"` | Only committed steps, each streamed whole once the protocol commits it, not token by token. Rejected samples and the monitor's own calls never appear. |
 | `stream_mode="custom"` | One `monitor_step` event per committed step, and a `monitor_step_failed` event per failed one |
-| `stream_mode="values"` or `"updates"` | The state, whose `monitor_log` holds every judged sample, rejected ones included |
+| `stream_mode="values"` or `"updates"` | The state, whose `monitor_log` holds every judged sample, rejected ones included, with the monitor's private keys, which `get_state` shows too and a run's result leaves out |
 | `astream_events` or `astream_log` | Every model call, live, as it runs: every sample before the protocol decides, rejected ones included, the monitor's own calls, and the monitor's spans |
 
 `astream_events` and `astream_log` are not filtered. A user interface should
@@ -270,6 +283,7 @@ The library logs through Python's `logging`, under `langchain_sync_monitors`:
 | `langchain_sync_monitors.monitors.chat` | `WARNING` | No reply from a chat judge was readable, so the step is treated as suspicious |
 | `langchain_sync_monitors.monitors.guard` | `DEBUG` | A guard model returned log-probabilities in a format the monitor cannot read |
 | `langchain_sync_monitors.monitors.guard` | `WARNING` | A guard model returned log-probabilities without a readable label, so the step is treated as suspicious |
+| `langchain_sync_monitors.task_authorship` | `WARNING` | A run started after one that stopped before its end, so its new human messages are notes from unconfirmed input: they authorise nothing and do not lift a halt |
 | `langchain_sync_monitors.concurrency` | `WARNING` | A concurrent call failed after another one already had |
 | `langchain_sync_monitors._langchain` | `ERROR` | Writing a monitor event to the custom stream failed; the step stands |
 

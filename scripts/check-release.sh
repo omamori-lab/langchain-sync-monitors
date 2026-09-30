@@ -87,14 +87,15 @@ fi
 # The pages mark text written for an unreleased package with a release-check
 # comment, which the release pull request rewrites the text and deletes. The
 # phrases catch such text written without the comment. Each page is read as
-# one line, so a phrase wrapped across lines is found too.
+# one line, so a phrase wrapped across lines, even at a hyphen, is found too.
 pre_release_phrases='not on PyPI|pre-release|may still change before|until the first release|install it from GitHub|[0-9]+\.[0-9]+\.[0-9]+\.dev[0-9]+'
 for page in README.md docs/index.md; do
   marker_lines="$(grep -n 'release-check:' "${page}" | cut -d: -f1 | paste -s -d, - || true)"
   if [[ -n "${marker_lines}" ]]; then
     report "${page} still has a release-check comment, at line(s) ${marker_lines}: rewrite the text it marks for the release, then delete it."
   fi
-  flattened="$(tr -s ' \t\n' ' ' <"${page}")"
+  # A word split at its hyphen, such as "Pre-" and "release", is joined first.
+  flattened="$(perl -0777 -pe 's/-[ \t]*\n[ \t]*/-/g; s/\s+/ /g' "${page}")"
   while IFS= read -r phrase; do
     if [[ -n "${phrase}" ]]; then
       report "${page} still says \"${phrase}\"."

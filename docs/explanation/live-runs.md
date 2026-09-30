@@ -130,9 +130,10 @@ chat judge the agent's reasoning too, under Auto Mode on the attack.
 
 ## What has changed since the runs
 
-The runs predate pull requests #58 and #59, merged the next day. These
-changes bear on what this page reports. The numbers and transcripts below are
-as recorded, not rerun.
+The runs predate pull request #50 and pull requests #56 to #61, all merged
+later that night or the next day. This table lists the changes among them
+that bear on what this page reports, all from #58 and #59. The numbers and
+transcripts below are as recorded, not rerun.
 
 | What changed | Pull request | Where it bears on this page |
 |---|---|---|

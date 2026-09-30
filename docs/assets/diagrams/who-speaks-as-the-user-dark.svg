@@ -1,0 +1,86 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1000" height="858" viewBox="0 0 1000 858" role="img" aria-labelledby="title desc">
+  <title id="title">Who speaks as the user</title>
+  <desc id="desc">The judge reads each human message in one of five ways. A message tagged with the monitor&#x27;s own source is its feedback, read as monitor_feedback. A message with any other tag, such as summarization, is a context_note named after that tag, and authorises nothing. An untagged message that is not a run&#x27;s input, because a tool, a middleware or the application wrote it during a run, is a context_note named after the tool, the message&#x27;s name, or application. An untagged message that is new when a run starts is that run&#x27;s input. If the run before it stopped early, it is a context_note from unconfirmed_input, which is kept and comes back as this note after summarisation or removal. Otherwise it reads as user, or as delegator inside a subagent: the task author&#x27;s words, kept verbatim even after summarisation or removal.</desc>
+  <!-- Colours come from the brand tokens: diagrams/render.py fills this style block. -->
+  <style>
+    svg { color-scheme: dark; }
+    text { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans", "Noto Sans JP", Helvetica, Arial, sans-serif; font-size: 15px; fill: #ECEBE6; }
+    .title { font-size: 17px; font-weight: 600; }
+    .small { font-size: 14px; fill: #A9A8A2; }
+    .mono { font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace; font-size: 13.5px; }
+    .soft { fill: #A9A8A2; }
+    .dashed { stroke-dasharray: 5 4; fill: none; stroke: #6A6A66; }
+    .box { fill: #141414; stroke: #ECEBE6; stroke-width: 1.4; }
+    .charm { fill: #ECEBE6; }
+    .on-charm { fill: #111111; }
+    .charm-cord { fill: none; stroke: #ECEBE6; stroke-width: 2.2; }
+    .seal { fill: #E0563B; }
+    .allow { fill: #141414; stroke: #ECEBE6; stroke-width: 1.4; }
+    .resample { fill: #1F1F1E; stroke: #ECEBE6; stroke-width: 1.4; }
+    .defer { fill: #34332F; stroke: #ECEBE6; stroke-width: 1.4; }
+    .steer { fill: #D9D8D2; stroke: #D9D8D2; stroke-width: 1.4; }
+    .on-steer { fill: #111111; }
+    .halt { fill: #E0563B; stroke: #E0563B; stroke-width: 1.4; }
+    .on-halt { fill: #111111; }
+    .frame { fill: none; stroke: #6A6A66; stroke-width: 1.2; stroke-dasharray: 6 4; }
+    .edge { fill: none; stroke: #D6D5CF; stroke-width: 1.5; }
+    .loop { fill: none; stroke: #D6D5CF; stroke-width: 1.5; stroke-dasharray: 5 4; }
+    .head { fill: #D6D5CF; }
+    .brush { fill: #ECEBE6; }
+  </style>
+  <defs><marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="9" markerHeight="9" markerUnits="userSpaceOnUse" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="head"/></marker></defs>
+  <rect class="box" x="32.0" y="40.0" width="360.0" height="81.0" rx="6"/>
+  <text x="212.0" y="71.0" text-anchor="middle" class="title">A human message</text>
+  <text x="212.0" y="93.0" text-anchor="middle" class="small">in the history the judge reads</text>
+  <rect class="box" x="32.0" y="177.0" width="360.0" height="102.0" rx="6"/>
+  <text x="212.0" y="208.0" text-anchor="middle"><tspan class="title">Tagged with </tspan><tspan class="mono">lc_source</tspan><tspan class="title">?</tspan></text>
+  <text x="212.0" y="230.0" text-anchor="middle" class="small">a source set by the part of the agent</text>
+  <text x="212.0" y="251.0" text-anchor="middle" class="small">that wrote the message</text>
+  <rect class="box" x="32.0" y="382.5" width="360.0" height="81.0" rx="6"/>
+  <text x="212.0" y="413.5" text-anchor="middle" class="title">A run&#x27;s input?</text>
+  <text x="212.0" y="435.5" text-anchor="middle" class="small">untagged, and new when a run starts</text>
+  <rect class="box" x="32.0" y="519.5" width="360.0" height="102.0" rx="6"/>
+  <text x="212.0" y="550.5" text-anchor="middle" class="title">Did the run before stop early?</text>
+  <text x="212.0" y="572.5" text-anchor="middle" class="small">it never reached its end, so</text>
+  <text x="212.0" y="593.5" text-anchor="middle"><tspan class="mono">monitor_run_open</tspan><tspan class="small"> is still set</tspan></text>
+  <rect class="box" x="32.0" y="677.5" width="360.0" height="102.0" rx="6"/>
+  <text x="212.0" y="708.5" text-anchor="middle"><tspan class="mono">&lt;user&gt;</tspan></text>
+  <text x="212.0" y="730.5" text-anchor="middle"><tspan class="small">or </tspan><tspan class="mono">&lt;delegator&gt;</tspan><tspan class="small"> inside a subagent:</tspan></text>
+  <text x="212.0" y="751.5" text-anchor="middle" class="small">the task author&#x27;s words</text>
+  <rect class="box" x="620.0" y="112.0" width="348.0" height="102.0" rx="6"/>
+  <text x="794.0" y="143.0" text-anchor="middle"><tspan class="mono">&lt;monitor_feedback&gt;</tspan></text>
+  <text x="794.0" y="165.0" text-anchor="middle" class="small">the monitor&#x27;s own feedback</text>
+  <text x="794.0" y="186.0" text-anchor="middle" class="small">on a blocked step</text>
+  <rect class="box" x="620.0" y="242.0" width="348.0" height="102.0" rx="6"/>
+  <text x="794.0" y="273.0" text-anchor="middle"><tspan class="mono">&lt;context_note&gt;</tspan></text>
+  <text x="794.0" y="295.0" text-anchor="middle" class="small">source: that tag, such as</text>
+  <text x="794.0" y="316.0" text-anchor="middle"><tspan class="mono">summarization</tspan><tspan class="small">; it authorises nothing</tspan></text>
+  <rect class="box" x="620.0" y="372.0" width="348.0" height="102.0" rx="6"/>
+  <text x="794.0" y="403.0" text-anchor="middle"><tspan class="mono">&lt;context_note&gt;</tspan></text>
+  <text x="794.0" y="425.0" text-anchor="middle" class="small">source: the tool, the message&#x27;s</text>
+  <text x="794.0" y="446.0" text-anchor="middle"><tspan class="mono">name</tspan><tspan class="small">, or </tspan><tspan class="mono">application</tspan></text>
+  <rect class="box" x="620.0" y="530.0" width="348.0" height="81.0" rx="6"/>
+  <text x="794.0" y="561.0" text-anchor="middle"><tspan class="mono">&lt;context_note&gt;</tspan></text>
+  <text x="794.0" y="583.0" text-anchor="middle"><tspan class="small">source: </tspan><tspan class="mono">unconfirmed_input</tspan></text>
+  <path class="edge" d="M212.0,121.0 L212.0,175.0" marker-end="url(#arrow)"/>
+  <path class="edge" d="M212.0,279.0 L212.0,380.5" marker-end="url(#arrow)"/>
+  <text x="224.0" y="312.0" text-anchor="start" class="small">no tag</text>
+  <path class="edge" d="M212.0,463.5 L212.0,517.5" marker-end="url(#arrow)"/>
+  <text x="224.0" y="496.5" text-anchor="start" class="small">yes</text>
+  <path class="edge" d="M212.0,621.5 L212.0,675.5" marker-end="url(#arrow)"/>
+  <text x="224.0" y="654.5" text-anchor="start" class="small">no</text>
+  <path class="edge" d="M392.0,228.0 L420.0,228.0"/>
+  <path class="edge" d="M420.0,163.0 L420.0,293.0"/>
+  <path class="edge" d="M420.0,163.0 L618.0,163.0" marker-end="url(#arrow)"/>
+  <path class="edge" d="M420.0,293.0 L618.0,293.0" marker-end="url(#arrow)"/>
+  <text x="520.0" y="151.0" text-anchor="middle"><tspan class="mono">monitor</tspan></text>
+  <text x="520.0" y="281.0" text-anchor="middle" class="small">any other tag</text>
+  <path class="edge" d="M392.0,423.0 L618.0,423.0" marker-end="url(#arrow)"/>
+  <text x="506.0" y="411.0" text-anchor="middle" class="small">no: written during a run</text>
+  <path class="edge" d="M392.0,570.5 L618.0,570.5" marker-end="url(#arrow)"/>
+  <text x="506.0" y="558.5" text-anchor="middle" class="small">yes: it stopped early</text>
+  <text x="794.0" y="637.0" text-anchor="middle" class="small">kept; comes back as this note after</text>
+  <text x="794.0" y="658.0" text-anchor="middle" class="small">summarisation or removal</text>
+  <text x="212.0" y="805.5" text-anchor="middle" class="small">kept verbatim, even after</text>
+  <text x="212.0" y="826.5" text-anchor="middle" class="small">summarisation or removal</text>
+</svg>

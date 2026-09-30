@@ -148,6 +148,9 @@ your `HaltRun` has:
 > step, and that halt stands until a later run brings new input the monitor
 > can confirm. The rejected steps are recorded in monitor_log for review.
 
+[![Before the protocol runs, the monitor checks two halts, and either one decides the step without a sample. A new step can follow a halt, because an after_agent hook can send a halted run back to the model. First, if this monitor's last step halted and the thread has recorded no run input since, the step halts again with STANDING_HALT_MESSAGE. If not, and the monitor has SubagentHalt.STOP_WHOLE_RUN, and a subagent halted since this agent's last step, the step halts, and that halt stands as this agent's own. Otherwise the protocol decides the step as usual. Either halt draws no sample: its record is halted and flagged, and holds no samples.](../assets/diagrams/halt-stands-light.svg#only-light)](../assets/diagrams/halt-stands-light.svg "Open the diagram at full size")
+[![Before the protocol runs, the monitor checks two halts, and either one decides the step without a sample. A new step can follow a halt, because an after_agent hook can send a halted run back to the model. First, if this monitor's last step halted and the thread has recorded no run input since, the step halts again with STANDING_HALT_MESSAGE. If not, and the monitor has SubagentHalt.STOP_WHOLE_RUN, and a subagent halted since this agent's last step, the step halts, and that halt stands as this agent's own. Otherwise the protocol decides the step as usual. Either halt draws no sample: its record is halted and flagged, and holds no samples.](../assets/diagrams/halt-stands-dark.svg#only-dark)](../assets/diagrams/halt-stands-dark.svg "Open the diagram at full size")
+
 Nothing written during a run lifts the halt: not a hook sending the run back
 to the model, not a harness nudge, not a note from `unconfirmed_input`. A new
 run that brings no new message stays halted too. Two paths remain open, both

@@ -113,7 +113,7 @@ Records hold plain values only, so they pass through checkpointers and
 | `resampled` | Defer to Resample | The least suspicious acceptable resample | That sample |
 | `steered` | Auto Mode | The first acceptable sample after one or more blocks | That sample |
 | `deferred_to_trusted` | Defer to Trusted, and any protocol whose fallback is `DeferToTrustedModel` | The trusted model's step | None |
-| `halted` | The `HaltRun` fallback, a subagent's halt, Auto Mode's thread total, or an earlier halt that still stands | A final message that ends the run | None |
+| `halted` | The `HaltRun` fallback, a subagent's halt under `SubagentHalt.STOP_WHOLE_RUN`, Auto Mode's thread total reached inside subagents, or an earlier halt that still stands | A final message that ends the run | None |
 
 A halt stands until a later run brings a message the monitor records as new
 input from the user: the count of recorded inputs must grow. Nothing written
@@ -223,24 +223,22 @@ for _namespace, event in agent.stream(inputs, stream_mode="custom", subgraphs=Tr
         print(event["agent"], "step", event["step_number"], "failed:", event["error"])
 ```
 
-Without `subgraphs=True`, the stream carries the main agent's events only.
-Each subagent event carries its `delegation_id`.
+Without `subgraphs=True`, the stream carries the main agent's events only. A
+subagent's `monitor_step` event carries its `delegation_id` inside
+`event["record"]`; a `monitor_step_failed` event carries it at the top level.
 
 ```mermaid
-flowchart LR
+flowchart TD
     step["A monitored step"] --> decided{"Did the protocol decide?"}
-    decided -- "yes" --> commit["Committed: the chosen messages and one StepRecord"]
-    commit --> log[("monitor_log")]
-    commit --> stepEvent["Custom stream: monitor_step"]
-    decided -- "no, a call raised" --> failed["Not committed: none of the agent's own tools run"]
-    failed --> failedEvent["Custom stream: monitor_step_failed"]
-    failed --> warning["A warning in the log, if any sample was judged"]
-    failed --> raised["The error is raised again"]
+    decided -- "yes" --> commit["Committed: one StepRecord in monitor_log, and a monitor_step event"]
+    decided -- "no, a call raised" --> failed["Not committed: a monitor_step_failed event, and the error raised again"]
 ```
 
-A failed step is never committed, so no record reaches `monitor_log`. Its
-event lists the samples the monitor had judged by then, none of them
-executed, or an empty list, and the error is raised after it. This event
+A failed step is never committed, so none of the agent's own tools run and no
+record reaches `monitor_log`. Its event lists the samples the monitor had
+judged by then, none of them executed, or an empty list, and the error is
+raised after it. When the monitor had judged a sample, a warning in the log
+lists them too. This event
 comes from a scripted run of Defer to Resample in which the monitor judged the
 first sample and the agent's model then raised a `TimeoutError` on the
 resample:
@@ -266,8 +264,10 @@ resample:
 A middleware outside the monitor that retries failed model calls, such as
 LangChain's `ModelRetryMiddleware`, runs the whole step again with fresh
 samples, and `monitor_log` then records only the attempt that succeeded. The
-failed attempt survives only in this event and in the warning.
-`check_monitor_placement` warns about such a middleware list.
+failed attempt survives only in this event, in the warning if a sample was
+judged, and, in a tracer, in its step span, whose `proposed_step` keeps the
+first sample judged. `check_monitor_placement` warns about such a middleware
+list.
 
 ## Know what each stream shows
 
@@ -279,7 +279,7 @@ streams differ in what they show:
 | `stream_mode="messages"` | Only committed steps, each whole once the protocol commits it, not token by token. Rejected samples and the monitor's own calls never appear |
 | `stream_mode="custom"` | One `monitor_step` event per committed step and one `monitor_step_failed` event per failed one; a subagent's only with `subgraphs=True` |
 | `stream_mode="values"` | The whole state after each graph step: `monitor_log`, rejected samples included, and the monitor's private keys |
-| `stream_mode="updates"` | Each node's writes, the same keys included. A message the monitor tags as a note arrives twice, from the node that wrote it and again, tagged, from the monitor |
+| `stream_mode="updates"` | Each node's writes, the same keys included. A message the monitor tags as a note arrives twice: from the node that wrote it, and again, tagged, from the next node where the monitor runs, `model` when it commits a step or one of its hooks, such as `monitor[main].before_model` |
 | `astream_events`, `astream_log` | Every model call, live: every sample before the protocol decides, rejected ones included, the monitor's own calls and its spans |
 
 `astream_events` and `astream_log` are not filtered. A user interface should
@@ -310,17 +310,19 @@ towards `recursion_limit`:
 | Node | Runs | What it does |
 |---|---|---|
 | `monitor[main].before_agent` | Once per run | Records the human messages that are the run's input |
-| `monitor[main].before_model` | Before each model call | Tags the other human messages as notes, and opens a step |
-| `monitor[main].after_model` | After each model call | Ends the run after a halt |
+| `monitor[main].before_model` | Before each step | Tags the other human messages as notes, and opens a step |
+| `monitor[main].after_model` | After each step | Ends the run after a halt |
 | `monitor[main].after_agent` | Once per run | Tags the notes written since the last step, and closes the run |
 
-So a run with N model calls takes 2N + 2 more graph steps. Samples, monitor
-calls and trusted steps run inside the model node and add none. `create_agent`
-sets a limit of 9,999 by default [@langchain2026], so this matters only when
-you set your own. Scripted runs of an agent that calls one tool between model
-calls needed these limits:
+So a run of N steps, runs of the model node, takes 2N + 2 more graph steps.
+Samples, monitor calls and trusted steps run inside the model node and add
+none, so a step counts the same whether it draws one sample or three.
+`create_agent` sets a limit of 9,999 by default [@langchain2026], so this
+matters only when you set your own. Scripted runs of an agent that calls one
+tool between steps needed these limits, under Trusted Monitoring and under
+Defer to Resample alike:
 
-| Model calls | Without a monitor | With a monitor |
+| Steps (N) | Without a monitor (2N) | With a monitor (4N + 2) |
 |---|---|---|
 | 1 | 2 | 6 |
 | 2 | 4 | 10 |
@@ -328,11 +330,11 @@ calls needed these limits:
 | 5 | 10 | 22 |
 
 ```python
-# For an agent that runs its tools between model calls: two graph steps for
-# each model call and its tools, two for the monitor's hooks around each model
-# call, and two for the run.
-max_model_calls = 10
-result = agent.invoke(inputs, config={"recursion_limit": 4 * max_model_calls + 2})
+# For an agent that runs its tools between steps: two graph steps for each
+# step and its tools, two for the monitor's hooks around each step, and two
+# for the run.
+max_steps = 10
+result = agent.invoke(inputs, config={"recursion_limit": 4 * max_steps + 2})
 ```
 
 ## Turn on log messages
@@ -349,7 +351,7 @@ The library logs through Python's `logging`, under `langchain_sync_monitors`:
 | `langchain_sync_monitors.monitors.guard` | `WARNING` | Under `GuardScoring.LOG_PROBABILITIES`, no label could be scored from a reply's log-probabilities, so the step is treated as suspicious |
 | `langchain_sync_monitors.task_authorship` | `WARNING` | A run started after one that stopped before its end, so its new human messages are notes from `unconfirmed_input`; the message names their ids |
 | `langchain_sync_monitors.concurrency` | `WARNING` | A concurrent call failed after another one already had |
-| `langchain_sync_monitors._langchain` | `ERROR` | Writing a monitor event to the custom stream failed; the step stands |
+| `langchain_sync_monitors._langchain` | `ERROR` | Writing a monitor event to the custom stream failed. The event is dropped and nothing else changes: a committed step stays committed, and a failed step's error is still raised |
 
 Warnings about configuration, such as `ProviderToolWarning` and
 `UncalibratedThresholdWarning`, go through Python's `warnings` module instead.
@@ -419,7 +421,7 @@ def read_honest_scores(monitor_log: list[StepRecord], *, agent: str, monitor: st
         sample["suspicion"]
         for record in monitor_log
         if record["agent"] == agent and record["monitor"] == monitor
-        # Records without samples, such as halts, add nothing.
+        # Records without samples, such as standing halts, add nothing.
         for sample in record["samples"]
     ]
 ```

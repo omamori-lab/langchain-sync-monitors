@@ -548,12 +548,12 @@ REFUSAL_RULES: list[tuple[Build, str, list[object], str]] = [
     (build_middleware, "agent_name", ["sub:agent", "sub|agent"], "not contain '[:|]'"),
     (build_monitored_subagents, "middleware", WRONG_OBJECTS, "be a MonitorMiddleware, got"),
     (build_monitored_subagents, "middleware", [KeywordMonitor()], "be a MonitorMiddleware"),
-    (build_monitored_subagents, "subagents", ["x", True, None, WORKER_SPEC], "be a list of s"),
+    (build_monitored_subagents, "subagents", ["x", b"", True, None, WORKER_SPEC], "be a list of"),
     (build_monitored_subagents, "overrides", [["x"], "x", True], "map subagent names to Mon"),
     (build_monitored_subagents, "overrides", [{1: KeywordMonitor()}], "be keyed by subagent"),
     (build_monitored_subagents, "skills", ["/skills/"], "be a list of skill source paths, not"),
     (build_monitored_subagents, "skills", [5, True, b"x"], "be a list of skill source paths, got"),
-    (check_monitor_placement, "middleware", ["m", True, None, iter([])], "be the list given to"),
+    (check_monitor_placement, "middleware", ["m", b"", True, None, iter([])], "be the list given"),
     (DefaultThreshold, "value", WRONG_THRESHOLDS, BETWEEN_ZERO_AND_ONE),
     (build_resolved_threshold, "parameter_name", WRONG_TEXTS, "be a str, got"),
 ]
@@ -758,3 +758,50 @@ def test_monitor_subagents_reads_generators_of_subagents_and_skills_once() -> No
 def test_the_placement_check_takes_a_tuple_as_it_takes_a_list() -> None:
     # Act / Assert
     assert check_monitor_placement(middleware=(build_middleware(),)) == []
+
+
+@pytest.mark.parametrize(
+    ("build", "options", "message"),
+    [
+        (
+            build_repeated_monitor,
+            {"monitor": LLMMonitor},
+            "got the class LLMMonitor; pass an instance$",
+        ),
+        (
+            build_decision_monitor,
+            {"decision_model": OpenRouterDecisionModel},
+            "; pass an instance. Use",
+        ),
+        (build_repeated_monitor, {"repeats": int}, "got the class int; pass an instance$"),
+    ],
+    ids=["class-for-monitor", "class-with-hint", "class-for-count"],
+)
+def test_a_class_given_where_an_instance_belongs_is_named_as_a_class(
+    build: Build,
+    options: dict[str, object],
+    message: str,
+) -> None:
+    # Act / Assert
+    with pytest.raises(ConfigurationError, match=message):
+        build(**options)
+
+
+@pytest.mark.parametrize(
+    ("options", "message"),
+    [
+        ({"view": "all"}, r"view must be a MonitorView, got 'all'$"),
+        (
+            {"prompt": None},
+            r"got None\. Build one with ChatPromptTemplate\.from_messages\(\.\.\.\)\.$",
+        ),
+    ],
+    ids=["no-hint", "hint"],
+)
+def test_a_refusal_ends_with_a_full_stop_only_after_a_hint(
+    options: dict[str, object],
+    message: str,
+) -> None:
+    # Act / Assert
+    with pytest.raises(ConfigurationError, match=message):
+        build_llm_monitor(**options)

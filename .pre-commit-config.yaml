@@ -1,5 +1,7 @@
-# The same gates as scripts/check.sh, run before each commit. Enable once after
-# cloning:
+# The fast gates of scripts/check.sh (ruff, ty, lanorme and the offline test
+# suite), a gitleaks secrets scan and file checks, run before each commit. The
+# agent-file sync check, the docs build, the package build and the wheel import
+# run only in scripts/check.sh and CI. Enable once after cloning:
 #
 #   uvx pre-commit install
 repos:
@@ -36,7 +38,7 @@ repos:
         language: system
         pass_filenames: false
       - id: pytest
-        name: unit tests
+        name: offline test suite
         entry: env REQUIRE_DOCS_GROUP=1 uv run --group dev --group docs pytest -q
         language: system
         types: [python]

@@ -42,8 +42,8 @@ from `brew install gitleaks`. CI scans the whole history with the same
 `.gitleaks.toml`.
 
 Live tests call real model providers. They read `OPENROUTER_API_KEY` from the
-environment or from a local `.env` file, which git ignores. Run them with
-`uv run --group dev pytest -m live`.
+environment only, and are skipped without it. Export the key, then run them
+with `uv run --group dev pytest -m live`.
 
 ## The gates
 
@@ -54,10 +54,16 @@ scripts/check.sh
 ```
 
 It checks that `CLAUDE.md` matches `AGENTS.md`, then runs ruff, ty (type checking),
-the unit tests, the lanorme standards (naming, complexity, docstrings, prose,
-docs layout), a strict docs build and a package build. The pre-commit hooks and
-CI run the same checks. CI also runs the offline suite at the lowest versions
-the dependency bounds in `pyproject.toml` allow, and again without any extra.
+the offline test suite, the lanorme standards (naming, complexity, docstrings,
+prose, docs layout), a strict docs build and a package build, and imports the
+built wheel without any extra. CI runs the same script. CI also runs the
+offline suite at the lowest versions the dependency bounds in `pyproject.toml`
+allow, and again without any extra.
+
+The pre-commit hooks run the fast gates only: ruff, ty, lanorme, the offline
+test suite, the gitleaks secrets scan and a few file checks. They skip the
+agent-file sync check, the docs build, the package build and the wheel import,
+so run `scripts/check.sh` before you push.
 
 lanorme needs Python 3.13, so the script runs it with `uvx --python 3.13`; it
 only parses the code, so it checks 3.12 source correctly. To see why a rule
@@ -65,9 +71,16 @@ fired, run `uvx --python 3.13 lanorme==0.21.0 rule CODE`.
 
 ## Adding a monitor or a protocol
 
-- Implement the abstract base class from `contracts.py`: `Monitor` for a new way
-  to score a step, `ControlProtocol` for a new way to act on scores.
-- Implement both the synchronous and the asynchronous method.
+- A new way to score a step implements `Monitor` from `contracts.py`, with both
+  `evaluate` and `evaluate_sync`.
+- A new way to act on scores implements `ControlProtocol`: one `decide`
+  coroutine that awaits only the `PendingStep`'s methods, so the same copy
+  runs under both `invoke()` and `ainvoke()`. Under `invoke()`, awaiting
+  anything else raises `SynchronousRunError`.
+- A new decision model implements `DecisionModel`, with both
+  `estimate_probabilities` and `estimate_probabilities_sync`; a new fallback
+  implements `Fallback.take_over`.
+- Keep no run state on the instance: one copy serves parallel subagent runs.
 - Keep every model a constructor parameter.
 - Cite the paper or codebase the idea comes from, and add a changelog entry.
 
@@ -80,25 +93,31 @@ class DeferToResample(ControlProtocol):
     """Defer to Resample, the basic protocol of Ctrl-Z [@bhatt2025ctrlz]."""
 ```
 
-Add the entry to `docs/references.bib` in the same change. Papers use `@misc`
-or `@inproceedings`, posts use `@online`, and codebases and libraries use
-`@software` with the version you learned from. `tests/unit/test_references.py`
+Add the entry to `docs/references.bib` in the same change. Papers use `@misc`,
+`@inproceedings` or `@article`, reports `@techreport`, books `@book`, posts
+`@online`, and codebases and libraries `@software` with the version you
+learned from. `tests/unit/test_references.py`
 fails on a cited key missing from the bibliography and on an entry nothing
 cites.
 
 ## Tests
 
-Unit tests live in `tests/unit/` and run offline with scripted fake models.
-Mark each section of a test with `# Arrange`, `# Act` and `# Assert`. Cover
-both `invoke` and `ainvoke` for anything that touches the middleware. Tests
-that call real providers are marked `live` and skipped by default.
+The offline suite runs with scripted fake models: unit tests in `tests/unit/`,
+whole-agent tests in `tests/integration/`, and the live harness's offline
+checks in `tests/live/test_harness_offline.py`. Mark each section of a test
+with `# Arrange`, `# Act` and `# Assert`. Cover both `invoke` and `ainvoke` for
+anything that touches the middleware. Tests that call real providers are
+marked `live` and skipped by default.
 
 ## Documentation
 
 Docs live under `docs/` in the Diataxis layout: tutorials, how-to guides,
 reference and explanation. Each page opens with a line that starts "This
 page", "This guide" or similar, uses British spelling, and avoids em dashes and
-emoji; lanorme checks all of this. Diagrams use Mermaid. Preview the site with
+emoji; lanorme checks all of this. The docs use no Mermaid: every diagram is
+an SVG figure in the project's brand, drawn by the maintainers with their own
+tooling. If a change needs a new or updated diagram, describe the figure in
+your pull request and a maintainer will draw it. Preview the site with
 `uv run --group docs mkdocs serve`.
 
 ## Sending a pull request

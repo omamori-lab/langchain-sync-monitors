@@ -249,6 +249,33 @@ async def test_a_client_error_is_not_retried(call_path: CallPath) -> None:
     assert len(server.requests) == 1
 
 
+def refuse_the_request_locally(request: httpx.Request) -> httpx.Response:
+    """Fail the way httpx fails a request with an illegal header value, quoting the header."""
+    message = f"Illegal header value {request.headers['Authorization']!r}"
+    raise httpx.LocalProtocolError(message)
+
+
+def refuse_the_scheme(_request: httpx.Request) -> httpx.Response:
+    """Fail the way httpx fails a URL whose scheme it cannot send to."""
+    message = "Request URL has an unsupported protocol 'ftp://'."
+    raise httpx.UnsupportedProtocol(message)
+
+
+@pytest.mark.usefixtures("three_attempts")
+@pytest.mark.parametrize("refusal", [refuse_the_request_locally, refuse_the_scheme])
+async def test_a_request_the_client_refuses_is_not_retried(
+    call_path: CallPath,
+    refusal: Responder,
+) -> None:
+    # Arrange
+    server = DecisionsServer(responders=[refusal, answer_with({"leaks": 0.1})])
+
+    # Act and Assert
+    with pytest.raises(httpx.TransportError):
+        await estimate_on_path(server.build_model(), questions=[LEAK_QUESTION], call_path=call_path)
+    assert len(server.requests) == 1
+
+
 def test_a_response_in_an_unexpected_shape_is_a_monitor_error() -> None:
     # Arrange
     server = DecisionsServer(responders=[lambda _request: httpx.Response(200, json={"a": 1})])
@@ -423,6 +450,43 @@ def test_a_blank_key_given_fails_rather_than_fall_back_to_the_environment(blank_
     # Act and Assert
     with pytest.raises(ConfigurationError, match="api_key is blank"):
         OpenRouterDecisionModel(model="typesafe/jev-1.13", api_key=api_key)
+
+
+UNSENDABLE_KEYS = {
+    "given-newline": ("given", "\n"),
+    "given-return": ("given", "\r"),
+    "given-null": ("given", "\x00"),
+    "given-e-acute": ("given", "\u00e9"),
+    "environment-newline": ("environment", "\n"),
+    "environment-return": ("environment", "\r"),
+    "environment-e-acute": ("environment", "\u00e9"),
+}
+"""Where a key comes from, and the character inside it that no header may carry. No
+environment variable can hold a null byte, so only a key given can."""
+
+
+@pytest.mark.parametrize(
+    ("source", "character"), UNSENDABLE_KEYS.values(), ids=UNSENDABLE_KEYS.keys()
+)
+def test_a_key_no_header_may_carry_fails_without_showing_the_key(
+    monkeypatch: pytest.MonkeyPatch,
+    source: str,
+    character: str,
+) -> None:
+    # Arrange: the character sits inside the key, where stripping leaves it
+    key = f"sk-secret{character}tail"
+    if source == "environment":
+        monkeypatch.setenv("OPENROUTER_API_KEY", key)
+    api_key = SecretStr(key) if source == "given" else None
+
+    # Act
+    with pytest.raises(ConfigurationError, match="control or non-ASCII") as raised:
+        OpenRouterDecisionModel(model="typesafe/jev-1.13", api_key=api_key)
+
+    # Assert
+    message = str(raised.value)
+    assert "secret" not in message
+    assert "tail" not in message
 
 
 def test_a_key_given_as_a_plain_string_fails_without_showing_the_key() -> None:

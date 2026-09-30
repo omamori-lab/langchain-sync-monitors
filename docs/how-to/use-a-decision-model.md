@@ -28,7 +28,9 @@ monitor = DecisionModelMonitor(
   the model is built, so a missing key raises `ConfigurationError` at once,
   not at the first step. A blank `api_key`, or one that is not a `SecretStr`,
   raises too, rather than fall back to the variable. Either key is stripped
-  of surrounding whitespace.
+  of surrounding whitespace, and one that still holds a control or non-ASCII
+  character raises `ConfigurationError`, with no part of the key in the
+  message.
 - **Endpoint.** Requests go to `{base_url}/decisions`, and `base_url` defaults
   to `https://openrouter.ai/api/alpha`. The Decisions API is in alpha.
 - **Timeout.** `timeout_seconds` defaults to 30. It applies only to the

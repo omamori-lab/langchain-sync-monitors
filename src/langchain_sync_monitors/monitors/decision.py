@@ -161,20 +161,44 @@ class DecisionsResponse(BaseModel):
 
 
 def is_retryable_http_error(error: Exception) -> bool:
-    """Retry transport failures, rate limits and server errors; never other client errors."""
+    """Retry transport failures, rate limits and server errors; never a client error.
+
+    A request the client itself got wrong, such as an illegal header value
+    or an unsupported URL scheme, fails the same way every time, so it is not
+    retried, though httpx counts it among its transport errors [@httpx2024].
+    """
     if isinstance(error, httpx.HTTPStatusError):
         status = error.response.status_code
         return (
             status == httpx.codes.TOO_MANY_REQUESTS or status >= httpx.codes.INTERNAL_SERVER_ERROR
         )
+    if isinstance(error, httpx.LocalProtocolError | httpx.UnsupportedProtocol):
+        return False
     return isinstance(error, httpx.TransportError)
+
+
+def check_key_characters(key: str, *, source: str) -> None:
+    """Refuse a key that no HTTP header may carry, naming no part of it.
+
+    httpx refuses a header that holds a control character with an error that
+    quotes the whole header, key included [@httpx2024], and that error would
+    reach the raised error, the classifier span and the stream.
+    """
+    if not (key.isascii() and key.isprintable()):
+        message = (
+            f"{source} holds a control or non-ASCII character, which no HTTP header "
+            "may carry; pass the key alone"
+        )
+        raise ConfigurationError(message)
 
 
 def read_openrouter_api_key(api_key: SecretStr | None) -> SecretStr:
     """Return the key given, or, when it is None, the one in `OPENROUTER_API_KEY`.
 
     That variable is the one the chat models read. Either key is stripped,
-    since no header may carry a line break. A key given blank raises
+    since no header may carry a line break, and one that still holds a
+    control or non-ASCII character raises `ConfigurationError`, as
+    `check_key_characters` explains. A key given blank raises
     `ConfigurationError` rather than fall back to the variable, since a key
     the application meant to pass must not be replaced by another one. So
     does a key given as anything but a `SecretStr`, named by its type alone.
@@ -184,6 +208,7 @@ def read_openrouter_api_key(api_key: SecretStr | None) -> SecretStr:
         if not from_environment:
             message = "OpenRouterDecisionModel needs api_key or the OPENROUTER_API_KEY variable"
             raise ConfigurationError(message)
+        check_key_characters(from_environment, source="OPENROUTER_API_KEY")
         return SecretStr(from_environment)
     if not isinstance(api_key, SecretStr):
         message = f"api_key must be a SecretStr, not {type(api_key).__name__}: pass SecretStr(key)"
@@ -192,6 +217,7 @@ def read_openrouter_api_key(api_key: SecretStr | None) -> SecretStr:
     if not given:
         message = "api_key is blank: pass a key, or leave it out to read OPENROUTER_API_KEY"
         raise ConfigurationError(message)
+    check_key_characters(given, source="api_key")
     return SecretStr(given)
 
 

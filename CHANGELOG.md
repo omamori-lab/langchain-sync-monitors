@@ -297,6 +297,9 @@ change raises the minor version.
 - A command a tool raises as a `ParentCommand`, itself or from a graph it
   calls, is relabelled like one it returns, so it cannot write the monitor's
   own source or a human message that speaks as the user.
+- An OpenRouter key that holds a control or non-ASCII character raises
+  `ConfigurationError` without naming the key, instead of an httpx error
+  that quoted it whole and was retried.
 - Only a `TypeError` for an unexpected `logprobs` keyword is reported as a
   rejected request for log-probabilities.
 - An `interrupt()` inside a monitor or protocol no longer writes a

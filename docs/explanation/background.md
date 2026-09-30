@@ -51,15 +51,18 @@ Claude Code's auto mode reviews each action with a transcript classifier
 before the action runs [@hughes2026automode]. The library takes four things
 from Hughes's account of it:
 
-- **What the classifier reads.** It sees the user's messages and the agent's
-  tool calls, with the agent's own messages and the tool outputs stripped
-  out, which makes it reasoning-blind by design. `Channel.ACTIONS`, the
-  library's default view, follows it. The library also shows the text of a
-  final answer, since that answer is the step's action.
-- **Deny and continue.** A denied action comes back to the agent as a tool
-  result, with an instruction to find a safer path rather than route around
-  the block. `AutoMode` does the same, and its default feedback also carries
-  the monitor's reason.
+- **What the classifier reads.** It sees the user's messages and the
+  executable payload of the agent's tool calls. The agent's own messages,
+  tool-call descriptions and all tool outputs are stripped, which makes it
+  reasoning-blind by design. `Channel.ACTIONS`, the library's default view,
+  follows it, with differences: it shows a call's name and all its
+  arguments, and it also reads `<tool_error>` entries, subagent reports and
+  the text of a final answer. The post reviews a subagent's results with a
+  separate classifier at return, which only adds a warning; the library
+  shows the report to the parent's monitor as a `<subagent_report>`.
+- **Deny and continue.** A denied action comes back to the agent with the
+  reason and an instruction to find a safer path rather than route around
+  the block. `AutoMode` does the same with its `FeedbackTemplate`.
 - **The limits.** After three consecutive denials or twenty in all within a
   session, Claude Code stops the model and escalates to a person, or ends the
   process when there is no one to ask. `AutoMode` uses the same numbers; here
@@ -76,13 +79,20 @@ states it.
 
 ## What a monitor reads
 
-Reading the agent's chain of thought catches more misbehaviour than reading
-its actions alone [@baker2025monitoring]. Reasoning traces can also carry
-rationalisations that mislead a monitor, and a hybrid that scores reasoning
-and actions separately and combines them outperforms either alone
-[@arnav2025cotredhanded]. Giving a monitor more information does not always
-help: current monitors often do better with less [@arike2026information].
-The default view leaves the chain of thought out, and one setting adds it.
+The default view leaves the chain of thought out, as auto mode does, and one
+setting adds it. Studies of reading the chain of thought found this:
+
+- Baker et al. find that a monitor reading the chain of thought detects
+  reward hacking far more accurately than one reading actions alone
+  [@baker2025monitoring].
+- Arnav et al. find that reading the chain of thought helps most on subtle
+  sabotage, that its rationalisations can mislead the monitor on obvious
+  sabotage, and that a hybrid scoring the chain of thought and the actions
+  separately beats both [@arnav2025cotredhanded].
+- Arike et al. find that monitors with access to the chain of thought beat
+  action-only monitors in almost all their settings. Monitors also often do
+  better with less information, mostly when a monitor reading only the chain
+  of thought beats one reading it with the actions [@arike2026information].
 
 ## Prompts and scores
 
@@ -111,10 +121,10 @@ protocol calls the expensive monitor only when the cheap score falls in an
 uncertain band [@hua2025combining]. `CascadeMonitor` uses a simpler rule, one
 threshold on the cheap score.
 
-Weighting a judge's score by the probabilities of its levels, rather than
-taking the most likely level, gives finer and better judgements
-[@liu2023geval; @wang2025judgment]; the same argument favours the continuous
-probabilities of decision models.
+Weighting a judge's score by the probabilities of its levels gives a finer,
+continuous score [@liu2023geval], and taking the mean of the judgement
+distribution outperforms taking its most likely level [@wang2025judgment];
+the same argument favours the continuous probabilities of decision models.
 
 ## Guard models
 
@@ -128,21 +138,23 @@ miscalibrated under jailbreak prompts [@liu2025guardcalibration].
 When a provider returns no log-probabilities, the share of several samples
 that carry the unsafe label estimates the same probability. The evidence for
 sampling comes from studies of confidence in question answering, not of
-guards: Xiong et al. and Tian et al. see its gains converge as samples grow,
-and Lyu et al. see them saturate after 15 to 20 samples
-[@xiong2024uncertainty; @tian2023justask; @lyu2025sampleconsistency].
+guards: Xiong et al. see its gains converge as samples grow, and Lyu et al.
+see them saturate after 15 to 20 samples
+[@xiong2024uncertainty; @lyu2025sampleconsistency].
 
-Llama Guard's prompt format puts the label on the first line, followed for
-unsafe content by the codes of the violated categories
-[@meta2024llamaguard3format; @meta2025llamaguard4]. `GuardModelMonitor` reads
-a label there, or on the reply's last line, and nowhere else.
+Llama Guard 3 writes its label on the first line and, for unsafe content,
+the codes of the violated categories on the next [@meta2024llamaguard3format].
+Llama Guard 4 also lists the violated categories after an unsafe label
+[@meta2025llamaguard4]. `GuardModelMonitor` reads a label on the first line,
+or on the reply's last line, and nowhere else.
 
 ## Decision models
 
 Jev answers yes or no questions with a probability. It is served through
 OpenRouter's Decisions API [@openrouter2026decisions] and through TypeSafe's
-own client [@typesafe2026langchain]. Asking atomic questions, one proposition
-each, and combining them in code is TypeSafe's advice [@typesafe2026docs].
+own client [@typesafe2026langchain]. TypeSafe advises asking atomic
+questions, one factor each, and combining the answers in code
+[@typesafe2026docs].
 
 ## The research behind the first plan
 
@@ -162,8 +174,9 @@ the ones above:
 The middleware follows LangChain's own middleware [@langchain2026]: how
 `LLMToolSelectorMiddleware` calls a second model, how the human-in-the-loop
 middleware rejects a tool call with an error result, and how
-`InternalCallTransformer` marks internal model calls so that the
-`stream_events(version="v3")` projection drops them. Messages, content
+`internal_call_metadata()` marks an internal model call, which
+`InternalCallTransformer` then drops from the `stream_events(version="v3")`
+projection. Messages, content
 blocks, prompts and the response cache come from langchain-core
 [@langchaincore2026]. LangGraph [@langgraph2026] runs the agent graph: its
 reducers merge `monitor_log` across subagents, its `nostream` tag keeps

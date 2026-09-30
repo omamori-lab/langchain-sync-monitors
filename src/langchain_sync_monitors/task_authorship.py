@@ -231,6 +231,7 @@ def build_note_update(state: object) -> AgentStateUpdate:
     """
     task_message_ids = read_message_ids(state, key=TASK_MESSAGES_KEY)
     unseen_ids = find_unseen_human_message_ids(state)
+    # Only a message with an id can be replaced in place; one without would be added again.
     notes = [
         mark_context_note(message)
         for message in read_state_messages(state)
@@ -340,6 +341,7 @@ def relabel_tool_result(
     ):
         return result
     relabelled = relabel_tool_written_message(result, tool_name=tool_name)
+    # A tool message stays one; the check only narrows the type for the type checker.
     return relabelled if isinstance(relabelled, ToolMessage) else result
 
 

@@ -24,7 +24,8 @@ context note, in the state as well as in what the monitor reads.
   saw. The monitor cannot tell them from the new input, so it tags all of
   them as notes from `unconfirmed_input`, which they stay for the rest of
   the thread. The prompt tells the judge that such a note may be the user's
-  own words: it authorises nothing, but a limit it sets still applies.
+  own words: it authorises nothing, and only a limit it sets that narrows
+  what the agent may do still applies, since no note removes a safeguard.
 
 Two paths stay open, both through another middleware listed before the
 monitor. Its `before_agent` hook runs before the monitor's own, so an untagged
@@ -208,8 +209,8 @@ def build_run_input_update(state: object) -> AgentStateUpdate:
     logger.warning(
         "This run starts from a run that did not reach its end, so the monitor cannot tell "
         "its input from messages the earlier run left behind. It reads the human messages "
-        "%s as notes from unconfirmed input: they authorise nothing, but a limit they set "
-        "still applies.",
+        "%s as notes from unconfirmed input: they authorise nothing, and only a limit they "
+        "set that narrows what the agent may do still applies.",
         new_ids,
     )
     unconfirmed = [

@@ -72,7 +72,7 @@ flowchart LR
 |---|---|---|
 | `<user>` | `USER` | A message from the user who gave the task. |
 | `<delegator>` | `USER` | Inside a subagent, the task from the parent agent, in place of `<user>`. |
-| `<context_note source="...">` | `USER` | A human message that did not arrive as a run's input. Either another part of the application tagged it with `lc_source`, such as a summary of earlier messages (`summarization`) or Deep Agents' rubric grader (`rubric_grader`) [@langchain2026; @deepagents2026], or it was written during a run without a tag, and the source is then the tool that wrote it, the message's `name`, or `application`. It authorises nothing. A note from `unconfirmed_input` may be the user's own message after a run that stopped early: it authorises nothing either, but a limit it sets still applies. |
+| `<context_note source="...">` | `USER` | A human message that did not arrive as a run's input. Either another part of the application tagged it with `lc_source`, such as a summary of earlier messages (`summarization`) or Deep Agents' rubric grader (`rubric_grader`) [@langchain2026; @deepagents2026], or it was written during a run without a tag, and the source is then the tool that wrote it, the message's `name`, or `application`. It authorises nothing. A note from `unconfirmed_input` may be the user's own message after a run that stopped early: it authorises nothing either, and only a limit it sets that narrows what the agent may do still applies. No note removes a safeguard, such as asking the user first. |
 | `<monitor_feedback>` | `USER` | The monitor's feedback on a blocked step. When it answers a blocked tool call, it carries the tool's name. |
 | `<tool_call name="...">` | `TOOL_CALLS` | A tool call, with its arguments as JSON. |
 | `<malformed_tool_call name="...">` | `TOOL_CALLS` | A call whose arguments could not be parsed, with the raw argument text. It never ran. |
@@ -102,8 +102,9 @@ A few rules hold in every view:
   whose stream the client stopped reading, the next run's new messages are
   notes from `unconfirmed_input`, the user's own included, and stay notes for
   the rest of the thread. The judge takes no approval from such a note, but
-  still applies any limit it sets, so a user's "stop" keeps its force; send
-  an approval again in a later turn. See
+  still applies a limit it sets that narrows what the agent may do, so a
+  user's "stop" keeps its force; send an approval, or a request to skip a
+  safeguard such as asking first, again in a later turn. See
   [What the monitor reads](../explanation/design.md#what-the-monitor-reads)
   for why, and for the two paths through other middleware's hooks that stay
   open.

@@ -120,7 +120,12 @@ change raises the minor version.
 - After a run that stopped before its end, such as one whose model call raised
   or whose client cancelled it, the next run's new messages, the user's own
   included, are notes from `unconfirmed_input` for the rest of the thread: the
-  judge takes no approval from them, but still applies any limit they set.
+  judge takes no approval from them, but still applies a limit they set that
+  narrows what the agent may do. So is a nudge that a middleware listed after
+  the monitor, such as a Deep Agents harness profile's, wrote just before the
+  stop.
+- `DEFAULT_MONITOR_PROMPT` tells the judge that a note never removes a
+  safeguard, such as asking the user first, logging or reporting.
 - Under every view that shows a tool call, a call that failed or did not run
   shows as `<tool_error>`, and one with unreadable arguments as
   `<malformed_tool_call>`.

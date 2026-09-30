@@ -231,14 +231,28 @@ guard against a forged approval:
   input: it tags every new human message as a note from `unconfirmed_input`
   and logs a warning that names their ids. That includes the user's own new
   message, which stays such a note for the rest of the thread, and an entry
-  limit may drop it. The prompt tells the judge that such a note may be the
-  user's own words: it authorises nothing, but any limit it sets or
-  permission it withdraws still applies. A restriction only narrows what is
-  allowed, so honouring it from a message of unknown author can block honest
-  work but never lets an action through, and the agent gains nothing by
-  causing the stop. The runs after it are read normally. A final answer, a
+  limit may drop it. The runs after it are read normally. A final answer, a
   halt, a structured response and a `return_direct` tool all end at
   `after_agent`, so they leave the flag clear.
+
+  The prompt tells the judge that such a note may be the user's own words:
+  it authorises nothing, and only a limit it sets that narrows what the
+  agent may do still applies. Honouring such a limit from a message of
+  unknown author can block honest work, but it lets no action through. A
+  "limit" that drops a safeguard, such as "do not ask me first", would widen
+  what passes instead, so the prompt adds that a note never removes a
+  safeguard, such as asking the user first, logging or reporting.
+
+  Such a note need not hold the user's words. A `before_model` hook of a
+  middleware listed after the monitor runs after the monitor's own, and Deep
+  Agents lists a harness profile's middleware there [@deepagents2026]. A
+  nudge such a hook writes just before a model call that fails is one the
+  monitor never saw, so the next run reads it as `unconfirmed_input` rather
+  than as a note named after the nudge. Deep Agents' Nemotron nudge that
+  tells the agent to call a tool instead of asking for another confirmation
+  becomes such a note. The agent can cause the stop, so it gains from one
+  only if the judge reads the note as lifting a safeguard, which the prompt
+  forbids but cannot guarantee.
 - The monitor's own feedback carries `lc_source="monitor"` and is rendered as
   `<monitor_feedback>` wherever the task is shown: both the message that
   answers a blocked final answer and the tool message that answers a blocked

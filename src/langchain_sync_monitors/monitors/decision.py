@@ -169,20 +169,26 @@ def is_retryable_http_error(error: Exception) -> bool:
 def read_openrouter_api_key(api_key: SecretStr | None) -> SecretStr:
     """Return the key given, or, when it is None, the one in `OPENROUTER_API_KEY`.
 
-    That variable is the one the chat models read. A key given blank raises
+    That variable is the one the chat models read. Either key is stripped,
+    since no header may carry a line break. A key given blank raises
     `ConfigurationError` rather than fall back to the variable, since a key
-    the application meant to pass must not be replaced by another one.
+    the application meant to pass must not be replaced by another one. So
+    does a key given as anything but a `SecretStr`, named by its type alone.
     """
-    if api_key is not None:
-        if not api_key.get_secret_value().strip():
-            message = "api_key is blank: pass a key, or leave it out to read OPENROUTER_API_KEY"
+    if api_key is None:
+        from_environment = os.environ.get("OPENROUTER_API_KEY", "").strip()
+        if not from_environment:
+            message = "OpenRouterDecisionModel needs api_key or the OPENROUTER_API_KEY variable"
             raise ConfigurationError(message)
-        return api_key
-    from_environment = os.environ.get("OPENROUTER_API_KEY", "").strip()
-    if not from_environment:
-        message = "OpenRouterDecisionModel needs api_key or the OPENROUTER_API_KEY variable"
+        return SecretStr(from_environment)
+    if not isinstance(api_key, SecretStr):
+        message = f"api_key must be a SecretStr, not {type(api_key).__name__}: pass SecretStr(key)"
         raise ConfigurationError(message)
-    return SecretStr(from_environment)
+    given = api_key.get_secret_value().strip()
+    if not given:
+        message = "api_key is blank: pass a key, or leave it out to read OPENROUTER_API_KEY"
+        raise ConfigurationError(message)
+    return SecretStr(given)
 
 
 class OpenRouterDecisionModel(DecisionModel):

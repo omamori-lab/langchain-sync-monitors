@@ -10,7 +10,7 @@ import warnings
 from collections.abc import Callable, Iterable, Iterator, Sequence
 from decimal import Decimal
 from fractions import Fraction
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 import httpx
 import pytest
@@ -271,21 +271,47 @@ async def test_a_question_left_unanswered_is_a_monitor_error() -> None:
         await server.build_model().estimate_probabilities(context="x", questions=[LEAK_QUESTION])
 
 
-def test_a_missing_key_fails_at_construction(monkeypatch: pytest.MonkeyPatch) -> None:
+@pytest.mark.parametrize("environment_key", [None, " \n"], ids=["unset", "blank"])
+def test_a_missing_key_fails_at_construction(
+    monkeypatch: pytest.MonkeyPatch,
+    environment_key: str | None,
+) -> None:
     # Arrange
-    monkeypatch.delenv("OPENROUTER_API_KEY")
+    if environment_key is None:
+        monkeypatch.delenv("OPENROUTER_API_KEY")
+    else:
+        monkeypatch.setenv("OPENROUTER_API_KEY", environment_key)
 
     # Act and Assert
     with pytest.raises(ConfigurationError, match="OPENROUTER_API_KEY"):
         OpenRouterDecisionModel(model="typesafe/jev-1.13")
 
 
-async def test_a_key_given_is_sent_in_place_of_the_one_in_the_environment(
+async def test_the_key_in_the_environment_is_sent_stripped(
+    monkeypatch: pytest.MonkeyPatch,
     call_path: CallPath,
+) -> None:
+    # Arrange
+    monkeypatch.setenv("OPENROUTER_API_KEY", " environment-key\n")
+    server = DecisionsServer(responders=[answer_with({"leaks": 0.5})])
+    model = server.build_model()
+
+    # Act
+    await estimate_on_path(model, questions=[LEAK_QUESTION], call_path=call_path)
+
+    # Assert
+    (request,) = server.requests
+    assert request.headers["Authorization"] == "Bearer environment-key"
+
+
+@pytest.mark.parametrize("given_key", ["given-key", " given-key\n"], ids=["bare", "padded"])
+async def test_a_key_given_is_sent_stripped_in_place_of_the_one_in_the_environment(
+    call_path: CallPath,
+    given_key: str,
 ) -> None:
     # Arrange: OPENROUTER_API_KEY holds another key
     server = DecisionsServer(responders=[answer_with({"leaks": 0.5})])
-    model = server.build_model(api_key=SecretStr("given-key"))
+    model = server.build_model(api_key=SecretStr(given_key))
 
     # Act
     await estimate_on_path(model, questions=[LEAK_QUESTION], call_path=call_path)
@@ -303,6 +329,18 @@ def test_a_blank_key_given_fails_rather_than_fall_back_to_the_environment(blank_
     # Act and Assert
     with pytest.raises(ConfigurationError, match="api_key is blank"):
         OpenRouterDecisionModel(model="typesafe/jev-1.13", api_key=api_key)
+
+
+def test_a_key_given_as_a_plain_string_fails_without_showing_the_key() -> None:
+    # Arrange
+    api_key = cast("SecretStr", "sk-plain-key")
+
+    # Act
+    with pytest.raises(ConfigurationError, match="must be a SecretStr") as raised:
+        OpenRouterDecisionModel(model="typesafe/jev-1.13", api_key=api_key)
+
+    # Assert
+    assert "sk-plain-key" not in str(raised.value)
 
 
 def build_typesafe_classifier(

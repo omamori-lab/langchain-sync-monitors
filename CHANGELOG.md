@@ -237,6 +237,10 @@ change raises the minor version.
   refuse a plain string with `ConfigurationError`.
 - `CalibratedMonitor(honest_scores=...)` and `DecisionModelMonitor(questions=...)`
   accept any iterable, a generator included.
+- `OpenRouterDecisionModel(api_key=...)` raises `ConfigurationError` for a
+  blank key, rather than read `OPENROUTER_API_KEY`, and for a key that is not
+  a `SecretStr`; a key given is stripped of surrounding whitespace, as the
+  variable is.
 - A chat model wrapped in a Runnable, such as `with_retry()` or `bind()`,
   raises `ConfigurationError` naming its type, in every monitor and in
   `DeferToTrustedModel`.

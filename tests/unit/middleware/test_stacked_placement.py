@@ -183,6 +183,7 @@ def test_a_monitor_inside_one_that_can_call_the_model_again_is_named(
     assert message.startswith("inner[main] sits inside outer[main]")
     assert f"({type(outer.protocol).__name__})" in message
     assert "never reach monitor_log" in message
+    assert "CascadeMonitor" in message
 
 
 @pytest.mark.parametrize("build_protocol", REPEATING_PROTOCOLS.values(), ids=REPEATING_PROTOCOLS)

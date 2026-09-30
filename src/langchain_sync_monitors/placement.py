@@ -271,7 +271,8 @@ def build_repeated_call_reason(
             "drawn at once under ainvoke() leave several records with one step number and "
             "skip the next. Outside another monitor, use TrustedMonitoring, "
             "DeferToResample(max_resamples=0, fallback=HaltRun()) or "
-            "AutoMode(max_consecutive_blocks=1), which call the model at most once."
+            "AutoMode(max_consecutive_blocks=1), which call the model at most once, or "
+            "combine the two judges into one monitor, for example with CascadeMonitor."
         )
     return (
         f"wraps model calls inside {around}, which can call the model more than once in a "

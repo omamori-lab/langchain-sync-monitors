@@ -189,7 +189,10 @@ async def test_log_probabilities_without_a_label_fail_closed(
     assert "no readable label" in verdict.reason
 
 
-@pytest.mark.parametrize(("opening", "closing"), [("(", ")"), ("[", "]"), ("“", "”"), ("~", "")])
+@pytest.mark.parametrize(
+    ("opening", "closing"),
+    [("(", ")"), ("[", "]"), ("“", "”"), ("~", ""), ("_", "_"), ("__", "__")],
+)
 async def test_a_label_in_markup_is_scored_at_the_guard_s_own_token(
     monitor_input: MonitorInput,
     call_path: CallPath,

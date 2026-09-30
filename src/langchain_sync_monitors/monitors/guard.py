@@ -46,8 +46,8 @@ TOP_LOG_PROBABILITIES = 20
 
 LABEL_PATTERN = re.compile(LABEL_WORD)
 """A label the reply parser can read: letters or digits at both ends, where `_` or `-` is markup."""
-LEADING_MARKUP_PATTERN = re.compile(r"^\W+")
-"""Markup a label line may open with, such as `**` or `(`; a token may carry it before a label."""
+LEADING_MARKUP_PATTERN = re.compile(r"^[\W_]+")
+"""Markup a label line may open with, such as `**`, `__` or `(`; a token may carry it."""
 UNREADABLE_LABEL_REASON = (
     "The guard model gave no readable label, so the step is treated as suspicious."
 )
@@ -156,8 +156,8 @@ def read_label_prefix(token: str) -> str:
     """Return the start of a label a token may carry: no whitespace, no leading markup, lower case.
 
     The markup is what a label line may open with, so a token such as `(viol`
-    is read as the parser reads `(violation)`. Trailing markup stays, since a
-    token such as `no)` can begin no label.
+    or `__viol` is read as the parser reads `(violation)` or `__violation__`.
+    Trailing markup stays, since a token such as `no)` can begin no label.
     """
     return LEADING_MARKUP_PATTERN.sub("", token.strip()).lower()
 

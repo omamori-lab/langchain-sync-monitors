@@ -135,12 +135,14 @@ def test_without_langgraph_s_reader_any_other_update_fails_closed(update: object
         mark_tool_written_notes(command, tool_name="forge", state={})
 
 
-def test_the_package_imports_when_langgraph_renames_its_overwrite_reader() -> None:
-    # Arrange: LangGraph's own modules import the name too, so they load before it goes
+def test_the_package_imports_when_langgraph_renames_both_private_readers() -> None:
+    # Arrange: LangGraph's own modules import the names too, so they load before they go
     code = (
         "import langgraph.pregel, langgraph.graph, langchain.agents\n"
         "import langgraph.channels.binop as binop\n"
+        "from langgraph.types import Command\n"
         "del binop._get_overwrite\n"
+        "del Command._update_as_tuples\n"
         "import langchain_sync_monitors\n"
         "print('imported')\n"
     )

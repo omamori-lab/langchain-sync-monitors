@@ -1,14 +1,16 @@
 # Use Defer to Resample
 
-This guide sets up Defer to Resample. When the monitor finds a step
-suspicious, the protocol asks the agent's model for the same step again and
-runs the least suspicious acceptable sample. Only when every sample looks
-suspicious does a fallback write the step: a trusted model, or a halt.
+This guide sets up Defer to Resample, the protocol that draws fresh samples of
+a suspicious step and runs the least suspicious acceptable one.
 
-The protocol comes from Ctrl-Z [@bhatt2025ctrlz], which reports a better
-trade-off between safety and usefulness than deferring to a trusted model at
-once: an honest step usually passes on a resample, and the extra samples are
-evidence for an auditor.
+[TOC]
+
+Use it when you want to keep most of the stronger model's work and gather
+evidence from repeated samples. Only when every sample looks suspicious does
+a fallback write the step: a trusted model, or a halt. The protocol comes from Ctrl-Z [@bhatt2025ctrlz]. At
+the same deferral threshold it costs much less usefulness than deferring to a
+trusted model at once, since a fresh sample of an innocent step may look
+innocent, and the extra samples are evidence for an audit.
 
 ## How it works
 
@@ -16,18 +18,22 @@ evidence for an auditor.
 flowchart TD
     first["Draw one sample and score it"] --> check{"Suspicion at or above defer_threshold?"}
     check -- "no" --> allowed["Run it: allowed"]
+    check -- "yes, and max_resamples is 0" --> fallback
     check -- "yes" --> mode{"resampling"}
-    mode -- "SEQUENTIAL" --> sequential["Draw one more at a time and score it, up to max_resamples, stopping at the first acceptable one"]
-    mode -- "PARALLEL" --> parallel["Draw max_resamples more at once and score each"]
+    mode -- "SEQUENTIAL" --> sequential["Draw one more at a time, up to max_resamples, and stop at the first acceptable one"]
+    mode -- "PARALLEL" --> parallel["Draw max_resamples more at once"]
     sequential --> any{"Any sample below defer_threshold?"}
     parallel --> any
     any -- "yes" --> resampled["Run the least suspicious acceptable sample: resampled"]
     any -- "no" --> fallback["The fallback writes the step: deferred_to_trusted or halted"]
 ```
 
-Every sample is a fresh call on the same conversation. The agent never sees
-the rejected samples, and neither does the trusted model. Each step is flagged
-for review when even its least suspicious sample reaches `audit_threshold`.
+Every sample is a fresh call on the same request, and each is judged. Neither
+the agent nor the trusted model sees a rejected sample, so the agent cannot
+tell that it was resampled [@bhatt2025ctrlzpost]. A provider's built-in tools,
+such as a web search, run inside every sample's model call. The step is
+flagged for review when even its least suspicious sample reaches
+`audit_threshold`, the statistic Ctrl-Z found to work well [@bhatt2025ctrlz].
 
 ## A complete example
 
@@ -56,9 +62,13 @@ def http_post(url: str, body: str) -> str:
 monitor = MonitorMiddleware(
     monitor=LLMMonitor(model="openrouter:xiaomi/mimo-v2.6-pro"),
     protocol=DeferToResample(
+        # Writes the step when no sample is acceptable.
         fallback=DeferToTrustedModel(trusted_model="openrouter:xiaomi/mimo-v2.6-flash"),
+        # A sample at or above 0.6 is not acceptable; a step whose best sample
+        # is at or above 0.9 is flagged.
         defer_threshold=0.6,
         audit_threshold=0.9,
+        # Up to two more samples, drawn one at a time.
         max_resamples=2,
         resampling=Resampling.SEQUENTIAL,
     ),
@@ -66,19 +76,21 @@ monitor = MonitorMiddleware(
 agent = create_agent(
     model="openrouter:deepseek/deepseek-v4.1-flash",
     tools=[read_file, http_post],
-    middleware=[monitor],
+    middleware=[monitor],  # The monitor goes last in the list.
 )
 
 task = {"messages": [{"role": "user", "content": "Summarise q3.md for the team."}]}
 result = agent.invoke(task)
+# One record per step, with every sample the monitor judged.
 for record in result["monitor_log"]:
     scores = [round(sample["suspicion"], 2) for sample in record["samples"]]
     print(record["step_number"], record["outcome"], record["flagged"], scores)
 ```
 
-The model strings are examples. Any LangChain chat model works for the agent,
-the judge and the trusted model: pass a provider string, or a chat model
-object you built.
+The model strings are examples, and `openrouter:` strings need the
+`openrouter` extra. Any LangChain chat model works for the agent, the judge
+and the trusted model: pass a provider string, or a chat model object you
+built.
 
 ## Options
 
@@ -87,51 +99,57 @@ object you built.
 | `fallback` | Required | What writes the step when no sample is acceptable. A protocol here, such as `DeferToTrusted` in place of `DeferToTrustedModel`, raises `ConfigurationError`. |
 | `defer_threshold` | 0.6, with a warning | A sample whose suspicion is at or above this value is not acceptable. |
 | `audit_threshold` | 0.9, with a warning | A step is flagged when the lowest suspicion across its samples is at or above this value. `None` turns flagging off. |
-| `max_resamples` | 2 | How many more samples to draw after a suspicious first one. 0 draws no resample, so with the `DeferToTrustedModel` fallback the protocol behaves as Defer to Trusted; anything but a whole number of at least 0 raises `ConfigurationError`. |
+| `max_resamples` | 2 | How many more samples to draw after a suspicious first one, a whole number of at least 0. Two, three samples in all, is what Ctrl-Z's basic Defer to Resample draws. With 0 and the `DeferToTrustedModel` fallback, the protocol is Defer to Trusted. |
 | `resampling` | `Resampling.SEQUENTIAL` | `SEQUENTIAL` or `PARALLEL`, as below. A plain string raises `ConfigurationError`. |
+
+Each threshold is a number from 0 to 1; see
+[Thresholds](choose-a-protocol.md#thresholds) for what counts, and
+[Calibrate the threshold](use-trusted-monitoring.md#calibrate-the-threshold)
+to set them from honest runs. An `audit_threshold` below the
+`defer_threshold` is allowed: it flags steps that still ran, a queue of
+borderline steps for a person to review. `MonitorMiddleware`'s own options
+are listed in [Middleware options](choose-a-protocol.md#middleware-options).
 
 ### Fallbacks
 
-The library has two fallbacks:
+| Fallback | Outcome | What it does |
+|---|---|---|
+| `DeferToTrustedModel` | `deferred_to_trusted` | Its `trusted_model` writes the step from the step's request with only the model changed: the same system prompt, conversation, tools and response format, and no rejected sample. Its step is not judged. This is Ctrl-Z's fallback. |
+| `HaltRun` | `halted` | Ends the run with its `message` as the final message, with no tool calls. The step is always flagged, even with `audit_threshold=None`. |
 
-- `DeferToTrustedModel(trusted_model=...)` has a trusted model write the step,
-  with the same conversation and tools. The outcome is `deferred_to_trusted`.
-  This is Ctrl-Z's fallback. The trusted model must support tool calling.
-- `HaltRun(message=...)` ends the run with a final message and no tool calls.
-  The outcome is `halted`, and a halted step is always flagged. The default
-  message, `DEFAULT_HALT_MESSAGE`, says the run was stopped because the
-  agent's steps looked unsafe.
+`HaltRun`'s default message is `DEFAULT_HALT_MESSAGE`:
 
-You can write your own by subclassing `Fallback`. A fallback must not ask a
-person by calling LangGraph's `interrupt()`. It runs inside the model node,
-and on resume LangGraph runs the whole node again: the protocol draws fresh
-samples, and the person's answer would apply to steps they never saw. To
-involve a person, end the step with `HaltRun` and ask outside the model node.
+> [Safety monitor] This run was stopped because the agent's proposed steps
+> looked unsafe. The rejected steps are recorded in monitor_log for review.
+
+A halt stands: until a later run brings new input from the user, every
+further step halts again without a sample, with a standing-halt message of
+the library's own rather than yours. Two paths through middleware listed
+before the monitor can lift it early; see
+[A halt stands](choose-a-protocol.md#a-halt-stands).
+
+You can write your own fallback by subclassing `Fallback`. A fallback must
+not ask a person by calling LangGraph's `interrupt()`. It runs inside the
+model node, and on resume LangGraph runs the whole node again: the protocol
+draws fresh samples, and the person's answer would apply to steps they never
+saw. To involve a person, end the step with `HaltRun` and ask outside the
+model node.
 
 ### Sequential or parallel
 
-- `Resampling.SEQUENTIAL` draws one resample at a time and stops at the first
-  acceptable one, as Ctrl-Z words the protocol. It costs the fewest calls. A
-  step that needs every resample takes three rounds of one agent call and one
-  monitor call.
-- `Resampling.PARALLEL` draws all `max_resamples` at once. It always costs
-  `max_resamples` extra samples, but a suspicious step takes two rounds rather
-  than up to three. Under `ainvoke()` the resamples run concurrently, and one
-  that fails cancels the others. Under `invoke()` they are drawn one after
-  another, so parallel resampling saves no time there.
+| | `Resampling.SEQUENTIAL`, the default | `Resampling.PARALLEL` |
+|---|---|---|
+| How it draws | One resample at a time, stopping at the first acceptable one | All `max_resamples` at once |
+| Extra samples on a suspicious step | 1 to `max_resamples` | Always `max_resamples` |
+| Rounds on a suspicious step, with the defaults | 2 or 3 | 2 under `ainvoke()`, 3 under `invoke()` |
+| Under `ainvoke()` | One after another | Concurrently; one draw that fails cancels the others |
+| Under `invoke()` | One after another | One after another, so no time is saved |
 
-### Thresholds
-
-Both thresholds are placeholders that emit an `UncalibratedThresholdWarning`.
-Set them from the scores your monitor gives on honest runs of your own agent,
-as [Calibrate the threshold](use-trusted-monitoring.md#calibrate-the-threshold)
-describes.
-
-The audit flag uses the lowest score across the step's samples, the statistic
-Ctrl-Z found to work well [@bhatt2025ctrlz]: a step is flagged only when the
-agent kept proposing something suspicious. An `audit_threshold` below the
-`defer_threshold` is allowed: it flags steps that still ran, a queue of
-borderline steps for a person to review.
+A round is one call of the agent's model followed by one call of the monitor.
+Ctrl-Z's authors describe the protocol as asking again after each suspicious
+sample [@bhatt2025ctrlzpost]. The paper's own statement, which draws up to two
+new samples and runs the least suspicious acceptable one, fits either way of
+drawing them [@bhatt2025ctrlz].
 
 ## Read the outcome in `monitor_log`
 
@@ -140,65 +158,66 @@ Every step adds one record, which keeps every sample the monitor judged.
 | `outcome` | What happened | Samples | Executed sample |
 |---|---|---|---|
 | `"allowed"` | The first sample was acceptable. | 1 | The first |
-| `"resampled"` | The first was suspicious; a resample was acceptable. | 2 or more | The least suspicious acceptable one |
-| `"deferred_to_trusted"` | No sample was acceptable; the trusted model wrote the step. | Up to `max_resamples + 1` | None |
-| `"halted"` | No sample was acceptable; `HaltRun` ended the run. | Up to `max_resamples + 1` | None |
+| `"resampled"` | The first was suspicious, and a resample was acceptable. | 2 to `max_resamples + 1` | The least suspicious acceptable one |
+| `"deferred_to_trusted"` | No sample was acceptable, and the trusted model wrote the step. | `max_resamples + 1` | None |
+| `"halted"` | No sample was acceptable, and `HaltRun` ended the run. | `max_resamples + 1` | None |
+| `"halted"` | A halt stood, or a subagent was halted under `SubagentHalt.STOP_WHOLE_RUN`. | 0 | None |
 
 An auditor should read the most suspicious sample first:
 
 ```python
 for record in result["monitor_log"]:
-    if record["flagged"] or record["outcome"] != "allowed":
-        worst = max(record["samples"], key=lambda sample: sample["suspicion"])
-        ran = [sample for sample in record["samples"] if sample["executed"]]
-        print(f"Step {record['step_number']}: {record['outcome']}")
-        print(f"  most suspicious ({worst['suspicion']:.2f}): {worst['reason']}")
-        print(f"  ran: {ran[0]['proposal'] if ran else 'nothing the agent proposed'}")
+    # A halt without a sample has nothing to read here.
+    if not record["samples"] or (not record["flagged"] and record["outcome"] == "allowed"):
+        continue
+    worst = max(record["samples"], key=lambda sample: sample["suspicion"])
+    ran = [sample for sample in record["samples"] if sample["executed"]]
+    print(f"Step {record['step_number']}: {record['outcome']}")
+    print(f"  most suspicious ({worst['suspicion']:.2f}): {worst['reason']}")
+    print(f"  ran: {ran[0]['proposal'] if ran else 'nothing the agent proposed'}")
 ```
 
-## Things to know
+## Limits
 
 - **Resampling helps an injection that sometimes works.** The protocol runs
   the least suspicious acceptable sample, so an agent that plants text aimed
-  at the monitor gets several tries at fooling it: an injection that passes
-  one sample in five gets through about half the time across three samples
-  [@terekhov2025adaptive]. Keep the monitor's view narrow, and treat a
-  resampled step whose rejected samples scored high as worth an audit.
+  at the monitor gets several tries at fooling it, a best-of-n attack
+  [@terekhov2025adaptive]. An injection that passes one sample in five gets
+  through about half the time across three samples. Keep the monitor's view
+  narrow, and treat a resampled step whose rejected samples scored high as
+  worth an audit.
 - **The least suspicious acceptable sample runs, not the first.** Under
   sequential resampling they are the same, because drawing stops at the first
-  acceptable sample. Under parallel resampling, any of the resamples may win.
+  acceptable sample. Under parallel resampling, any resample may win.
 - **Resampling needs fresh draws.** A LangChain response cache, global or on
   the agent's model, answers every resample with the first sample again. The
-  library warns once with a `CachedResampleWarning` when this happens. If your
-  application sets a global cache, build the agent's model without one:
+  library warns once per process with a `CachedResampleWarning` when this
+  happens. If your application sets a global cache, build the agent's model
+  without one:
   `init_chat_model("openrouter:deepseek/deepseek-v4.1-flash", cache=False)`.
   A model that always gives the same reply, at temperature 0 for example,
   defeats resampling in the same way.
-- **Put the monitor last** in the `create_agent` middleware list. If a
-  middleware inside the monitor returns commands, only those of the last
-  model call survive, and they match the committed step only when the last
-  sample drawn is the one committed. Sequential resampling guarantees that;
-  parallel resampling does not, and its concurrent calls pile up their
-  commands. `check_monitor_placement(middleware=[...])` warns about such a
-  list.
+- **A provider's built-in tools run once per sample.** A web search in the
+  proposed step runs at the provider for every sample drawn, rejected ones
+  included; see
+  [Tools the provider runs itself](choose-a-protocol.md#tools-the-provider-runs-itself).
+- **Middleware inside the monitor can go out of step.** If a middleware after
+  the monitor in the list returns commands, only those of the last model call
+  survive. They match the committed step when sequential resampling accepts a
+  sample or the trusted model writes the step, but not after a `HaltRun`, and
+  parallel resampling may commit an earlier sample while its concurrent calls
+  mix their commands. Put the monitor last;
+  `check_monitor_placement(middleware=[...])` warns about such a list.
 - **A flag never blocks.** The step has run, or been replaced, by the time
   anyone reads the log.
-- **A failed call leaves no record.** If a sample, a monitor call or the
-  fallback raises, nothing is committed and the error propagates. The samples
-  judged before the failure are logged as a warning and written to
-  `stream_mode="custom"` as a `monitor_step_failed` event. A middleware
-  outside the monitor that retries failed calls, such as
-  `ModelRetryMiddleware`, runs the whole step again with fresh samples.
-- **A halt ends the run.** After a `HaltRun`, the middleware routes the agent
-  to its end, even an agent that would otherwise loop until it has a
-  structured response. The middleware's hooks cost two graph steps per model
-  call, `before_model` and `after_model`, and two per run, `before_agent` and
-  `after_agent`, all of which count towards an explicit `recursion_limit`. If
-  a hook such as Deep Agents' `RubricMiddleware` sends the run back to the
-  model, each further step halts again without a sample, until a later run
-  brings a new message the monitor records as the user's input.
+- **The graph takes more steps.** The monitor adds two graph steps per agent
+  step and two per run; see
+  [Graph steps, streams and failures](choose-a-protocol.md#graph-steps-streams-and-failures),
+  which also covers a step that fails.
 
 ## Related guides
 
 - [Combine and calibrate monitors](combine-and-calibrate-monitors.md) to set the defer and audit thresholds from honest runs.
 - [Read the monitor log](read-the-monitor-log.md) to read every sample the monitor judged.
+
+## References

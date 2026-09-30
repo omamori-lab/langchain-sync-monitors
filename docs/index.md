@@ -6,6 +6,8 @@ heading_numbers: false
 
 This page introduces the library and maps the rest of the documentation.
 
+[TOC]
+
 langchain-sync-monitors puts a monitor on every step your LangChain agent or
 Deep Agent proposes, and a control protocol that decides what runs.
 
@@ -17,10 +19,27 @@ Deep Agent proposes, and a control protocol that decides what runs.
 An agent with tools can do harm in a single step: post a credential, delete a
 file, run a command. AI control research guards against this with a monitor,
 a second model that scores each step, and a protocol that acts on the score.
-This library brings those protocols, from AI Control, Ctrl-Z and Claude Code's
-auto mode, to `create_agent` and `create_deep_agent` as one middleware.
-"Sync" means synchronous in the control sense: a step waits for its verdict,
-so a suspicious step can be stopped before it runs.
+This library brings those protocols, from AI Control [@greenblatt2023aicontrol],
+Ctrl-Z [@bhatt2025ctrlz] and Claude Code's auto mode
+[@hughes2026automode], to `create_agent` and `create_deep_agent` as one
+middleware. "Sync" means synchronous in the control sense: a step waits for
+its verdict, so a suspicious step can be stopped before any of the agent's own
+tools run it.
+
+Tools that the model provider runs itself are the exception. Anthropic's web
+search, OpenAI's code interpreter and Gemini's Google Search run inside the
+model call, so they have run by the time the monitor sees the step, and they
+run again for every sample a protocol draws. The middleware warns with a
+`ProviderToolWarning`, once per middleware, about the known ones for
+Anthropic, OpenAI and Gemini when it can see them. It cannot see four kinds:
+
+- a server-side feature switched on in the model's own settings, such as
+  OpenRouter's web plugin or an `:online` model;
+- a tool an integration has already turned into an object of its provider's
+  SDK;
+- tools bound inside a wrapper such as `with_fallbacks(...)`;
+- tools queued with `bind_tools` on a model built with
+  `init_chat_model(..., configurable_fields=...)`.
 
 ## Install
 
@@ -63,17 +82,24 @@ def read_file(path: str) -> str:
 
 
 monitor = MonitorMiddleware(
+    # The monitor: a chat model that judges every step the agent proposes.
     monitor=LLMMonitor(model="openrouter:xiaomi/mimo-v2.6-pro"),
+    # The protocol: sample a suspicious step again, and if every sample stays
+    # suspicious, have the trusted model write the step instead.
     protocol=DeferToResample(
         fallback=DeferToTrustedModel(trusted_model="openrouter:xiaomi/mimo-v2.6-flash"),
+        # Resample a step that scores 0.6 or more, and flag it for review
+        # when even its least suspicious sample scores 0.9 or more.
         defer_threshold=0.6,
         audit_threshold=0.9,
     ),
 )
+# The untrusted model does the work, with the monitor last in the list.
 agent = create_agent(
     "openrouter:deepseek/deepseek-v4.1-flash", tools=[read_file], middleware=[monitor]
 )
 result = agent.invoke({"messages": [{"role": "user", "content": "Summarise q3.md."}]})
+# One record per step: what the protocol did, and whether to review it.
 for record in result["monitor_log"]:
     print(record["step_number"], record["outcome"], record["flagged"])
 ```
@@ -81,12 +107,26 @@ for record in result["monitor_log"]:
 Three models play three roles: the untrusted agent does the work, the monitor
 judges each step, and the trusted model writes a step when every sample looks
 suspicious. Each is a parameter, and any LangChain chat model works; the
-library picks none for you. Put the monitor last in the middleware list.
-Thresholds share one scale from 0 to 1 and warn until you set them; calibrate
-them on honest runs of your own agent. Each step leaves one record in
+library picks none for you. Thresholds share one scale from 0 to 1 and warn
+until you set them; calibrate them on honest runs of your own agent.
+
+Put the monitor last in the middleware list.
+`check_monitor_placement(middleware=[...])` warns about placements known to
+undermine it, but does not look for the `before_agent` and `after_agent`
+hooks that can lift a halt. Each step leaves one record in
 `monitor_log`, and [Read the monitor log](how-to/read-the-monitor-log.md)
-explains its fields. The [tutorial](tutorials/first-monitored-agent.md) builds
-this agent step by step.
+explains its fields. The tutorial,
+[Monitor your first agent](tutorials/first-monitored-agent.md), builds a
+monitored agent step by step.
+
+A monitored step costs time and graph steps:
+
+- Each step waits for its verdict, so `stream_mode="messages"` shows it
+  whole once the protocol has committed it, not token by token.
+- The monitor's hooks add two graph steps per agent step, however many
+  samples or model calls the step draws, and two per run. An agent that
+  takes N steps needs a `recursion_limit` of 2N without the monitor and
+  4N + 2 with it, so raise a limit you set for the agent without one.
 
 ## Pick a protocol
 
@@ -102,6 +142,13 @@ this agent step by step.
 
 Not sure which? [Choose a protocol](how-to/choose-a-protocol.md) compares
 them.
+
+A halt ends the run, and it stands until a later run brings a message the
+monitor records as new input from the user: nothing written during a run
+lifts it. A middleware listed before the monitor is the exception. An
+untagged human message that its `before_agent` hook writes, or that its
+`after_agent` hook writes without sending the run back to the model, counts
+as new input and lifts the halt.
 
 ## Pick a monitor
 
@@ -120,16 +167,18 @@ them.
 [![Every entry of the transcript belongs to one channel. The default view, Channel.ACTIONS, reads USER (the task, context notes and feedback), TOOL_CALLS (tool calls and errors) and SUBAGENT_REPORTS (what subagents report), and leaves out REASONING, AGENT_TEXT and TOOL_RESULTS, each one flag away. The proposed step's tool calls are always shown, and its text when it is a final answer; the rest of the step follows the view's channels. A MonitorView chooses the channels, can keep only the most recent entries, and names the tools whose results are subagent reports. The monitor reads the chosen entries as escaped, tagged text ending with the proposed step, then scores the step.](assets/diagrams/monitor-view-light.svg#only-light)](assets/diagrams/monitor-view-light.svg "Open the diagram at full size")
 [![Every entry of the transcript belongs to one channel. The default view, Channel.ACTIONS, reads USER (the task, context notes and feedback), TOOL_CALLS (tool calls and errors) and SUBAGENT_REPORTS (what subagents report), and leaves out REASONING, AGENT_TEXT and TOOL_RESULTS, each one flag away. The proposed step's tool calls are always shown, and its text when it is a final answer; the rest of the step follows the view's channels. A MonitorView chooses the channels, can keep only the most recent entries, and names the tools whose results are subagent reports. The monitor reads the chosen entries as escaped, tagged text ending with the proposed step, then scores the step.](assets/diagrams/monitor-view-dark.svg#only-dark)](assets/diagrams/monitor-view-dark.svg "Open the diagram at full size")
 
-By default a monitor reads the user's messages, the tool calls and the
-subagent reports, and leaves out the agent's reasoning, its prose and raw tool
-output, as Claude Code's auto mode does. Each left-out channel is one flag
-away:
+By default a monitor reads the task, the tool calls and the subagent reports.
+It leaves out the agent's reasoning, the text it writes beside a tool call and
+raw tool output, as Claude Code's auto mode does [@hughes2026automode]. The
+step being judged always shows its tool calls, and its text when it is a final
+answer. Each left-out channel is one flag away:
 
 ```python
 from langchain_sync_monitors import Channel, LLMMonitor, MonitorView
 
 judge = LLMMonitor(
     model="openrouter:xiaomi/mimo-v2.6-pro",
+    # Read the agent's reasoning too, on top of the default channels.
     view=MonitorView(channels=Channel.ACTIONS | Channel.REASONING),
 )
 ```
@@ -156,9 +205,19 @@ researcher = {"name": "researcher", "description": "Finds and summarises sources
 agent = create_deep_agent(
     "openrouter:deepseek/deepseek-v4.1-flash",
     middleware=[monitor],
+    # Each subagent gets its own copy of the monitor, named after it.
     subagents=monitor_subagents(middleware=monitor, subagents=[researcher]),
 )
 ```
+
+A subagent's records reach the main agent's `monitor_log` when it returns,
+and two limits follow:
+
+- Subagents that run in parallel do not see each other's blocks, so together
+  they can pass Auto Mode's limit on blocks in the thread; their parent
+  counts every one of them at its next step.
+- A subagent whose run raises returns no records, so its steps never reach
+  the parent's `monitor_log` unless the run is resumed from its checkpoint.
 
 [Monitor Deep Agents subagents](how-to/monitor-deep-agents-subagents.md)
 covers per-subagent overrides, what a halt inside a subagent does, and the
@@ -168,11 +227,11 @@ subagents the helper cannot monitor.
 
 | If you want to | Read |
 |---|---|
-| build a monitored agent from scratch | [Tutorial: your first monitored agent](tutorials/first-monitored-agent.md) |
+| build a monitored agent from scratch | [Monitor your first agent](tutorials/first-monitored-agent.md) |
 | solve one task, such as calibrating thresholds | [How-to guides](how-to/index.md) |
 | look up a class or a keyword | [API reference](reference/api.md) |
-| understand how a step flows and why | [How the library is built](explanation/design.md) |
-| see monitored agents run against real models | [Live runs](explanation/live-runs.md) |
+| understand how a step flows, and why | [How the library is built](explanation/design.md) |
+| see monitored agents run against real models | [Live runs of a monitored agent](explanation/live-runs.md) |
 
 ## Credits
 
@@ -194,3 +253,5 @@ and the API may still change before 0.1.0; the
 [changelog](https://github.com/omamori-lab/langchain-sync-monitors/blob/main/CHANGELOG.md)
 records each change. The library is released under the
 [MIT licence](https://github.com/omamori-lab/langchain-sync-monitors/blob/main/LICENSE).
+
+## References

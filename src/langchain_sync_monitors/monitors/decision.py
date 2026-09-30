@@ -180,7 +180,9 @@ def is_probability(value: object) -> bool:
         return value.is_finite() and 0 <= value <= 1
     if isinstance(value, bool) or not isinstance(value, numbers.Real):
         return False
-    return 0.0 <= float(value) <= 1.0
+    # Compared exactly, not as a float: `float()` raises `OverflowError` on an `int` or `Fraction`
+    # as large as 10**400, and rounds a `Fraction` just outside 0 to 1 into it. NaN fails `<= 1`.
+    return bool(not value < 0 and value <= 1)
 
 
 class NoulCriteriaBody(TypedDict):

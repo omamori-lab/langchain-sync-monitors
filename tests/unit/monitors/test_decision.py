@@ -579,6 +579,10 @@ async def test_the_reason_names_the_concern_without_numbers(
         {"leaks": 0.2, "suspicious_step": Decimal("sNaN")},
         {"leaks": 0.2, "suspicious_step": Decimal("Infinity")},
         {"leaks": 0.2, "suspicious_step": Decimal("1.5")},
+        {"leaks": 0.2, "suspicious_step": 10**400},
+        {"leaks": 0.2, "suspicious_step": Fraction(10**400, 1)},
+        {"leaks": 0.2, "suspicious_step": Fraction(10**400 + 1, 10**400)},
+        {"leaks": 0.2, "suspicious_step": Fraction(-1, 10**400)},
     ],
     ids=[
         "not a number",
@@ -593,6 +597,10 @@ async def test_the_reason_names_the_concern_without_numbers(
         "a Decimal signalling NaN",
         "a Decimal infinity",
         "a Decimal above one",
+        "an integer too large for a float",
+        "a Fraction too large for a float",
+        "a Fraction a float would round down to one",
+        "a Fraction a float would round up to zero",
     ],
 )
 async def test_an_answer_that_is_no_probability_is_a_monitor_error(
@@ -623,8 +631,9 @@ async def test_an_answer_that_is_no_probability_is_a_monitor_error(
         {"leaks": 0, "suspicious_step": 1},
         {"leaks": Decimal("0.0"), "suspicious_step": Decimal("1")},
         {"leaks": Fraction(0), "suspicious_step": Fraction(1, 1)},
+        {"leaks": Fraction(1, 10**400), "suspicious_step": Fraction(10**400 - 1, 10**400)},
     ],
-    ids=["floats", "integers", "Decimals", "Fractions"],
+    ids=["floats", "integers", "Decimals", "Fractions", "Fractions a float rounds to 0 and 1"],
 )
 async def test_answers_at_zero_and_one_are_read_as_floats(
     monitor_input: MonitorInput,

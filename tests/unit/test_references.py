@@ -15,7 +15,6 @@ from pathlib import Path
 
 import bibtexparser
 import pytest
-from bibtexparser.bparser import BibTexParser
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 BIBLIOGRAPHY_PATH = REPOSITORY_ROOT / "docs" / "references.bib"
@@ -29,11 +28,17 @@ CITATION_KEY_PATTERN = re.compile(r"@([A-Za-z0-9_:-]+)")
 
 
 def read_bibliography_keys() -> set[str]:
-    """Return the keys of every entry in the bibliography, including non-standard types."""
-    parser = BibTexParser(common_strings=True, ignore_nonstandard_types=False)
-    with BIBLIOGRAPHY_PATH.open(encoding="utf-8") as bibliography:
-        entries: list[dict[str, str]] = bibtexparser.load(bibliography, parser=parser).entries
-    return {entry["ID"] for entry in entries}
+    """Return the keys of every entry in the bibliography, of any entry type.
+
+    Raises:
+        ValueError: if a block does not parse or repeats a key, which the
+            parser reports as a failed block rather than an entry.
+    """
+    library = bibtexparser.parse_file(str(BIBLIOGRAPHY_PATH), encoding="utf-8")
+    if library.failed_blocks:
+        lines = [block.start_line for block in library.failed_blocks]
+        raise ValueError(f"docs/references.bib has blocks that failed to parse, at lines {lines}")
+    return {entry.key for entry in library.entries}
 
 
 def is_citing_file(path: Path) -> bool:

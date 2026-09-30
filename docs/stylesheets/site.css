@@ -4,8 +4,9 @@
  * brand.css is copied unchanged from the omamori lab brand repository
  * (diagrams/out/brand.css), so it can be copied again when the brand changes.
  * It sets the primary, accent, link and Mermaid colours of both schemes. This
- * file adds the rest of the custom palette, the logo size, the contents box
- * that a page's [TOC] marker renders, and the section numbers.
+ * file adds the rest of the custom palette, the header's lower edge in dark
+ * mode, the logo size, the contents box that a page's [TOC] marker renders,
+ * and the section numbers.
  */
 
 /* The rest of the custom palette -----------------------------------------
@@ -34,6 +35,15 @@
   --md-accent-fg-color--transparent: #E0563B1A;
   --md-accent-bg-color: #111111;
   --md-accent-bg-color--light: #111111B3;
+}
+
+/* The header in dark mode: the sumi header (#111111) and the dark page (paper,
+ * #141414) are nearly the same shade, so a line in the rule token (#6A6A66)
+ * marks the header's lower edge. An inset shadow draws it inside the header,
+ * so nothing moves; it replaces Material's scroll shadow, which does not show
+ * on a dark page. */
+[data-md-color-scheme="slate"] .md-header {
+  box-shadow: inset 0 -1px 0 #6A6A66;
 }
 
 /* The logo: the mark's white charm reads on the sumi header in both schemes,

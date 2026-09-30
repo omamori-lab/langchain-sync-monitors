@@ -51,6 +51,7 @@ from langchain_sync_monitors._langchain import (
     ToolCallHandler,
     ToolCallResult,
     TracedRun,
+    cast_to_tool_call_result,
     hide_model_calls_from_message_stream,
     read_monitor_log,
     write_stream_event,
@@ -93,8 +94,11 @@ from langchain_sync_monitors.spans import (
 )
 from langchain_sync_monitors.task_authorship import (
     TASK_MESSAGES_KEY,
+    build_note_update,
+    build_run_end_update,
     build_run_input_update,
-    build_seen_messages_update,
+    build_step_start_update,
+    keep_latest_flag,
     mark_tool_written_notes,
     merge_message_ids,
     read_message_ids,
@@ -122,9 +126,11 @@ class MonitorState(AgentState):
     arrived as a run's input, the only ones a monitor reads as the task
     author's, and `monitor_seen_human_messages` the ids of every untagged
     human message the monitor has seen, so a later run can tell its input
-    from a message written during an earlier run. Both are private, so a
-    subagent starts without its parent's and returns none of its own, and
-    stacked monitors merge what they record without repeating an id.
+    from a message written during an earlier run. `monitor_run_open` is true
+    from the start of a run until it reaches the monitor's `after_agent`
+    hook, so a run can tell that the last one stopped early. All three are
+    private, so a subagent starts without its parent's and returns none of
+    its own, and their reducers let stacked monitors write them in one node.
     """
 
     monitor_log: NotRequired[Annotated[list[StepRecord], OmitFromInput, operator.add]]
@@ -133,6 +139,7 @@ class MonitorState(AgentState):
     monitor_seen_human_messages: NotRequired[
         Annotated[list[str], PrivateStateAttr, merge_message_ids]
     ]
+    monitor_run_open: NotRequired[Annotated[bool, PrivateStateAttr, keep_latest_flag]]
 
 
 def build_end_run_update() -> AgentStateUpdate:
@@ -322,13 +329,16 @@ class MonitorMiddleware(AgentMiddleware[MonitorState, AgentContext, StructuredOu
     ) -> ToolCallResult:
         """Run a tool call under `invoke()`, handing any subagent it starts its delegation.
 
-        A new human message the tool writes is tagged as a context note.
+        A new human message the tool writes is tagged as a context note, and
+        no message it writes keeps the monitor's own source.
         """
         result = handler(add_delegation(request, agent=self.agent_name))
-        return mark_tool_written_notes(
-            result,
-            tool_name=request.tool_call["name"],
-            state=request.state,
+        return cast_to_tool_call_result(
+            mark_tool_written_notes(
+                result,
+                tool_name=request.tool_call["name"],
+                state=request.state,
+            ),
         )
 
     @override
@@ -339,13 +349,16 @@ class MonitorMiddleware(AgentMiddleware[MonitorState, AgentContext, StructuredOu
     ) -> ToolCallResult:
         """Run a tool call under `ainvoke()`, handing any subagent it starts its delegation.
 
-        A new human message the tool writes is tagged as a context note.
+        A new human message the tool writes is tagged as a context note, and
+        no message it writes keeps the monitor's own source.
         """
         result = await handler(add_delegation(request, agent=self.agent_name))
-        return mark_tool_written_notes(
-            result,
-            tool_name=request.tool_call["name"],
-            state=request.state,
+        return cast_to_tool_call_result(
+            mark_tool_written_notes(
+                result,
+                tool_name=request.tool_call["name"],
+                state=request.state,
+            ),
         )
 
     @override
@@ -362,6 +375,20 @@ class MonitorMiddleware(AgentMiddleware[MonitorState, AgentContext, StructuredOu
         """Record the human messages this run received as its input, under `ainvoke()`."""
         return build_run_input_update(state)
 
+    @override
+    def before_model(self, state: MonitorState, runtime: AgentRuntime) -> AgentStateUpdate | None:
+        """Record and tag the human messages so far, and open a step, under `invoke()`."""
+        return build_step_start_update(state)
+
+    @override
+    async def abefore_model(  # lanorme: ignore[NAMING-011]
+        self,
+        state: MonitorState,
+        runtime: AgentRuntime,
+    ) -> AgentStateUpdate | None:
+        """Record and tag the human messages so far, and open a step, under `ainvoke()`."""
+        return build_step_start_update(state)
+
     @hook_config(can_jump_to=["end"])
     @override
     def after_model(self, state: MonitorState, runtime: AgentRuntime) -> AgentStateUpdate | None:
@@ -377,6 +404,20 @@ class MonitorMiddleware(AgentMiddleware[MonitorState, AgentContext, StructuredOu
     ) -> AgentStateUpdate | None:
         """End the run after a step this monitor halted, under `ainvoke()`."""
         return build_end_run_update() if self.has_just_halted(state) else None
+
+    @override
+    def after_agent(self, state: MonitorState, runtime: AgentRuntime) -> AgentStateUpdate | None:
+        """Tag the notes written since the last step, and close the run, under `invoke()`."""
+        return build_run_end_update(state)
+
+    @override
+    async def aafter_agent(
+        self,
+        state: MonitorState,
+        runtime: AgentRuntime,
+    ) -> AgentStateUpdate | None:
+        """Tag the notes written since the last step, and close the run, under `ainvoke()`."""
+        return build_run_end_update(state)
 
     def has_just_halted(self, state: MonitorState) -> bool:
         """Tell whether the step just committed is this monitor's halt.
@@ -489,5 +530,5 @@ class MonitorMiddleware(AgentMiddleware[MonitorState, AgentContext, StructuredOu
             result=messages,
             structured_response=decision.response.structured_response,
         )
-        update = {MONITOR_LOG_KEY: [record], **build_seen_messages_update(request.state)}
+        update = {MONITOR_LOG_KEY: [record], **build_note_update(request.state)}
         return ExtendedModelResponse(model_response=response, command=Command(update=update))

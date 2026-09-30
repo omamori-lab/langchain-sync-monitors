@@ -65,6 +65,7 @@ LABEL_KEYS = {
 EXPECTED_TREE = """\
 LangGraph [chain] ok
   monitor[main].before_agent [chain] ok
+  monitor[main].before_model [chain] ok
   model [chain] ok
     monitor step [chain] ok tags=['monitor']
       ScriptedChatModel [chat_model] ok
@@ -77,13 +78,15 @@ LangGraph [chain] ok
   monitor[main].after_model [chain] ok
   tools [chain] ok
     read_file [tool] ok
+  monitor[main].before_model [chain] ok
   model [chain] ok
     monitor step [chain] ok tags=['monitor']
       ScriptedChatModel [chat_model] ok
       monitor judgement [chain] ok tags=['monitor']
         GenericFakeChatModel [chat_model] ok
       monitor decision [chain] ok tags=['monitor', 'monitor:allowed']
-  monitor[main].after_model [chain] ok"""
+  monitor[main].after_model [chain] ok
+  monitor[main].after_agent [chain] ok"""
 
 
 @dataclass(frozen=True, kw_only=True)

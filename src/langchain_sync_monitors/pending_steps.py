@@ -45,8 +45,8 @@ from langchain_sync_monitors.contracts import (
 from langchain_sync_monitors.errors import MonitorError, SynchronousRunError
 from langchain_sync_monitors.feedback import build_feedback_messages
 from langchain_sync_monitors.spans import build_judgement_span, build_verdict_outputs
+from langchain_sync_monitors.task_authorship import mark_context_notes
 from langchain_sync_monitors.thresholds import LIBRARY_DIRECTORY
-from langchain_sync_monitors.transcript import mark_context_notes
 
 SYNCHRONOUS_RUN_MESSAGE = (
     "A control protocol awaited real asynchronous work during a synchronous invoke(). "

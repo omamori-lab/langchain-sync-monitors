@@ -193,7 +193,10 @@ def test_astream_events_reports_the_spans_and_drops_them_by_their_tag() -> None:
         if event["event"] == "on_chain_start" and event["name"].startswith("monitor ")
     }
     assert started_spans == MONITOR_SPAN_NAMES
-    assert not any(event["name"].startswith("monitor ") for event in without_monitor)
+    # The monitor's own calls carry no tag, so only they come through, under their fixed name.
+    assert {event["name"] for event in without_monitor if event["name"].startswith("monitor ")} == {
+        "monitor call"
+    }
     model_starts = [event for event in events if event["event"] == "on_chat_model_start"]
     kept_model_starts = [
         event for event in without_monitor if event["event"] == "on_chat_model_start"

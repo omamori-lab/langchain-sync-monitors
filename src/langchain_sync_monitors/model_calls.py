@@ -65,19 +65,38 @@ LangSmith checks it by presence, and documents it for classification calls,
 safety filters and routing or guardrail decisions [@langsmith2026trajectory].
 """
 
+MONITOR_CALL_NAME = "monitor call"
+"""The run name of every model call a monitor makes, whatever its model.
+
+A tracer otherwise names a call after its chat model's class, the same name
+as the agent's own calls. With this fixed name, LangSmith and Langfuse filter
+the monitor's calls by name, beside the spans in `spans`
+[@langsmith2026traces; @langfuse2026].
+"""
+
 
 def build_internal_call_config(*, source: str) -> RunnableConfig:
     """Tag a model call the library makes itself, such as a monitor's call.
+
+    The run is named `MONITOR_CALL_NAME`, which replaces any name the model
+    was given, so a judge built with ``name="security judge"`` shows as
+    ``monitor call`` too. The model still shows as the call's model and in
+    the ``ls_model_name`` metadata, which the chat model adds itself, and the
+    judgement span around the call names the monitor. The name goes to the
+    outermost run the config reaches, so a Runnable that wraps the model,
+    such as one from ``with_retry()``, takes the name, and the calls it makes
+    keep their own; they still carry this metadata. ``source`` goes into the
+    ``lc_source`` metadata.
 
     The metadata drops the call from the experimental
     ``stream_events(version="v3")`` projection, through LangChain's
     ``InternalCallTransformer`` [@langchain2026], and keeps it out of
     LangSmith's Trajectory view [@langsmith2026trajectory]. It does not
     filter ``stream_mode="messages"``: the middleware's ``nostream`` block
-    keeps the call out of that stream. ``source`` names the caller in
-    traces.
+    keeps the call out of that stream.
     """
     return RunnableConfig(
+        run_name=MONITOR_CALL_NAME,
         metadata={
             "lc_source": source,
             MESSAGE_VIEW_EXCLUDE_KEY: True,

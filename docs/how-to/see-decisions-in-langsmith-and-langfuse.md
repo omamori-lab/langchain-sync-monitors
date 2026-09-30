@@ -199,23 +199,37 @@ flagged step, with no code of your own:
 |---|---|---|
 | Every halted step | `and(eq(name, "monitor decision"), has(tags, "monitor:halted"))` on runs | Name `monitor decision`, and metadata `monitor_outcome` equal to `halted` |
 | Traces with a flagged step | `has(tags, "monitor:flagged")` as a tree filter, on root runs | Name `monitor decision`, and metadata `monitor_flagged` equal to `true` |
-| Everything except the monitor's spans | Exclude the `monitor` tag | Exclude the names that start with `monitor` |
-| Everything except the monitor's spans and model calls | Also exclude the runs whose metadata has the key `ls_message_view_exclude` | Also exclude the observations whose metadata has the key `ls_message_view_exclude` |
+| Everything but the monitor's spans | `and(neq(name, "monitor step"), neq(name, "monitor judgement"), neq(name, "monitor classifier"), neq(name, "monitor decision"))` | Name none of `monitor step`, `monitor judgement`, `monitor classifier` and `monitor decision` |
+| Everything but the monitor's spans and model calls | `and(neq(name, "monitor step"), neq(name, "monitor judgement"), neq(name, "monitor classifier"), neq(name, "monitor decision"), neq(name, "monitor call"), neq(metadata_key, "ls_message_view_exclude"))` | Name none of `monitor step`, `monitor judgement`, `monitor classifier`, `monitor decision` and `monitor call`, which misses the attempts inside a classifier wrapped in `with_retry()` |
 | Steps above a suspicion | No score to filter on; see [Limits](#limits) | No score to filter on; see [Limits](#limits) |
 
 Replace `halted` with another outcome, `allowed`, `resampled`, `steered` or
-`deferred_to_trusted`, to find those steps. Langfuse keeps a span's tags only
-in its metadata, so filter on `monitor_outcome` and `monitor_flagged` there
-rather than on the tags.
+`deferred_to_trusted`, to find those steps. LangSmith's filter language cannot
+negate a tag, so leave the monitor's spans out by name. Langfuse keeps a
+span's tags only in its metadata, so filter on `monitor_outcome` and
+`monitor_flagged` there rather than on the tags.
 
-The `monitor` tag and the span names cover the spans alone. The monitor's own
-model calls carry neither, since they are named after their chat model, but
-every call the library's monitors make carries the metadata key
-`ls_message_view_exclude`, which LangChain's and Deep Agents' own middleware
-do not set. The calls' `lc_source` names the monitor too, such as
-`llm_monitor`, but LangChain's middleware sets `lc_source` on its own internal
-calls as well, such as its summaries, so `lc_source` does not single out the
-monitor's calls.
+The `monitor` tag covers the spans alone. The monitor's own model calls carry
+no tag, but each one is named `monitor call`, whatever its model: the calls of
+the chat judges and the guards, and the classifier call of
+`TypeSafeDecisionModel`. The fixed name replaces any name you gave the model,
+so a judge built with `name="security judge"` shows as `monitor call` too.
+The model still shows as the call's model and in its `ls_model_name`
+metadata, and the judgement span around the call names the monitor. A
+classifier wrapped in `with_retry()` gives the name to the wrapper's run, and
+the attempts inside it keep the classifier's own name, so the five names miss
+them. The trusted model's step, which a fallback writes for the agent, keeps
+its model's name.
+
+Every call the library's monitors make also carries the metadata key
+`ls_message_view_exclude`, the wrapped classifier's attempts included, and
+LangChain's and Deep Agents' own middleware do not set it. So in LangSmith,
+`neq(metadata_key, "ls_message_view_exclude")` leaves out every one of the
+monitor's calls. Langfuse's metadata filter matches only the observations
+that have a key, so it can find these calls but not leave them out. The calls'
+`lc_source` names the monitor too, such as `llm_monitor`, but LangChain's
+middleware sets `lc_source` on its own internal calls as well, such as its
+summaries, so `lc_source` does not single out the monitor's calls.
 
 In LangSmith's UI, switch the table from Traces to Runs to filter spans by
 name, tags and metadata [@langsmith2026traces]. The same filter strings work

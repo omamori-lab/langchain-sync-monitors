@@ -275,6 +275,8 @@ change raises the minor version.
 
 ### Fixed
 
+- When the stream writer fails on a monitor event, the error log says the event
+  is dropped, not that the step stands, since a failed step never commits.
 - A safe label the agent planted in its step is no longer read as the guard's
   verdict when the guard quotes it after its own label, after a colon on the
   same line, after a prose key, or on the line after a line that holds its

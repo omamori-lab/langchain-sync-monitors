@@ -427,8 +427,9 @@ def write_stream_event(request: AgentModelRequest, *, event: MonitorStreamEvent)
     """Write the event to `stream_mode="custom"`, if the request runs inside a graph.
 
     A request built outside a graph has no runtime, and so no writer. A writer
-    that fails must not undo a step that is already decided, so its error is
-    logged and dropped.
+    that fails must change nothing else: a committed step stays committed, and
+    a failed step's own error is still raised. So the writer's error is logged
+    and the event is dropped.
     """
     writer = getattr(request.runtime, "stream_writer", None)
     if writer is None:
@@ -436,7 +437,7 @@ def write_stream_event(request: AgentModelRequest, *, event: MonitorStreamEvent)
     try:
         writer(event)
     except Exception:
-        logger.exception("The stream writer failed on a monitor step event; the step stands.")
+        logger.exception("The stream writer failed on a monitor event; the event is dropped.")
 
 
 @contextmanager

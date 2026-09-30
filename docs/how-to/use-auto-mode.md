@@ -309,11 +309,9 @@ for record in result["monitor_log"]:
         print(f"  reason: {sample['reason']}")
 
 # Every record under this monitor's label counts, the subagents' included.
-blocks_in_thread = sum(
-    record["blocked_count"]
-    for record in result["monitor_log"]
-    if record["monitor"] == "monitor"
-)
+label = "monitor"
+records = [record for record in result["monitor_log"] if record["monitor"] == label]
+blocks_in_thread = sum(record["blocked_count"] for record in records)
 ```
 
 ## Limits

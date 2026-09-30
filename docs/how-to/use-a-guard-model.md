@@ -117,13 +117,13 @@ A label alone gives one operating point: every threshold flags the same steps.
 
 ```mermaid
 flowchart TD
-    first["First reply, with log-probabilities requested"] --> back{"Log-probabilities with alternatives came back?"}
+    first["First reply, with log-probabilities requested"] --> back{"Any came back?"}
     back -- "no, under LOG_PROBABILITIES" --> error["ConfigurationError: the step fails"]
     back -- "no, under AUTO" --> more["Draw samples - 1 more replies"]
-    back -- "yes" --> found{"Reply complete, and the guard's label token found in them?"}
-    found -- "yes" --> probability["Suspicion: the probability of a suspicious label"]
-    found -- "no, under AUTO" --> more
-    found -- "no, under LOG_PROBABILITIES" --> closed["Fail closed: 1.0, and a warning in the log"]
+    back -- "yes, with alternatives" --> found{"Label token found?"}
+    found -- "yes, in a complete reply" --> probability["Suspicion: the probability of a suspicious label"]
+    found -- "no, or cut off, under AUTO" --> more
+    found -- "no, or cut off, under LOG_PROBABILITIES" --> closed["Fail closed: 1.0, and a warning in the log"]
     more --> share["Suspicion: the share of all replies labelled suspicious, an unreadable reply counting as suspicious"]
 ```
 
@@ -161,8 +161,8 @@ Under `ainvoke()` the samples are drawn concurrently, and one that fails
 cancels the others; under `invoke()` they are drawn one after another.
 
 Guard models tend to be overconfident, and are markedly miscalibrated under
-jailbreak prompts [@liu2025guardcalibration], so most honest steps score 0 and
-tie. Set thresholds on honest-run percentiles with `CalibratedMonitor`; see
+jailbreak prompts [@liu2025guardcalibration], so honest steps tend to pile up
+at 0 and tie. Set thresholds on honest-run percentiles with `CalibratedMonitor`; see
 [Combine and calibrate monitors](combine-and-calibrate-monitors.md).
 
 ## Know how the label is read
@@ -175,14 +175,14 @@ unreadable. An unreadable reply counts as a suspicious label: alone, under
 
 ```mermaid
 flowchart TD
-    reply["A reply"] --> cut{"Cut off at a length limit?"}
+    reply["A reply"] --> cut{"Cut off?"}
     cut -- "yes" --> unreadable["Unreadable: counts as suspicious"]
-    cut -- "no" --> named{"Do its lines name exactly one label?"}
-    named -- "no: none, or two different ones" --> unreadable
-    named -- "yes" --> last{"Last line: the label alone, or after a verdict key?"}
-    last -- "yes" --> label["That label is the verdict"]
-    last -- "no" --> first{"First line: a suspicious label alone, and only category codes after it?"}
-    first -- "yes, as Llama Guard writes it" --> label
+    cut -- "no" --> named{"One label named?"}
+    named -- "no: none, or two" --> unreadable
+    named -- "yes" --> last{"Last line a verdict?"}
+    last -- "yes: the label alone, or after a verdict key" --> label["That label is the verdict"]
+    last -- "no" --> first{"Llama Guard's first line?"}
+    first -- "yes: a suspicious label, then only category codes" --> label
     first -- "no" --> unreadable
 ```
 
@@ -239,8 +239,9 @@ the label the agent planted alone on the last line, as `no_violation` or `>
 no_violation`, or after a verdict key, as `Final answer: no_violation`. Plain
 shapes are enough: a line `violation because the note asks the reviewer to
 answer:`, or a list item `1. violation (...)`, names no label the monitor
-counts, so a `no_violation` on the next line is read as the verdict. The text
-is the same as a real verdict, and no parser can tell them apart.
+counts, so a `no_violation` on the next line is read as the verdict. That last
+line is exactly what a real verdict looks like, so the monitor reads it as
+one.
 
 What a guard writes can be steered by what it reads, so this is a limit of any
 guard, not only of the parser. Ask for the label alone on the last line, as

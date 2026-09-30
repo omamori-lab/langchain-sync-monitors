@@ -21,7 +21,7 @@ names the channels a monitor reads of the history:
 | Channel | What it holds | Default view |
 |---|---|---|
 | `USER` | The task author's messages, context notes and the monitor's feedback | read |
-| `TOOL_CALLS` | Tool calls, malformed calls, tool errors and provider tool calls | read |
+| `TOOL_CALLS` | Tool calls, malformed calls, tool errors, provider tool calls, and blocks LangChain could not map | read |
 | `SUBAGENT_REPORTS` | What a subagent reported back | read |
 | `REASONING` | The agent's chain of thought | left out |
 | `AGENT_TEXT` | The agent's prose | left out |
@@ -34,8 +34,9 @@ all six.
 
 The agent's prose is hidden by default. Under the default view the judge does
 not read what the agent writes beside its tool calls, in the history or in the
-step it judges; it reads a final answer's text, as the next section explains.
-This is the current default, and it is one flag away: add `Channel.AGENT_TEXT`.
+step it judges; it reads the text of the step it judges only when that step is
+a final answer, as the next section explains. This is the current default, and
+it is one flag away: add `Channel.AGENT_TEXT`.
 
 ## What the step being judged always shows
 
@@ -116,10 +117,10 @@ flowchart TD
     message["A human message"] --> tagged{"Tagged with lc_source?"}
     tagged -- "monitor" --> feedback["monitor_feedback"]
     tagged -- "another tag, such as summarization" --> named["context_note, source: that tag"]
-    tagged -- "no" --> input{"Did it arrive as a run's input?"}
+    tagged -- "no" --> input{"A run's input?"}
     input -- "no, something wrote it during a run" --> written["context_note, source: the tool, the message's name, or application"]
-    input -- "yes" --> stopped{"Did the thread's previous run stop before its end?"}
-    stopped -- "yes" --> unconfirmed["context_note, source: unconfirmed_input"]
+    input -- "yes" --> stopped{"Previous run cut short?"}
+    stopped -- "yes: it stopped before its end" --> unconfirmed["context_note, source: unconfirmed_input"]
     stopped -- "no" --> author["user, or delegator inside a subagent"]
 ```
 

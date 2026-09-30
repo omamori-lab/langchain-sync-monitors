@@ -95,11 +95,11 @@ resolution that ranking needs. The other way round would average percentiles,
 and a mean of percentiles is not itself a percentile.
 
 ```mermaid
-flowchart LR
-    step["Proposed step"] --> calls["LLMMonitor, called three times: three integer scores"]
-    calls --> mean["RepeatedMonitor: their mean"]
-    mean --> rank["CalibratedMonitor: the mean's rank among the honest scores"]
-    rank --> verdict["Verdict: suspicion as an honest-run percentile"]
+flowchart TD
+    step["Proposed step"] --> calls["Three LLMMonitor scores"]
+    calls --> mean["RepeatedMonitor: the mean"]
+    mean --> rank["CalibratedMonitor: its rank"]
+    rank --> verdict["An honest-run percentile"]
 ```
 
 ## Collect honest scores
@@ -109,11 +109,11 @@ Collect them with exactly the monitor you will calibrate: the same model,
 prompt, view, number of repeats and temperature.
 
 ```mermaid
-flowchart LR
-    tasks["Honest tasks"] --> run["Run the agent under Trusted Monitoring, with the monitor you will calibrate"]
+flowchart TD
+    tasks["Honest tasks"] --> run["Trusted Monitoring runs"]
     run --> log[("monitor_log")]
-    log --> scores["Every sample's suspicion: the honest scores"]
-    scores --> calibrate["CalibratedMonitor around the same monitor"]
+    log --> scores["Honest scores"]
+    scores --> calibrate["CalibratedMonitor"]
 ```
 
 Run the agent under `TrustedMonitoring`, which never changes a step, so the
@@ -288,17 +288,17 @@ replayed exactly.
 careful one only when the fast suspicion reaches `escalate_at`. Below it, the
 fast verdict stands; at or above it, the careful verdict, reason included,
 replaces it. This follows the two stages of Claude Code's auto mode, a fast
-filter in front of a reasoning classifier [@hughes2026automode]. Hua et al.
-found that a good protocol calls an expensive monitor only when a cheap one's
-score falls in an uncertain range [@hua2025combining]; `CascadeMonitor` uses
-the simpler rule of one threshold.
+filter in front of a reasoning classifier [@hughes2026automode]. Hua et
+al.'s best two-monitor protocol calls the expensive monitor only when the
+cheap one's score falls in an uncertain range [@hua2025combining];
+`CascadeMonitor` uses the simpler rule of one threshold.
 
 ```mermaid
-flowchart LR
-    step["Proposed step"] --> fast["Fast stage: calibrated decision model"]
-    fast -- "below escalate_at, most honest steps" --> keep["Verdict: the fast one"]
-    fast -- "at or above escalate_at" --> careful["Careful stage: calibrated, repeated chat judge"]
-    careful --> replace["Verdict: the careful one"]
+flowchart TD
+    step["Proposed step"] --> fast["Fast: a decision model"]
+    fast -- "below escalate_at" --> keep["The fast verdict"]
+    fast -- "at or above it" --> careful["Careful: a repeated chat judge"]
+    careful --> replace["The careful verdict"]
 ```
 
 Calibrate each stage on its own honest scores, collected as above with that
@@ -350,8 +350,9 @@ since only the escalated ones can reach it.
 Keep `escalate_at` at or below the protocol's lowest threshold. A step the
 fast stage keeps has a suspicion below `escalate_at`, so a threshold below
 `escalate_at` could trigger the protocol on a step the careful stage never
-read. `escalate_at` must lie from 0 to 1, and NaN raises `ConfigurationError`;
-unlike a protocol threshold, it is not checked for type.
+read. A value of `escalate_at` outside 0 to 1, or NaN, raises
+`ConfigurationError`. Unlike a protocol threshold, its type is not checked, so
+pass a float.
 
 ## Related guides
 

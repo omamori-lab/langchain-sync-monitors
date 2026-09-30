@@ -13,12 +13,11 @@ and generates no text. Jev, from TypeSafe, is one. Every question about a step
 goes in one request, so a judged step costs one call.
 
 ```mermaid
-flowchart LR
-    step["Transcript and proposed step, rendered through the view"] --> request["One request with every question"]
-    request --> answers["A probability of yes per question"]
-    answers --> check{"Every answer a number from 0 to 1?"}
-    check -- "yes" --> combine["Combine: MAX by default"]
-    combine --> verdict["Verdict: suspicion, and a reason that names a question"]
+flowchart TD
+    step["The transcript and the proposed step, rendered through the view"] --> request["One request with every question"]
+    request --> check{"Every answer a probability?"}
+    check -- "yes: a number from 0 to 1" --> combine["Combine the probabilities of yes: MAX by default"]
+    combine --> verdict["Verdict: the suspicion, and a reason that names a question"]
     check -- "no" --> error["MonitorError: the step fails, and nothing it proposed runs"]
 ```
 

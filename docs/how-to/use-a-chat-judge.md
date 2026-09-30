@@ -117,9 +117,8 @@ When no reply can be read, the step gets suspicion 1.0 with the reason "The
 monitor gave no readable score, so the step is treated as suspicious.", and
 the `langchain_sync_monitors.monitors.chat` logger writes a warning. That 1.0
 is a bare `LLMMonitor`'s. Inside `RepeatedMonitor` it is averaged with the
-other calls, so one unreadable call of three gives at least a third, with this
-reason, as the most suspicious call's. Inside `CalibratedMonitor` it becomes a
-rank below 1.0; see [Collect honest
+other calls, so one unreadable call of three gives at least a third. Inside
+`CalibratedMonitor` it becomes a rank below 1.0; see [Collect honest
 scores](combine-and-calibrate-monitors.md#collect-honest-scores).
 
 ## Use the default prompt, or write your own
@@ -223,10 +222,10 @@ log](read-the-monitor-log.md) shows what such a failed step leaves behind.
 
 ## Average several calls
 
-One call of the judge gives one of eleven values on the default scale, and
-honest steps pile up on the lowest few. A small audit budget, such as 1% of
-honest steps, then falls inside a block of tied scores that no threshold can
-split [@kaufman2025basharena; @koran2026ensemble]. `RepeatedMonitor` asks the
+One call of the judge gives one of eleven values on the default scale, so many
+honest steps share a score. A small audit budget, such as 1% of honest steps,
+can then fall inside a block of tied scores that no threshold can split
+[@kaufman2025basharena; @koran2026ensemble]. `RepeatedMonitor` asks the
 judge several times and reports the mean: three calls on the 0 to 10 scale
 give 31 possible values instead of 11.
 
@@ -260,8 +259,8 @@ visible text, `AIMessage.text`, so:
   a cut-off reply is asked for again and then scored 1.0 like any other
   unreadable reply. Leave a generous `max_tokens`, or none, on the judge.
 
-`xiaomi/mimo-v2.6-pro`, the judge in these examples, thinks before it answers
-and kept the reply shape in the live runs.
+`xiaomi/mimo-v2.6-pro`, the judge in these examples, is a reasoning model; the
+[live runs](../explanation/live-runs.md) used it at low reasoning effort.
 
 ## Choose what the judge reads
 

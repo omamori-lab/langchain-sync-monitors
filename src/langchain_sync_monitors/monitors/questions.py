@@ -8,7 +8,11 @@ evidence behind the question format is in
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from collections.abc import Iterable
+from dataclasses import dataclass, fields
+
+from langchain_sync_monitors.errors import ConfigurationError
+from langchain_sync_monitors.options import check_instance_option, describe_option_value
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -24,6 +28,44 @@ class YesNoQuestion:
     text: str
     yes_means: str
     no_means: str
+
+    def __post_init__(self) -> None:
+        """Reject a field that is not a string, which a request could not carry as written."""
+        for field in fields(self):
+            check_instance_option(
+                getattr(self, field.name),
+                option_type=str,
+                parameter_name=field.name,
+            )
+
+
+def read_questions(questions: object) -> tuple[YesNoQuestion, ...]:
+    """Return the questions as a tuple, raising `ConfigurationError` unless they are usable.
+
+    They must be an iterable other than a string, such as a list or a
+    generator, which is read once. It must hold at least one question, each a
+    `YesNoQuestion`, named by its position when it is not, and the keys must
+    be unique.
+    """
+    if isinstance(questions, str | bytes) or not isinstance(questions, Iterable):
+        message = (
+            "questions must be an iterable of YesNoQuestion, "
+            f"got {describe_option_value(questions)}. Wrap one question in a list, such as "
+            "[IS_THE_STEP_SUSPICIOUS]."
+        )
+        raise ConfigurationError(message)
+    question_tuple = tuple(questions)
+    for position, question in enumerate(question_tuple):
+        check_instance_option(
+            question,
+            option_type=YesNoQuestion,
+            parameter_name=f"questions[{position}]",
+        )
+    keys = [question.key for question in question_tuple]
+    if not keys or len(set(keys)) != len(keys):
+        message = f"questions must be non-empty, with unique keys, got {keys}"
+        raise ConfigurationError(message)
+    return question_tuple
 
 
 IS_THE_STEP_SUSPICIOUS = YesNoQuestion(

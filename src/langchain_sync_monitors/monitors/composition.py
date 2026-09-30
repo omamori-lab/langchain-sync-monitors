@@ -13,7 +13,6 @@ the numbers stay in the step's record, which is for the auditor.
 
 from __future__ import annotations
 
-import math
 import random
 import statistics
 from bisect import bisect_left, bisect_right
@@ -22,6 +21,13 @@ from collections.abc import Iterable, Sequence
 from langchain_sync_monitors.concurrency import run_concurrently
 from langchain_sync_monitors.contracts import Monitor, MonitorInput, Verdict
 from langchain_sync_monitors.errors import ConfigurationError
+from langchain_sync_monitors.options import (
+    check_instance_option,
+    describe_option_value,
+    read_count_option,
+    read_integer_option,
+)
+from langchain_sync_monitors.thresholds import read_threshold_value
 from langchain_sync_monitors.transcript import render_proposal_for_audit
 
 
@@ -44,12 +50,14 @@ class RepeatedMonitor(Monitor):
     """
 
     def __init__(self, *, monitor: Monitor, repeats: int) -> None:
-        """Wrap `monitor`, calling it `repeats` times for each step."""
-        if repeats < 1:
-            message = f"repeats must be at least 1, got {repeats}"
-            raise ConfigurationError(message)
+        """Wrap `monitor`, calling it `repeats` times for each step.
+
+        `repeats` must be a whole number of at least 1; anything else, or a
+        `monitor` that is not a `Monitor`, raises `ConfigurationError`.
+        """
+        check_instance_option(monitor, option_type=Monitor, parameter_name="monitor")
         self.monitor = monitor
-        self.repeats = repeats
+        self.repeats = read_count_option(repeats, parameter_name="repeats", minimum=1)
 
     async def evaluate(self, monitor_input: MonitorInput) -> Verdict:
         """Call the wrapped monitor `repeats` times concurrently and average."""
@@ -81,6 +89,29 @@ def build_mean_verdict(verdicts: Sequence[Verdict]) -> Verdict:
         suspicion=round(mean_suspicion, MEAN_DECIMAL_PLACES),
         reason=most_suspicious.reason,
     )
+
+
+def read_honest_scores(honest_scores: object) -> list[float]:
+    """Return the honest scores as floats, raising `ConfigurationError` unless they are usable.
+
+    They must be an iterable other than a string, holding at least one score,
+    and each score is read as a threshold is: a number from 0 to 1, not a
+    `bool` and not NaN. A refused score is named by its position.
+    """
+    if isinstance(honest_scores, str | bytes) or not isinstance(honest_scores, Iterable):
+        message = (
+            "honest_scores must be an iterable of numbers between 0 and 1, "
+            f"got {describe_option_value(honest_scores)}"
+        )
+        raise ConfigurationError(message)
+    scores = [
+        read_threshold_value(score, parameter_name=f"honest_scores[{position}]")
+        for position, score in enumerate(honest_scores)
+    ]
+    if not scores:
+        message = "honest_scores must hold at least one score"
+        raise ConfigurationError(message)
+    return scores
 
 
 def render_tie_break_key(monitor_input: MonitorInput) -> str:
@@ -140,18 +171,18 @@ class CalibratedMonitor(Monitor):
 
         Reading them into a list first keeps a generator's scores: checking
         and then sorting it would consume it and leave nothing to rank among.
+        Each score is read as a threshold is, so it becomes a float, and
+        `random_seed` must be an integer or `None`; anything else raises
+        `ConfigurationError`.
         """
-        scores = list(honest_scores)
-        if not scores:
-            message = "honest_scores must hold at least one score"
-            raise ConfigurationError(message)
-        invalid_scores = [score for score in scores if math.isnan(score) or not 0.0 <= score <= 1.0]
-        if invalid_scores:
-            message = f"honest_scores must lie between 0 and 1, got {invalid_scores[:3]!r}"
-            raise ConfigurationError(message)
+        check_instance_option(monitor, option_type=Monitor, parameter_name="monitor")
         self.monitor = monitor
-        self.sorted_honest_scores = sorted(scores)
-        self.random_seed = random_seed
+        self.sorted_honest_scores = sorted(read_honest_scores(honest_scores))
+        self.random_seed = (
+            None
+            if random_seed is None
+            else read_integer_option(random_seed, parameter_name="random_seed")
+        )
 
     async def evaluate(self, monitor_input: MonitorInput) -> Verdict:
         """Score the step with the wrapped monitor, then rank the score."""
@@ -199,13 +230,17 @@ class CascadeMonitor(Monitor):
     """
 
     def __init__(self, *, fast: Monitor, careful: Monitor, escalate_at: float) -> None:
-        """Escalate from `fast` to `careful` when the fast suspicion reaches `escalate_at`."""
-        if math.isnan(escalate_at) or not 0.0 <= escalate_at <= 1.0:
-            message = f"escalate_at must lie between 0 and 1, got {escalate_at!r}"
-            raise ConfigurationError(message)
+        """Escalate from `fast` to `careful` when the fast suspicion reaches `escalate_at`.
+
+        `escalate_at` is read as a threshold is: a number from 0 to 1, kept as
+        a float. Anything else, or a stage that is not a `Monitor`, raises
+        `ConfigurationError`.
+        """
+        check_instance_option(fast, option_type=Monitor, parameter_name="fast")
+        check_instance_option(careful, option_type=Monitor, parameter_name="careful")
         self.fast = fast
         self.careful = careful
-        self.escalate_at = escalate_at
+        self.escalate_at = read_threshold_value(escalate_at, parameter_name="escalate_at")
 
     async def evaluate(self, monitor_input: MonitorInput) -> Verdict:
         """Score with the fast monitor, and with the careful one if that escalates."""

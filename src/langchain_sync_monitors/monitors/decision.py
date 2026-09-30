@@ -25,6 +25,7 @@ from typing import TYPE_CHECKING, Literal, TypedDict
 
 import httpx
 import stamina
+from langchain_core.runnables import Runnable
 from pydantic import BaseModel, Field, SecretStr, ValidationError
 
 from langchain_sync_monitors._langchain import TraceSpan, open_traced_run, open_traced_run_sync
@@ -32,8 +33,17 @@ from langchain_sync_monitors.contracts import Monitor, MonitorInput, MonitorView
 from langchain_sync_monitors.errors import ConfigurationError, MissingExtraError, MonitorError
 from langchain_sync_monitors.model_calls import build_internal_call_config
 from langchain_sync_monitors.monitors.chat import DEFAULT_MONITOR_VIEW
-from langchain_sync_monitors.monitors.questions import IS_THE_STEP_SUSPICIOUS, YesNoQuestion
-from langchain_sync_monitors.options import check_enum_option
+from langchain_sync_monitors.monitors.questions import (
+    IS_THE_STEP_SUSPICIOUS,
+    YesNoQuestion,
+    read_questions,
+)
+from langchain_sync_monitors.options import (
+    check_enum_option,
+    check_instance_option,
+    check_optional_instance_option,
+    read_positive_number_option,
+)
 from langchain_sync_monitors.spans import CLASSIFIER_SPAN_NAME, MONITOR_TAG, MONITOR_WORK_METADATA
 from langchain_sync_monitors.transcript import render_proposed_step, render_transcript
 
@@ -212,6 +222,29 @@ class OpenRouterDecisionModel(DecisionModel):
         async_http_client: httpx.AsyncClient | None = None,
     ) -> None:
         """Configure the model; the key is read here, so a missing key fails at once."""
+        check_instance_option(
+            model,
+            option_type=str,
+            parameter_name="model",
+            hint="Pass the model's OpenRouter id, such as 'typesafe/jev-1.13'.",
+        )
+        check_instance_option(base_url, option_type=str, parameter_name="base_url")
+        timeout_seconds = read_positive_number_option(
+            timeout_seconds,
+            parameter_name="timeout_seconds",
+        )
+        check_optional_instance_option(
+            http_client,
+            option_type=httpx.Client,
+            parameter_name="http_client",
+            hint="Pass an httpx.Client, or None for one the model opens.",
+        )
+        check_optional_instance_option(
+            async_http_client,
+            option_type=httpx.AsyncClient,
+            parameter_name="async_http_client",
+            hint="Pass an httpx.AsyncClient, or None for one per request.",
+        )
         self.model = model
         self.api_key = api_key or read_openrouter_api_key()
         self.endpoint = f"{base_url.rstrip('/')}/decisions"
@@ -342,8 +375,19 @@ class TypeSafeDecisionModel(DecisionModel):
     """
 
     def __init__(self, *, classifier: TypeSafeClassifier) -> None:
-        """Wrap `classifier`; fails with an install hint when the extra is missing."""
+        """Wrap `classifier`; fails with an install hint when the extra is missing.
+
+        `classifier` must be a `Runnable`, such as the `TypeSafeClassifier`
+        itself or one wrapped by `with_retry()`; anything else raises
+        `ConfigurationError`.
+        """
         self.typesafe = load_typesafe_module()
+        check_instance_option(
+            classifier,
+            option_type=Runnable,
+            parameter_name="classifier",
+            hint="Pass a TypeSafeClassifier from langchain-typesafe.",
+        )
         self.classifier = classifier
         self.call_config = build_internal_call_config(source="decision_model_monitor")
 
@@ -448,14 +492,18 @@ class DecisionModelMonitor(Monitor):
         """Build the monitor; question keys must be unique, and `Combine.MEAN` warns.
 
         `questions` may be any iterable, a generator included; it is read once
-        into a tuple, so checking it cannot consume the questions.
+        into a tuple, so checking it cannot consume the questions. An option
+        of the wrong type raises `ConfigurationError`.
         """
+        check_instance_option(
+            decision_model,
+            option_type=DecisionModel,
+            parameter_name="decision_model",
+            hint="Use OpenRouterDecisionModel(model=...) or TypeSafeDecisionModel(classifier=...).",
+        )
         check_enum_option(combine, option_type=Combine, parameter_name="combine")
-        question_tuple = tuple(questions)
-        keys = [question.key for question in question_tuple]
-        if not keys or len(set(keys)) != len(keys):
-            message = f"questions must be non-empty, with unique keys, got {keys}"
-            raise ConfigurationError(message)
+        check_instance_option(view, option_type=MonitorView, parameter_name="view")
+        question_tuple = read_questions(questions)
         if combine is Combine.MEAN:
             message = (
                 "Combine.MEAN dilutes a single strong hit (0.95 with three 0.05s averages "

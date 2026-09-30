@@ -81,7 +81,11 @@ from langchain_sync_monitors.halts import (
     has_just_halted,
 )
 from langchain_sync_monitors.monitor_state import MonitorState
-from langchain_sync_monitors.options import check_enum_option, check_instance_option
+from langchain_sync_monitors.options import (
+    check_enum_option,
+    check_instance_option,
+    check_name_part_option,
+)
 from langchain_sync_monitors.pending_steps import (
     AsyncPendingStep,
     MonitoredStep,
@@ -143,7 +147,9 @@ class MonitorMiddleware(AgentMiddleware[MonitorState, AgentContext, StructuredOu
 
     `label` and `agent_name` make up the name, `monitor[main]` by default,
     which LangChain requires to be unique within one agent, and a subclass
-    that names itself otherwise raises `ConfigurationError`. `task_author` says
+    that names itself otherwise raises `ConfigurationError`. Each must be a
+    non-blank string without `:` or `|`, which LangGraph refuses in the names
+    of the graph nodes the hooks become. `task_author` says
     who wrote the task the monitor reads. `feedback_visibility` decides whether
     blocked attempts and their feedback are committed with the step or only
     shown to the retry. `when_subagent_halts=SubagentHalt.STOP_WHOLE_RUN` halts
@@ -218,6 +224,8 @@ class MonitorMiddleware(AgentMiddleware[MonitorState, AgentContext, StructuredOu
 
     def __post_init__(self) -> None:
         """Reject an option of the wrong type, such as a plain string where an enum belongs."""
+        check_name_part_option(self.label, parameter_name="label")
+        check_name_part_option(self.agent_name, parameter_name="agent_name")
         if self.name != f"{self.label}[{self.agent_name}]":
             message = (
                 f"a monitor's name must be label[agent_name], {self.label}[{self.agent_name}], "

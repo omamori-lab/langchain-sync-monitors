@@ -37,7 +37,11 @@ from langchain_sync_monitors.monitors.chat import (
     is_reply_cut_off,
 )
 from langchain_sync_monitors.monitors.guard_labels import LABEL_WORD, LabelMatch, find_reply_label
-from langchain_sync_monitors.options import check_enum_option
+from langchain_sync_monitors.options import (
+    check_enum_option,
+    check_string_set_option,
+    read_count_option,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -228,11 +232,17 @@ def compute_suspicious_share(
 
 
 def validate_labels(*, suspicious_labels: AbstractSet[str], safe_labels: AbstractSet[str]) -> None:
-    """Reject empty, overlapping or unreadable label sets at construction.
+    """Reject label sets that are not sets of strings, or are empty, overlapping or unreadable.
 
     A label the reply parser could never read, such as `not safe` or
     `violation_`, would make every reply unreadable, so it is refused here.
     """
+    check_string_set_option(
+        suspicious_labels,
+        parameter_name="suspicious_labels",
+        example="{'violation'}",
+    )
+    check_string_set_option(safe_labels, parameter_name="safe_labels", example="{'no_violation'}")
     if not suspicious_labels or not safe_labels:
         message = "suspicious_labels and safe_labels must each hold at least one label"
         raise ConfigurationError(message)
@@ -278,8 +288,11 @@ class GuardModelMonitor(ChatModelMonitor):
     suspicious label, the score Llama Guard, ShieldGemma and Granite Guardian
     report [@inan2023llamaguard; @zeng2024shieldgemma; @padhi2024graniteguardian].
     Without them, suspicion is the share of `samples` replies labelled
-    suspicious; the gain from more samples levels off around 5 to 10
-    [@xiong2024uncertainty; @lyu2025sampleconsistency; @tian2023justask].
+    suspicious. Studies of sampled answer confidence, none of them on guard
+    models, find that the gain from more samples levels off: Lyu et al. saw
+    calibration saturate after 15 to 20 samples [@lyu2025sampleconsistency],
+    Xiong et al. saw it converge within 13 [@xiong2024uncertainty], and Tian
+    et al. found no meaningful gain from 20 samples over 10 [@tian2023justask].
     Sampling needs the model's temperature above zero. Guard probabilities
     are overconfident [@liu2025guardcalibration], so set thresholds on
     honest-run percentiles with `CalibratedMonitor` rather than on raw values.
@@ -293,6 +306,7 @@ class GuardModelMonitor(ChatModelMonitor):
     """
 
     call_source: ClassVar[str] = "guard_model_monitor"
+    prompt_parameter_name: ClassVar[str] = "policy_prompt"
 
     def __init__(
         self,
@@ -305,17 +319,18 @@ class GuardModelMonitor(ChatModelMonitor):
         samples: int = 5,
         view: MonitorView = DEFAULT_MONITOR_VIEW,
     ) -> None:
-        """Build a guard monitor; `samples` applies to sampling, including `AUTO`'s fallback."""
+        """Build a guard monitor; `samples` applies to sampling, including `AUTO`'s fallback.
+
+        `samples` must be a whole number of at least 1, and each label set a
+        set of strings; anything else raises `ConfigurationError`.
+        """
         check_enum_option(scoring, option_type=GuardScoring, parameter_name="scoring")
         validate_labels(suspicious_labels=suspicious_labels, safe_labels=safe_labels)
-        if samples < 1:
-            message = f"samples must be at least 1, got {samples}"
-            raise ConfigurationError(message)
+        self.samples = read_count_option(samples, parameter_name="samples", minimum=1)
         super().__init__(model=model, prompt=policy_prompt, view=view)
         self.suspicious_labels = frozenset(label.lower() for label in suspicious_labels)
         self.safe_labels = frozenset(label.lower() for label in safe_labels)
         self.scoring = scoring
-        self.samples = samples
         self.model_with_log_probabilities = self.model.bind(
             logprobs=True,
             top_logprobs=TOP_LOG_PROBABILITIES,

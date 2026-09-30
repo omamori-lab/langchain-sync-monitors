@@ -22,8 +22,9 @@ from pydantic import SecretStr
 
 from langchain_sync_monitors.contracts import ControlProtocol
 from langchain_sync_monitors.middleware import MonitorMiddleware
-from langchain_sync_monitors.monitors.decision import DecisionModelMonitor, OpenRouterDecisionModel
+from langchain_sync_monitors.monitors.decision import DecisionModelMonitor
 from langchain_sync_monitors.monitors.decision_questions import IS_THE_STEP_SUSPICIOUS
+from langchain_sync_monitors.monitors.openrouter_decisions import OpenRouterDecisionModel
 from langchain_sync_monitors.protocols import DeferToResample, HaltRun, TrustedMonitoring
 from tests.support.agents import (
     RunMode,

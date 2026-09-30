@@ -222,21 +222,16 @@ Without `subgraphs=True`, the stream carries the main agent's events only. A
 subagent's `monitor_step` event carries its `delegation_id` inside
 `event["record"]`; a `monitor_step_failed` event carries it at the top level.
 
-```mermaid
-flowchart TD
-    step["A monitored step"] --> decided{"Did the protocol decide?"}
-    decided -- "yes" --> commit["Committed: one StepRecord in monitor_log, and a monitor_step event"]
-    decided -- "no, a call raised" --> failed["Not committed: a monitor_step_failed event, and the error raised again"]
-```
+[![A monitored step ends in one of three ways. When it is decided, by the protocol or by a halt found before any sample, it is committed: one StepRecord joins monitor_log, and a monitor_step event is written to the custom stream. When a call inside it raises first, whether one of the agent's samples, one of the monitor's calls or the trusted model's step, it is not committed: none of the agent's own tools run, no record joins monitor_log, a monitor_step_failed event lists the samples judged so far, and the error is raised again. LangGraph's own control flow, such as the interrupt that interrupt() raises, passes through with no record and no event.](../assets/diagrams/step-commit-light.svg#only-light)](../assets/diagrams/step-commit-light.svg "Open the diagram at full size")
+[![A monitored step ends in one of three ways. When it is decided, by the protocol or by a halt found before any sample, it is committed: one StepRecord joins monitor_log, and a monitor_step event is written to the custom stream. When a call inside it raises first, whether one of the agent's samples, one of the monitor's calls or the trusted model's step, it is not committed: none of the agent's own tools run, no record joins monitor_log, a monitor_step_failed event lists the samples judged so far, and the error is raised again. LangGraph's own control flow, such as the interrupt that interrupt() raises, passes through with no record and no event.](../assets/diagrams/step-commit-dark.svg#only-dark)](../assets/diagrams/step-commit-dark.svg "Open the diagram at full size")
 
 A failed step is never committed, so none of the agent's own tools run and no
 record reaches `monitor_log`. Its event lists the samples the monitor had
 judged by then, none of them executed, or an empty list, and the error is
 raised after it. When the monitor had judged a sample, a warning in the log
-lists them too. This event
-comes from a scripted run of Defer to Resample in which the monitor judged the
-first sample and the agent's model then raised a `TimeoutError` on the
-resample:
+lists them too. This event comes from a scripted run of Defer to Resample in
+which the monitor judged the first sample and the agent's model then raised a
+`TimeoutError` on the resample:
 
 ```json
 {
@@ -255,6 +250,9 @@ resample:
   ]
 }
 ```
+
+LangGraph's own control flow, such as the `GraphInterrupt` that `interrupt()`
+raises, is not a failed step: it passes through with no record and no event.
 
 A middleware outside the monitor that retries failed model calls, such as
 LangChain's `ModelRetryMiddleware`, runs the whole step again with fresh

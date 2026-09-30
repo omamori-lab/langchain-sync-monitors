@@ -1,0 +1,55 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1000" height="373" viewBox="0 0 1000 373" role="img" aria-labelledby="title desc">
+  <title id="title">What a subagent&#x27;s halt does to its parent</title>
+  <desc id="desc">A subagent&#x27;s monitor halts it, and the halt record reaches the parent agent&#x27;s monitor_log when the task returns. What happens next depends on when_subagent_halts, an option of the parent&#x27;s monitor that the subagents&#x27; copies inherit. With SubagentHalt.STOP_SUBAGENT_ONLY, the default, the parent reads the halt message as the task&#x27;s result and goes on under its own monitor. With SubagentHalt.STOP_WHOLE_RUN, the parent&#x27;s monitor finds the halt record and halts the parent at its next model call, without drawing a sample; that halt is flagged, and it stands as the parent&#x27;s own.</desc>
+  <!-- Colours come from the brand tokens: diagrams/render.py fills this style block. -->
+  <style>
+    svg { color-scheme: light; }
+    text { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans", "Noto Sans JP", Helvetica, Arial, sans-serif; font-size: 15px; fill: #111111; }
+    .title { font-size: 17px; font-weight: 600; }
+    .small { font-size: 14px; fill: #5B5B57; }
+    .mono { font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace; font-size: 13.5px; }
+    .soft { fill: #5B5B57; }
+    .dashed { stroke-dasharray: 5 4; fill: none; stroke: #9A9A94; }
+    .box { fill: #FFFFFF; stroke: #111111; stroke-width: 1.4; }
+    .charm { fill: #111111; }
+    .on-charm { fill: #FFFFFF; }
+    .charm-cord { fill: none; stroke: #111111; stroke-width: 2.2; }
+    .seal { fill: #BF3A22; }
+    .allow { fill: #FFFFFF; stroke: #111111; stroke-width: 1.4; }
+    .resample { fill: #F2F1EC; stroke: #111111; stroke-width: 1.4; }
+    .defer { fill: #DCDBD4; stroke: #111111; stroke-width: 1.4; }
+    .steer { fill: #3A3A38; stroke: #3A3A38; stroke-width: 1.4; }
+    .on-steer { fill: #FFFFFF; }
+    .halt { fill: #BF3A22; stroke: #BF3A22; stroke-width: 1.4; }
+    .on-halt { fill: #FFFFFF; }
+    .frame { fill: none; stroke: #9A9A94; stroke-width: 1.2; stroke-dasharray: 6 4; }
+    .edge { fill: none; stroke: #2B2B2B; stroke-width: 1.5; }
+    .loop { fill: none; stroke: #2B2B2B; stroke-width: 1.5; stroke-dasharray: 5 4; }
+    .head { fill: #2B2B2B; }
+    .brush { fill: #111111; }
+  </style>
+  <defs><marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="9" markerHeight="9" markerUnits="userSpaceOnUse" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="head"/></marker></defs>
+  <rect class="halt" x="32.0" y="40.0" width="420.0" height="102.0" rx="6"/>
+  <text x="242.0" y="71.0" text-anchor="middle" class="title on-halt">A subagent is halted</text>
+  <text x="242.0" y="93.0" text-anchor="middle" class="small on-halt">its record reaches the parent&#x27;s</text>
+  <text x="242.0" y="114.0" text-anchor="middle"><tspan class="mono on-halt">monitor_log</tspan><tspan class="small on-halt"> when the task returns</tspan></text>
+  <rect class="box" x="548.0" y="40.0" width="420.0" height="102.0" rx="6"/>
+  <text x="758.0" y="71.0" text-anchor="middle" class="title">The parent&#x27;s option</text>
+  <text x="758.0" y="93.0" text-anchor="middle"><tspan class="mono">when_subagent_halts</tspan><tspan class="small">, which the</tspan></text>
+  <text x="758.0" y="114.0" text-anchor="middle" class="small">subagents&#x27; copies inherit</text>
+  <path class="edge" d="M452.0,91.0 L546.0,91.0" marker-end="url(#arrow)"/>
+  <rect class="box" x="32.0" y="218.0" width="420.0" height="123.0" rx="6"/>
+  <text x="242.0" y="249.0" text-anchor="middle" class="title">The parent goes on</text>
+  <text x="242.0" y="271.0" text-anchor="middle" class="mono">SubagentHalt.STOP_SUBAGENT_ONLY</text>
+  <text x="242.0" y="292.0" text-anchor="middle" class="small">the default: it reads the halt message</text>
+  <text x="242.0" y="313.0" text-anchor="middle" class="small">as the task&#x27;s result, under its own monitor</text>
+  <rect class="halt" x="548.0" y="218.0" width="420.0" height="123.0" rx="6"/>
+  <text x="758.0" y="249.0" text-anchor="middle" class="title on-halt">The parent halts too</text>
+  <text x="758.0" y="271.0" text-anchor="middle" class="mono on-halt">SubagentHalt.STOP_WHOLE_RUN</text>
+  <text x="758.0" y="292.0" text-anchor="middle" class="small on-halt">at its next model call, with no sample;</text>
+  <text x="758.0" y="313.0" text-anchor="middle" class="small on-halt">flagged, and the halt stands</text>
+  <path class="edge" d="M758.0,142.0 L758.0,182.0"/>
+  <path class="edge" d="M242.0,182.0 L758.0,182.0"/>
+  <path class="edge" d="M242.0,182.0 L242.0,216.0" marker-end="url(#arrow)"/>
+  <path class="edge" d="M758.0,182.0 L758.0,216.0" marker-end="url(#arrow)"/>
+</svg>

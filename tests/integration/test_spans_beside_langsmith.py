@@ -39,9 +39,10 @@ from tests.support.agents import (
 )
 from tests.support.chat_models import ScriptedChatModel
 from tests.support.monitors import KeywordMonitor
-from tests.support.tracing import RecordingTracer, build_judge_model
+from tests.support.tracing import JUDGE_MODEL_NAME, RecordingTracer, build_judge_model
 
 MONITOR_SPAN_NAMES = {"monitor step", "monitor judgement", "monitor decision"}
+MONITOR_CALL = "monitor call"
 TRACED_CHECK_NAME = "traced check"
 HOOK_NAMES = {"invoke": "wrap_model_call", "ainvoke": "awrap_model_call"}
 
@@ -197,7 +198,7 @@ def test_the_spans_nest_the_same_way_in_langsmith(
         *find_sent_runs(sent_runs, "monitor judgement"),
         *find_sent_runs(sent_runs, "monitor decision"),
     ]
-    judge_calls = find_sent_runs(sent_runs, "GenericFakeChatModel")
+    judge_calls = find_sent_runs(sent_runs, MONITOR_CALL)
     samples = find_sent_runs(sent_runs, "ScriptedChatModel")
     assert [find_sent_parent(sent_runs, step).name for step in steps] == ["model", "model"]
     assert {find_sent_parent(sent_runs, span).name for span in spans_below_the_step} == {
@@ -239,3 +240,26 @@ def test_langsmith_traceable_runs_inside_a_span_carry_its_labels(
     assert find_sent_parent(sent_runs, sample) == inner_step
     assert sample.read_labels() == {}
     assert "ls_agent_type" not in sample.metadata
+
+
+def test_langsmith_receives_the_monitor_calls_by_their_fixed_name_with_their_model(
+    run_mode: RunMode,
+    langsmith_client: MagicMock,
+) -> None:
+    # Act
+    run_agent(
+        build_agent(),
+        mode=run_mode,
+        config=RunnableConfig(callbacks=[build_langsmith_tracer(langsmith_client)]),
+    )
+
+    # Assert: three verdicts, each one judge call named for the monitor, not for its model.
+    sent_runs = read_sent_runs(langsmith_client)
+    judge_calls = find_sent_runs(sent_runs, MONITOR_CALL)
+    assert len(judge_calls) == 3
+    assert find_sent_runs(sent_runs, "NamedFakeChatModel") == []
+    for call in judge_calls:
+        assert call.metadata["ls_model_name"] == JUDGE_MODEL_NAME
+        assert call.metadata["ls_message_view_exclude"] is True
+    samples = find_sent_runs(sent_runs, "ScriptedChatModel")
+    assert len(samples) == 3

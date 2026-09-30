@@ -117,6 +117,8 @@ def test_each_decisions_request_is_a_classifier_span_in_its_judgement(run_mode: 
         "questions": {IS_THE_STEP_SUSPICIOUS.key: IS_THE_STEP_SUSPICIOUS.text},
     }
     assert (first.run_type, first.tags, first.children) == ("chain", ["monitor"], [])
+    # The request goes over httpx, not through LangChain, so there is no model call to name.
+    assert tracer.find_runs("monitor call") == []
     assert first.metadata["ls_agent_type"] == "middleware"
     assert first.metadata["monitor_step_id"] == str(first_step.run_id)
     assert first.metadata["monitor_protocol"] == "DeferToResample"

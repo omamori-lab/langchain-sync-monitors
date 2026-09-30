@@ -53,7 +53,7 @@ STEP = "monitor step"
 JUDGEMENT = "monitor judgement"
 DECISION = "monitor decision"
 SAMPLE = "ScriptedChatModel"
-JUDGE = "GenericFakeChatModel"
+JUDGE = "monitor call"
 LABEL_KEYS = {
     "monitor_name",
     "monitor_agent",
@@ -70,10 +70,10 @@ LangGraph [chain] ok
     monitor step [chain] ok tags=['monitor']
       ScriptedChatModel [chat_model] ok
       monitor judgement [chain] ok tags=['monitor']
-        GenericFakeChatModel [chat_model] ok
+        monitor call [chat_model] ok
       ScriptedChatModel [chat_model] ok
       monitor judgement [chain] ok tags=['monitor']
-        GenericFakeChatModel [chat_model] ok
+        monitor call [chat_model] ok
       monitor decision [chain] ok tags=['monitor', 'monitor:resampled']
   monitor[main].after_model [chain] ok
   tools [chain] ok
@@ -83,7 +83,7 @@ LangGraph [chain] ok
     monitor step [chain] ok tags=['monitor']
       ScriptedChatModel [chat_model] ok
       monitor judgement [chain] ok tags=['monitor']
-        GenericFakeChatModel [chat_model] ok
+        monitor call [chat_model] ok
       monitor decision [chain] ok tags=['monitor', 'monitor:allowed']
   monitor[main].after_model [chain] ok
   monitor[main].after_agent [chain] ok"""

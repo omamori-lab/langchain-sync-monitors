@@ -18,7 +18,7 @@ model
 └── monitor step
     ├── sample 1: the agent's model
     ├── monitor judgement of it
-    │   └── the monitor's calls,
+    │   └── monitor call,
     │       or monitor classifier
     ├── sample 2, if drawn
     ├── monitor judgement of it
@@ -32,9 +32,10 @@ model
   committed; the decision span, tagged with the outcome, opens and ends at
   once, when the protocol has decided.
 - **Judgements.** The chat judges, the guards and `TypeSafeDecisionModel` make
-  model calls, which nest in the judgement. `OpenRouterDecisionModel` sends its
-  request without LangChain, so its judgement holds a `monitor classifier`
-  span instead.
+  model calls, each named `monitor call`, which nest in the judgement. The
+  model still shows as the call's model and in `ls_model_name`.
+  `OpenRouterDecisionModel` sends its request without LangChain, so its
+  judgement holds a `monitor classifier` span instead.
 - **Errors.** A halt is a decision like any other, so it never marks a span as
   failed. A span ends with an error only when the step fails: a model or
   monitor call raises, a sample is cancelled because another one failed, or
@@ -214,8 +215,8 @@ flagged step:
 |---|---|---|
 | Every halted step | `and(eq(name, "monitor decision"), has(tags, "monitor:halted"))` on runs | Name `monitor decision`, and metadata `monitor_outcome` equal to `halted` |
 | Traces with a flagged step | `has(tags, "monitor:flagged")` as a tree filter, on root runs | Name `monitor decision`, and metadata `monitor_flagged` equal to `true` |
-| Everything but the monitor's spans | `neq(name, "monitor step")` and the same for the other three span names, joined with `and(...)` | Name none of `monitor step`, `monitor judgement`, `monitor classifier` and `monitor decision` |
-| Everything but the monitor's spans and model calls | Also `neq(metadata_key, "ls_message_view_exclude")` | No filter: a metadata filter matches only the observations that have the key, so `ls_message_view_exclude` equal to `true` finds the calls but cannot leave them out |
+| Everything but the monitor's spans | `and(neq(name, "monitor step"), neq(name, "monitor judgement"), neq(name, "monitor classifier"), neq(name, "monitor decision"))` | Name none of `monitor step`, `monitor judgement`, `monitor classifier` and `monitor decision` |
+| Everything but the monitor's spans and model calls | `and(neq(name, "monitor step"), neq(name, "monitor judgement"), neq(name, "monitor classifier"), neq(name, "monitor decision"), neq(name, "monitor call"), neq(metadata_key, "ls_message_view_exclude"))` | Name none of `monitor step`, `monitor judgement`, `monitor classifier`, `monitor decision` and `monitor call`, which misses the attempts inside a classifier wrapped in `with_retry()` |
 | Steps above a suspicion | `and(eq(name, "monitor decision"), eq(metadata_key, "monitor_max_suspicion"), gte(metadata_value, 0.5))`, with the threshold as a number | No filter: metadata filters compare strings only; see [Limits](#limits) |
 
 Replace `halted` with `allowed`, `resampled`, `steered` or
@@ -224,10 +225,25 @@ negate a tag, so leave the monitor's spans out by name. Langfuse keeps a
 span's tags only in its metadata, so filter on `monitor_outcome` and
 `monitor_flagged` there.
 
-The monitor's own model calls carry neither the `monitor` tag nor a monitor
-span's name, since they are named after their chat model. Every call the
-library's monitors make carries the metadata key `ls_message_view_exclude`,
-which LangChain's and Deep Agents' own middleware do not set. Their
+The monitor's own model calls carry no `monitor` tag, but each one is named
+`monitor call`, whatever its model: the calls of the chat judges and the
+guards, and the classifier call of `TypeSafeDecisionModel`. The fixed name
+replaces any name you gave the model, so a judge built with
+`name="security judge"` shows as `monitor call` too. The model still shows as
+the call's model and in its `ls_model_name` metadata, and the judgement span
+around the call names the monitor. A classifier wrapped in `with_retry()`
+gives the name to the wrapper's run, and the attempts inside it keep the
+classifier's own name, so the five names miss them. The trusted model's step,
+which a fallback writes for the agent, keeps its model's name. A custom
+monitor's calls are named `monitor call` only if it builds their config with
+`model_calls.build_internal_call_config`.
+
+Every call the library's monitors make also carries the metadata key
+`ls_message_view_exclude`, the wrapped classifier's attempts included, and
+LangChain's and Deep Agents' own middleware do not set it. So in LangSmith,
+`neq(metadata_key, "ls_message_view_exclude")` leaves out every one of the
+monitor's calls. Langfuse's metadata filter matches only the observations
+that have a key, so it can find these calls but not leave them out. Their
 `lc_source` names the monitor too, such as `llm_monitor`, but LangChain's
 middleware sets `lc_source` on its own internal calls as well, such as its
 summaries, so it does not single out the monitor's calls.
@@ -339,7 +355,8 @@ events = agent.astream_events(inputs, version="v2", exclude_tags=["monitor"])
 ```
 
 To drop the monitor's calls as well, skip the events whose `event["metadata"]`
-holds `ls_message_view_exclude`. `astream_events` reports every sample live,
+holds `ls_message_view_exclude`, or whose `event["name"]` is `monitor call`.
+`astream_events` reports every sample live,
 rejected ones included, so a user interface should read
 `stream_mode="messages"` instead, as
 [Know what each stream shows](read-the-monitor-log.md#know-what-each-stream-shows)
@@ -357,11 +374,14 @@ explains.
   deferred and halted steps, a step whose monitor call raised, a Deep Agents
   subagent, the Decisions API monitor against a fake server, and real chat,
   guard and subagent model calls. The Langfuse handler, the two query
-  examples and the `astream_events` example run as written. A cancelled sample,
+  examples and the `astream_events` example run as written. The
+  `monitor call` name, the model each tool shows for such a call, and the
+  four- and five-name filters were confirmed live in both tools too, with
+  langsmith 0.14.2, langfuse 4.16.0 and a real OpenRouter model. A cancelled sample,
   `SynchronousRunError`, stacked monitors, parallel resampling, a monitor's
-  own `traceable` code, `TypeSafeDecisionModel` and what each tool's UI
-  shows, its Trajectory view included, rest on the tests and the tools'
-  source alone.
+  own `traceable` code, `TypeSafeDecisionModel`, the attempts of a classifier
+  wrapped in `with_retry()` and what each tool's UI shows, its Trajectory
+  view included, rest on the tests and the tools' source alone.
 - **Two tracers together can split a trace.** The monitor opens its spans
   from the model node's own callback manager, so they nest under `model` for
   every handler. With LangSmith and a second tracer attached together, other

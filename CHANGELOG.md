@@ -32,6 +32,19 @@ The first release. Everything below is new.
   re-raises the error.
 - A halted step ends the run, including agents with structured output and no
   tools.
+- A halt stands for the rest of the run: when a hook such as Deep Agents'
+  `RubricMiddleware` sends a halted run back to the model, each further step
+  halts again without calling the untrusted model, and its `halted` record
+  holds no samples.
+- `ProviderToolWarning`, emitted once per middleware when the model request
+  holds a server tool that Anthropic, OpenAI or Gemini runs itself, before the
+  monitor can judge the step.
+- `check_monitor_placement` also warns about a middleware whose `after_agent`
+  hook can send the run back to the model, and about subclasses of the retry
+  and fallback middleware.
+- An `interrupt()` inside a monitor or protocol pauses the run without a
+  `monitor_step_failed` event; monitors, protocols and fallbacks must still
+  not call it, because a resume samples and judges the step afresh.
 - Named spans for each monitored step in any LangChain tracer, LangSmith and
   Langfuse among them: a `monitor step` span holds the step's samples, a
   `monitor judgement` span each verdict, a `monitor classifier` span each
@@ -57,6 +70,7 @@ The first release. Everything below is new.
   for audit and never blocks it.
 - A `CachedResampleWarning` when a response cache would turn resamples into
   copies of the first sample.
+- `AutoMode(max_total_blocks=math.inf)` turns the total block limit off.
 - Auto Mode's total counts across the whole conversation thread, subagents
   and nested subagents included: a subagent starts from the thread's count,
   so delegating again does not reset it, and the parent's next step goes to
@@ -113,6 +127,11 @@ The first release. Everything below is new.
   plain string where an option enum is expected), `MissingExtraError` (with the
   install command for a missing extra, `openrouter` included),
   `SynchronousRunError` and `InvalidSuspicionError`.
+- Protocols, fallbacks and the middleware raise `ConfigurationError` when built
+  with an option of the wrong type, such as a float limit or the
+  `DeferToTrusted` protocol where the `DeferToTrustedModel` fallback belongs.
+- `SynchronousRunError` names the monitor when its `evaluate_sync` needs an
+  event loop.
 
 **Project**
 

@@ -109,8 +109,8 @@ halt still stands: when a hook sends a halted run back to the model, the
 monitor halts each further step without drawing a sample, until the thread
 records another run input. This monitor's previous record for this agent
 tells the two apart: before a halt that stands it is a halt too, and before a
-halt after a subagent's it is not, and the subagent's halted record comes
-after it. Other monitors' records may sit in between.
+halt after a subagent's it is not, and a subagent's records come after it.
+Other monitors' records may sit in between.
 
 ## Find the steps flagged for audit
 

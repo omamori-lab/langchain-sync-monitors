@@ -41,8 +41,6 @@ change raises the minor version.
   harness nudge or a note from `unconfirmed_input`; an untagged human message
   that another middleware's `before_agent` hook writes, or its `after_agent`
   hook writes without a return to the model, counts as a run's input and does.
-- The private state key `monitor_inputs_at_halt`, which keeps how many run
-  inputs the thread had at each monitor's latest halt.
 - `ProviderToolWarning`, raised once per middleware when the model request, or
   the model's own `bind_tools`, holds a server tool that Anthropic, OpenAI or
   Gemini runs itself before the monitor can judge the step; a server-side
@@ -52,9 +50,11 @@ change raises the minor version.
   `after_agent` hooks, which show as graph nodes in a trace and add two graph
   steps per model call and two per run, all counted by an explicit
   `recursion_limit`.
-- Three private state keys, `monitor_task_messages`,
-  `monitor_seen_human_messages` and `monitor_run_open`, which never enter a
-  subagent's input or a run's output but do appear in `stream_mode="updates"`.
+- Four private state keys, `monitor_task_messages`,
+  `monitor_seen_human_messages`, `monitor_run_open` and
+  `monitor_inputs_at_halt`, the last of which keeps how many run inputs the
+  thread had at each monitor's latest halt; they never enter a subagent's input
+  or a run's output but do appear in `stream_mode="updates"`.
 - The monitor's hooks write back, by id, the human messages they tag as notes,
   so `stream_mode="updates"` can carry such a message twice; merge messages by
   id.

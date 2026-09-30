@@ -85,6 +85,8 @@ from langchain_sync_monitors.options import check_enum_option, check_instance_op
 from langchain_sync_monitors.pending_steps import (
     AsyncPendingStep,
     MonitoredStep,
+    PendingStepOptions,
+    PreparedStep,
     SyncPendingStep,
     run_synchronously,
 )
@@ -266,31 +268,11 @@ class MonitorMiddleware(AgentMiddleware[MonitorState, AgentContext, StructuredOu
         handler: ModelCallHandler,
     ) -> ExtendedModelResponse[StructuredOutput]:
         """Decide this step under `invoke()`, driving the protocol without an event loop."""
-        warn_about_provider_tools(request, middleware=self, middleware_name=self.name)
-        records = read_monitor_log(request.state)
-        previous_records = find_monitor_records(records, monitor=self.label, agent=self.agent_name)
-        identity = self.build_step_identity(request, step_number=len(previous_records) + 1)
-        with open_step_span_sync(identity) as traced_step:
-            decision = find_halt_decision(
-                request.state,
-                previous_records=previous_records,
-                agent=self.agent_name,
-                monitor=self.name,
-                when_subagent_halts=self.when_subagent_halts,
-            )
+        prepared = self.prepare_step(request)
+        with open_step_span_sync(prepared.identity) as traced_step:
+            decision = prepared.halt
             if decision is None:
-                step = SyncPendingStep(
-                    request=request,
-                    handler=handler,
-                    monitor=self.monitor,
-                    task_author=self.task_author,
-                    task_message_ids=read_message_ids(request.state, key=TASK_MESSAGES_KEY),
-                    previous_records=previous_records,
-                    blocks_in_thread=count_blocks_in_thread(request.state, monitor=self.label),
-                    new_subagent_blocks=count_new_subagent_blocks(
-                        records, agent=self.agent_name, monitor=self.label
-                    ),
-                )
+                step = SyncPendingStep(handler=handler, **prepared.options)
                 try:
                     with hide_model_calls_from_message_stream():
                         decision = run_synchronously(self.protocol.decide(step))
@@ -303,7 +285,7 @@ class MonitorMiddleware(AgentMiddleware[MonitorState, AgentContext, StructuredOu
                     raise
                 finally:
                     step.close()
-            record = identity.build_record(decision)
+            record = prepared.identity.build_record(decision)
             trace_decision_sync(traced_step, record=record)
             return self.commit(request, decision=decision, record=record)
 
@@ -314,31 +296,11 @@ class MonitorMiddleware(AgentMiddleware[MonitorState, AgentContext, StructuredOu
         handler: AsyncModelCallHandler,
     ) -> ExtendedModelResponse[StructuredOutput]:
         """Decide this step under `ainvoke()`, awaiting the protocol."""
-        warn_about_provider_tools(request, middleware=self, middleware_name=self.name)
-        records = read_monitor_log(request.state)
-        previous_records = find_monitor_records(records, monitor=self.label, agent=self.agent_name)
-        identity = self.build_step_identity(request, step_number=len(previous_records) + 1)
-        async with open_step_span(identity) as traced_step:
-            decision = find_halt_decision(
-                request.state,
-                previous_records=previous_records,
-                agent=self.agent_name,
-                monitor=self.name,
-                when_subagent_halts=self.when_subagent_halts,
-            )
+        prepared = self.prepare_step(request)
+        async with open_step_span(prepared.identity) as traced_step:
+            decision = prepared.halt
             if decision is None:
-                step = AsyncPendingStep(
-                    request=request,
-                    handler=handler,
-                    monitor=self.monitor,
-                    task_author=self.task_author,
-                    task_message_ids=read_message_ids(request.state, key=TASK_MESSAGES_KEY),
-                    previous_records=previous_records,
-                    blocks_in_thread=count_blocks_in_thread(request.state, monitor=self.label),
-                    new_subagent_blocks=count_new_subagent_blocks(
-                        records, agent=self.agent_name, monitor=self.label
-                    ),
-                )
+                step = AsyncPendingStep(handler=handler, **prepared.options)
                 try:
                     with hide_model_calls_from_message_stream():
                         decision = await self.protocol.decide(step)
@@ -349,7 +311,7 @@ class MonitorMiddleware(AgentMiddleware[MonitorState, AgentContext, StructuredOu
                         request, step=step, error=error, traced_step=traced_step
                     )
                     raise
-            record = identity.build_record(decision)
+            record = prepared.identity.build_record(decision)
             await trace_decision(traced_step, record=record)
             return self.commit(request, decision=decision, record=record)
 
@@ -457,15 +419,37 @@ class MonitorMiddleware(AgentMiddleware[MonitorState, AgentContext, StructuredOu
             return build_end_run_update()
         return None
 
-    def build_step_identity(self, request: AgentModelRequest, *, step_number: int) -> StepIdentity:
-        """Name the step about to be decided, as its record and its spans name it."""
-        return StepIdentity(
+    def prepare_step(self, request: AgentModelRequest) -> PreparedStep:
+        """Read the log once for a step: its identity, a halt without a sample, its options."""
+        warn_about_provider_tools(request, middleware=self, middleware_name=self.name)
+        records = read_monitor_log(request.state)
+        previous_records = find_monitor_records(records, monitor=self.label, agent=self.agent_name)
+        identity = StepIdentity(
             monitor=self.label,
             agent=self.agent_name,
-            step_number=step_number,
+            step_number=len(previous_records) + 1,
             protocol=type(self.protocol).__name__,
             delegation_id=read_delegation_id(request.state),
         )
+        halt = find_halt_decision(
+            request.state,
+            previous_records=previous_records,
+            agent=self.agent_name,
+            monitor=self.name,
+            when_subagent_halts=self.when_subagent_halts,
+        )
+        options = PendingStepOptions(
+            request=request,
+            monitor=self.monitor,
+            task_author=self.task_author,
+            task_message_ids=read_message_ids(request.state, key=TASK_MESSAGES_KEY),
+            previous_records=previous_records,
+            blocks_in_thread=count_blocks_in_thread(request.state, monitor=self.label),
+            new_subagent_blocks=count_new_subagent_blocks(
+                records, agent=self.agent_name, monitor=self.label
+            ),
+        )
+        return PreparedStep(identity=identity, halt=halt, options=options)
 
     def report_failed_step(
         self,

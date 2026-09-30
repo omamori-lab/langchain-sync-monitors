@@ -16,7 +16,7 @@ import threading
 import warnings
 from collections.abc import Coroutine, Iterator, Sequence
 from dataclasses import dataclass, field
-from typing import override
+from typing import TypedDict, override
 
 from langchain_core.caches import BaseCache
 from langchain_core.globals import get_llm_cache
@@ -39,13 +39,18 @@ from langchain_sync_monitors.contracts import (
     MonitorInput,
     PendingStep,
     Sample,
+    StepDecision,
     StepRecord,
     TaskAuthor,
     Verdict,
 )
 from langchain_sync_monitors.errors import MonitorError, SynchronousRunError
 from langchain_sync_monitors.feedback import build_feedback_messages
-from langchain_sync_monitors.spans import build_judgement_span, build_verdict_outputs
+from langchain_sync_monitors.spans import (
+    StepIdentity,
+    build_judgement_span,
+    build_verdict_outputs,
+)
 from langchain_sync_monitors.task_authorship import mark_context_notes
 from langchain_sync_monitors.thresholds import LIBRARY_DIRECTORY
 
@@ -194,6 +199,31 @@ def warn_about_cached_resamples() -> None:
         stacklevel=2,
         skip_file_prefixes=(LIBRARY_DIRECTORY,),
     )
+
+
+class PendingStepOptions(TypedDict):
+    """The keywords a pending step is built with, whether the run awaits or not."""
+
+    request: AgentModelRequest
+    monitor: Monitor
+    task_author: TaskAuthor
+    task_message_ids: frozenset[str]
+    previous_records: tuple[StepRecord, ...]
+    blocks_in_thread: int
+    new_subagent_blocks: int
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class PreparedStep:
+    """A step as the middleware reads it before drawing any sample.
+
+    `identity` names the step, `halt` is the halt it gets without a sample, if
+    any, and `options` are the keywords of its pending step.
+    """
+
+    identity: StepIdentity
+    halt: StepDecision | None
+    options: PendingStepOptions
 
 
 @dataclass(frozen=True, kw_only=True, eq=False)

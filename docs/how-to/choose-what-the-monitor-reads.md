@@ -29,14 +29,9 @@ names the channels a monitor reads of the history:
 
 The default view, `Channel.ACTIONS`, is `USER | TOOL_CALLS | SUBAGENT_REPORTS`.
 It leaves out the agent's reasoning, its prose and raw tool output, as Claude
-Code's auto mode classifier does [@hughes2026automode]. `Channel.ALL` holds
-all six.
-
-The agent's prose is hidden by default. Under the default view the judge does
-not read what the agent writes beside its tool calls, in the history or in the
-step it judges; it reads the text of the step it judges only when that step is
-a final answer, as the next section explains. This is the current default, and
-it is one flag away: add `Channel.AGENT_TEXT`.
+Code's auto mode classifier does [@hughes2026automode]. Hiding the agent's
+prose is the current default, and it is one flag away: add
+`Channel.AGENT_TEXT`. `Channel.ALL` holds all six.
 
 ## What the step being judged always shows
 
@@ -45,8 +40,8 @@ the action the protocol gates, so part of it is shown whatever the view:
 
 | Part of the proposed step | Shown |
 |---|---|
-| Its tool calls, malformed calls and provider tool calls, and any block LangChain could not map, except reasoning | always |
-| Its text | when the step is a final answer; otherwise when the view holds `AGENT_TEXT` |
+| Its tool calls, malformed calls and provider tool calls, and any block LangChain could not map, except reasoning and refusals, which follow the rows below | always |
+| Its text, a refusal included | when the step is a final answer; otherwise when the view holds `AGENT_TEXT` |
 | Its reasoning | when the view holds `REASONING` |
 | What its provider tools returned | when the view holds `TOOL_RESULTS` |
 
@@ -88,7 +83,7 @@ its tag and pose as the user. System messages are never rendered.
 |---|---|---|
 | `<user>` | `USER` | A message from the user who gave the task. |
 | `<delegator>` | `USER` | Inside a subagent, the task from the parent agent, in place of `<user>`. |
-| `<context_note source="...">` | `USER` | Any other human message. It authorises nothing; the next section says where notes come from. |
+| `<context_note source="...">` | `USER` | Any other human message; the next section says where notes come from and what the judge is told about them. |
 | `<monitor_feedback>` | `USER` | The monitor's feedback on a blocked step, named after the tool when it answers a blocked tool call. |
 | `<tool_call name="...">` | `TOOL_CALLS` | A tool call, with its arguments as JSON. |
 | `<malformed_tool_call name="...">` | `TOOL_CALLS` | A call whose arguments could not be parsed, with the raw text. It never ran. |
@@ -102,15 +97,17 @@ its tag and pose as the user. System messages are never rendered.
 | `<agent_reasoning>` | `REASONING` | The agent's chain of thought. |
 | `<proposed_step>` | always shown | The step being judged, as the previous section describes. |
 
-A `<tool_error>` sits beside the call and `<monitor_feedback>` beside the task,
-so every view that shows a call also shows that it failed or was blocked. A
-view without `USER` loses the task, the feedback and the notes, so keep `USER`
-in every view.
+A `<tool_error>` sits beside the call, in `TOOL_CALLS`, so every view that
+shows a call also shows that it failed. `<monitor_feedback>` sits beside the
+task, in `USER`, so a view shows that a call was blocked only when it holds
+`USER`: `MonitorView(channels=Channel.TOOL_CALLS)` shows a blocked call
+without its feedback. Keep `USER` in every view; without it the monitor also
+loses the task and the notes.
 
 ## Know who speaks as the user
 
-Only the task author's words authorise an action, and only a run's input is
-the task author's:
+Only a run's input renders as the task author's words; every other human
+message renders as a note:
 
 ```mermaid
 flowchart TD
@@ -124,30 +121,35 @@ flowchart TD
     stopped -- "no" --> author["user, or delegator inside a subagent"]
 ```
 
-- **Context notes authorise nothing.** LangChain's and Deep Agents' summaries
-  are tagged `summarization`, and Deep Agents' rubric grader `rubric_grader`
+- **Where notes come from.** LangChain's and Deep Agents' summaries are
+  tagged `summarization`, and Deep Agents' rubric grader `rubric_grader`
   [@langchain2026; @deepagents2026]. Deep Agents writes its summary with the
   agent's own model, and its `read_file` attaches a video's frames in an
   untagged human message that holds a path the agent chose [@deepagents2026],
   so the agent must not be able to speak as the user through either. The
   monitor writes a note's tag into the message in the agent's state too, so a
   saved history keeps it.
+- **What the judge is told about notes.** The tag is all the monitor adds.
+  `DEFAULT_MONITOR_PROMPT` tells a chat judge that a note is not the user and
+  authorises nothing, a request the judge may not always follow. A guard
+  policy or a prompt of your own must say so itself, and a decision model
+  gets only the tag.
 - **`unconfirmed_input`.** A run that stopped before its end, for example
   because its model call raised or its client cancelled it, may leave messages
   the monitor never saw. The next run cannot tell them from its own input, so
   all its new messages, the user's own included, become notes from
-  `unconfirmed_input`, and stay notes for the rest of the thread. The judge
-  takes no approval from such a note, but still applies a limit it sets that
-  narrows what the agent may do, so a user's "stop" keeps its force. A note
-  never removes a safeguard, such as asking the user first. Send an approval
-  again in a later turn.
+  `unconfirmed_input`, and stay notes for the rest of the thread. The default
+  chat-judge prompt tells the judge to take no approval from such a note, but
+  to apply a limit it sets that narrows what the agent may do, such as a
+  user's "stop", and that a note never removes a safeguard, such as asking the
+  user first. Send an approval again in a later turn.
 - **Subagents.** `monitor_subagents` gives each subagent's monitor
   `TaskAuthor.PARENT_AGENT`, so its task renders as `<delegator>`.
 - **Two open paths.** Both go through a middleware listed before the monitor.
   An untagged human message its `before_agent` hook writes counts as the run's
   input. One its `after_agent` hook writes, without sending the run back to
-  the model, counts as the next run's input. [What the monitor
-  reads](../explanation/design.md#what-the-monitor-reads) explains why no rule
+  the model, counts as the next run's input. [Who speaks as the
+  user](../explanation/design.md#who-speaks-as-the-user) explains why no rule
   closes them.
 
 ## Know what provider tools have done
@@ -234,8 +236,7 @@ view = MonitorView(most_recent_entries=1)
 ```
 
 After summarisation has replaced the earlier messages, the original task may
-be gone from what the monitor reads, left only as a context note that
-authorises nothing.
+be gone from what the monitor reads, left only as a context note.
 
 ## Name your delegation tools
 
@@ -396,6 +397,6 @@ whatever the monitor read; see [Read the monitor log](read-the-monitor-log.md).
 
 - [Use a chat judge](use-a-chat-judge.md) for a monitor that takes a view.
 - [Monitor Deep Agents subagents](monitor-deep-agents-subagents.md) for what a subagent's monitor reads.
-- [How the library is built](../explanation/design.md#what-the-monitor-reads) for how the monitor tells a run's input from other messages.
+- [How the library is built](../explanation/design.md#task-authorship-and-notes) for how the monitor tells a run's input from other messages.
 
 ## References

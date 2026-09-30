@@ -573,8 +573,10 @@ as the parent agent's words, `<delegator>`, rather than the user's.
   monitor to the subagent's own graph instead, with
   `agent_name="<subagent name>"` and `task_author=TaskAuthor.PARENT_AGENT`.
   With the default `agent_name="main"`, its records count as the main
-  agent's own and `STOP_WHOLE_RUN` misses its halts; with the default task
-  author, it reads the delegated task as the user's authorisation.
+  agent's own, so its halt reads as the main agent's: whatever
+  `when_subagent_halts` says, the main agent halts before its next model call
+  with `STANDING_HALT_MESSAGE`. With the default task author, it reads the
+  delegated task as the user's authorisation.
 - **Forked subagents**, `mode="fork"`, are not supported yet, as issue #35
   tracks. A fork passed to `create_deep_agent` directly still runs
   ([forked subagents](#subagents-and-the-thread-total)).
@@ -982,8 +984,10 @@ limit is linked from where it arises above.
 - **Forked subagents.** Only `monitor_subagents` refuses them. A fork passed
   to `create_deep_agent` directly runs under the main agent's monitor, which
   reads the fork's task, written by the parent agent, as the user's words and
-  records the fork's steps as the main agent's, hiding a halt inside the fork
-  from `STOP_WHOLE_RUN`. Delegate only to isolated subagents.
+  records the fork's steps as the main agent's. A halt inside the fork then
+  reads as the main agent's own, so the main agent halts before its next model
+  call with `STANDING_HALT_MESSAGE`, whatever `when_subagent_halts` says.
+  Delegate only to isolated subagents.
 - **Delegation ids** name a step only if the model provider gives every tool
   call in the thread its own id, which LangChain does not check.
 

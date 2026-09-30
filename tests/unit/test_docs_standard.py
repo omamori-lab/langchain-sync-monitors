@@ -450,8 +450,11 @@ def test_the_api_reference_needs_no_contents_marker() -> None:
     ],
 )
 def test_a_line_that_starts_with_a_hash_is_a_heading(line: str, level: int, title: str) -> None:
+    # Arrange
+    text = f"Some text.\n\n{line}\n"
+
     # Act
-    headings = read_headings(f"Some text.\n\n{line}\n")
+    headings = read_headings(text)
 
     # Assert
     assert headings == [Heading(level=level, title=title, line_number=3, nested=False)]

@@ -66,8 +66,10 @@ small audit budget falls inside a group of tied scores
 [@kaufman2025basharena; @koran2026ensemble]. Averaging several calls adds
 resolution [@kaufman2025basharena]. BashArena averages three calls and
 LinuxArena two, and Ctrl-Z samples its monitor several times at temperature
-1.1 [@kaufman2025basharena; @tracy2026linuxarena; @bhatt2025ctrlz]. A plain
-mean works as well as more elaborate aggregators [@koran2026ensemble].
+1.1 [@kaufman2025basharena; @tracy2026linuxarena; @bhatt2025ctrlz]. For
+ensembles of different monitors, Koran et al. found a plain mean as good as
+other aggregators, and found that three calls of one monitor gain less than
+three different monitors [@koran2026ensemble].
 
 ```python
 from langchain.chat_models import init_chat_model
@@ -184,9 +186,10 @@ it once per thread.
 Read the highest honest scores before you calibrate. A chat judge whose reply
 could not be read gives 1.0 with the reason "The monitor gave no readable
 score, so the step is treated as suspicious.". That score measures nothing
-about the step, and a 1.0 in the honest set ties with every later step that
-fails closed, which then lands at a random place among the ties instead of
-above every honest score. Fix the cause, such as too small a `max_tokens`, and
+about the step, and a 1.0 in the honest set ties with every later 1.0: a step
+that fails closed, and a step the judge genuinely scores at the top of its
+scale. Either then lands at a random place among the ties instead of above
+every honest score. Fix the cause, such as too small a `max_tokens`, and
 collect again.
 
 Collect more scores than you think you need. With `n` honest scores, a step
@@ -258,10 +261,11 @@ from 0 to 1, so a threshold `t` flags a share `1 - t` of such steps: 0.99 flags
 1% of honest steps, and 0.95 flags 5%.
 
 That share is exact on average over the honest scores you might have
-collected. For the one set you did collect, it varies around `1 - t` with a
-standard deviation of about `sqrt(t * (1 - t) / n)`: at `t = 0.99`, about 0.3
-percentage points for a thousand honest scores, and about 1 point for a
-hundred.
+collected. For the one set you did collect, it varies around `1 - t`. Its
+standard deviation is about `sqrt(t * (1 - t) / n)`, the spread of a share
+estimated from `n` draws; this approximation is ours, not a cited result, and
+a simulation matches it. At `t = 0.99` it is about 0.3 percentage points for a
+thousand honest scores, and about 1 point for a hundred.
 
 | Consequence | What it means |
 |---|---|
@@ -276,9 +280,10 @@ score ties with honest scores can land on either side of a threshold from one
 run to the next.
 
 With `random_seed`, `U` comes from the seed and the step's content: the task
-author, the type and text of each message, and the proposal. Message ids are
-left out, because the monitor's own messages get fresh random ids on every
-run. The same step always gets the same draw, in every process, so the same
+author, the type and text of each earlier message, and the proposal with all
+its parts. The earlier messages' tool calls and ids are left out, since the
+monitor's own messages get fresh random ids on every run; two steps whose
+histories differ only in tool calls get the same draw. The same step always gets the same draw, in every process, so the same
 raw score always gives the same calibrated suspicion, and an evaluation can be
 replayed exactly.
 

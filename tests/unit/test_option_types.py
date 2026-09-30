@@ -4,7 +4,7 @@ Protocols, fallbacks, the middleware, the monitors, their decision models,
 `MonitorView`, `DefaultThreshold`, `monitor_subagents`,
 `check_monitor_placement` and `resolve_threshold` refuse an option of the
 wrong type with `ConfigurationError`. `OpenRouterDecisionModel`'s `api_key` is
-not checked here.
+tested with the decision model, in `monitors/test_decision.py`.
 A limit given as a float, or a protocol given where a fallback belongs, used to
 build without error and fail only at the first suspicious step: with a
 `TypeError` or an `AttributeError`, during the attack the protocol exists for.

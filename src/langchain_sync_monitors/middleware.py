@@ -255,7 +255,7 @@ class MonitorMiddleware(AgentMiddleware[MonitorState, AgentContext, StructuredOu
         handler: ModelCallHandler,
     ) -> ExtendedModelResponse[StructuredOutput]:
         """Decide this step under `invoke()`, driving the protocol without an event loop."""
-        warn_about_provider_tools(request.tools, middleware=self, middleware_name=self.name)
+        warn_about_provider_tools(request, middleware=self, middleware_name=self.name)
         records = read_monitor_log(request.state)
         previous_records = find_monitor_records(records, monitor=self.label, agent=self.agent_name)
         identity = self.build_step_identity(request, step_number=len(previous_records) + 1)
@@ -303,7 +303,7 @@ class MonitorMiddleware(AgentMiddleware[MonitorState, AgentContext, StructuredOu
         handler: AsyncModelCallHandler,
     ) -> ExtendedModelResponse[StructuredOutput]:
         """Decide this step under `ainvoke()`, awaiting the protocol."""
-        warn_about_provider_tools(request.tools, middleware=self, middleware_name=self.name)
+        warn_about_provider_tools(request, middleware=self, middleware_name=self.name)
         records = read_monitor_log(request.state)
         previous_records = find_monitor_records(records, monitor=self.label, agent=self.agent_name)
         identity = self.build_step_identity(request, step_number=len(previous_records) + 1)

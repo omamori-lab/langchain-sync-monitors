@@ -98,10 +98,14 @@ protocol can stop it. The warning knows these server tools:
 - Gemini's Google Search, Google Maps, code execution and URL context
   [@google2026geminitools].
 
-It reads only the tools in the model request. A server-side feature switched
+It reads the tools in the model request and the tools bound on the model
+with `bind_tools` before the agent was built. A server-side feature switched
 on in the model's own settings, such as OpenRouter's web plugin or an
-`:online` model, runs the same way without a warning. Tools the agent runs
-itself, Anthropic's bash, text editor, memory and computer use tools
+`:online` model, runs the same way without a warning, and so does a tool an
+integration has already turned into an object of its own SDK. The tool search
+of Anthropic and OpenAI is not named either, since it acts on nothing outside
+the provider. Tools the agent runs itself, Anthropic's bash, text editor,
+memory and computer use tools and OpenAI's computer use and patch tools
 included, come back as tool calls, which the monitor judges before they run.
 
 ## Related guides

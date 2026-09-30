@@ -123,36 +123,50 @@ def test_a_tool_call_hands_on_the_thread_s_blocks_by_monitor(
         blocks_before={"monitor": 7, "other": 1},
     )
     [handled] = seen
-    assert handled.state["monitor_delegation"] == expected
     assert handled.runtime.state["monitor_delegation"] == expected
+    assert handled.state["monitor_delegation"] == PARENT_DELEGATION
     assert subagent_state["monitor_delegation"] == PARENT_DELEGATION
 
 
-def test_a_request_with_this_agent_s_delegation_for_the_call_is_passed_on_as_it_is(
+def test_adding_the_delegation_twice_hands_on_an_equal_one(
     subagent_state: dict[str, Any],
 ) -> None:
-    # Arrange
-    request = build_tool_request(state=subagent_state, call_id="call-child")
-    request = add_delegation(request, agent="worker")
+    # Arrange: a monitor further out already added it, as a stacked monitor would see it
+    request = add_delegation(
+        build_tool_request(state=subagent_state, call_id="call-child"),
+        agent="worker",
+    )
 
     # Act
     again = add_delegation(request, agent="worker")
 
     # Assert
-    assert again is request
+    assert again.runtime.state["monitor_delegation"] == Delegation(
+        tool_call_id="call-child",
+        delegating_agent="worker",
+        blocks_before={"monitor": 7, "other": 1},
+    )
+    assert again.state["monitor_delegation"] == PARENT_DELEGATION
 
 
+@pytest.mark.parametrize("delegating_agent", ["main", "worker"])
 def test_an_inherited_delegation_is_replaced_when_the_call_reuses_its_id(
     subagent_state: dict[str, Any],
+    delegating_agent: str,
 ) -> None:
-    # Arrange
+    # Arrange: the parent that started this agent may share its name
+    subagent_state["monitor_delegation"] = Delegation(
+        tool_call_id="call-parent",
+        delegating_agent=delegating_agent,
+        blocks_before={"monitor": 5},
+    )
     request = build_tool_request(state=subagent_state, call_id="call-parent")
 
     # Act
     handed_on = add_delegation(request, agent="worker")
 
-    # Assert
-    assert handed_on.state["monitor_delegation"] == Delegation(
+    # Assert: the blocks this agent recorded are added to the ones it inherited
+    assert handed_on.runtime.state["monitor_delegation"] == Delegation(
         tool_call_id="call-parent",
         delegating_agent="worker",
         blocks_before={"monitor": 7, "other": 1},

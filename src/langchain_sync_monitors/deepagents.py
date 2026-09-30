@@ -74,9 +74,8 @@ def build_fork_message(name: str) -> str:
     return (
         f"Subagent {name!r} has mode='fork', which the monitor does not support yet (issue "
         "#35). A fork continues the parent's conversation and inherits the main agent's "
-        "monitor, which reads the parent agent's task as the user's words and records the "
-        "fork's steps as the main agent's, so the fork's halts may go unseen, whatever "
-        "when_subagent_halts says. Use mode='isolated' for a monitored subagent."
+        "monitor, which reads the task the parent agent wrote as the user's words. Use "
+        "mode='isolated' for a monitored subagent."
     )
 
 
@@ -86,9 +85,7 @@ def build_compiled_subagent_message(name: str) -> str:
         f"Subagent {name!r} is compiled or remote, so a monitor cannot be added to it here. "
         "Add one to its own create_agent() instead, named after the subagent and reading "
         f"its task as the parent agent's: MonitorMiddleware(..., agent_name={name!r}, "
-        "task_author=TaskAuthor.PARENT_AGENT). With the default agent_name='main', its "
-        "records count as the main agent's own, so its halts may go unseen, whatever "
-        "when_subagent_halts says; set agent_name to the subagent's name."
+        "task_author=TaskAuthor.PARENT_AGENT), so monitor_log names its steps as its own."
     )
 
 
@@ -294,10 +291,12 @@ def monitor_subagents(
     fork continues the parent's conversation and inherits the main agent's
     middleware from Deep Agents, so it runs under the main agent's monitor.
     That monitor reads the fork's task, which the parent agent wrote, as the
-    user's words, and records the fork's steps under the main agent's name,
-    so the fork's halts may go unseen, whatever `when_subagent_halts` says.
-    This holds for a fork passed to `create_deep_agent` without this helper
-    too, so do not give a monitored agent forked subagents.
+    user's words. It records the fork's steps under the main agent's name
+    but with the fork's own delegation, so they never count as the main
+    agent's steps, and the main agent answers the fork's halts as
+    `when_subagent_halts` says. The misread task holds for a fork passed to
+    `create_deep_agent` without this helper too, so do not give a monitored
+    agent forked subagents.
 
     A compiled or remote subagent raises `ConfigurationError` too; monitor it
     in its own graph with `agent_name` set to its name and

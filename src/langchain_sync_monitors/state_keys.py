@@ -5,7 +5,8 @@ writes to every key in `MONITOR_STATE_KEYS`, which is why these live apart
 from the modules that write them: those modules import `task_authorship`.
 `MONITOR_STATE_KEYS` also holds `monitor_delegation`, defined in `_langchain`
 beside the reader that parses it; `monitor_log`, also defined there, is the
-one monitor key a tool may write.
+one monitor key a tool may write, and `returned_records` checks every record
+a tool writes to it.
 """
 
 from langchain_sync_monitors._langchain import MONITOR_DELEGATION_KEY
@@ -28,6 +29,10 @@ REWRITTEN_INPUTS_KEY = "monitor_rewritten_inputs"
 INPUTS_AT_HALT_KEY = "monitor_inputs_at_halt"
 """The state key that holds, for each monitor, how many run inputs the thread had at its halt."""
 
+SUBAGENT_RETURNS_KEY = "monitor_subagent_returns"
+"""The state key that holds the halts and blocks the agent's tool calls returned, until its next
+step answers them."""
+
 MONITOR_STATE_KEYS = frozenset(
     {
         TASK_MESSAGES_KEY,
@@ -36,6 +41,7 @@ MONITOR_STATE_KEYS = frozenset(
         RUN_INPUTS_KEY,
         REWRITTEN_INPUTS_KEY,
         INPUTS_AT_HALT_KEY,
+        SUBAGENT_RETURNS_KEY,
         MONITOR_DELEGATION_KEY,
     },
 )

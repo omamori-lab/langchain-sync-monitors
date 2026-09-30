@@ -244,6 +244,10 @@ change raises the minor version.
   refuse a plain string with `ConfigurationError`.
 - `CalibratedMonitor(honest_scores=...)` and `DecisionModelMonitor(questions=...)`
   accept any iterable, a generator included.
+- `OpenRouterDecisionModel(api_key=...)` raises `ConfigurationError` for a
+  blank key, rather than read `OPENROUTER_API_KEY`, and for a key that is not
+  a `SecretStr`; a key given is stripped of surrounding whitespace, as the
+  variable is.
 - A chat model wrapped in a Runnable, such as `with_retry()` or `bind()`,
   raises `ConfigurationError` naming its type, in every monitor and in
   `DeferToTrustedModel`.
@@ -290,6 +294,12 @@ change raises the minor version.
 - A decision answer too large for a float, such as `10**400`, or a `Fraction`
   just outside 0 to 1 raises `MonitorError` instead of `OverflowError` or
   being rounded into range.
+- A command a tool raises as a `ParentCommand`, itself or from a graph it
+  calls, is relabelled like one it returns, so it cannot write the monitor's
+  own source or a human message that speaks as the user.
+- An OpenRouter key that holds a control or non-ASCII character raises
+  `ConfigurationError` without naming the key, instead of an httpx error
+  that quoted it whole and was retried.
 - Only a `TypeError` for an unexpected `logprobs` keyword is reported as a
   rejected request for log-probabilities.
 - An `interrupt()` inside a monitor or protocol no longer writes a

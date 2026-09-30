@@ -121,8 +121,11 @@ def run_synchronously[ResultT](coroutine: Coroutine[object, object, ResultT]) ->
     asyncio's own errors for work started where no loop can run it, such as
     `gather` or `ensure_future` outside a running loop, become the same error;
     the pending step names the monitor instead when the error came from the
-    monitor's `evaluate_sync`. Inside a running loop, as in a notebook, any task the
-    protocol scheduled is cancelled before it starts.
+    monitor's `evaluate_sync`. Inside a running loop, as in a notebook, a call
+    that ends in `SynchronousRunError` cancels every task the protocol
+    scheduled before it starts. A call that returns, or raises another error,
+    leaves such a task scheduled: `SyncPendingStep.close()`, which the
+    middleware calls once the step is over, keeps it from reaching the model.
     """
     loop = read_running_loop()
     # Read before the protocol runs, so only the tasks it schedules are cancelled, never

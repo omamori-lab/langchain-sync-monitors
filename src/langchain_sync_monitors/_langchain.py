@@ -25,16 +25,17 @@ from langchain.agents.middleware.types import (
 )
 from langchain.tools import ToolRuntime
 from langchain_core.callbacks import AsyncCallbackManager, BaseCallbackManager, CallbackManager
-from langchain_core.messages import AnyMessage, BaseMessage, ToolMessage
+from langchain_core.messages import AnyMessage, BaseMessage, ToolMessage, convert_to_messages
 from langchain_core.runnables import RunnableBinding, RunnableConfig
 from langchain_core.runnables.config import ensure_config, patch_config, var_child_runnable_config
+from langgraph.channels import binop as langgraph_binop
 from langgraph.constants import TAG_NOSTREAM
 from langgraph.runtime import Runtime
-from langgraph.types import Command
+from langgraph.types import Command, Overwrite
 from pydantic import TypeAdapter, ValidationError
 
 from langchain_sync_monitors.contracts import Delegation, SampleRecord, StepRecord
-from langchain_sync_monitors.errors import ConfigurationError
+from langchain_sync_monitors.errors import ConfigurationError, MonitorError
 
 logger = logging.getLogger(__name__)
 
@@ -92,6 +93,154 @@ type AsyncToolCallHandler = Callable[[ToolCallRequest], Awaitable[ToolCallResult
 def cast_to_tool_call_result(results: ToolCallResults) -> ToolCallResult:
     """Return a tool call's result as LangChain's hook types declare it, a list included."""
     return cast("ToolCallResult", results)
+
+
+MESSAGES_KEY = "messages"
+"""The state key that holds an agent's conversation."""
+
+type MessageRewrite = Callable[[BaseMessage], BaseMessage]
+"""Returns the message to write in place of one a command's update writes."""
+
+type UpdateValue = Any
+"""A value a state update writes under one key, which LangGraph leaves untyped."""
+
+type UpdatePairs = Sequence[tuple[str, UpdateValue]]
+"""A state update as pairs of key and value, the form in which LangGraph writes one."""
+
+type WrittenMessages = list[BaseMessage] | Overwrite
+"""What an update writes to `messages` once rewritten: messages, or an `Overwrite` of them."""
+
+
+OVERWRITE_KEY = "__overwrite__"
+"""The key that marks the two dictionary forms of an `Overwrite`."""
+
+
+def is_update_pairs(update: object) -> bool:
+    """Tell whether an update is pairs of key and value, as LangGraph tells it."""
+    return isinstance(update, list | tuple) and all(
+        isinstance(pair, tuple) and len(pair) == 2 and isinstance(pair[0], str) for pair in update
+    )
+
+
+def read_update_pairs(command: Command[Any]) -> UpdatePairs:
+    """Return the pairs of key and value a command's update writes, as LangGraph reads them.
+
+    LangGraph accepts an update as a dict, as pairs, or as an object whose
+    class annotates its keys, such as a dataclass or a pydantic model, and
+    reads anything else as a value for a root channel. Its own reader,
+    `Command._update_as_tuples`, is the one it writes the update with
+    [@langgraph2026], so the monitor reads exactly what the graph writes.
+    That reader is private, so it is looked up when called. Should a release
+    remove it, a dict and pairs are still read here, and any other update
+    raises `MonitorError`, so no message it writes goes unread.
+    """
+    reader = getattr(command, "_update_as_tuples", None)
+    if callable(reader):
+        return reader()
+    update = command.update
+    if update is None:
+        return []
+    if isinstance(update, dict):
+        return list(update.items())
+    if is_update_pairs(update):
+        return update
+    message = (
+        f"The monitor cannot read what a {type(update).__name__} update writes with this "
+        "LangGraph, so it refuses the tool's command. Return the update as a dict."
+    )
+    raise MonitorError(message)
+
+
+def read_overwrite_forms(value: UpdateValue) -> tuple[bool, UpdateValue]:
+    """Tell whether a value is an `Overwrite` in a form LangGraph reads, and return its value.
+
+    The forms are the typed `Overwrite`, `{"__overwrite__": value}`, and
+    `{"type": "__overwrite__", "value": value}`, which JSON leaves of the
+    typed one, as LangGraph reads them [@langgraph2026].
+    """
+    if isinstance(value, Overwrite):
+        return True, value.value
+    if isinstance(value, dict) and len(value) == 1 and OVERWRITE_KEY in value:
+        return True, value[OVERWRITE_KEY]
+    if isinstance(value, dict) and value.get("type") == OVERWRITE_KEY and "value" in value:
+        return True, value["value"]
+    return False, None
+
+
+def read_overwrite(value: UpdateValue) -> tuple[bool, UpdateValue]:
+    """Tell whether LangGraph reads a value as an `Overwrite`, and return what it writes.
+
+    LangGraph's own reader is private, so it is looked up when called, and
+    the forms `read_overwrite_forms` knows are read if a release removes it.
+    A form only a later release reads is then taken for messages, which
+    `convert_to_messages` refuses, so the tool call fails closed.
+    """
+    reader = getattr(langgraph_binop, "_get_overwrite", None)
+    return reader(value) if callable(reader) else read_overwrite_forms(value)
+
+
+def rewrite_messages_value(value: UpdateValue, *, rewrite: MessageRewrite) -> WrittenMessages:
+    """Return what to write to `messages` in place of one value an update writes there.
+
+    The value is converted to messages first, as LangGraph's message reducer
+    converts one message or a list, given as messages, dictionaries, tuples
+    or strings, and each message is rewritten. A value LangGraph reads as an
+    `Overwrite`, in any of its forms, bypasses the reducer and replaces the
+    conversation [@langgraph2026], so it stays an `Overwrite`, of the
+    rewritten messages.
+    """
+    is_overwrite, overwritten = read_overwrite(value)
+    written = overwritten if is_overwrite else value
+    converted = convert_to_messages(written if isinstance(written, list) else [written])
+    messages = [rewrite(message) for message in converted]
+    return Overwrite(messages) if is_overwrite else messages
+
+
+def rewrite_update_pairs(pairs: UpdatePairs, *, rewrite: MessageRewrite) -> UpdatePairs:
+    """Return the pairs with every value written to `messages` rewritten.
+
+    A key is compared with `==`, as LangGraph finds its channel, so a key
+    that only its own `__ne__` sets apart is still read as `messages`. Each
+    write is converted on its own, as the message reducer converts it, so a
+    message given as a dictionary, a tuple or a string is a new message in
+    every write, as it is in LangGraph. A message object written more than
+    once, as by a dataclass that annotates `messages` in two of its classes,
+    is rewritten once, so every write holds the same copy. The reducer gives
+    a message without an id its id in place and keeps one id once
+    [@langgraph2026], so it keeps that copy once, as it would the original.
+    """
+    rewrites: dict[int, tuple[BaseMessage, BaseMessage]] = {}
+
+    def rewrite_once(message: BaseMessage) -> BaseMessage:
+        # The original is kept with its copy, so its id is not reused while the pairs are read.
+        if id(message) not in rewrites:
+            rewrites[id(message)] = (message, rewrite(message))
+        return rewrites[id(message)][1]
+
+    return [
+        (key, rewrite_messages_value(value, rewrite=rewrite_once) if key == MESSAGES_KEY else value)
+        for key, value in pairs
+    ]
+
+
+def rewrite_update_messages(command: Command[Any], *, rewrite: MessageRewrite) -> Command[Any]:
+    """Return the command with every value its update writes to `messages` rewritten.
+
+    A dict stays a dict, the shape LangChain's and Deep Agents' middleware
+    read. Any other shape LangGraph accepts, such as pairs, a dataclass or a
+    pydantic model, becomes a tuple of the pairs LangGraph reads from it,
+    with the messages rewritten, so the state receives the same writes and
+    none of the update's own code runs again. A command whose update writes
+    no messages is returned as it is. That includes an update LangGraph reads
+    as a value for a root channel, which an agent's state does not have.
+    """
+    pairs = read_update_pairs(command)
+    if not any(key == MESSAGES_KEY for key, _ in pairs):
+        return command
+    rewritten = rewrite_update_pairs(pairs, rewrite=rewrite)
+    if isinstance(command.update, dict):
+        return replace(command, update=dict(rewritten))
+    return replace(command, update=tuple(rewritten))
 
 
 MONITOR_LOG_KEY = "monitor_log"

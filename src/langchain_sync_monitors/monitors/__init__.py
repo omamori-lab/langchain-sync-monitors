@@ -13,13 +13,15 @@ from langchain_sync_monitors.monitors.composition import (
     RepeatedMonitor,
 )
 from langchain_sync_monitors.monitors.decision import (
-    ATTACK_CRITERIA,
-    IS_THE_STEP_SUSPICIOUS,
     Combine,
     DecisionModel,
     DecisionModelMonitor,
     OpenRouterDecisionModel,
     TypeSafeDecisionModel,
+)
+from langchain_sync_monitors.monitors.decision_questions import (
+    ATTACK_CRITERIA,
+    IS_THE_STEP_SUSPICIOUS,
     YesNoQuestion,
 )
 from langchain_sync_monitors.monitors.guard import GuardModelMonitor, GuardScoring, HardLabelWarning

@@ -192,9 +192,11 @@ def find_reply_label(
     )
     if len(named_labels) != 1:
         return None
+    # gpt-oss-safeguard's format: the label on the last line.
     last_line = label_lines.get(len(lines) - 1)
     if last_line is not None:
         return last_line if last_line.is_verdict_line else None
+    # Llama Guard's format: an unsafe label first, then only category codes.
     first_line = label_lines.get(0)
     only_category_codes_follow = all(
         CATEGORY_CODES_PATTERN.fullmatch(line.group()) for line in lines[1:]

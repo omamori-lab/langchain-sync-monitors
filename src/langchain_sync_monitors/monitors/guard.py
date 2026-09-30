@@ -36,7 +36,7 @@ from langchain_sync_monitors.monitors.chat import (
     VerdictPlan,
     is_reply_cut_off,
 )
-from langchain_sync_monitors.monitors.guard_labels import LabelMatch, find_reply_label
+from langchain_sync_monitors.monitors.guard_labels import LABEL_WORD, LabelMatch, find_reply_label
 from langchain_sync_monitors.options import check_enum_option
 
 logger = logging.getLogger(__name__)
@@ -44,7 +44,8 @@ logger = logging.getLogger(__name__)
 TOP_LOG_PROBABILITIES = 20
 """How many alternatives to request per token; 20 is the most OpenAI-style APIs return."""
 
-LABEL_PATTERN = re.compile(r"[\w-]+")
+LABEL_PATTERN = re.compile(LABEL_WORD)
+"""A label the reply parser can read: letters or digits at both ends, where `_` or `-` is markup."""
 LEADING_MARKUP_PATTERN = re.compile(r"^\W+")
 """Markup a label line may open with, such as `**` or `(`; a token may carry it before a label."""
 UNREADABLE_LABEL_REASON = (
@@ -227,13 +228,20 @@ def compute_suspicious_share(
 
 
 def validate_labels(*, suspicious_labels: AbstractSet[str], safe_labels: AbstractSet[str]) -> None:
-    """Reject empty, multi-word or overlapping label sets at construction."""
+    """Reject empty, overlapping or unreadable label sets at construction.
+
+    A label the reply parser could never read, such as `not safe` or
+    `violation_`, would make every reply unreadable, so it is refused here.
+    """
     if not suspicious_labels or not safe_labels:
         message = "suspicious_labels and safe_labels must each hold at least one label"
         raise ConfigurationError(message)
     multi_word = sorted(filterfalse(is_one_word, suspicious_labels | safe_labels))
     if multi_word:
-        message = f"labels must be single words (letters, digits, _ or -), got {multi_word}"
+        message = (
+            "labels must be single words of letters, digits, _ or -, beginning and ending "
+            f"with a letter or digit, got {multi_word}"
+        )
         raise ConfigurationError(message)
     shared = set(map(str.lower, suspicious_labels)) & set(map(str.lower, safe_labels))
     if shared:
@@ -242,7 +250,10 @@ def validate_labels(*, suspicious_labels: AbstractSet[str], safe_labels: Abstrac
 
 
 def is_one_word(label: str) -> bool:
-    """Tell whether a label is one word of letters, digits, underscores or hyphens."""
+    """Tell whether a label is one readable word: letters and digits, joined by `_` or `-`.
+
+    The reply parser reads a `_` or `-` at either end of a word as markup.
+    """
     return LABEL_PATTERN.fullmatch(label) is not None
 
 
@@ -253,12 +264,14 @@ class GuardModelMonitor(ChatModelMonitor):
     `{proposed_step}`; it should ask for one label on a line of its own. The
     labels in `suspicious_labels` and `safe_labels` match case-insensitively,
     for example `{"violation"}` and `{"no_violation"}` for gpt-oss-safeguard,
-    or `{"unsafe"}` and `{"safe"}` for Llama Guard. The label is read only on
-    the reply's last line, or on its first when it is suspicious and only
-    category codes follow. A reply without a label there, with two different
-    labels on their own lines, or cut off at a length limit counts as a
-    suspicious label, so it can only raise the suspicion: alone it gives 1.0,
-    and among several samples it is one suspicious vote.
+    or `{"unsafe"}` and `{"safe"}` for Llama Guard; each is one word that
+    begins and ends with a letter or digit. The label is read only on the
+    reply's last line, or on its first when it is suspicious and only
+    category codes follow, with any markup such as `**` or `__` around it or
+    its key. A reply without a label there, with two different labels on
+    their own lines, or cut off at a length limit counts as a suspicious
+    label, so it can only raise the suspicion: alone it gives 1.0, and among
+    several samples it is one suspicious vote.
 
     With log-probabilities, suspicion is the probability the guard gives to a
     suspicious label, the score Llama Guard, ShieldGemma and Granite Guardian

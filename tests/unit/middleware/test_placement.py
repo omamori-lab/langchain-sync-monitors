@@ -85,6 +85,23 @@ def test_a_model_call_wrapper_inside_the_monitor_is_named_in_a_warning(
     assert misplaced == ["CommandingMiddleware"]
 
 
+class TeamMonitorMiddleware(MonitorMiddleware):
+    """A user's own subclass of the monitor middleware."""
+
+
+def test_a_model_call_wrapper_inside_a_monitor_subclass_is_named_in_a_warning() -> None:
+    # Arrange
+    monitor = TeamMonitorMiddleware(monitor=KeywordMonitor(), protocol=AcceptFirst())
+    stack = [monitor, CommandingMiddleware()]
+
+    # Act
+    with pytest.warns(MonitorPlacementWarning, match="CommandingMiddleware"):
+        misplaced = check_monitor_placement(middleware=stack)
+
+    # Assert
+    assert misplaced == ["CommandingMiddleware"]
+
+
 def test_request_only_and_hook_only_middleware_are_safe_inside_the_monitor(
     monitor_middleware: MonitorMiddleware,
 ) -> None:

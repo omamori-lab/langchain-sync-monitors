@@ -107,7 +107,9 @@ A step halted because a subagent was halted has no samples of its own; the
 subagent's record holds them. Neither has a step halted because an earlier
 halt still stands: when a hook sends a halted run back to the model, the
 monitor halts each further step without drawing a sample, until the user
-writes again.
+writes again. The record before such a step tells the two apart: a halt that
+stands follows this agent's own halted record, and a halt after a subagent's
+follows the subagent's records.
 
 ## Find the steps flagged for audit
 

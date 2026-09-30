@@ -138,6 +138,18 @@ class AutoMode(ControlProtocol):
     from the same count. `check_monitor_placement` warns about such
     middleware.
 
+    A second monitor placed inside this one returns its record as a command,
+    and LangChain keeps the commands of the last model call only, so that
+    monitor loses its judgement of every blocked sample, unless
+    `max_consecutive_blocks` or `max_total_blocks` is 1 and
+    `when_limit_reached` is a `HaltRun` (not a subclass), so that a step draws
+    at most one sample.
+    Inside another monitor, this one should keep
+    `FeedbackVisibility.HIDDEN`: with `IN_TRANSCRIPT` its blocked attempts
+    come first in the step, and the outer monitor judges the first blocked
+    proposal instead of the step that runs. `check_monitor_placement` warns
+    about both.
+
     Each option is checked when the protocol is built: `feedback` must be a
     `FeedbackTemplate`, `when_limit_reached` a `Fallback`, and each limit a
     whole number of at least 1, numpy's integers included; `max_total_blocks`

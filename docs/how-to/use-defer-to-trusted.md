@@ -135,6 +135,11 @@ for record in result["monitor_log"]:
   it that a proposal was replaced, as Ctrl-Z notes [@bhatt2025ctrlz].
 - **A flag never blocks.** Deferral is what stops a step. The flag only marks
   the record for a person to read afterwards.
+- **Put the monitor last** in the `create_agent` middleware list, so no other
+  middleware runs inside it. `check_monitor_placement(middleware=[...])` warns
+  about a list that does not. A second monitor inside this one loses its
+  judgement of every step that is deferred; see
+  [Two monitors in one agent](../explanation/design.md#two-monitors-in-one-agent).
 - **A provider's built-in tools run before the judgement.** A rejected
   proposal's web search or code execution has already run at the provider;
   see

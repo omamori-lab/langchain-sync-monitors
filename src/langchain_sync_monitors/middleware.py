@@ -15,12 +15,15 @@ the last inner call, and mixes them when samples are drawn concurrently
 [@langchain2026].
 `check_monitor_placement` warns about such a list, about a middleware
 outside the monitor that retries failed model calls, and about a middleware
-that runs failed tool calls again or answers them with an error message.
+that runs failed tool calls again or answers them with an error message. It
+also warns about a second monitor inside one whose protocol can call the
+model more than once in a step, which loses the records of all but its last
+call or piles them up for calls drawn at once, and about a monitor inside
+another that commits its blocked attempts with the step, since the outer
+monitor then judges the first blocked proposal.
 `halts` has what happens after a halted step.
 """
 
-import logging
-from collections.abc import Sequence
 from dataclasses import dataclass, replace
 from typing import Self, override
 
@@ -28,15 +31,12 @@ from langchain.agents.middleware.internal_call_transformer import InternalCallTr
 from langchain.agents.middleware.types import (
     AgentMiddleware,
     ExtendedModelResponse,
-    ModelResponse,
     ToolCallRequest,
     hook_config,
 )
 from langgraph.errors import GraphBubbleUp, ParentCommand
-from langgraph.types import Command
 
 from langchain_sync_monitors._langchain import (
-    MONITOR_LOG_KEY,
     AgentContext,
     AgentModelRequest,
     AgentRuntime,
@@ -44,25 +44,19 @@ from langchain_sync_monitors._langchain import (
     AsyncModelCallHandler,
     AsyncToolCallHandler,
     ModelCallHandler,
-    MonitorStepEvent,
-    MonitorStepFailedEvent,
     StructuredOutput,
     ToolCallHandler,
     ToolCallResult,
-    TracedRun,
     cast_to_tool_call_result,
     hide_model_calls_from_message_stream,
     read_monitor_log,
-    write_stream_event,
 )
+from langchain_sync_monitors.commits import commit_step, report_failed_step
 from langchain_sync_monitors.contracts import (
     ControlProtocol,
     Fallback,
     FeedbackVisibility,
     Monitor,
-    SampleRecord,
-    StepDecision,
-    StepRecord,
     SubagentHalt,
     TaskAuthor,
 )
@@ -73,10 +67,8 @@ from langchain_sync_monitors.delegation import (
     read_delegation_id,
 )
 from langchain_sync_monitors.errors import ConfigurationError
-from langchain_sync_monitors.feedback import build_blocked_attempt_messages
 from langchain_sync_monitors.halts import (
     build_end_run_update,
-    build_halt_inputs_update,
     find_halt_decision,
     has_just_halted,
 )
@@ -88,17 +80,15 @@ from langchain_sync_monitors.options import (
 )
 from langchain_sync_monitors.pending_steps import (
     AsyncPendingStep,
-    MonitoredStep,
     PendingStepOptions,
     PreparedStep,
     SyncPendingStep,
     run_synchronously,
 )
 from langchain_sync_monitors.provider_tools import warn_about_provider_tools
-from langchain_sync_monitors.records import build_sample_record, find_monitor_records
+from langchain_sync_monitors.records import find_monitor_records
 from langchain_sync_monitors.spans import (
     StepIdentity,
-    build_step_span_inputs,
     open_step_span,
     open_step_span_sync,
     trace_decision,
@@ -106,7 +96,6 @@ from langchain_sync_monitors.spans import (
 )
 from langchain_sync_monitors.task_authorship import (
     TASK_MESSAGES_KEY,
-    build_note_update,
     build_run_end_update,
     build_run_input_update,
     build_step_start_update,
@@ -114,16 +103,6 @@ from langchain_sync_monitors.task_authorship import (
     read_message_ids,
     relabel_parent_command,
 )
-
-logger = logging.getLogger(__name__)
-
-
-def render_judged_samples(samples: Sequence[SampleRecord]) -> str:
-    """Render judged samples for a log line: each one's suspicion, reason and proposal."""
-    return "\n".join(
-        f"- suspicion {sample['suspicion']:.3f}, reason: {sample['reason']}\n{sample['proposal']}"
-        for sample in samples
-    )
 
 
 @dataclass(frozen=True, kw_only=True, eq=False)
@@ -291,8 +270,12 @@ class MonitorMiddleware(AgentMiddleware[MonitorState, AgentContext, StructuredOu
                     # LangGraph's own control flow, such as an interrupt, is not a failed step.
                     raise
                 except BaseException as error:
-                    self.report_failed_step(
-                        request, step=step, error=error, traced_step=traced_step
+                    report_failed_step(
+                        step,
+                        identity=prepared.identity,
+                        error=error,
+                        traced_step=traced_step,
+                        middleware_name=self.name,
                     )
                     raise
                 finally:
@@ -301,7 +284,13 @@ class MonitorMiddleware(AgentMiddleware[MonitorState, AgentContext, StructuredOu
                     step.close()
             record = prepared.identity.build_record(decision)
             trace_decision_sync(traced_step, record=record)
-            return self.commit(request, decision=decision, record=record)
+            return commit_step(
+                request,
+                decision=decision,
+                record=record,
+                middleware_name=self.name,
+                feedback_visibility=self.feedback_visibility,
+            )
 
     @override
     async def awrap_model_call(
@@ -323,13 +312,23 @@ class MonitorMiddleware(AgentMiddleware[MonitorState, AgentContext, StructuredOu
                     # LangGraph's own control flow, such as an interrupt, is not a failed step.
                     raise
                 except BaseException as error:
-                    self.report_failed_step(
-                        request, step=step, error=error, traced_step=traced_step
+                    report_failed_step(
+                        step,
+                        identity=prepared.identity,
+                        error=error,
+                        traced_step=traced_step,
+                        middleware_name=self.name,
                     )
                     raise
             record = prepared.identity.build_record(decision)
             await trace_decision(traced_step, record=record)
-            return self.commit(request, decision=decision, record=record)
+            return commit_step(
+                request,
+                decision=decision,
+                record=record,
+                middleware_name=self.name,
+                feedback_visibility=self.feedback_visibility,
+            )
 
     @override
     def wrap_tool_call(
@@ -473,79 +472,3 @@ class MonitorMiddleware(AgentMiddleware[MonitorState, AgentContext, StructuredOu
             ),
         )
         return PreparedStep(identity=identity, halt=halt, options=options)
-
-    def report_failed_step(
-        self,
-        request: AgentModelRequest,
-        *,
-        step: MonitoredStep,
-        error: BaseException,
-        traced_step: TracedRun,
-    ) -> None:
-        """Report the samples judged in a step that raised, before the error propagates.
-
-        The step is never committed, so this is the only trace of its samples:
-        a `MonitorStepFailedEvent` on `stream_mode="custom"`, the step span's
-        inputs, which name the first sample judged, and, when the monitor had
-        judged anything, a warning that lists each sample.
-        """
-        step_number = len(step.previous_records) + 1
-        samples = [build_sample_record(sample, executed=False) for sample in step.judged_samples]
-        traced_step.inputs_at_end = build_step_span_inputs(step_number=step_number, samples=samples)
-        event = MonitorStepFailedEvent(
-            type="monitor_step_failed",
-            agent=self.agent_name,
-            monitor=self.label,
-            step_number=step_number,
-            error=f"{type(error).__name__}: {error}",
-            samples=samples,
-        )
-        delegation_id = read_delegation_id(request.state)
-        if delegation_id is not None:
-            event["delegation_id"] = delegation_id
-        write_stream_event(request, event=event)
-        if samples:
-            logger.warning(
-                "%s: step %d failed with %s before it was committed, so the %d sample(s) the "
-                "monitor judged are not in monitor_log:\n%s",
-                self.name,
-                step_number,
-                event["error"],
-                len(samples),
-                render_judged_samples(samples),
-            )
-
-    def commit(
-        self,
-        request: AgentModelRequest,
-        *,
-        decision: StepDecision,
-        record: StepRecord,
-    ) -> ExtendedModelResponse[StructuredOutput]:
-        """Commit the decided messages and append the step's record to `monitor_log`.
-
-        The record is also written to `stream_mode="custom"` as it is committed.
-        With `FeedbackVisibility.IN_TRANSCRIPT`, each blocked attempt and its
-        feedback come before the step's own messages. The untagged human
-        messages in the state that the monitor had not seen are recorded as
-        seen, so the next run does not take them for its input.
-        """
-        write_stream_event(request, event=MonitorStepEvent(type="monitor_step", record=record))
-        logger.debug(
-            "%s committed step %d: %s", self.name, record["step_number"], record["outcome"]
-        )
-        messages = list(decision.response.result)
-        if self.feedback_visibility is FeedbackVisibility.IN_TRANSCRIPT:
-            messages = [*build_blocked_attempt_messages(decision=decision), *messages]
-        response = ModelResponse(
-            result=messages,
-            structured_response=decision.response.structured_response,
-        )
-        update = {
-            MONITOR_LOG_KEY: [record],
-            # A middleware listed after the monitor runs its `before_model` hook after the
-            # monitor's own, so a human message it wrote is first recorded here.
-            **build_note_update(request.state),
-            **build_halt_inputs_update(record, state=request.state, monitor=self.name),
-        }
-        return ExtendedModelResponse(model_response=response, command=Command(update=update))

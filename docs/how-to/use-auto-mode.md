@@ -118,7 +118,7 @@ Two options of `MonitorMiddleware` matter here:
 | Option | Default | What it does |
 |---|---|---|
 | `feedback_visibility` | `FeedbackVisibility.HIDDEN` | Whether blocked attempts and their feedback stay in the agent's messages. |
-| `label` | `"monitor"` | The name the thread total is counted under. Stacked monitors need distinct labels. |
+| `label` | `"monitor"` | The name the thread total is counted under. Stacked monitors need distinct labels. An Auto Mode monitor inside another keeps `FeedbackVisibility.HIDDEN`, and one outside another needs `max_consecutive_blocks=1` or `max_total_blocks=1` with a `HaltRun` fallback (not a subclass). |
 
 Each option is checked when the object is built, and a value of the wrong
 type raises `ConfigurationError`: a limit given as a float or a `bool`, other
@@ -259,7 +259,10 @@ A blocked attempt is answered in a way every provider accepts:
 - With `IN_TRANSCRIPT`, the blocked attempts and their feedback are committed
   before the accepted step, as Claude Code does [@hughes2026automode]. The
   agent remembers them on later steps, and so does the monitor, which reads
-  earlier feedback as `<monitor_feedback>`.
+  earlier feedback as `<monitor_feedback>`. Keep `HIDDEN` for an Auto Mode
+  monitor that sits inside another monitor: a monitor outside it would judge
+  the first blocked attempt instead of the step that runs, and
+  `check_monitor_placement` warns about such a list.
 
 `HIDDEN` has a cost. Once a step is over, the agent no longer sees what was
 blocked in it, so at a later step it may propose the same blocked action
@@ -268,7 +271,8 @@ again. A repeat the monitor blocks again spends a block towards that step's
 least one call of the agent's model and one of the monitor. In the
 [live runs](../explanation/live-runs.md), Auto Mode with the chat judge
 blocked a read of the credential file, and the agent proposed the same read
-at the next step. Where repeated attempts matter, use `IN_TRANSCRIPT`, which
+at the next step. Where repeated attempts matter, and this monitor sits
+inside no other, use `IN_TRANSCRIPT`, which
 keeps each blocked attempt and its feedback in the conversation, so it grows
 with every block.
 
@@ -324,7 +328,11 @@ blocks_in_thread = sum(record["blocked_count"] for record in records)
   spending blocks and model calls; see [What the agent sees](#what-the-agent-sees).
 - **Put the monitor last** in the `create_agent` middleware list, so no other
   middleware runs inside it and returns commands for attempts the monitor
-  blocks. `check_monitor_placement(middleware=[...])` warns about such a list.
+  blocks. A second monitor inside this one keeps sound records only when
+  `max_consecutive_blocks` or `max_total_blocks` is 1 and `when_limit_reached`
+  is a `HaltRun` (not a subclass), so that a step draws at most one sample;
+  see [Two monitors in one agent](../explanation/design.md#two-monitors-in-one-agent).
+  `check_monitor_placement(middleware=[...])` warns about such a list.
 - **A provider's built-in tools run once per attempt.** A blocked attempt's
   web search or code execution has already run at the provider; see
   [Tools the provider runs itself](choose-a-protocol.md#tools-the-provider-runs-itself).

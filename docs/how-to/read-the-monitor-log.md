@@ -100,7 +100,7 @@ A `SampleRecord` describes one sample:
 | `suspicion` | `float` | The monitor's suspicion, from 0 to 1 |
 | `reason` | `str` | The monitor's reason, as the protocol saw it |
 | `proposal` | `str` | The sample rendered with every channel, whatever the monitor read: reasoning, prose, tool calls, malformed tool calls, and a provider's built-in tool calls with their full results |
-| `executed` | `bool` | Whether this is the sample whose tool calls ran; at most one per step. A provider's built-in tools ran in every sample drawn |
+| `executed` | `bool` | Whether this is the sample whose tool calls ran; at most one per step. A provider's built-in tools ran in every sample drawn. For a monitor inside another, it marks the sample this monitor's protocol chose; when the outer monitor halts the step, nothing ran, and only the outer record says so ([Two monitors in one agent](../explanation/design.md#two-monitors-in-one-agent)) |
 
 Records hold plain values only, so they pass through checkpointers and
 `json.dumps` unchanged.

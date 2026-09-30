@@ -73,6 +73,13 @@ class DeferToResample(ControlProtocol):
     sample whenever it accepts one, and a fallback's trusted call is the last
     call. Parallel resampling may commit an earlier sample, and concurrent
     calls pile up their commands. Keep the monitor last in the middleware list.
+    A second monitor placed inside this one is such a middleware: it returns
+    its record as a command, so it loses its judgement of each rejected
+    sample, and parallel resampling under `ainvoke()` leaves it one record per
+    resample drawn at once, all under the same step number.
+    `check_monitor_placement` warns about it unless `max_resamples=0` and the
+    fallback is a `HaltRun` (not a subclass), which call the model at most once
+    per step.
     """
 
     def __init__(

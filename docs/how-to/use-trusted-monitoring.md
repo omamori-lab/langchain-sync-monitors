@@ -142,6 +142,11 @@ for record in result["monitor_log"]:
   [Choose a protocol](choose-a-protocol.md).
 - **Final answers are steps too.** The agent's last message is judged like any
   tool call, so every model call of the agent costs a monitor call.
+- **Put the monitor last** in the `create_agent` middleware list.
+  `check_monitor_placement(middleware=[...])` warns about a list that puts a
+  middleware where it undermines the monitor. Trusted Monitoring calls the
+  model once per step, so a second monitor may sit inside it; see
+  [Two monitors in one agent](../explanation/design.md#two-monitors-in-one-agent).
 - **A provider's built-in tools run before the judgement.** Tools such as
   Anthropic's web fetch run inside the model call, so the step has used them
   before the monitor scores it; see

@@ -49,7 +49,9 @@ last in a `create_agent` list, directly around the model:
   step. One that retries failed model calls runs the whole step again
   ([failed steps](#failed-steps)).
 
-`check_monitor_placement(middleware=[...])` warns about both, and about
+`check_monitor_placement(middleware=[...])` warns about both; about a second
+monitor inside one whose protocol can call the model more than once in a
+step ([two monitors in one agent](#two-monitors-in-one-agent)); and about
 middleware that retries or answers failed tool calls
 ([subagents and the thread total](#subagents-and-the-thread-total)). It
 returns the names it warned about.
@@ -130,14 +132,94 @@ default, and LangChain requires names to be unique within one agent. The
 monitor keeps its records and its halts under its label and agent, so two
 monitors that shared them would lift each other's halts, and a subclass that
 names itself otherwise raises `ConfigurationError`. Two monitors stacked in
-one agent therefore need distinct labels. The hooks become graph nodes named
-after the monitor, so `label` and `agent_name` must be non-blank strings
-without `:` or `|`, which LangGraph refuses in a node name. `monitor_subagents` names each
-subagent's copy after the subagent, such as `monitor[researcher]`.
+one agent therefore need distinct labels. Stacking keeps sound records only
+when the outer monitor's protocol calls the model at most once per step, and
+an inner monitor that blocks keeps `FeedbackVisibility.HIDDEN`; see
+[two monitors in one agent](#two-monitors-in-one-agent). The hooks become
+graph nodes named after the monitor, so `label` and `agent_name` must be
+non-blank strings without `:` or `|`, which LangGraph refuses in a node name.
+`monitor_subagents` names each subagent's copy after the subagent, such as
+`monitor[researcher]`.
 
 Deep Agents runs parallel subagents through shared middleware instances, so
 the instance holds configuration only, and every piece of run state lives in
 the graph state ([private state keys](#private-state-keys)).
+
+### Two monitors in one agent
+
+A second `MonitorMiddleware` in the list, with its own `label`, sits inside
+the first: the outer monitor judges the step the inner one commits. The inner
+monitor returns its record as a command, and LangChain keeps only the commands
+of the last call of the outer monitor's handler, or piles up those of calls
+made at once [@langchain2026]. The inner protocol does not change this, so
+the outer protocol decides whether the inner records are sound:
+
+| Outer protocol | Inner monitor's records |
+|---|---|
+| `TrustedMonitoring` | Sound |
+| `DeferToResample(max_resamples=0, fallback=HaltRun())` | Sound |
+| `AutoMode` with `max_consecutive_blocks=1` or `max_total_blocks=1`, and `when_limit_reached=HaltRun()` | Sound |
+| `DeferToTrusted`, or `DeferToResample` with resamples or with `DeferToTrustedModel` | The judgement of each rejected sample is lost |
+| `AutoMode` that can block twice in a step, or with `DeferToTrustedModel` | The judgement of each blocked sample is lost |
+| `DeferToResample(resampling=Resampling.PARALLEL)` under `ainvoke()` | The first sample's judgement is lost, and the resamples drawn at once leave one record each under the same step number, so later numbers are skipped; if the trusted model then writes the step, only its record is kept |
+| A subclass of a protocol, a protocol of your own, or a fallback of your own, a `HaltRun` subclass included | Not known; `check_monitor_placement` warns |
+
+The first three call the model at most once per step, whatever message their
+`HaltRun` carries. Sound means the stack loses nothing of its own: as with one
+monitor, a middleware outside it that raises after a step returns leaves that
+step's records on `stream_mode="custom"` but out of `monitor_log`. Whatever the
+outer protocol, an inner monitor whose protocol blocks, such as `AutoMode`,
+must keep `FeedbackVisibility.HIDDEN`: with `IN_TRANSCRIPT` it commits its
+blocked attempts ahead of the step, and the outer monitor judges the first
+blocked proposal instead of the step that runs. In a sound stack each record
+holds its own monitor's decision, so when the outer monitor halts a step the
+inner one allowed, the inner record still marks its sample `executed` though
+nothing ran, and only the outer record says what ran.
+`check_monitor_placement` warns about each stack that loses or misjudges
+records, and about a middleware between two monitors inside one that can call
+the model again; `monitor_subagents` warns about the stacks it builds.
+
+To judge every sample with two monitors under a protocol that resamples, give
+one `MonitorMiddleware` a monitor that runs both and keeps the higher
+suspicion, so either can reject the step. The library has no such wrapper, and
+a few lines make one:
+
+```python
+import asyncio
+
+from langchain_sync_monitors import Monitor, MonitorInput, Verdict
+
+
+class HigherSuspicion(Monitor):
+    """Judge with both monitors and keep the more suspicious verdict."""
+
+    def __init__(self, *, first: Monitor, second: Monitor) -> None:
+        self.first = first
+        self.second = second
+
+    async def evaluate(self, monitor_input: MonitorInput) -> Verdict:
+        verdicts = await asyncio.gather(
+            self.first.evaluate(monitor_input),
+            self.second.evaluate(monitor_input),
+        )
+        return max(verdicts, key=lambda verdict: verdict.suspicion)
+
+    def evaluate_sync(self, monitor_input: MonitorInput) -> Verdict:
+        verdicts = [
+            self.first.evaluate_sync(monitor_input),
+            self.second.evaluate_sync(monitor_input),
+        ]
+        return max(verdicts, key=lambda verdict: verdict.suspicion)
+```
+
+The combined monitor flags every step either judge flags, so at a given
+threshold its honest runs are flagged more often than either judge's, up to
+the sum of the two rates: calibrate its thresholds on its own honest scores,
+as [Combine and calibrate
+monitors](../how-to/combine-and-calibrate-monitors.md) shows.
+`CascadeMonitor` does not do this. It calls the careful monitor only when the
+fast one finds the step suspicious, and the careful verdict then replaces the
+fast one, so the careful monitor can clear a step the fast one flagged.
 
 ## Protocols and outcomes
 
@@ -838,7 +920,7 @@ wrappers, `MonitorView`, the decision models, `monitor_subagents` and
 | `UncalibratedThresholdWarning` | A protocol is built with a default threshold. |
 | `CachedResampleWarning` | A step is resampled under a response cache; once per process. |
 | `ProviderToolWarning` | A model call receives a tool its provider runs itself; once per middleware instance. |
-| `MonitorPlacementWarning` | `check_monitor_placement` finds a middleware placed where it undermines the monitor. |
+| `MonitorPlacementWarning` | `check_monitor_placement` finds a middleware placed where it undermines the monitor, a stacked monitor that loses or misjudges records included, or `monitor_subagents` builds such a stack in a subagent. |
 | `HardLabelWarning` | A `GuardModelMonitor` is built with `GuardScoring.HARD_LABEL`. |
 
 ## Known limits and open paths
@@ -961,6 +1043,11 @@ limit is linked from where it arises above.
 
 ### Protocols and configuration
 
+- **Stacked monitors.** A monitor inside another keeps sound records only
+  when the outer protocol calls the model at most once per step, and an
+  inner monitor that blocks keeps `FeedbackVisibility.HIDDEN`; under any
+  other outer protocol it loses or duplicates records
+  ([two monitors in one agent](#two-monitors-in-one-agent)).
 - **Resampling as a best-of-n attack.** An injection aimed at the monitor
   gets another try with every sample, so Defer to Resample turns it into a
   best-of-n attack [@terekhov2025adaptive]. An injection that passes one

@@ -94,8 +94,8 @@ what the total block limit counts; see
 | Option | Default | What it does |
 |---|---|---|
 | `block_threshold` | 0.6, with a warning | An attempt whose suspicion is at or above this value is blocked. |
-| `max_consecutive_blocks` | 3 | When the blocks within one step reach this number, `when_limit_reached` writes the step. Anything but an `int` of at least 1 raises `ConfigurationError`. |
-| `max_total_blocks` | 20 | When this monitor's blocks across the thread, subagents' included, reach this number, `when_limit_reached` writes the step. Anything but an `int` of at least 1 raises `ConfigurationError`. |
+| `max_consecutive_blocks` | 3 | When the blocks within one step reach this number, `when_limit_reached` writes the step. Anything but a whole number of at least 1 raises `ConfigurationError`. |
+| `max_total_blocks` | 20 | When this monitor's blocks across the thread, subagents' included, reach this number, `when_limit_reached` writes the step. `math.inf` turns the total limit off; anything but that or a whole number of at least 1 raises `ConfigurationError`. |
 | `when_limit_reached` | `HaltRun()` | The fallback that writes the step once a limit is reached. A protocol here, such as `DeferToTrusted` in place of `DeferToTrustedModel`, raises `ConfigurationError`. |
 | `feedback` | `DEFAULT_FEEDBACK_TEMPLATE` | The message the agent receives when a step is blocked, a `FeedbackTemplate`. |
 

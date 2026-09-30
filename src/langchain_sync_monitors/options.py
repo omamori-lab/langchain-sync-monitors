@@ -13,7 +13,11 @@ at the first suspicious step, the one the protocol exists for.
 
 from __future__ import annotations
 
+import math
+import numbers
+import operator
 from enum import Enum
+from typing import TypeGuard
 
 from langchain_sync_monitors.errors import ConfigurationError
 
@@ -35,10 +39,10 @@ def check_enum_option(value: object, *, option_type: type[Enum], parameter_name:
 
 
 def describe_option_value(value: object) -> str:
-    """Name a refused value: a plain value as written, anything else by its type."""
-    if value is None or isinstance(value, str | int | float):
+    """Name a refused value: a string, a number or None as written, anything else by its type."""
+    if value is None or isinstance(value, str | numbers.Number):
         return repr(value)
-    return f"a {type(value).__name__}"
+    return f"an instance of {type(value).__name__}"
 
 
 def check_instance_option(
@@ -62,19 +66,46 @@ def check_instance_option(
     raise ConfigurationError(message.rstrip())
 
 
-def check_count_option(value: object, *, parameter_name: str, minimum: int) -> None:
-    """Raise `ConfigurationError` unless `value` is an `int` of at least `minimum`.
+def is_whole_number(value: object) -> TypeGuard[numbers.Integral]:
+    """Tell whether a value is an integral number other than a `bool`.
 
-    A `bool` is refused although Python counts it as an `int`, and so is a
-    float such as `2.0`, which would fail only when the protocol first counts
-    with it.
+    numpy's integers count, since the protocols count with them through
+    `__index__`. A `bool` does not, although Python counts it as an `int`, and
+    nor does a float such as `2.0`, which would fail only when the protocol
+    first counts with it.
     """
-    if isinstance(value, bool) or not isinstance(value, int):
+    return isinstance(value, numbers.Integral) and not isinstance(value, bool)
+
+
+def read_count_option(value: object, *, parameter_name: str, minimum: int) -> int:
+    """Return a count option as an `int`, raising `ConfigurationError` unless it is one.
+
+    The value must be a whole number of at least `minimum`.
+    """
+    if not is_whole_number(value):
         message = (
-            f"{parameter_name} must be an int of at least {minimum}, "
+            f"{parameter_name} must be a whole number of at least {minimum}, "
             f"got {describe_option_value(value)}"
         )
         raise ConfigurationError(message)
-    if value < minimum:
-        message = f"{parameter_name} must be at least {minimum}, got {value}"
+    count = operator.index(value)
+    if count < minimum:
+        message = f"{parameter_name} must be at least {minimum}, got {count}"
         raise ConfigurationError(message)
+    return count
+
+
+def read_limit_option(value: object, *, parameter_name: str, minimum: int) -> int | float:
+    """Return a limit option: a whole number of at least `minimum`, or `math.inf` for no limit.
+
+    Anything else raises `ConfigurationError`.
+    """
+    if isinstance(value, float) and value == math.inf:
+        return value
+    if is_whole_number(value) and operator.index(value) >= minimum:
+        return operator.index(value)
+    message = (
+        f"{parameter_name} must be a whole number of at least {minimum}, or math.inf for "
+        f"no limit, got {describe_option_value(value)}"
+    )
+    raise ConfigurationError(message)

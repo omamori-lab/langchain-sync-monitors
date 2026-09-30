@@ -7,6 +7,8 @@ build without error and fail only at the first suspicious step: with a
 
 from __future__ import annotations
 
+import math
+import numbers
 from typing import Any
 
 import pytest
@@ -27,6 +29,19 @@ from tests.support.protocols import AcceptFirst
 
 WRONG_COUNTS = [2.5, 2.0, "3", True, None]
 WRONG_COUNT_IDS = ["float", "whole-float", "string", "bool", "none"]
+
+
+class ArrayInteger:
+    """Stands in for numpy's integers: registered as integral, but not a subclass of `int`."""
+
+    def __init__(self, value: int) -> None:
+        self.value = value
+
+    def __index__(self) -> int:
+        return self.value
+
+
+numbers.Integral.register(ArrayInteger)
 
 
 def build_trusted_model() -> FakeListChatModel:
@@ -52,19 +67,27 @@ def build_defer_to_resample(**options: Any) -> DeferToResample:
 
 @pytest.mark.parametrize("value", WRONG_COUNTS, ids=WRONG_COUNT_IDS)
 @pytest.mark.parametrize("parameter_name", ["max_consecutive_blocks", "max_total_blocks"])
-def test_auto_mode_refuses_a_block_limit_that_is_not_an_int(
+def test_auto_mode_refuses_a_block_limit_that_is_not_a_whole_number(
     parameter_name: str,
     value: object,
 ) -> None:
     # Act / Assert
-    with pytest.raises(ConfigurationError, match=f"{parameter_name} must be an int of at least 1"):
+    with pytest.raises(
+        ConfigurationError,
+        match=f"{parameter_name} must be a whole number of at least 1",
+    ):
         build_auto_mode(**{parameter_name: value})
 
 
 @pytest.mark.parametrize("value", WRONG_COUNTS, ids=WRONG_COUNT_IDS)
-def test_defer_to_resample_refuses_a_resample_count_that_is_not_an_int(value: object) -> None:
+def test_defer_to_resample_refuses_a_resample_count_that_is_not_a_whole_number(
+    value: object,
+) -> None:
     # Act / Assert
-    with pytest.raises(ConfigurationError, match="max_resamples must be an int of at least 0"):
+    with pytest.raises(
+        ConfigurationError,
+        match="max_resamples must be a whole number of at least 0",
+    ):
         build_defer_to_resample(max_resamples=value)
 
 
@@ -76,6 +99,56 @@ def test_the_smallest_counts_are_accepted() -> None:
     # Assert
     assert (auto_mode.max_consecutive_blocks, auto_mode.max_total_blocks) == (1, 1)
     assert defer_to_resample.max_resamples == 0
+
+
+def test_integers_that_are_not_python_ints_are_accepted_as_ints() -> None:
+    # Act
+    auto_mode = build_auto_mode(
+        max_consecutive_blocks=ArrayInteger(2),
+        max_total_blocks=ArrayInteger(5),
+    )
+    defer_to_resample = build_defer_to_resample(max_resamples=ArrayInteger(3))
+
+    # Assert
+    assert (auto_mode.max_consecutive_blocks, auto_mode.max_total_blocks) == (2, 5)
+    assert defer_to_resample.max_resamples == 3
+    assert type(auto_mode.max_consecutive_blocks) is int
+    assert type(defer_to_resample.max_resamples) is int
+
+
+def test_infinity_lifts_the_total_block_limit() -> None:
+    # Act
+    auto_mode = build_auto_mode(max_total_blocks=math.inf)
+
+    # Assert
+    assert auto_mode.max_total_blocks == math.inf
+
+
+@pytest.mark.parametrize(
+    ("options", "message"),
+    [
+        ({"max_consecutive_blocks": math.inf}, "max_consecutive_blocks must be a whole number"),
+        ({"max_total_blocks": -math.inf}, "max_total_blocks must be a whole number"),
+        ({"max_total_blocks": math.nan}, "or math.inf for no limit, got nan"),
+        ({"max_total_blocks": 0}, "max_total_blocks must be a whole number of at least 1"),
+    ],
+    ids=["consecutive-infinity", "negative-infinity", "nan", "zero"],
+)
+def test_only_the_total_block_limit_accepts_infinity(
+    options: dict[str, object],
+    message: str,
+) -> None:
+    # Act / Assert
+    with pytest.raises(ConfigurationError, match=message):
+        build_auto_mode(**options)
+
+
+def test_infinity_is_refused_as_a_resample_count() -> None:
+    # Act / Assert
+    with pytest.raises(
+        ConfigurationError, match="max_resamples must be a whole number of at least 0, got inf"
+    ):
+        build_defer_to_resample(max_resamples=math.inf)
 
 
 @pytest.mark.parametrize(
@@ -94,7 +167,8 @@ def test_a_protocol_given_as_a_fallback_points_to_the_fallback_it_resembles() ->
     # Act / Assert
     with pytest.raises(
         ConfigurationError,
-        match=r"fallback must be a Fallback, got a DeferToTrusted\. DeferToTrusted is a control "
+        match=r"fallback must be a Fallback, got an instance of DeferToTrusted\. DeferToTrusted "
+        r"is a control "
         r"protocol, .* use DeferToTrustedModel\(trusted_model=\.\.\.\)",
     ):
         build_defer_to_resample(fallback=protocol)
@@ -113,7 +187,7 @@ def test_a_fallback_given_as_the_protocol_points_to_the_protocol_it_resembles() 
     # Act / Assert
     with pytest.raises(
         ConfigurationError,
-        match=r"protocol must be a ControlProtocol, got a DeferToTrustedModel\. "
+        match=r"protocol must be a ControlProtocol, got an instance of DeferToTrustedModel\. "
         r"DeferToTrustedModel is a fallback, .* use DeferToTrusted\(trusted_model=\.\.\.\)",
     ):
         MonitorMiddleware(monitor=KeywordMonitor(), protocol=fallback)  # ty: ignore[invalid-argument-type]

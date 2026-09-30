@@ -87,7 +87,7 @@ object you built.
 | `fallback` | Required | What writes the step when no sample is acceptable. A protocol here, such as `DeferToTrusted` in place of `DeferToTrustedModel`, raises `ConfigurationError`. |
 | `defer_threshold` | 0.6, with a warning | A sample whose suspicion is at or above this value is not acceptable. |
 | `audit_threshold` | 0.9, with a warning | A step is flagged when the lowest suspicion across its samples is at or above this value. `None` turns flagging off. |
-| `max_resamples` | 2 | How many more samples to draw after a suspicious first one. 0 draws no resample, so with the `DeferToTrustedModel` fallback the protocol behaves as Defer to Trusted; a negative number, or anything but an `int`, raises `ConfigurationError`. |
+| `max_resamples` | 2 | How many more samples to draw after a suspicious first one. 0 draws no resample, so with the `DeferToTrustedModel` fallback the protocol behaves as Defer to Trusted; anything but a whole number of at least 0 raises `ConfigurationError`. |
 | `resampling` | `Resampling.SEQUENTIAL` | `SEQUENTIAL` or `PARALLEL`, as below. A plain string raises `ConfigurationError`. |
 
 ### Fallbacks

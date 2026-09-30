@@ -1126,8 +1126,9 @@ limit is linked from where it arises above.
   tool call, which runs inside the monitor's `wrap_tool_call` hook, a Deep
   Agent's `task` call and whole subagent among them, and the agent's model
   calls inside the hooks of middleware listed after the monitor. Under
-  `ainvoke()`, Langfuse can put each such run in a trace of its own. The hook
-  runs cause that split, not the spans.
+  `ainvoke()`, Langfuse puts each such run in a trace of its own; under
+  `invoke()` the trace stays whole. The hook runs cause that split, not the
+  spans.
 - **Trajectory view in subagents.** Inside a Deep Agents subagent, LangSmith
   sets `ls_agent_type` to `subagent` on every run, the monitor's spans
   included, so there they may show in the subagent's Trajectory view.

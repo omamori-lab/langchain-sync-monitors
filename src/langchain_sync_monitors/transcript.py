@@ -21,7 +21,7 @@ from __future__ import annotations
 
 import html
 import json
-from collections.abc import Iterator, Mapping, Sequence
+from collections.abc import Collection, Iterator, Mapping, Sequence
 from dataclasses import dataclass
 from typing import NotRequired, TypedDict
 
@@ -45,6 +45,9 @@ MONITOR_FEEDBACK_SOURCE = "monitor"
 """The `lc_source` tag on messages the monitor itself inserts into a conversation."""
 
 TASK_AUTHOR_TAGS = {TaskAuthor.USER: "user", TaskAuthor.PARENT_AGENT: "delegator"}
+
+REASONING_BLOCK_TYPES = frozenset({"thinking", "redacted_thinking", "reasoning"})
+"""The types of provider blocks that hold the model's reasoning, encrypted or not."""
 
 GROUNDING_QUERY_KEYS = ("web_search_queries", "image_search_queries")
 """The keys of Gemini's `grounding_metadata` that hold the searches its built-in tools ran."""
@@ -174,26 +177,39 @@ def render_provider_tool_result(block: ServerToolResult, *, tool_name: str) -> s
     return wrap_in_tag(tag="provider_tool_result", content=content, name=tool_name)
 
 
-def render_unrecognised_block(block: NonStandardContentBlock) -> str:
+def build_unrecognised_block_entry(
+    block: NonStandardContentBlock,
+    *,
+    known_call_ids: Collection[str],
+) -> TranscriptEntry | None:
     """Render a part of a reply that LangChain could not map to a standard block, whole.
 
     The block's own `type`, when it has one, is its name. It may be a tool
     call the provider ran, in a reply without `model_provider` in its
-    metadata, so it is shown rather than dropped.
+    metadata, so it sits with the tool calls rather than being dropped. A
+    block of reasoning, such as Anthropic's `thinking`, sits with the
+    reasoning instead, so a view without it still leaves it out. A block that
+    carries the id of one of the message's tool calls repeats that call, which
+    is rendered already, so it renders as nothing.
     """
     value = block.get("value", {})
-    block_type = value.get("type") if isinstance(value, Mapping) else None
-    return wrap_in_tag(
-        tag="unrecognised_block",
-        content=render_json(value),
-        name=block_type if isinstance(block_type, str) else None,
-    )
+    if not isinstance(value, Mapping):
+        value = {"value": value}
+    block_id = value.get("id")
+    if isinstance(block_id, str) and block_id in known_call_ids:
+        return None
+    block_type = value.get("type")
+    name = block_type if isinstance(block_type, str) else None
+    channel = Channel.REASONING if name in REASONING_BLOCK_TYPES else Channel.TOOL_CALLS
+    text = wrap_in_tag(tag="unrecognised_block", content=render_json(value), name=name)
+    return TranscriptEntry(channel=channel, text=text)
 
 
 def build_provider_tool_entries(
     blocks: Sequence[ContentBlock],
     *,
     tool_names_by_call: Mapping[str, str],
+    known_call_ids: Collection[str] = frozenset(),
 ) -> Iterator[TranscriptEntry]:
     """Yield the built-in tool calls the provider ran inside a model call, and their results.
 
@@ -219,10 +235,9 @@ def build_provider_tool_entries(
                 text=render_provider_tool_result(block, tool_name=tool_name),
             )
         elif block["type"] == "non_standard":
-            yield TranscriptEntry(
-                channel=Channel.TOOL_CALLS,
-                text=render_unrecognised_block(block),
-            )
+            entry = build_unrecognised_block_entry(block, known_call_ids=known_call_ids)
+            if entry is not None:
+                yield entry
 
 
 def build_grounding_entries(message: AIMessage) -> Iterator[TranscriptEntry]:
@@ -271,9 +286,11 @@ def build_agent_entries(
             channel=Channel.REASONING,
             text=wrap_in_tag(tag="agent_reasoning", content=reasoning),
         )
+    calls: list[ToolCall | InvalidToolCall] = [*message.tool_calls, *message.invalid_tool_calls]
     yield from build_provider_tool_entries(
         message.content_blocks,
         tool_names_by_call=tool_names_by_call,
+        known_call_ids={call["id"] for call in calls if call["id"]},
     )
     yield from build_grounding_entries(message)
     if message.text.strip():

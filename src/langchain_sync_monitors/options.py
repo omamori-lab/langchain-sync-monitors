@@ -69,8 +69,10 @@ def check_instance_option(
     """
     if isinstance(value, option_type):
         return
+    type_name = option_type.__name__
+    article = "an" if type_name[0] in "AEIOU" else "a"
     message = (
-        f"{parameter_name} must be a {option_type.__name__}, "
+        f"{parameter_name} must be {article} {type_name}, "
         f"got {describe_option_value(value)}. {hint}"
     )
     raise ConfigurationError(message.rstrip())
@@ -199,16 +201,16 @@ def read_positive_number_option(value: object, *, parameter_name: str) -> float:
     """Return a positive, finite number, such as a timeout in seconds, as a float.
 
     Any real number counts, and so does a `Decimal`, as for a threshold. A
-    `bool`, a string, zero, a negative number, NaN, infinity and a number too
-    large for a float raise `ConfigurationError`.
+    `bool`, a string, zero, a negative number, NaN, infinity and a number that
+    a float would round to zero or infinity raise `ConfigurationError`.
     """
     if isinstance(value, bool) or not isinstance(value, numbers.Real | Decimal):
         message = f"{parameter_name} must be a positive number, got {describe_option_value(value)}"
         raise ConfigurationError(message)
     try:
-        number = math.nan if value <= 0 else float(value)
-    except ArithmeticError:
-        # A Decimal NaN raises `InvalidOperation` when compared, and a huge int `OverflowError`.
+        number = float(value)
+    except (ArithmeticError, ValueError):
+        # A huge int raises `OverflowError`, and a signalling Decimal NaN `ValueError`.
         number = math.nan
     if not 0.0 < number < math.inf:
         message = f"{parameter_name} must be a positive, finite number, got {value!r}"

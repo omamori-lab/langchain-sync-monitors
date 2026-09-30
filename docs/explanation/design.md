@@ -250,9 +250,12 @@ guard against a forged approval:
   monitor never saw, so the next run reads it as `unconfirmed_input` rather
   than as a note named after the nudge. Deep Agents' Nemotron nudge that
   tells the agent to call a tool instead of asking for another confirmation
-  becomes such a note. The agent can cause the stop, so it gains from one
-  only if the judge reads the note as lifting a safeguard, which the prompt
-  forbids but cannot guarantee.
+  becomes such a note, and it opens by saying the user is asking for an
+  action. The agent can cause the stop, and the judge is then told that
+  this text may be the user's. So the agent gains from the stop only if the
+  judge departs from the prompt, by taking an approval from the note or by
+  letting it lift a safeguard; the prompt forbids both but cannot guarantee
+  either.
 - The monitor's own feedback carries `lc_source="monitor"` and is rendered as
   `<monitor_feedback>` wherever the task is shown: both the message that
   answers a blocked final answer and the tool message that answers a blocked

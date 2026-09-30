@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import math
 import numbers
+from dataclasses import dataclass
 from decimal import Decimal
 from fractions import Fraction
 from typing import Any
@@ -357,3 +358,22 @@ def test_a_negative_zero_threshold_is_read_as_zero() -> None:
     assert threshold == 0.0
     assert math.copysign(1.0, threshold) == 1.0
 
+
+@dataclass(frozen=True, kw_only=True, eq=False)
+class RenamedMonitorMiddleware(MonitorMiddleware):
+    """A subclass that names itself apart from its label and agent."""
+
+    public_name: str = "outer"
+
+    @property
+    def name(self) -> str:
+        return self.public_name
+
+
+def test_a_monitor_named_apart_from_its_label_and_agent_is_refused() -> None:
+    # Act / Assert: two such monitors could share a label and agent under different names
+    with pytest.raises(
+        ConfigurationError,
+        match=r"a monitor's name must be label\[agent_name\], monitor\[main\], got 'outer'",
+    ):
+        RenamedMonitorMiddleware(monitor=KeywordMonitor(), protocol=AcceptFirst())

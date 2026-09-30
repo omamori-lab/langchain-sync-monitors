@@ -72,6 +72,7 @@ from langchain_sync_monitors.delegation import (
     count_new_subagent_blocks,
     read_delegation_id,
 )
+from langchain_sync_monitors.errors import ConfigurationError
 from langchain_sync_monitors.feedback import build_blocked_attempt_messages
 from langchain_sync_monitors.halts import (
     build_end_run_update,
@@ -138,7 +139,8 @@ class MonitorMiddleware(AgentMiddleware[MonitorState, AgentContext, StructuredOu
     checks a list.
 
     `label` and `agent_name` make up the name, `monitor[main]` by default,
-    which LangChain requires to be unique within one agent. `task_author` says
+    which LangChain requires to be unique within one agent, and a subclass
+    that names itself otherwise raises `ConfigurationError`. `task_author` says
     who wrote the task the monitor reads. `feedback_visibility` decides whether
     blocked attempts and their feedback are committed with the step or only
     shown to the retry. `when_subagent_halts=SubagentHalt.STOP_WHOLE_RUN` halts
@@ -212,6 +214,14 @@ class MonitorMiddleware(AgentMiddleware[MonitorState, AgentContext, StructuredOu
 
     def __post_init__(self) -> None:
         """Reject an option of the wrong type, such as a plain string where an enum belongs."""
+        if self.name != f"{self.label}[{self.agent_name}]":
+            message = (
+                f"a monitor's name must be label[agent_name], {self.label}[{self.agent_name}], "
+                f"got {self.name!r}: its records and halts are kept under its label and agent, "
+                "so two monitors that shared them would lift each other's halts. Give each "
+                "monitor its own label instead."
+            )
+            raise ConfigurationError(message)
         check_instance_option(self.monitor, option_type=Monitor, parameter_name="monitor")
         protocol_hint = "Use a protocol such as AutoMode, DeferToResample or DeferToTrusted."
         if isinstance(self.protocol, Fallback):

@@ -101,16 +101,23 @@ dictionaries, so they pass through checkpointers and `json.dumps` unchanged.
 | `resampled` | Defer to Resample | The least suspicious acceptable resample | That sample |
 | `steered` | Auto Mode | The first acceptable sample after one or more blocks | That sample |
 | `deferred_to_trusted` | Defer to Trusted, and any protocol whose fallback is `DeferToTrustedModel` | The trusted model's step | None |
-| `halted` | The `HaltRun` fallback, a subagent's halt under `SubagentHalt.STOP_WHOLE_RUN`, or an earlier halt that still stands | A final message that ends the run | None |
+| `halted` | The `HaltRun` fallback, a subagent's halt under `SubagentHalt.STOP_WHOLE_RUN`, Auto Mode's thread total reached inside subagents, or an earlier halt that still stands | A final message that ends the run | None |
 
-A step halted because a subagent was halted has no samples of its own; the
-subagent's record holds them. Neither has a step halted because an earlier
-halt still stands: when a hook sends a halted run back to the model, the
-monitor halts each further step without drawing a sample, until the thread
-records another run input. This monitor's previous record for this agent
-tells the two apart: before a halt that stands it is a halt too, and before a
-halt after a subagent's it is not, and a subagent's records come after it.
-Other monitors' records may sit in between.
+Three kinds of halted step draw no sample, so their records hold no samples:
+
+- a halt because a subagent was halted, under `SubagentHalt.STOP_WHOLE_RUN`;
+  the subagent's halted record holds its samples;
+- a halt because blocks inside subagents reached Auto Mode's
+  `max_total_blocks`, when `when_limit_reached` is `HaltRun`; no subagent
+  halted, and their records show the blocks;
+- a halt that still stands: when a hook sends a halted run back to the model,
+  the monitor halts each further step without drawing a sample, until the
+  thread records another run input.
+
+This monitor's previous record for this agent tells the last kind apart: it is
+a halt too. For the other two it is not, and subagent records come after it;
+read their outcomes to tell a subagent's halt from blocks that reached the
+total. Other monitors' records may sit in between.
 
 ## Find the steps flagged for audit
 

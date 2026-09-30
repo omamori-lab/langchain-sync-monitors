@@ -3,9 +3,11 @@ name: Release
 # Publishes a release to PyPI when its GitHub Release is published;
 # scripts/release.sh tags a commit on main and creates that Release. The
 # workflow:
-#   1. checks that the Release is not a pre-release, that the tag is vX.Y.Z
-#      and names a commit on main, and that it agrees with __version__,
-#      CITATION.cff and CHANGELOG.md (scripts/check-release.sh);
+#   1. checks that the Release is not a pre-release, that the pypi
+#      environment has a required reviewer whom administrators cannot bypass,
+#      that the tag is vX.Y.Z and names a commit on main, and that it agrees
+#      with __version__, CITATION.cff and CHANGELOG.md
+#      (scripts/check-release.sh);
 #   2. runs the whole CI workflow on the tagged commit;
 #   3. builds the sdist and the wheel once, records their SHA-256 digests,
 #      checks them with twine, and installs the wheel into fresh
@@ -13,8 +15,8 @@ name: Release
 #   4. waits for approval in the "pypi" environment, checks the files against
 #      the recorded digests, then publishes exactly those files through PyPI
 #      trusted publishing, so no token is stored;
-#   5. attaches the same files to the GitHub Release and deploys the tagged
-#      commit's documentation.
+#   5. checks the files against the digests again and attaches them to the
+#      GitHub Release, and deploys the tagged commit's documentation.
 # These checks guard against mistakes. Someone with write access could tag a
 # commit whose own copy of this file drops them, so the real controls are the
 # required reviewers on the "pypi" environment and the v* tag ruleset.
@@ -45,6 +47,10 @@ jobs:
     # Forks have no PyPI publisher, so the workflow does nothing there.
     if: github.repository == 'omamori-lab/langchain-sync-monitors'
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      # Reading the pypi environment's protection rules needs actions: read.
+      actions: read
     outputs:
       version: ${{ steps.version.outputs.version }}
     steps:
@@ -63,6 +69,29 @@ jobs:
             exit 1
           fi
           echo "version=${TAG#v}" >> "${GITHUB_OUTPUT}"
+
+      - name: Check that the pypi environment holds the publish for a reviewer
+        # scripts/release.sh checks this before it tags, but a Release published
+        # from the web page skips the script. A required-reviewer rule counts
+        # unless its reviewer list is shown and empty: should the workflow
+        # token not see the reviewers, the rule alone still counts.
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          rules='[([.protection_rules[]? | select(.type == "required_reviewers") | select((.reviewers // [null]) | length > 0)] | length), .can_admins_bypass] | @tsv'
+          if ! protection="$(gh api "repos/${GITHUB_REPOSITORY}/environments/pypi" --jq "${rules}")"; then
+            echo "::error::Could not read the pypi environment, so nothing is published. Create it as the one-time setup in CONTRIBUTING.md says."
+            exit 1
+          fi
+          read -r reviewer_rules admins_can_bypass <<<"${protection}"
+          if [[ ! "${reviewer_rules}" =~ ^[1-9][0-9]*$ ]]; then
+            echo "::error::The pypi environment has no required reviewer, so nothing would hold the publish for approval. Add one under Settings, Environments, pypi, then re-run this workflow."
+            exit 1
+          fi
+          if [[ "${admins_can_bypass}" != "false" ]]; then
+            echo "::error::Administrators can bypass the pypi environment's reviewers. Untick \"Allow administrators to bypass configured protection rules\" under Settings, Environments, pypi, then re-run this workflow."
+            exit 1
+          fi
 
       - name: Check out the tagged commit, with the history of main
         uses: actions/checkout@v7
@@ -252,7 +281,7 @@ jobs:
 
   attach:
     name: Attach the files to the GitHub Release
-    needs: publish
+    needs: [build, publish]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -262,6 +291,21 @@ jobs:
         with:
           name: distributions
           path: dist/
+
+      # The same check as the publish job's, so the Release gets the files
+      # PyPI got.
+      - name: Check the files against the digests the build recorded
+        env:
+          DIGESTS: ${{ needs.build.outputs.digests }}
+        run: |
+          cd dist
+          printf '%s\n' "${DIGESTS}" | sha256sum --check --strict -
+          recorded="$(printf '%s\n' "${DIGESTS}" | awk '{ print $2 }' | LC_ALL=C sort)"
+          present="$(find . -mindepth 1 ! -name '.*' -printf '%P\n' | LC_ALL=C sort)"
+          if [[ -z "${recorded}" || "${present}" != "${recorded}" ]]; then
+            echo "::error::dist/ holds ${present//$'\n'/, }, but the build recorded ${recorded//$'\n'/, }."
+            exit 1
+          fi
 
       - name: Upload them to the GitHub Release
         env:

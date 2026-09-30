@@ -79,20 +79,8 @@ some text, then exactly one `<score>` tag, with nothing but whitespace between
 them or after the score. Anything else is unreadable, and the monitor asks
 again. After the last attempt it fails closed.
 
-```mermaid
-flowchart TD
-    ask["Call the judge with the filled prompt"] --> cut{"Cut off at a length limit?"}
-    cut -- "yes" --> left{"Attempts left? 1 + max_parse_retries in all"}
-    cut -- "no" --> reasoning{"A reasoning block with some text?"}
-    reasoning -- "no" --> left
-    reasoning -- "yes" --> shape{"Then one score tag, and nothing after it?"}
-    shape -- "no" --> left
-    shape -- "yes" --> integer{"An integer on the scale?"}
-    integer -- "no" --> left
-    integer -- "yes" --> verdict["Verdict: the score mapped onto 0 to 1, with the reasoning as the reason"]
-    left -- "yes" --> ask
-    left -- "no" --> closed["Fail closed: suspicion 1.0, and a warning in the log"]
-```
+[![LLMMonitor calls the judge with the filled prompt, the same prompt on every attempt. If the call still fails after the chat model's own retries, the error is raised: the step fails, and nothing it proposed runs. Otherwise the reply is read in three checks. A reply the provider reports as cut off at a length limit is unreadable. So is a reply without a reasoning block that holds some text, then exactly one score tag, with nothing but whitespace between them or after the score, and a reply whose score is not an integer from lowest_score to highest_score. A readable reply gives the verdict: the score mapped onto a suspicion from 0 to 1, with the reasoning as the reason. After an unreadable reply the judge is asked again while attempts are left, 1 plus max_parse_retries in all, 3 by default. When none are left, the monitor fails closed: suspicion 1.0, and a warning in the log.](../assets/diagrams/monitors-chat-judge-light.svg#only-light)](../assets/diagrams/monitors-chat-judge-light.svg "Open the diagram at full size")
+[![LLMMonitor calls the judge with the filled prompt, the same prompt on every attempt. If the call still fails after the chat model's own retries, the error is raised: the step fails, and nothing it proposed runs. Otherwise the reply is read in three checks. A reply the provider reports as cut off at a length limit is unreadable. So is a reply without a reasoning block that holds some text, then exactly one score tag, with nothing but whitespace between them or after the score, and a reply whose score is not an integer from lowest_score to highest_score. A readable reply gives the verdict: the score mapped onto a suspicion from 0 to 1, with the reasoning as the reason. After an unreadable reply the judge is asked again while attempts are left, 1 plus max_parse_retries in all, 3 by default. When none are left, the monitor fails closed: suspicion 1.0, and a warning in the log.](../assets/diagrams/monitors-chat-judge-dark.svg#only-dark)](../assets/diagrams/monitors-chat-judge-dark.svg "Open the diagram at full size")
 
 These replies were checked against the monitor's parser, on the default scale
 of 0 to 10:

@@ -1,14 +1,14 @@
 # Read the monitor log
 
-This guide shows how to read the record that every monitored step leaves in
-`monitor_log`, how to find the steps flagged for audit, how to follow steps as
-they are committed, and how to export the log.
+This guide shows how to read `monitor_log`, the record every monitored step
+leaves, and the streams, log messages and graph steps a monitor adds to a run.
+
+[TOC]
 
 ## Find the log
 
 `monitor_log` is a key of the agent's state. It holds one `StepRecord` per
-step and monitor, in the order the steps were committed, and `invoke()` and
-`ainvoke()` return it with the messages:
+step and monitor, and `invoke()` and `ainvoke()` return it with the messages:
 
 ```python
 from langchain.agents import create_agent
@@ -25,23 +25,35 @@ agent = create_agent(
         ),
     ],
 )
-result = agent.invoke({"messages": [{"role": "user", "content": "Summarise q3.md."}]})
+inputs = {"messages": [{"role": "user", "content": "Summarise q3.md."}]}
+result = agent.invoke(inputs)
+# One record per monitored step, in the order the records reached the state.
 monitor_log = result["monitor_log"]
 ```
 
-With a checkpointer, the log spans the whole conversation thread. Each turn
-adds its records to the ones before, step numbers continue across turns, and
-every turn's result returns the whole log so far. Read it at any time with
-`agent.get_state(config).values["monitor_log"]`. A Deep Agent's log also holds
-the records of its subagents, each under the subagent's name and with the
-`delegation_id` of the `task` call that started it; see
-[Monitor Deep Agents subagents](monitor-deep-agents-subagents.md).
+- **Order.** An agent's own records arrive as each step is committed. A
+  subagent's records arrive together, when its task returns.
+- **Threads.** With a checkpointer, the log spans the whole thread: step
+  numbers continue across turns, and every turn returns the log so far. Read
+  it at any time with `agent.get_state(config).values["monitor_log"]`.
+- **Deep Agents.** A Deep Agent's log also holds its subagents' records, each
+  under the subagent's name and with the `delegation_id` of the `task` call
+  that started it; see
+  [Monitor Deep Agents subagents](monitor-deep-agents-subagents.md).
+- **Crashed subagents.** A subagent whose run raises returns no records. Its
+  steps, flagged ones and halts included, reach the parent's log only if the
+  failed run is resumed from its checkpoint with `None` as input. They are
+  lost from the log if the thread goes on with new input, or if a
+  `ToolRetryMiddleware` or `ToolErrorMiddleware` answers or retries the failed
+  `task` call. The custom stream still shows them as each is committed; see
+  [Follow steps as they are committed](#follow-steps-as-they-are-committed).
 
 ## Read a record
 
-This record comes from a run of Auto Mode with a scripted agent and a scripted
-chat judge. The agent's first attempt posts an API key off-site; the monitor
-blocks it, and the agent's second attempt reads the file the user named.
+This record comes from a scripted run of Auto Mode, with a scripted agent and
+a scripted chat judge. The agent's first attempt posts an API key off-site; the
+monitor blocks it, and the agent's second attempt reads the file the user
+named.
 
 ```json
 {
@@ -73,13 +85,13 @@ A `StepRecord` describes one step:
 | Field | Type | What it holds |
 |---|---|---|
 | `agent` | `str` | The agent the step belongs to: `main`, or a subagent's name |
-| `monitor` | `str` | The monitor's `label`, `monitor` unless you set one on `MonitorMiddleware` |
+| `monitor` | `str` | The monitor's `label`: `monitor` unless you set one on `MonitorMiddleware` |
 | `step_number` | `int` | The step's number among this monitor's records for this agent, from 1. A subagent's steps start again at 1 with each delegated task |
-| `outcome` | `str` | What the protocol did with the step; see the next section |
+| `outcome` | `str` | What the protocol did with the step; see [Read the outcome](#read-the-outcome) |
 | `flagged` | `bool` | Whether the step is marked for a person to review |
 | `blocked_count` | `int` | How many attempts Auto Mode blocked in this step; 0 under the other protocols |
 | `samples` | `list[SampleRecord]` | Every sample the monitor judged in the step, rejected ones included |
-| `delegation_id` | `str`, subagents only | The id of the `task` call that started the subagent; absent from the records of an agent no monitored agent started |
+| `delegation_id` | `str`, subagents only | The id of the `task` call that started the subagent. `(agent, delegation_id, step_number)` names one step, provided the model provider gives every tool call in the thread its own id, which LangChain does not check |
 
 A `SampleRecord` describes one sample:
 
@@ -87,11 +99,11 @@ A `SampleRecord` describes one sample:
 |---|---|---|
 | `suspicion` | `float` | The monitor's suspicion, from 0 to 1 |
 | `reason` | `str` | The monitor's reason, as the protocol saw it |
-| `proposal` | `str` | The proposal rendered with every channel, reasoning, malformed tool calls and a provider's built-in tool calls and full results included, whatever the monitor read |
-| `executed` | `bool` | Whether this is the sample whose tool calls ran; at most one sample per step. A provider's built-in tools ran in every sample drawn |
+| `proposal` | `str` | The sample rendered with every channel, whatever the monitor read: reasoning, prose, tool calls, malformed tool calls, and a provider's built-in tool calls with their full results |
+| `executed` | `bool` | Whether this is the sample whose tool calls ran; at most one per step. A provider's built-in tools ran in every sample drawn |
 
-Records hold plain values only, strings, numbers, booleans, lists and
-dictionaries, so they pass through checkpointers and `json.dumps` unchanged.
+Records hold plain values only, so they pass through checkpointers and
+`json.dumps` unchanged.
 
 ## Read the outcome
 
@@ -101,23 +113,43 @@ dictionaries, so they pass through checkpointers and `json.dumps` unchanged.
 | `resampled` | Defer to Resample | The least suspicious acceptable resample | That sample |
 | `steered` | Auto Mode | The first acceptable sample after one or more blocks | That sample |
 | `deferred_to_trusted` | Defer to Trusted, and any protocol whose fallback is `DeferToTrustedModel` | The trusted model's step | None |
-| `halted` | The `HaltRun` fallback, a subagent's halt under `SubagentHalt.STOP_WHOLE_RUN`, Auto Mode's thread total reached inside subagents, or an earlier halt that still stands | A final message that ends the run | None |
+| `halted` | The `HaltRun` fallback, a subagent's halt, Auto Mode's thread total, or an earlier halt that still stands | A final message that ends the run | None |
 
-Three kinds of halted step draw no sample, so their records hold no samples:
+A halt stands until a later run brings a message the monitor records as new
+input from the user: the count of recorded inputs must grow. Nothing written
+during a run lifts it: not a hook that sends the run back to the model, not a
+harness nudge, not an `unconfirmed_input` note. Two open paths remain, both
+through a middleware listed before the monitor: an untagged human message its
+`before_agent` hook writes, or one its `after_agent` hook writes without
+sending the run back to the model, counts as the user's input and lifts the
+halt. [Halts, fallbacks and failed steps](../explanation/design.md#halts-fallbacks-and-failed-steps)
+explains the rule.
 
-- a halt because a subagent was halted, under `SubagentHalt.STOP_WHOLE_RUN`;
-  the subagent's halted record holds its samples;
-- a halt because blocks inside subagents reached Auto Mode's
-  `max_total_blocks`, when `when_limit_reached` is `HaltRun`; no subagent
-  halted, and their records show the blocks;
-- a halt that still stands: when a hook sends a halted run back to the model,
-  the monitor halts each further step without drawing a sample, until the
-  thread records another run input.
+### Tell apart the records without samples
 
-This monitor's previous record for this agent tells the last kind apart: it is
-a halt too. For the other two it is not, and subagent records come after it;
-read their outcomes to tell a subagent's halt from blocks that reached the
-total. Other monitors' records may sit in between.
+Most records hold samples. Four kinds hold none, because the step was decided
+before any sample was drawn. Check the rows in order: the first that matches
+is the kind.
+
+| Kind | `outcome` | How to tell it | The run's last message |
+|---|---|---|---|
+| A standing halt | `halted` | This monitor's previous record for this agent is `halted` too | `STANDING_HALT_MESSAGE` |
+| A subagent's halt | `halted` | The parent's monitor uses `SubagentHalt.STOP_WHOLE_RUN`, and a subagent's `halted` record sits after the agent's own previous record | Names the subagent, such as "[Safety monitor] Stopped: the safety monitor halted the subagent researcher, so this agent stops too." |
+| Auto Mode's thread total | `halted` | Neither: the subagents' records after the agent's own previous record carry the blocks that took the thread to `max_total_blocks` | The fallback's message: `DEFAULT_HALT_MESSAGE` for `HaltRun()` |
+| Auto Mode's thread total, deferred | `deferred_to_trusted` | As above, with `when_limit_reached=DeferToTrustedModel(...)` | The trusted model's step |
+
+`STANDING_HALT_MESSAGE`, from `halts.py`, reads:
+
+```text
+[Safety monitor] This run stays stopped: the safety monitor halted it, and no new input the monitor could confirm has arrived since. The rejected steps are recorded in monitor_log for review.
+```
+
+Under the default `SubagentHalt.STOP_SUBAGENT_ONLY`, a subagent that reaches
+the thread total halts itself, so a subagent's `halted` record, with samples,
+can come just before a thread-total record. Subagents that run in parallel do
+not see each other's blocks, so together they can pass the total; their parent
+counts every one of them at its next step. Other monitors' records, stacked
+in the same agent, may sit between the records of one monitor.
 
 ## Find the steps flagged for audit
 
@@ -131,9 +163,10 @@ replaced. Each protocol flags its own way:
   suspicious of its samples is at or above `audit_threshold`.
   `audit_threshold=None` turns this off.
 - **Auto Mode** flags every `steered` step and every step its fallback wrote.
-- **`HaltRun`** flags every step it halts, under any protocol.
+- **Every halt** is flagged: a `HaltRun` halt under any protocol, a standing
+  halt, and a subagent's halt under `SubagentHalt.STOP_WHOLE_RUN`.
 
-Print the flagged steps with every sample the monitor judged:
+This function prints each flagged step with every sample the monitor judged:
 
 ```python
 from langchain_sync_monitors import StepRecord
@@ -145,6 +178,7 @@ def print_flagged_steps(monitor_log: list[StepRecord]) -> None:
         if not record["flagged"]:
             continue
         print(f"{record['agent']}, step {record['step_number']}: {record['outcome']}")
+        # A step decided before any sample, such as a standing halt, prints no lines here.
         for sample in record["samples"]:
             ran = "ran" if sample["executed"] else "did not run"
             print(f"  {sample['suspicion']:.2f}, {ran}: {sample['reason']}")
@@ -158,52 +192,39 @@ main, step 1: steered
   0.00, ran: The step reads q3.md, the file the user asked to summarise.
 ```
 
-"Did not run" means the sample's tool calls did not run. Any built-in tool of
-the provider in it, such as a web fetch, already ran when the sample was
-drawn.
-
-Read each sample's `proposal` too: it shows the step in full, with the agent's
-reasoning, even when the monitor did not read the reasoning. It also holds each
-provider tool result in full, once per sample drawn, so a large fetched page
-makes every record of that step large; the full result is in the agent's own
-messages too.
+"Did not run" means none of the agent's own tools ran the sample's tool
+calls. A provider's built-in tool in it, such as a web fetch, already ran when
+the sample was drawn. Each sample's `proposal` shows every channel, the
+agent's reasoning included, even when the monitor did not read it. It also
+holds each provider tool result in full, once per sample drawn, so a large
+fetched page makes every record of that step large.
 
 ## Follow steps as they are committed
 
-The monitor writes an event to `stream_mode="custom"` for every step:
+The monitor writes one event per step to `stream_mode="custom"`:
 
 - a `MonitorStepEvent`, `{"type": "monitor_step", "record": ...}`, when a step
   is committed, carrying the same `StepRecord` that goes into `monitor_log`;
 - a `MonitorStepFailedEvent`, `{"type": "monitor_step_failed", ...}`, when a
-  call inside the step raises before the protocol decides. That call can be
-  one of the agent's samples, one of the monitor's calls or the trusted
-  model's step.
+  call inside the step raises before the protocol decides: one of the agent's
+  samples, one of the monitor's calls or the trusted model's step.
 
-Other middleware can write to the same stream, so check each event's `type`:
+Other middleware can write to the same stream, so check each event's `type`.
+With the agent and `inputs` built above:
 
 ```python
-from langchain.agents import create_agent
-
-from langchain_sync_monitors import LLMMonitor, MonitorMiddleware, TrustedMonitoring
-
-agent = create_agent(
-    "openrouter:deepseek/deepseek-v4.1-flash",
-    tools=[],
-    middleware=[
-        MonitorMiddleware(
-            monitor=LLMMonitor(model="openrouter:xiaomi/mimo-v2.6-pro"),
-            protocol=TrustedMonitoring(flag_threshold=0.6),
-        ),
-    ],
-)
-inputs = {"messages": [{"role": "user", "content": "Summarise q3.md."}]}
-for event in agent.stream(inputs, stream_mode="custom"):
+# Subagents write their events inside their own graphs: subgraphs=True brings
+# them to the parent's stream, as (namespace, event) pairs.
+for _namespace, event in agent.stream(inputs, stream_mode="custom", subgraphs=True):
     if event.get("type") == "monitor_step":
         record = event["record"]
-        print(record["step_number"], record["outcome"], record["flagged"])
+        print(record["agent"], record["step_number"], record["outcome"], record["flagged"])
     elif event.get("type") == "monitor_step_failed":
-        print("step", event["step_number"], "failed:", event["error"])
+        print(event["agent"], "step", event["step_number"], "failed:", event["error"])
 ```
+
+Without `subgraphs=True`, the stream carries the main agent's events only.
+Each subagent event carries its `delegation_id`.
 
 ```mermaid
 flowchart LR
@@ -211,19 +232,18 @@ flowchart LR
     decided -- "yes" --> commit["Committed: the chosen messages and one StepRecord"]
     commit --> log[("monitor_log")]
     commit --> stepEvent["Custom stream: monitor_step"]
-    decided -- "no, a call raised" --> failed["Not committed: nothing the step proposed runs"]
+    decided -- "no, a call raised" --> failed["Not committed: none of the agent's own tools run"]
     failed --> failedEvent["Custom stream: monitor_step_failed"]
-    failed --> warning["A warning in the log"]
+    failed --> warning["A warning in the log, if any sample was judged"]
     failed --> raised["The error is raised again"]
 ```
 
-A failed step is never committed, so nothing it proposed runs, and no record
-reaches `monitor_log`. The event is the record of what the monitor had judged
-by then, with no sample executed, and the error is raised after it. A
-subagent's event also carries its `delegation_id`. This
-event comes from a scripted run of Defer to Resample in which the monitor
-judged the first sample and the agent's model then raised a `TimeoutError` on
-the resample:
+A failed step is never committed, so no record reaches `monitor_log`. Its
+event lists the samples the monitor had judged by then, none of them
+executed, or an empty list, and the error is raised after it. This event
+comes from a scripted run of Defer to Resample in which the monitor judged the
+first sample and the agent's model then raised a `TimeoutError` on the
+resample:
 
 ```json
 {
@@ -246,30 +266,74 @@ the resample:
 A middleware outside the monitor that retries failed model calls, such as
 LangChain's `ModelRetryMiddleware`, runs the whole step again with fresh
 samples, and `monitor_log` then records only the attempt that succeeded. The
-failed attempt survives only in this event and in a warning in the log.
+failed attempt survives only in this event and in the warning.
 `check_monitor_placement` warns about such a middleware list.
 
-## Know what the message stream shows
+## Know what each stream shows
 
-A monitor judges each step before anything uses it, so the streams differ in
-what they show:
+A monitor judges each step before any of the agent's own tools run, so the
+streams differ in what they show:
 
 | Stream | What it shows |
 |---|---|
-| `stream_mode="messages"` | Only committed steps, each streamed whole once the protocol commits it, not token by token. Rejected samples and the monitor's own calls never appear. |
-| `stream_mode="custom"` | One `monitor_step` event per committed step, and a `monitor_step_failed` event per failed one |
-| `stream_mode="values"` or `"updates"` | The state, whose `monitor_log` holds every judged sample, rejected ones included, with the monitor's private keys, which `get_state` shows too and a run's result leaves out |
-| `astream_events` or `astream_log` | Every model call, live, as it runs: every sample before the protocol decides, rejected ones included, the monitor's own calls, and the monitor's spans |
+| `stream_mode="messages"` | Only committed steps, each whole once the protocol commits it, not token by token. Rejected samples and the monitor's own calls never appear |
+| `stream_mode="custom"` | One `monitor_step` event per committed step and one `monitor_step_failed` event per failed one; a subagent's only with `subgraphs=True` |
+| `stream_mode="values"` | The state after each step: `monitor_log`, rejected samples included, and the monitor's private keys |
+| `stream_mode="updates"` | Each node's writes, the same keys included. A message the monitor tags as a note arrives twice, from the node that wrote it and again, tagged, from the monitor |
+| `astream_events`, `astream_log` | Every model call, live: every sample before the protocol decides, rejected ones included, the monitor's own calls and its spans |
 
 `astream_events` and `astream_log` are not filtered. A user interface should
 read `stream_mode="messages"` instead, or the experimental
-`stream_events(version="v3")`, whose message projection also carries only the
-committed steps.
+`stream_events(version="v3")`, whose message projection also carries only
+committed steps. A consumer that builds the conversation from `updates` should
+merge messages by id, as LangGraph's message reducer does [@langgraph2026],
+not append them. With `FeedbackVisibility.IN_TRANSCRIPT`, a blocked attempt
+and its feedback are committed as part of the conversation, so they stream
+with the step that follows them.
 
-With `FeedbackVisibility.IN_TRANSCRIPT`, a blocked attempt and the feedback on
-it are committed as part of the conversation, so they stream with the step
-that follows them. [What streams](../explanation/design.md#what-streams)
-explains how the library keeps the other calls out of the message stream.
+The monitor keeps four private keys in the state: `monitor_task_messages`,
+`monitor_seen_human_messages`, `monitor_run_open` and
+`monitor_inputs_at_halt`. They record which human messages were a run's
+input, and how many inputs the thread had at a halt. They never enter a run's
+input or the result of `invoke()` and `ainvoke()`, but `values`, `updates`
+and `agent.get_state(config)` show them. One more key, `monitor_delegation`,
+is part of every monitored agent's input: the monitor sets it for each
+subagent it starts, so leave it out of your own input.
+[What streams](../explanation/design.md#what-streams) explains how the
+library keeps the other calls out of the message stream.
+
+## Allow for the graph steps
+
+The monitor adds four nodes to the agent's graph. Each counts as a graph step
+towards `recursion_limit`:
+
+| Node | Runs | What it does |
+|---|---|---|
+| `monitor[main].before_agent` | Once per run | Records the human messages that are the run's input |
+| `monitor[main].before_model` | Before each model call | Tags the other human messages as notes, and opens a step |
+| `monitor[main].after_model` | After each model call | Ends the run after a halt |
+| `monitor[main].after_agent` | Once per run | Tags the notes written since the last step, and closes the run |
+
+So a run with N model calls takes 2N + 2 more graph steps. Samples, monitor
+calls and trusted steps run inside the model node and add none. `create_agent`
+sets a limit of 9,999 by default [@langchain2026], so this matters only when
+you set your own. Scripted runs of an agent that calls one tool between model
+calls needed these limits:
+
+| Model calls | Without a monitor | With a monitor |
+|---|---|---|
+| 1 | 2 | 6 |
+| 2 | 4 | 10 |
+| 3 | 6 | 14 |
+| 5 | 10 | 22 |
+
+```python
+# For an agent that runs its tools between model calls: two graph steps for
+# each model call and its tools, two for the monitor's hooks around each model
+# call, and two for the run.
+max_model_calls = 10
+result = agent.invoke(inputs, config={"recursion_limit": 4 * max_model_calls + 2})
+```
 
 ## Turn on log messages
 
@@ -278,18 +342,22 @@ The library logs through Python's `logging`, under `langchain_sync_monitors`:
 | Logger | Level | When |
 |---|---|---|
 | `langchain_sync_monitors.middleware` | `DEBUG` | Every committed step, with its outcome |
-| `langchain_sync_monitors.middleware` | `WARNING` | A step failed before it was committed; the message lists every sample the monitor had judged |
+| `langchain_sync_monitors.middleware` | `WARNING` | A step failed before it was committed after the monitor had judged a sample; the message lists every sample judged |
 | `langchain_sync_monitors.monitors.chat` | `DEBUG` | A chat judge's reply was unreadable, or cut off at a length limit |
 | `langchain_sync_monitors.monitors.chat` | `WARNING` | No reply from a chat judge was readable, so the step is treated as suspicious |
 | `langchain_sync_monitors.monitors.guard` | `DEBUG` | A guard model returned log-probabilities in a format the monitor cannot read |
-| `langchain_sync_monitors.monitors.guard` | `WARNING` | A guard model returned log-probabilities without a readable label, so the step is treated as suspicious |
-| `langchain_sync_monitors.task_authorship` | `WARNING` | A run started after one that stopped before its end, so its new human messages are notes from unconfirmed input: they authorise nothing and do not lift a halt |
+| `langchain_sync_monitors.monitors.guard` | `WARNING` | Under `GuardScoring.LOG_PROBABILITIES`, no label could be scored from a reply's log-probabilities, so the step is treated as suspicious |
+| `langchain_sync_monitors.task_authorship` | `WARNING` | A run started after one that stopped before its end, so its new human messages are notes from `unconfirmed_input`; the message names their ids |
 | `langchain_sync_monitors.concurrency` | `WARNING` | A concurrent call failed after another one already had |
 | `langchain_sync_monitors._langchain` | `ERROR` | Writing a monitor event to the custom stream failed; the step stands |
+
+Warnings about configuration, such as `ProviderToolWarning` and
+`UncalibratedThresholdWarning`, go through Python's `warnings` module instead.
 
 ```python
 import logging
 
+# Show the library's debug lines, with the logger name, on standard error.
 logging.basicConfig(format="%(levelname)s %(name)s: %(message)s")
 logging.getLogger("langchain_sync_monitors").setLevel(logging.DEBUG)
 ```
@@ -330,8 +398,8 @@ def export_monitor_log(monitor_log: list[StepRecord], *, thread_id: str, path: P
             file.write(json.dumps({"thread_id": thread_id, **record}) + "\n")
 ```
 
-On a checkpointed thread, every turn returns the whole log so far, so export
-a thread once, when it is done, or only the records added since the last
+Every turn of a checkpointed thread returns the whole log so far, so export a
+thread once, when it is done, or only the records added since the last
 export.
 
 ## Collect honest scores for calibration
@@ -351,6 +419,7 @@ def read_honest_scores(monitor_log: list[StepRecord], *, agent: str, monitor: st
         sample["suspicion"]
         for record in monitor_log
         if record["agent"] == agent and record["monitor"] == monitor
+        # Records without samples, such as halts, add nothing.
         for sample in record["samples"]
     ]
 ```
@@ -364,3 +433,5 @@ to collect enough of them and turn them into thresholds with
 - [Choose a protocol](choose-a-protocol.md) for what each outcome means.
 - [Monitor Deep Agents subagents](monitor-deep-agents-subagents.md) for the records subagents add.
 - [See the monitor's decisions in LangSmith and Langfuse](see-decisions-in-langsmith-and-langfuse.md) for the same steps as spans in a tracer.
+
+## References

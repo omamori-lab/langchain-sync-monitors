@@ -131,7 +131,7 @@ Most records hold samples. Four kinds hold none, because the step was decided
 before any sample was drawn. Check the rows in order: the first that matches
 is the kind.
 
-| Kind | `outcome` | How to tell it | The run's last message |
+| Kind | `outcome` | How to tell it | The step's message |
 |---|---|---|---|
 | A standing halt | `halted` | This monitor's previous record for this agent is `halted` too | `STANDING_HALT_MESSAGE` |
 | A subagent's halt | `halted` | The parent's monitor uses `SubagentHalt.STOP_WHOLE_RUN`, and a subagent's `halted` record sits after the agent's own previous record | Names the subagent, such as "[Safety monitor] Stopped: the safety monitor halted the subagent researcher, so this agent stops too." |
@@ -278,7 +278,7 @@ streams differ in what they show:
 |---|---|
 | `stream_mode="messages"` | Only committed steps, each whole once the protocol commits it, not token by token. Rejected samples and the monitor's own calls never appear |
 | `stream_mode="custom"` | One `monitor_step` event per committed step and one `monitor_step_failed` event per failed one; a subagent's only with `subgraphs=True` |
-| `stream_mode="values"` | The state after each step: `monitor_log`, rejected samples included, and the monitor's private keys |
+| `stream_mode="values"` | The whole state after each graph step: `monitor_log`, rejected samples included, and the monitor's private keys |
 | `stream_mode="updates"` | Each node's writes, the same keys included. A message the monitor tags as a note arrives twice, from the node that wrote it and again, tagged, from the monitor |
 | `astream_events`, `astream_log` | Every model call, live: every sample before the protocol decides, rejected ones included, the monitor's own calls and its spans |
 

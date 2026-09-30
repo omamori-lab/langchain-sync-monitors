@@ -73,11 +73,10 @@ ANCHOR_COUNT = 3
 class RunInput(TypedDict):
     """The kept copy of one human message a run received as its input.
 
-    `text` is the message's text, which is what the judge reads.
-    `previous_message_ids` holds the ids of up to `ANCHOR_COUNT` messages
-    before it when it was recorded, nearest first, and is empty when it
-    opened the thread. `confirmed` is false for input a run could not confirm,
-    which goes back as a note from `unconfirmed_input`.
+    `text` is what the judge reads. `previous_message_ids` holds the ids of up
+    to `ANCHOR_COUNT` messages before it when recorded, nearest first.
+    `confirmed` is false for input a run could not confirm, which goes back as
+    a note from `unconfirmed_input`.
     """
 
     id: str
@@ -125,10 +124,8 @@ def merge_run_inputs(  # lanorme: ignore[KWARG-001]
 ) -> list[RunInput]:
     """Keep one copy of each input: its latest text, in the place it was first recorded.
 
-    Stacked monitors may keep the same input in one node, and a refresh
-    writes it again. An entry of another shape is left out, so a malformed
-    write cannot break the thread. LangGraph calls a reducer with both values
-    by position [@langgraph2026].
+    Stacked monitors and refreshes write an input again, and an entry of
+    another shape is left out. LangGraph calls a reducer by position [@langgraph2026].
     """
     entries = [*read_run_input_entries(recorded), *read_run_input_entries(new)]
     latest = {entry["id"]: entry for entry in entries}
@@ -141,16 +138,13 @@ def read_run_inputs(state: object) -> tuple[RunInput, ...]:
     return tuple(read_run_input_entries(entries))
 
 
-def read_rendered_source(entry: RunInput) -> str | None:
-    """Return the `lc_source` a kept input is rendered with: none for the task author's words."""
-    return None if entry["confirmed"] else UNCONFIRMED_INPUT_SOURCE
-
-
 def is_rendered_form(message: BaseMessage, *, entry: RunInput) -> bool:
-    """Tell whether a message under a kept input's id is that input as the monitor renders it."""
-    return isinstance(message, HumanMessage) and read_message_source(message) == (
-        read_rendered_source(entry)
-    )
+    """Tell whether a message under a kept input's id is that input as the monitor renders it.
+
+    The task author's words carry no `lc_source`; unconfirmed input carries its own.
+    """
+    source = None if entry["confirmed"] else UNCONFIRMED_INPUT_SOURCE
+    return isinstance(message, HumanMessage) and read_message_source(message) == source
 
 
 def build_kept_inputs(
@@ -237,9 +231,8 @@ def build_run_start_update(state: object) -> AgentStateUpdate:
 def build_input_message(entry: RunInput) -> HumanMessage:
     """Return a kept input as the monitor renders it: the task author's words, or a note.
 
-    It keeps its input's id rather than a fresh `monitor-` one: it exists only
-    in the monitor's copy of the conversation and never reaches the state, and
-    the id is how the rest of that copy is read against it.
+    It keeps its input's id, not a fresh `monitor-` one: it never reaches the
+    state, and the rest of the monitor's copy is read against that id.
     """
     message = HumanMessage(content=entry["text"], id=entry["id"])
     if entry["confirmed"]:

@@ -76,12 +76,13 @@ LOWEST_SAMPLE_SCORE_AUDIT_WARNING = (
     "monitors and agents, so a fixed default may block honest work or miss attacks. "
     "audit_threshold is compared with the lowest suspicion score across a step's samples, "
     "which is never above the first sample's score, so a percentile of single-sample scores "
-    "sets it too high. Set defer_threshold first, run the agent on honest tasks under the "
-    "DeferToResample you will deploy, take the lowest score of each monitor_log record that "
-    "has samples and whose agent and monitor are your MonitorMiddleware's agent_name and "
-    "label, and set the threshold at a high percentile of those scores (for example the "
-    '99th), as the section "Calibrate the audit threshold" of the guide "Use Defer to '
-    'Resample" shows. Pass audit_threshold explicitly to silence this warning.'
+    "sets it too high. Set defer_threshold first, run the agent on at least a hundred honest "
+    "steps under the DeferToResample you will deploy, take the lowest score of each "
+    "monitor_log record that has samples and whose agent and monitor are your "
+    "MonitorMiddleware's agent_name and label, and set the threshold at a high percentile of "
+    'those scores (for example the 99th), as the section "Calibrate the audit threshold" of '
+    'the guide "Use Defer to Resample" shows. Pass audit_threshold explicitly to silence this '
+    "warning."
 )
 
 
@@ -315,14 +316,25 @@ def test_the_uncalibrated_warning_names_the_default_and_says_how_to_calibrate() 
     assert [str(warning.message) for warning in record] == [SINGLE_SAMPLE_BLOCK_WARNING]
 
 
+QUOTED_WARNING_MARKER = "UncalibratedThresholdWarning: "
+
+
 def read_quoted_uncalibrated_warnings() -> dict[str, list[str]]:
-    """Return each docs page's lines that quote an `UncalibratedThresholdWarning`, by page."""
+    """Return each docs page's quotes of an `UncalibratedThresholdWarning`, by page.
+
+    A quote is found anywhere in a line, so one in a blockquote, a list or an
+    indented block counts too, and it runs from the marker to the line's end.
+    """
     quotes: dict[str, list[str]] = {}
     for page in sorted(DOCS.rglob("*.md")):
         if "plans" in page.parts:
             continue
         lines = page.read_text(encoding="utf-8").splitlines()
-        quoted = [line for line in lines if line.startswith("UncalibratedThresholdWarning: ")]
+        quoted = [
+            line[line.index(QUOTED_WARNING_MARKER) :]
+            for line in lines
+            if QUOTED_WARNING_MARKER in line
+        ]
         if quoted:
             quotes[str(page.relative_to(DOCS))] = quoted
     return quotes
@@ -549,6 +561,12 @@ AGENT_AND_LABEL_RECIPE = 'record["agent"] == agent_name and record["monitor"] ==
             "Set defer_threshold first",
             "Set `defer_threshold` first",
             id="lowest-defer-threshold-first",
+        ),
+        pytest.param(
+            ThresholdStatistic.LOWEST_SAMPLE_SCORE,
+            "at least a hundred honest steps",
+            "at least a hundred honest steps",
+            id="lowest-hundred-steps",
         ),
         pytest.param(
             ThresholdStatistic.LOWEST_SAMPLE_SCORE,

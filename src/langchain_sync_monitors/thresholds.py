@@ -147,12 +147,12 @@ def build_uncalibrated_message(
 def build_calibration_advice(*, parameter_name: str, statistic: ThresholdStatistic) -> str:
     """Say how to calibrate a threshold on the statistic its protocol compares it with.
 
-    Each advice keeps only the records of the user's agent and monitor, since
-    a Deep Agent's log also holds its subagents' records and stacked monitors
-    share one log. It then names the section that holds the whole recipe, by
-    its title and its guide's title alone, since an installed package ships
-    no docs files; the tests check the titles and the advice's steps against
-    that section.
+    Each piece of advice keeps only the records of the user's agent and
+    monitor, since a Deep Agent's log also holds its subagents' records and
+    stacked monitors share one log. It then names the section that holds the
+    whole recipe, by its title and its guide's title alone, since an installed
+    package ships no docs files; the tests check the titles and the advice's
+    steps against that section.
 
     The lowest score across a step's samples is never above its first
     sample's score, so a percentile of single-sample scores would set the
@@ -162,21 +162,22 @@ def build_calibration_advice(*, parameter_name: str, statistic: ThresholdStatist
     panel) [@bhatt2025ctrlz], so the advice for that statistic takes each
     step's lowest score and the 99th percentile.
     """
-    own_records = "whose agent and monitor are your MonitorMiddleware's agent_name and label"
+    own_records_clause = "whose agent and monitor are your MonitorMiddleware's agent_name and label"
     if statistic is ThresholdStatistic.LOWEST_SAMPLE_SCORE:
         return (
             f"{parameter_name} is compared with the lowest suspicion score across a step's "
             "samples, which is never above the first sample's score, so a percentile of "
             "single-sample scores sets it too high. Set defer_threshold first, run the agent "
-            "on honest tasks under the DeferToResample you will deploy, take the lowest score "
-            f"of each monitor_log record that has samples and {own_records}, and set the "
-            "threshold at a high percentile of those scores (for example the 99th), as the "
-            f'section "{AUDIT_THRESHOLD_SECTION_TITLE}" of the guide '
-            f'"{DEFER_TO_RESAMPLE_GUIDE_TITLE}" shows.'
+            "on at least a hundred honest steps under the DeferToResample you will deploy, "
+            "take the lowest score of each monitor_log record that has samples and "
+            f"{own_records_clause}, and set the threshold at a high percentile of those "
+            "scores (for example the 99th), as the section "
+            f'"{AUDIT_THRESHOLD_SECTION_TITLE}" of the guide "{DEFER_TO_RESAMPLE_GUIDE_TITLE}" '
+            "shows."
         )
     return (
         "Run the agent on honest tasks, take the suspicion scores of the monitor_log records "
-        f"{own_records}, and set the threshold at a high percentile of those scores (for "
+        f"{own_records_clause}, and set the threshold at a high percentile of those scores (for "
         f'example the 98th), as the section "{THRESHOLD_SECTION_TITLE}" of the guide '
         f'"{TRUSTED_MONITORING_GUIDE_TITLE}" shows, or wrap the monitor in CalibratedMonitor '
         "so that its scores are honest-run percentiles."

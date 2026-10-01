@@ -18,8 +18,8 @@ uv add "langchain-sync-monitors[deepagents,openrouter]"
 With pip, run `pip install "langchain-sync-monitors[deepagents,openrouter]"`
 instead. Without `deepagents`, `monitor_subagents` raises `MissingExtraError`
 with the message `monitor_subagents needs the deepagents extra. Install it
-with: uv add 'langchain-sync-monitors[deepagents]' (or pip install
-'langchain-sync-monitors[deepagents]')`.
+with: uv add "langchain-sync-monitors[deepagents]" (or pip install
+"langchain-sync-monitors[deepagents]")`.
 
 ## Why subagents need their own monitor
 

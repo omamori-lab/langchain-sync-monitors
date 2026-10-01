@@ -35,9 +35,10 @@ def build_missing_extra_message(feature: str, *, extra: str) -> str:
     """Say that `feature` needs `extra`, and how to install it with uv or with pip.
 
     Every `MissingExtraError` the library raises takes its message from here,
-    so the install commands are written once.
+    so the install commands are written once. The requirement is in double
+    quotes, which POSIX shells, PowerShell and Windows `cmd` all accept.
     """
-    requirement = f"'langchain-sync-monitors[{extra}]'"
+    requirement = f'"langchain-sync-monitors[{extra}]"'
     return (
         f"{feature} needs the {extra} extra. "
         f"Install it with: uv add {requirement} (or pip install {requirement})"

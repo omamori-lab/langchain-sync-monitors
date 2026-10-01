@@ -31,8 +31,8 @@ step. This agent has none.
 
 ## Before you start
 
-You need Python 3.12 or newer. Add the library and its OpenRouter extra to
-your project with uv:
+You need [Python 3.12 or newer](../index.md#install). Add the library and its
+OpenRouter extra to your project with uv:
 
 ```console
 uv add "langchain-sync-monitors[openrouter]"

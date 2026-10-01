@@ -35,37 +35,6 @@ def middleware() -> MonitorMiddleware:
     )
 
 
-def test_monitor_subagents_without_deep_agents_names_the_extra(
-    middleware: MonitorMiddleware,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    # Arrange
-    for module_name in DEEP_AGENTS_MODULES:
-        monkeypatch.setitem(sys.modules, module_name, None)
-
-    # Act / Assert
-    with pytest.raises(MissingExtraError, match=r"langchain-sync-monitors\[deepagents\]"):
-        monitor_subagents(middleware=middleware)
-
-
-def test_typesafe_adapter_without_its_extra_names_the_extra(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    # Arrange
-    monkeypatch.setitem(sys.modules, "langchain_typesafe", None)
-
-    # Act
-    with pytest.raises(MissingExtraError) as refusal:
-        TypeSafeDecisionModel(classifier=object())  # ty: ignore[invalid-argument-type]
-
-    # Assert
-    assert str(refusal.value) == (
-        "TypeSafeDecisionModel needs the typesafe extra. Install it with: "
-        "uv add 'langchain-sync-monitors[typesafe]' "
-        "(or pip install 'langchain-sync-monitors[typesafe]')"
-    )
-
-
 @pytest.mark.parametrize(
     "build_with_model",
     [
@@ -87,22 +56,28 @@ def test_an_openrouter_model_string_without_its_extra_names_the_extra(
 
 
 @pytest.mark.parametrize(
-    ("missing_modules", "use_feature", "extra"),
+    ("missing_modules", "use_feature", "expected_message"),
     [
         (
             DEEP_AGENTS_MODULES,
             lambda middleware: monitor_subagents(middleware=middleware),
-            "deepagents",
+            "monitor_subagents needs the deepagents extra. Install it with: "
+            'uv add "langchain-sync-monitors[deepagents]" '
+            '(or pip install "langchain-sync-monitors[deepagents]")',
         ),
         (
             ("langchain_openrouter",),
             lambda _middleware: LLMMonitor(model=OPENROUTER_MODEL),
-            "openrouter",
+            "An 'openrouter:' model string needs the openrouter extra. Install it with: "
+            'uv add "langchain-sync-monitors[openrouter]" '
+            '(or pip install "langchain-sync-monitors[openrouter]")',
         ),
         (
             ("langchain_typesafe",),
             lambda _middleware: TypeSafeDecisionModel(classifier=object()),  # ty: ignore[invalid-argument-type]
-            "typesafe",
+            "TypeSafeDecisionModel needs the typesafe extra. Install it with: "
+            'uv add "langchain-sync-monitors[typesafe]" '
+            '(or pip install "langchain-sync-monitors[typesafe]")',
         ),
     ],
     ids=["deepagents", "openrouter", "typesafe"],
@@ -110,24 +85,20 @@ def test_an_openrouter_model_string_without_its_extra_names_the_extra(
 def test_every_missing_extra_names_the_uv_and_the_pip_command(
     missing_modules: tuple[str, ...],
     use_feature: Callable[[MonitorMiddleware], object],
-    extra: str,
+    expected_message: str,
     middleware: MonitorMiddleware,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     # Arrange
     for module_name in missing_modules:
         monkeypatch.setitem(sys.modules, module_name, None)
-    requirement = f"'langchain-sync-monitors[{extra}]'"
 
     # Act
     with pytest.raises(MissingExtraError) as refusal:
         use_feature(middleware)
 
     # Assert
-    assert str(refusal.value).endswith(
-        f"needs the {extra} extra. "
-        f"Install it with: uv add {requirement} (or pip install {requirement})"
-    )
+    assert str(refusal.value) == expected_message
 
 
 def test_the_subagents_guide_quotes_the_deep_agents_message_word_for_word() -> None:

@@ -60,7 +60,7 @@ from langchain_sync_monitors.contracts import (
 from langchain_sync_monitors.delegation import count_blocks_in_thread, read_delegation_id
 from langchain_sync_monitors.errors import ConfigurationError
 from langchain_sync_monitors.halts import (
-    build_end_run_update,
+    build_jump_to_end_update,
     find_halt_decision,
     has_just_halted,
 )
@@ -98,7 +98,7 @@ from langchain_sync_monitors.task_authorship import (
     build_step_start_update,
     read_message_ids,
 )
-from langchain_sync_monitors.tool_calls import arun_tool_call, run_tool_call
+from langchain_sync_monitors.tool_calls import run_tool_call, run_tool_call_sync
 
 
 @dataclass(frozen=True, kw_only=True, eq=False)
@@ -342,10 +342,10 @@ class MonitorMiddleware(AgentMiddleware[MonitorState, AgentContext, StructuredOu
 
         What the call writes is checked, whatever the shape of the result, of
         a `Command`'s update or of a `ParentCommand` the call raises: its
-        messages as `mark_tool_written_notes` says, and its records as
+        messages as `tag_tool_written_notes` says, and its records as
         `returned_records` says. `tool_calls` has the rule.
         """
-        return run_tool_call(request, handler=handler, agent=self.agent_name)
+        return run_tool_call_sync(request, handler=handler, agent=self.agent_name)
 
     @override
     async def awrap_tool_call(
@@ -357,7 +357,7 @@ class MonitorMiddleware(AgentMiddleware[MonitorState, AgentContext, StructuredOu
 
         What the call writes is checked as under `invoke()`.
         """
-        return await arun_tool_call(request, handler=handler, agent=self.agent_name)
+        return await run_tool_call(request, handler=handler, agent=self.agent_name)
 
     @override
     def before_agent(self, state: MonitorState, runtime: AgentRuntime) -> AgentStateUpdate | None:
@@ -419,9 +419,9 @@ class MonitorMiddleware(AgentMiddleware[MonitorState, AgentContext, StructuredOu
         return build_run_end_update(state)
 
     def build_halt_end_update(self, state: MonitorState) -> AgentStateUpdate | None:
-        """Return the update that ends the run right after this monitor's halt, else None."""
+        """Return the update that jumps to the agent's end after this monitor's halt, else None."""
         if has_just_halted(state, monitor=self.label, agent=self.agent_name):
-            return build_end_run_update()
+            return build_jump_to_end_update()
         return None
 
     def prepare_step(self, request: AgentModelRequest) -> PreparedStep:

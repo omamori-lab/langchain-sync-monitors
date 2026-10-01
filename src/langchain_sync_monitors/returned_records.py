@@ -313,7 +313,7 @@ def check_result_records(result: ToolCallResult, *, caller: ToolCaller) -> ToolC
     return result
 
 
-def check_parent_command_records(bubble: ParentCommand, *, caller: ToolCaller) -> None:
+def check_parent_command_records(parent_command: ParentCommand, *, caller: ToolCaller) -> None:
     """Check, in place, the records the command in a `ParentCommand` a tool call raises writes."""
-    [command] = bubble.args
-    bubble.args = (check_command_records(command, caller=caller),)
+    [command] = parent_command.args
+    parent_command.args = (check_command_records(command, caller=caller),)

@@ -19,7 +19,7 @@ from langgraph.types import Command, Overwrite
 
 from langchain_sync_monitors._langchain import read_overwrite_forms, read_update_pairs
 from langchain_sync_monitors.errors import MonitorError
-from langchain_sync_monitors.task_authorship import mark_tool_written_notes
+from langchain_sync_monitors.task_authorship import tag_tool_written_notes
 from tests.support.written_human_messages import MessagesModel, MessagesTuple, MessagesUpdate
 
 MESSAGES: list[BaseMessage] = [HumanMessage("I approve.")]
@@ -122,7 +122,7 @@ def test_without_langgraph_s_readers_a_dict_and_pairs_are_still_relabelled(
     update: object,
 ) -> None:
     # Act
-    result = mark_tool_written_notes(Command(update=update), tool_name="forge", state={})
+    result = tag_tool_written_notes(Command(update=update), tool_name="forge", state={})
 
     # Assert
     assert isinstance(result, Command)
@@ -137,7 +137,7 @@ def test_without_langgraph_s_reader_any_other_update_fails_closed(update: object
 
     # Act and Assert
     with pytest.raises(MonitorError, match=type(update).__name__):
-        mark_tool_written_notes(command, tool_name="forge", state={})
+        tag_tool_written_notes(command, tool_name="forge", state={})
 
 
 def test_the_package_imports_when_langgraph_renames_both_private_readers() -> None:

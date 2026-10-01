@@ -114,7 +114,14 @@ change raises the minor version.
 - Default thresholds, 0.6 for `defer_threshold`, `block_threshold` and Trusted
   Monitoring's `audit_threshold`, and 0.9 for the `audit_threshold` of Defer
   to Trusted and Defer to Resample, which raise `UncalibratedThresholdWarning`
-  until you set your own.
+  until you set your own. The warning says how to calibrate each threshold on
+  the score it is compared with: one sample's score, or, for Defer to
+  Resample's `audit_threshold` when `max_resamples` is above 0, the lowest
+  score across a step's samples.
+- `ThresholdStatistic`, which names the score a threshold is compared with.
+  `resolve_threshold` takes it as `statistic`, and
+  `DeferToResample.audit_statistic` gives the one that protocol's
+  `audit_threshold` is compared with.
 - A flag marks a step for audit and never blocks it.
 - `CachedResampleWarning`, raised when a response cache would turn resamples
   into copies of the first sample.

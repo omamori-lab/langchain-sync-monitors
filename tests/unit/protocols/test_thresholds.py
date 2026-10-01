@@ -13,6 +13,7 @@ from types import FunctionType
 import pytest
 from langchain_core.language_models.fake_chat_models import FakeListChatModel
 
+from langchain_sync_monitors.contracts import Resampling
 from langchain_sync_monitors.errors import ConfigurationError
 from langchain_sync_monitors.protocols import (
     AutoMode,
@@ -22,18 +23,52 @@ from langchain_sync_monitors.protocols import (
     TrustedMonitoring,
 )
 from langchain_sync_monitors.thresholds import (
+    AUDIT_THRESHOLD_SECTION_TITLE,
     DEFAULT_AUDIT_THRESHOLD,
     DEFAULT_BLOCK_THRESHOLD,
     DEFAULT_DEFER_THRESHOLD,
     DEFAULT_TRUSTED_MONITORING_AUDIT_THRESHOLD,
+    DEFER_TO_RESAMPLE_GUIDE_TITLE,
     LIBRARY_DIRECTORY,
     DefaultThreshold,
+    ThresholdStatistic,
     UncalibratedThresholdWarning,
     resolve_threshold,
 )
 
 DOCS = Path(__file__).resolve().parents[3] / "docs"
 HOW_TO_GUIDES = DOCS / "how-to"
+
+SINGLE_SAMPLE_AUDIT_WARNING = (
+    "audit_threshold uses the uncalibrated default 0.9. Suspicion scores differ between "
+    "monitors and agents, so a fixed default may block honest work or miss attacks. Run "
+    "the agent on honest tasks, collect the suspicion scores in monitor_log, and set the "
+    "threshold at a high percentile of them (for example the 98th), or wrap the monitor in "
+    "CalibratedMonitor so that its scores are honest-run percentiles. Pass audit_threshold "
+    "explicitly to silence this warning."
+)
+SINGLE_SAMPLE_DEFER_WARNING = (
+    "defer_threshold uses the uncalibrated default 0.6. Suspicion scores differ between "
+    "monitors and agents, so a fixed default may block honest work or miss attacks. Run "
+    "the agent on honest tasks, collect the suspicion scores in monitor_log, and set the "
+    "threshold at a high percentile of them (for example the 98th), or wrap the monitor in "
+    "CalibratedMonitor so that its scores are honest-run percentiles. Pass defer_threshold "
+    "explicitly to silence this warning."
+)
+LOWEST_SAMPLE_SCORE_AUDIT_WARNING = (
+    "audit_threshold uses the uncalibrated default 0.9. Suspicion scores differ between "
+    "monitors and agents, so a fixed default may block honest work or miss attacks. "
+    "audit_threshold is compared with the lowest suspicion score across a step's samples, "
+    "which is never above the first sample's score, so a percentile of single-sample scores "
+    "sets it too high. Set defer_threshold first, then run the agent on at least a hundred "
+    "honest steps under the DeferToResample you will deploy, with the same defer_threshold, "
+    "max_resamples and resampling. From each monitor_log record that has samples and whose "
+    "agent and monitor are your MonitorMiddleware's agent_name and label, take the lowest "
+    "score, and set the threshold at a high percentile of those scores, for example the 99th "
+    'by statistics.quantiles with method="inclusive", as the section "Calibrate the audit '
+    'threshold" of the guide "Use Defer to Resample" shows. Pass audit_threshold explicitly '
+    "to silence this warning."
+)
 
 
 @pytest.mark.parametrize("value", [0.0, 0.42, 1.0])
@@ -338,6 +373,239 @@ def test_defer_to_trusted_warning_skips_the_parent_constructor(
     # Assert
     assert len(record) == 2
     assert {warning.filename for warning in record} == {__file__}
+
+
+@pytest.mark.parametrize(
+    ("statistic", "expected"),
+    [
+        (ThresholdStatistic.SINGLE_SAMPLE_SCORE, SINGLE_SAMPLE_AUDIT_WARNING),
+        (ThresholdStatistic.LOWEST_SAMPLE_SCORE, LOWEST_SAMPLE_SCORE_AUDIT_WARNING),
+    ],
+    ids=["single-sample-score", "lowest-sample-score"],
+)
+def test_the_uncalibrated_warning_advises_calibrating_on_the_statistic_given(
+    statistic: ThresholdStatistic,
+    expected: str,
+) -> None:
+    # Act
+    with pytest.warns(UncalibratedThresholdWarning) as record:
+        resolved = resolve_threshold(
+            parameter_name="audit_threshold",
+            threshold=DefaultThreshold(0.9),
+            statistic=statistic,
+        )
+
+    # Assert
+    assert resolved == 0.9
+    assert [str(warning.message) for warning in record] == [expected]
+
+
+def test_resolve_threshold_defaults_to_the_single_sample_advice() -> None:
+    # Act
+    with pytest.warns(UncalibratedThresholdWarning) as record:
+        resolve_threshold(parameter_name="audit_threshold", threshold=DefaultThreshold(0.9))
+
+    # Assert
+    assert [str(warning.message) for warning in record] == [SINGLE_SAMPLE_AUDIT_WARNING]
+
+
+def test_defer_to_resample_audit_warning_advises_the_lowest_score_across_samples(
+    defer_to_trusted_model: DeferToTrustedModel,
+) -> None:
+    # Act: the repro of issue 108, with the default two resamples
+    with pytest.warns(UncalibratedThresholdWarning) as record:
+        DeferToResample(fallback=defer_to_trusted_model, defer_threshold=0.5)
+
+    # Assert
+    assert [str(warning.message) for warning in record] == [LOWEST_SAMPLE_SCORE_AUDIT_WARNING]
+    assert [warning.filename for warning in record] == [__file__]
+    assert "CalibratedMonitor" not in str(record[0].message)
+
+
+def read_lowest_score_audit_warning(fallback: DeferToTrustedModel) -> str:
+    with pytest.warns(UncalibratedThresholdWarning) as record:
+        DeferToResample(fallback=fallback, defer_threshold=0.5)
+    return str(record[0].message)
+
+
+def read_defer_to_resample_guide_lines() -> list[str]:
+    return (HOW_TO_GUIDES / "use-defer-to-resample.md").read_text(encoding="utf-8").splitlines()
+
+
+def test_the_lowest_score_advice_names_the_defer_to_resample_guide_by_its_title(
+    defer_to_trusted_model: DeferToTrustedModel,
+) -> None:
+    # Arrange
+    warning = read_lowest_score_audit_warning(defer_to_trusted_model)
+
+    # Act
+    guide_lines = read_defer_to_resample_guide_lines()
+
+    # Assert
+    assert f'the guide "{DEFER_TO_RESAMPLE_GUIDE_TITLE}"' in warning
+    assert guide_lines[0] == f"# {DEFER_TO_RESAMPLE_GUIDE_TITLE}"
+
+
+def test_the_lowest_score_advice_names_a_section_of_the_defer_to_resample_guide(
+    defer_to_trusted_model: DeferToTrustedModel,
+) -> None:
+    # Arrange
+    warning = read_lowest_score_audit_warning(defer_to_trusted_model)
+
+    # Act
+    guide_lines = read_defer_to_resample_guide_lines()
+
+    # Assert
+    assert f'the section "{AUDIT_THRESHOLD_SECTION_TITLE}"' in warning
+    assert f"### {AUDIT_THRESHOLD_SECTION_TITLE}" in guide_lines
+
+
+def read_audit_threshold_section() -> str:
+    """Return the guide's audit threshold section, up to its next heading, as one line."""
+    lines = read_defer_to_resample_guide_lines()
+    start = lines.index(f"### {AUDIT_THRESHOLD_SECTION_TITLE}") + 1
+    section: list[str] = []
+    in_code_block = False
+    for line in lines[start:]:
+        if line.startswith("```"):
+            in_code_block = not in_code_block
+        elif not in_code_block and line.startswith("#"):
+            break
+        section.append(line)
+    return " ".join(" ".join(section).split())
+
+
+@pytest.mark.parametrize(
+    ("advice", "recipe"),
+    [
+        ("Set defer_threshold first", "Set `defer_threshold` first"),
+        (
+            "with the same defer_threshold, max_resamples and resampling",
+            "with the same `defer_threshold`, `max_resamples` and `resampling`",
+        ),
+        ("at least a hundred honest steps", "at least a hundred honest steps"),
+        (
+            "whose agent and monitor are your MonitorMiddleware's agent_name and label",
+            'record["agent"] == agent_name and record["monitor"] == label',
+        ),
+        ("record that has samples", 'and record["samples"]'),
+        ("take the lowest score", 'min(sample["suspicion"] for sample in record["samples"])'),
+        (
+            'the 99th by statistics.quantiles with method="inclusive"',
+            'statistics.quantiles(lowest_scores, n=100, method="inclusive")[98]',
+        ),
+    ],
+    ids=[
+        "defer-threshold-first",
+        "same-settings",
+        "hundred-steps",
+        "agent-and-label",
+        "has-samples",
+        "lowest-score",
+        "inclusive-99th",
+    ],
+)
+def test_the_lowest_score_advice_agrees_with_the_section_it_names(
+    defer_to_trusted_model: DeferToTrustedModel,
+    advice: str,
+    recipe: str,
+) -> None:
+    # Arrange
+    warning = read_lowest_score_audit_warning(defer_to_trusted_model)
+
+    # Act
+    section = read_audit_threshold_section()
+
+    # Assert
+    assert advice in warning
+    assert recipe in section
+
+
+@pytest.mark.parametrize("resampling", list(Resampling), ids=[mode.value for mode in Resampling])
+def test_one_resample_is_enough_for_the_lowest_score_advice(
+    defer_to_trusted_model: DeferToTrustedModel,
+    resampling: Resampling,
+) -> None:
+    # Act
+    with pytest.warns(UncalibratedThresholdWarning) as record:
+        DeferToResample(
+            fallback=defer_to_trusted_model,
+            defer_threshold=0.5,
+            max_resamples=1,
+            resampling=resampling,
+        )
+
+    # Assert
+    assert [str(warning.message) for warning in record] == [LOWEST_SAMPLE_SCORE_AUDIT_WARNING]
+
+
+def test_without_resamples_the_audit_warning_keeps_the_single_sample_advice(
+    defer_to_trusted_model: DeferToTrustedModel,
+) -> None:
+    # Act
+    with pytest.warns(UncalibratedThresholdWarning) as record:
+        DeferToResample(fallback=defer_to_trusted_model, defer_threshold=0.5, max_resamples=0)
+
+    # Assert
+    assert [str(warning.message) for warning in record] == [SINGLE_SAMPLE_AUDIT_WARNING]
+    assert "lowest" not in str(record[0].message)
+
+
+def test_defer_to_trusted_audit_warning_keeps_the_single_sample_advice(
+    trusted_model: FakeListChatModel,
+) -> None:
+    # Act
+    with pytest.warns(UncalibratedThresholdWarning) as record:
+        DeferToTrusted(trusted_model=trusted_model, defer_threshold=0.5)
+
+    # Assert
+    assert [str(warning.message) for warning in record] == [SINGLE_SAMPLE_AUDIT_WARNING]
+
+
+def test_resampling_leaves_the_defer_threshold_warning_on_single_samples(
+    defer_to_trusted_model: DeferToTrustedModel,
+) -> None:
+    # Arrange: each sample is compared with defer_threshold on its own
+    explicit_audit_threshold = 0.9
+
+    # Act
+    with pytest.warns(UncalibratedThresholdWarning) as record:
+        DeferToResample(
+            fallback=defer_to_trusted_model,
+            audit_threshold=explicit_audit_threshold,
+            max_resamples=2,
+        )
+
+    # Assert
+    assert [str(warning.message) for warning in record] == [SINGLE_SAMPLE_DEFER_WARNING]
+
+
+@pytest.mark.parametrize(
+    ("max_resamples", "statistic"),
+    [
+        (0, ThresholdStatistic.SINGLE_SAMPLE_SCORE),
+        (1, ThresholdStatistic.LOWEST_SAMPLE_SCORE),
+        (2, ThresholdStatistic.LOWEST_SAMPLE_SCORE),
+    ],
+)
+def test_the_audit_statistic_follows_the_resample_count(
+    defer_to_trusted_model: DeferToTrustedModel,
+    max_resamples: int,
+    statistic: ThresholdStatistic,
+) -> None:
+    # Arrange
+    protocol = DeferToResample(
+        fallback=defer_to_trusted_model,
+        defer_threshold=0.5,
+        audit_threshold=0.9,
+        max_resamples=max_resamples,
+    )
+
+    # Act
+    audit_statistic = protocol.audit_statistic
+
+    # Assert
+    assert audit_statistic is statistic
 
 
 def test_protocols_with_chosen_thresholds_do_not_warn(

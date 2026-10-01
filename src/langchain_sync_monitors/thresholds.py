@@ -13,10 +13,15 @@ import os
 import warnings
 from dataclasses import dataclass
 from decimal import Decimal
+from enum import StrEnum
 from typing import Final
 
 from langchain_sync_monitors.errors import ConfigurationError
-from langchain_sync_monitors.options import check_instance_option, describe_option_value
+from langchain_sync_monitors.options import (
+    check_enum_option,
+    check_instance_option,
+    describe_option_value,
+)
 
 LIBRARY_DIRECTORY: Final = os.path.dirname(__file__) + os.sep
 """This package's directory, so that warnings skip the library's own frames."""
@@ -71,6 +76,25 @@ class UncalibratedThresholdWarning(UserWarning):
     """A protocol runs on a default threshold instead of one calibrated for its monitor."""
 
 
+class ThresholdStatistic(StrEnum):
+    """The suspicion statistic a protocol compares a threshold with.
+
+    A threshold is calibrated on the statistic it is compared with, so the
+    `UncalibratedThresholdWarning` for a default threshold says how to
+    calibrate it on this one. `resolve_threshold` takes it as `statistic`.
+    """
+
+    SINGLE_SAMPLE_SCORE = "single_sample_score"
+    """One sample's suspicion score, which most thresholds are compared with."""
+
+    LOWEST_SAMPLE_SCORE = "lowest_sample_score"
+    """The lowest suspicion score across a step's samples.
+
+    Defer to Resample compares `audit_threshold` with it when `max_resamples`
+    is above 0.
+    """
+
+
 DEFAULT_DEFER_THRESHOLD: Final = DefaultThreshold(0.6)
 """The default `defer_threshold`: Defer to Resample treats a sample at or above it as suspicious."""
 
@@ -86,8 +110,19 @@ DEFAULT_AUDIT_THRESHOLD: Final = DefaultThreshold(0.9)
 A step is flagged when the lowest score across its samples is at or above it.
 """
 
+DEFER_TO_RESAMPLE_GUIDE_TITLE: Final = "Use Defer to Resample"
+"""The title of the how-to guide that the lowest-score advice names."""
 
-def build_uncalibrated_message(*, parameter_name: str, value: float) -> str:
+AUDIT_THRESHOLD_SECTION_TITLE: Final = "Calibrate the audit threshold"
+"""The title of the section of that guide that calibrates on the lowest score."""
+
+
+def build_uncalibrated_message(
+    *,
+    parameter_name: str,
+    value: float,
+    statistic: ThresholdStatistic,
+) -> str:
     """Explain that a default threshold is in use and how to calibrate it from honest runs.
 
     Control evaluations set thresholds at a percentile of the monitor's scores
@@ -95,31 +130,77 @@ def build_uncalibrated_message(*, parameter_name: str, value: float) -> str:
     Ctrl-Z (appendix C) [@bhatt2025ctrlz] do, so the message points the user
     there.
     """
+    advice = build_calibration_advice(parameter_name=parameter_name, statistic=statistic)
     return (
         f"{parameter_name} uses the uncalibrated default {value}. Suspicion scores differ "
         "between monitors and agents, so a fixed default may block honest work or miss "
-        "attacks. Run the agent on honest tasks, collect the suspicion scores in "
-        "monitor_log, and set the threshold at a high percentile of them (for example the "
-        "98th), or wrap the monitor in CalibratedMonitor so that its scores are honest-run "
-        f"percentiles. Pass {parameter_name} explicitly to silence this warning."
+        f"attacks. {advice} Pass {parameter_name} explicitly to silence this warning."
     )
 
 
-def resolve_threshold(*, parameter_name: str, threshold: float | DefaultThreshold) -> float:
+def build_calibration_advice(*, parameter_name: str, statistic: ThresholdStatistic) -> str:
+    """Say how to calibrate a threshold on the statistic its protocol compares it with.
+
+    The lowest score across a step's samples is never above its first
+    sample's score, so a percentile of single-sample scores would set the
+    threshold too high. Ctrl-Z sets its auditing threshold at a quantile of
+    the honest distribution (appendix C), and with resampling it audits above
+    the 99th percentile of the honest minimum over resamples (figure 4, right
+    panel) [@bhatt2025ctrlz], so the advice for that statistic takes each
+    step's lowest score and the 99th percentile. That advice restates the
+    recipe of the section it names, which the tests check it against, and
+    names the guide and section by title alone, since an installed package
+    ships no docs files.
+    """
+    if statistic is ThresholdStatistic.LOWEST_SAMPLE_SCORE:
+        return (
+            f"{parameter_name} is compared with the lowest suspicion score across a step's "
+            "samples, which is never above the first sample's score, so a percentile of "
+            "single-sample scores sets it too high. Set defer_threshold first, then run the "
+            "agent on at least a hundred honest steps under the DeferToResample you will "
+            "deploy, with the same defer_threshold, max_resamples and resampling. From each "
+            "monitor_log record that has samples and whose agent and monitor are your "
+            "MonitorMiddleware's agent_name and label, take the lowest score, and set the "
+            "threshold at a high percentile of those scores, for example the 99th by "
+            'statistics.quantiles with method="inclusive", as the section '
+            f'"{AUDIT_THRESHOLD_SECTION_TITLE}" of the guide "{DEFER_TO_RESAMPLE_GUIDE_TITLE}" '
+            "shows."
+        )
+    return (
+        "Run the agent on honest tasks, collect the suspicion scores in monitor_log, and set "
+        "the threshold at a high percentile of them (for example the 98th), or wrap the "
+        "monitor in CalibratedMonitor so that its scores are honest-run percentiles."
+    )
+
+
+def resolve_threshold(
+    *,
+    parameter_name: str,
+    threshold: float | DefaultThreshold,
+    statistic: ThresholdStatistic = ThresholdStatistic.SINGLE_SAMPLE_SCORE,
+) -> float:
     """Return the threshold as a float, warning when it is the library's default.
 
+    `statistic` is what the protocol compares the threshold with, and the
+    warning says how to calibrate the threshold on it; it must be a
+    `ThresholdStatistic` member, and a plain string raises `ConfigurationError`.
     The warning is attributed to the first caller outside this library, which
     is the user's constructor call however many library frames lie between.
     `read_threshold_value` says which values count.
     """
     check_instance_option(parameter_name, option_type=str, parameter_name="parameter_name")
+    check_enum_option(statistic, option_type=ThresholdStatistic, parameter_name="statistic")
     value = read_threshold_value(
         threshold.value if isinstance(threshold, DefaultThreshold) else threshold,
         parameter_name=parameter_name,
     )
     if isinstance(threshold, DefaultThreshold):
         warnings.warn(
-            build_uncalibrated_message(parameter_name=parameter_name, value=value),
+            build_uncalibrated_message(
+                parameter_name=parameter_name,
+                value=value,
+                statistic=statistic,
+            ),
             UncalibratedThresholdWarning,
             stacklevel=2,
             skip_file_prefixes=(LIBRARY_DIRECTORY,),

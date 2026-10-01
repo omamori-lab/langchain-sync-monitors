@@ -47,15 +47,6 @@ Anthropic, OpenAI and Gemini when it can see them. It cannot see four kinds:
 pip install "langchain-sync-monitors[openrouter,deepagents]"
 ```
 
-<!-- release-check: the text below describes an unreleased package. scripts/check-release.sh refuses a release while this comment is here; rewrite that text for the release, then delete this comment. -->
-
-The package is not on PyPI yet. Until the first release, install it from
-GitHub:
-
-```console
-pip install "langchain-sync-monitors[openrouter,deepagents] @ git+https://github.com/omamori-lab/langchain-sync-monitors"
-```
-
 | Extra | Adds | Needed for |
 |---|---|---|
 | `openrouter` | `langchain-openrouter` | model strings such as `"openrouter:xiaomi/mimo-v2.6-pro"` |
@@ -246,11 +237,10 @@ library in research, please cite the original authors.
 
 ## Status and licence
 
-<!-- release-check: the text below describes an unreleased package. scripts/check-release.sh refuses a release while this comment is here; rewrite that text for the release, then delete this comment. -->
-
-Pre-release, version 0.1.0.dev0, and not on PyPI yet. The monitors,
-protocols, middleware and Deep Agents support are built and tested offline,
-and the API may still change before 0.1.0; the
+Alpha, and released on [PyPI](https://pypi.org/project/langchain-sync-monitors/).
+The monitors, protocols, middleware and Deep Agents support are tested offline
+and tried in [live runs](explanation/live-runs.md). Before 1.0.0, a minor
+release can break the API; the
 [changelog](https://github.com/omamori-lab/langchain-sync-monitors/blob/main/CHANGELOG.md)
 records each change. The library is released under the
 [MIT licence](https://github.com/omamori-lab/langchain-sync-monitors/blob/main/LICENSE).

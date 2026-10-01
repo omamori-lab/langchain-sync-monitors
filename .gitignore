@@ -29,5 +29,8 @@ htmlcov/
 CLAUDE.local.md
 site/
 
+# Browser tool logs
+.playwright-mcp/
+
 # Agent worktrees (one checkout per parallel agent)
 .claude/worktrees/

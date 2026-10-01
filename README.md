@@ -24,15 +24,6 @@ it.
 pip install "langchain-sync-monitors[openrouter,deepagents]"
 ```
 
-<!-- release-check: the text below describes an unreleased package. scripts/check-release.sh refuses a release while this comment is here; rewrite that text for the release, then delete this comment. -->
-
-The package is not on PyPI yet. Until the first release, install it from
-GitHub:
-
-```console
-pip install "langchain-sync-monitors[openrouter,deepagents] @ git+https://github.com/omamori-lab/langchain-sync-monitors"
-```
-
 | Extra | Adds | Needed for |
 |---|---|---|
 | `openrouter` | `langchain-openrouter` | model strings such as `"openrouter:xiaomi/mimo-v2.6-pro"` |
@@ -180,14 +171,11 @@ use this library in research, please cite the original authors.
 
 ## Status and licence
 
-<!-- release-check: the text below describes an unreleased package. scripts/check-release.sh refuses a release while this comment is here; rewrite that text for the release, then delete this comment. -->
-
-Pre-release, version 0.1.0.dev0, and not on PyPI yet. The monitors,
-protocols, middleware and Deep Agents support are built, tested offline and
-tried in [live runs](docs/explanation/live-runs.md), and the API may still
-change before 0.1.0; [CHANGELOG.md](CHANGELOG.md)
-records each change. [CONTRIBUTING.md](CONTRIBUTING.md) explains how to work
-on the library, and [docs/plans](docs/plans/README.md) holds each feature's
-design plan.
+Alpha, and released on [PyPI](https://pypi.org/project/langchain-sync-monitors/).
+The monitors, protocols, middleware and Deep Agents support are tested offline
+and tried in [live runs](docs/explanation/live-runs.md). Before 1.0.0, a minor
+release can break the API; [CHANGELOG.md](CHANGELOG.md) records each change.
+[CONTRIBUTING.md](CONTRIBUTING.md) explains how to work on the library, and
+[docs/plans](docs/plans/README.md) holds each feature's design plan.
 
 Released under the MIT licence; see [LICENSE](LICENSE).

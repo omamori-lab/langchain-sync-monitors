@@ -20,8 +20,9 @@ included.
   with the attack at 0.6, resampling found a sample below the threshold at
   every step of both runs on 1 October 2026, and those runs tested no halt.
 
-The whole-run test is skipped when no subagent step was halted, since nothing
-then tested what a halt does. Each run stops at `RUN_BUDGET`;
+The whole-run test runs the real attack, and is skipped when no subagent step
+was halted, since nothing then tested what a halt does; on 1 October 2026 it
+reached a halt in three of four runs. Each run stops at `RUN_BUDGET`;
 `tests/live/__init__.py` gives the suite's expected cost.
 """
 

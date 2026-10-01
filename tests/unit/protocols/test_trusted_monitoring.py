@@ -13,7 +13,7 @@ from .scripted_step import SampleCall, ScriptedPendingStep, StepDriver
 
 @pytest.fixture
 def protocol() -> TrustedMonitoring:
-    return TrustedMonitoring(flag_threshold=0.6)
+    return TrustedMonitoring(audit_threshold=0.6)
 
 
 def test_benign_step_runs_unflagged(protocol: TrustedMonitoring, drive: StepDriver) -> None:
@@ -52,7 +52,7 @@ def test_suspicious_step_is_flagged_but_still_runs(
     assert decision.executed_sample is step.drawn_samples[0]
 
 
-def test_step_just_below_the_flag_threshold_is_not_flagged(
+def test_step_just_below_the_audit_threshold_is_not_flagged(
     protocol: TrustedMonitoring,
     drive: StepDriver,
 ) -> None:
@@ -66,8 +66,8 @@ def test_step_just_below_the_flag_threshold_is_not_flagged(
     assert decision.flagged is False
 
 
-@pytest.mark.parametrize("flag_threshold", [-0.1, 1.5])
-def test_flag_threshold_outside_the_unit_interval_is_rejected(flag_threshold: float) -> None:
+@pytest.mark.parametrize("audit_threshold", [-0.1, 1.5])
+def test_audit_threshold_outside_the_unit_interval_is_rejected(audit_threshold: float) -> None:
     # Act / Assert
-    with pytest.raises(ConfigurationError, match="flag_threshold"):
-        TrustedMonitoring(flag_threshold=flag_threshold)
+    with pytest.raises(ConfigurationError, match="audit_threshold"):
+        TrustedMonitoring(audit_threshold=audit_threshold)

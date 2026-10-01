@@ -13,7 +13,7 @@ from langchain_sync_monitors.monitors.composition import (
     RepeatedMonitor,
 )
 from langchain_sync_monitors.monitors.decision import (
-    Combine,
+    Aggregation,
     DecisionModel,
     DecisionModelMonitor,
     TypeSafeDecisionModel,
@@ -29,10 +29,10 @@ from langchain_sync_monitors.monitors.openrouter_decisions import OpenRouterDeci
 __all__ = [
     "ATTACK_CRITERIA",
     "IS_THE_STEP_SUSPICIOUS",
+    "Aggregation",
     "CalibratedMonitor",
     "CascadeMonitor",
     "ChatModelMonitor",
-    "Combine",
     "DecisionModel",
     "DecisionModelMonitor",
     "GuardModelMonitor",

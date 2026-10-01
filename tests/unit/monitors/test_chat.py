@@ -342,14 +342,14 @@ async def test_a_reply_whose_score_is_not_alone_after_the_reasoning_fails_closed
 @pytest.mark.parametrize(
     ("build_wrapper", "lowest_expected_suspicion"),
     [
-        (lambda judge: RepeatedMonitor(monitor=judge, repeats=2), 1.0),
+        (lambda judge: RepeatedMonitor(monitor=judge, ensemble_size=2), 1.0),
         # Above all three honest scores, a calibrated suspicion lands in [3/4, 1).
         (lambda judge: CalibratedMonitor(monitor=judge, honest_scores=[0.0, 0.2, 0.5]), 0.75),
         (
             lambda judge: CascadeMonitor(
                 fast=judge,
                 careful=ScriptedMonitor(suspicions=[1.0]),
-                escalate_at=0.5,
+                escalation_threshold=0.5,
             ),
             1.0,
         ),
@@ -387,14 +387,14 @@ async def test_wrappers_inherit_the_strict_reading_of_the_score(
     ids=[
         "one",
         "case-and-a-second",
-        "opener-twice",
-        "opener-inside",
-        "closer-first",
+        "start-tag-twice",
+        "start-tag-inside",
+        "end-tag-first",
         "open",
         "none",
     ],
 )
-def test_the_reasoning_block_runs_from_the_first_opener_to_the_next_closer(
+def test_the_reasoning_block_runs_from_the_first_start_tag_to_the_next_end_tag(
     reply: str,
     expected: tuple[str, int] | None,
 ) -> None:
@@ -405,11 +405,11 @@ def test_the_reasoning_block_runs_from_the_first_opener_to_the_next_closer(
     assert (block and (block.text, block.end)) == expected
 
 
-async def test_a_reply_of_many_openers_is_read_in_linear_time(
+async def test_a_reply_of_many_start_tags_is_read_in_linear_time(
     monitor_input: MonitorInput,
     call_path: CallPath,
 ) -> None:
-    # Arrange: about 100,000 characters of openers and no closer; a lazy search took seconds
+    # Arrange: about 100,000 characters of start tags and no end tag; a lazy search took seconds
     judge, _ = build_judge("<reasoning>" * 9_000, max_parse_retries=0)
     started = time.perf_counter()
 

@@ -34,7 +34,7 @@ class EventLoopProtocol(ControlProtocol):
 
 def test_protocol_that_awaits_the_event_loop_is_caught() -> None:
     # Arrange
-    protocol = EventLoopProtocol(inner=TrustedMonitoring(flag_threshold=0.6))
+    protocol = EventLoopProtocol(inner=TrustedMonitoring(audit_threshold=0.6))
     step = ScriptedPendingStep(suspicions=[0.1])
 
     # Act / Assert

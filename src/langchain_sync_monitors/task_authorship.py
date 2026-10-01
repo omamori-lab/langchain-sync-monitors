@@ -27,10 +27,11 @@ context note, in the state as well as in what the monitor reads.
   tool returns or raises can record a message as a run's input or keep
   words of its own as the user's. When a tool writes a message under the id
   of a human message the monitor has seen, the monitor records that id
-  under `REWRITTEN_INPUTS_KEY`: once every anchor of the input is gone, such
-  a message never marks the input's place, though it still bounds it from
-  above. Every id stays as the tool wrote it. A command bound for the parent
-  graph is recorded there, by the parent's monitor, against its own state.
+  under `REWRITTEN_INPUTS_KEY`: once every kept previous message of the input
+  is gone, such a message never marks the input's place, though it still
+  bounds it from above. Every id stays as the tool wrote it. A command bound
+  for the parent graph is recorded there, by the parent's monitor, against
+  its own state.
 - `RUN_OPEN_KEY` is set at the start of a run and of each step, and cleared
   when the run reaches the monitor's `after_agent` hook. A run that starts
   while it is still set follows one that stopped early, or a fork from a
@@ -144,7 +145,7 @@ def build_note_source(name: str) -> str:
     return APPLICATION_SOURCE if name in RESERVED_SOURCES else name
 
 
-def mark_context_note(message: HumanMessage) -> HumanMessage:
+def tag_as_context_note_from_name(message: HumanMessage) -> HumanMessage:
     """Return a copy of a human message tagged as a context note.
 
     The note's source is the message's `name`, as Deep Agents' Nemotron
@@ -155,14 +156,14 @@ def mark_context_note(message: HumanMessage) -> HumanMessage:
     )
 
 
-def is_note_to_mark(
+def is_note_to_tag(
     message: BaseMessage, *, task_message_ids: Collection[str]
 ) -> TypeGuard[HumanMessage]:
     """Tell whether a message is an untagged human message that was not a run's input."""
     return is_untagged_human_message(message) and message.id not in task_message_ids
 
 
-def mark_context_notes(
+def tag_context_notes(
     history: Sequence[BaseMessage],
     *,
     task_message_ids: Collection[str],
@@ -177,8 +178,8 @@ def mark_context_notes(
     lacks. A message without an id is never the task author's.
     """
     return tuple(
-        mark_context_note(message)
-        if is_note_to_mark(message, task_message_ids=task_message_ids)
+        tag_as_context_note_from_name(message)
+        if is_note_to_tag(message, task_message_ids=task_message_ids)
         else message
         for message in history
     )
@@ -263,9 +264,9 @@ def build_note_update(state: object) -> AgentStateUpdate:
     unseen_ids = find_unseen_human_message_ids(state)
     # Only a message with an id can be replaced in place; one without would be added again.
     notes = [
-        mark_context_note(message)
+        tag_as_context_note_from_name(message)
         for message in read_state_messages(state)
-        if message.id and is_note_to_mark(message, task_message_ids=task_message_ids)
+        if message.id and is_note_to_tag(message, task_message_ids=task_message_ids)
     ]
     update: AgentStateUpdate = {}
     if unseen_ids:
@@ -384,7 +385,9 @@ def read_written_messages(result: ToolCallResult) -> list[BaseMessage]:
     return written
 
 
-def find_rewritten_ids(written: Sequence[BaseMessage], *, before: StateBeforeTool) -> list[str]:
+def find_rewritten_input_ids(
+    written: Sequence[BaseMessage], *, before: StateBeforeTool
+) -> list[str]:
     """Return the ids of the seen human messages under which a tool writes a message."""
     return list(
         dict.fromkeys(
@@ -395,11 +398,11 @@ def find_rewritten_ids(written: Sequence[BaseMessage], *, before: StateBeforeToo
     )
 
 
-def record_rewritten_ids(command: Command, *, rewritten_ids: list[str]) -> Command:
+def record_rewritten_input_ids(command: Command, *, rewritten_input_ids: list[str]) -> Command:
     """Return a tool's command that also records the seen ids it writes under, when it does."""
-    if not rewritten_ids:
+    if not rewritten_input_ids:
         return command
-    pairs = [*read_update_pairs(command), (REWRITTEN_INPUTS_KEY, rewritten_ids)]
+    pairs = [*read_update_pairs(command), (REWRITTEN_INPUTS_KEY, rewritten_input_ids)]
     return replace_update_pairs(command, pairs=pairs)
 
 
@@ -430,9 +433,9 @@ def relabel_tool_command(
     with only a `goto`, is returned as it is. The command's writes to
     `MONITOR_STATE_KEYS`, in any update shape, are dropped first, by
     `drop_monitor_state_writes`, and the ids of the seen human messages it
-    writes under are recorded after, by `record_rewritten_ids`.
+    writes under are recorded after, by `record_rewritten_input_ids`.
     """
-    rewritten_ids = find_rewritten_ids(read_written_messages(command), before=before)
+    rewritten_input_ids = find_rewritten_input_ids(read_written_messages(command), before=before)
     relabelled = rewrite_update_messages(
         drop_monitor_state_writes(command, tool_name=tool_name),
         rewrite=lambda message: relabel_unless_written_back(
@@ -443,7 +446,7 @@ def relabel_tool_command(
         # Bound for the parent graph, whose state this one's seen ids do not describe. By the
         # time the parent's monitor sees it, LangGraph has named that graph, and it records.
         return relabelled
-    return record_rewritten_ids(relabelled, rewritten_ids=rewritten_ids)
+    return record_rewritten_input_ids(relabelled, rewritten_input_ids=rewritten_input_ids)
 
 
 def drop_monitor_state_writes(command: Command, *, tool_name: str) -> Command:
@@ -497,13 +500,13 @@ def relabel_tool_result(
     relabelled = relabel_unless_written_back(result, tool_name=tool_name, before=before)
     # A tool message stays one; the check only narrows the type for the type checker.
     message = relabelled if isinstance(relabelled, ToolMessage) else result
-    rewritten_ids = find_rewritten_ids([message], before=before)
-    if not rewritten_ids:
+    rewritten_input_ids = find_rewritten_input_ids([message], before=before)
+    if not rewritten_input_ids:
         return message
-    return Command(update={"messages": [message], REWRITTEN_INPUTS_KEY: rewritten_ids})
+    return Command(update={"messages": [message], REWRITTEN_INPUTS_KEY: rewritten_input_ids})
 
 
-def relabel_parent_command(bubble: ParentCommand, *, tool_name: str, state: object) -> None:
+def relabel_parent_command(parent_command: ParentCommand, *, tool_name: str, state: object) -> None:
     """Relabel, in place, what the command in a `ParentCommand` a tool call raises writes.
 
     A tool can raise one, or call a graph whose node returns a command for
@@ -513,14 +516,14 @@ def relabel_parent_command(bubble: ParentCommand, *, tool_name: str, state: obje
     `graph`, `goto` and `resume`. The command is replaced in the exception,
     as LangGraph itself replaces it on the way up.
     """
-    [command] = bubble.args
+    [command] = parent_command.args
     relabelled = relabel_tool_command(
         command, tool_name=tool_name, before=read_state_before_tool(state)
     )
-    bubble.args = (relabelled,)
+    parent_command.args = (relabelled,)
 
 
-def mark_tool_written_notes(
+def tag_tool_written_notes(
     results: ToolCallResults,
     *,
     tool_name: str,

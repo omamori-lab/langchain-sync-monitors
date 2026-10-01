@@ -60,7 +60,7 @@ Keep to these patterns; reviewers check them.
 - **A strategy for every choice.** Behaviour that varies is an object or an
   enum passed to the constructor, or to the method whose behaviour it
   chooses, never a bool or a plain string: a protocol, a fallback, a
-  monitor, a decision model, `GuardScoring`, `Combine`, `MonitorView`,
+  monitor, a decision model, `GuardScoring`, `Aggregation`, `MonitorView`,
   `FeedbackVisibility`, `SubagentHalt`, `Resampling`, `SampleDrawing`.
 - **Composition for parts, inheritance for kinds.** A part that varies on its
   own is held and passed in: monitors that wrap monitors (`RepeatedMonitor`,

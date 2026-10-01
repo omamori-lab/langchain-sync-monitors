@@ -4,9 +4,10 @@ A monitor judges every step an agent proposes before any of the agent's own
 tools run, and a control protocol decides what happens with that judgement.
 `MonitorMiddleware` joins the two and plugs into `create_agent` or
 `create_deep_agent`; `monitor_subagents` gives every Deep Agents subagent a
-monitor of its own. Tools the model provider runs itself run inside the model
-call, before any judgement; the middleware warns about the server tools of
-Anthropic, OpenAI and Gemini it knows with a `ProviderToolWarning`.
+monitor of its own. Server-side tools, which the model provider runs inside
+the model call, run before any judgement; the middleware warns about the
+server tools of Anthropic, OpenAI and Gemini it knows with a
+`ServerToolWarning`.
 """
 
 from langchain_sync_monitors._langchain import MonitorStepEvent, MonitorStepFailedEvent
@@ -38,7 +39,7 @@ from langchain_sync_monitors.errors import (
     InvalidSuspicionError,
     MissingExtraError,
     MonitorError,
-    ProviderToolWarning,
+    ServerToolWarning,
     SynchronousRunError,
 )
 from langchain_sync_monitors.middleware import MonitorMiddleware
@@ -47,10 +48,10 @@ from langchain_sync_monitors.monitor_state import MonitorState
 from langchain_sync_monitors.monitors import (
     ATTACK_CRITERIA,
     IS_THE_STEP_SUSPICIOUS,
+    Aggregation,
     CalibratedMonitor,
     CascadeMonitor,
     ChatModelMonitor,
-    Combine,
     DecisionModel,
     DecisionModelMonitor,
     GuardModelMonitor,
@@ -89,6 +90,7 @@ __all__ = [
     "DEFAULT_HALT_MESSAGE",
     "DEFAULT_MONITOR_PROMPT",
     "IS_THE_STEP_SUSPICIOUS",
+    "Aggregation",
     "AutoMode",
     "BlockedAttempt",
     "CachedResampleWarning",
@@ -96,7 +98,6 @@ __all__ = [
     "CascadeMonitor",
     "Channel",
     "ChatModelMonitor",
-    "Combine",
     "ConfigurationError",
     "ControlProtocol",
     "DecisionModel",
@@ -128,12 +129,12 @@ __all__ = [
     "OpenRouterDecisionModel",
     "Outcome",
     "PendingStep",
-    "ProviderToolWarning",
     "RepeatedMonitor",
     "Resampling",
     "Sample",
     "SampleDrawing",
     "SampleRecord",
+    "ServerToolWarning",
     "StepDecision",
     "StepRecord",
     "SubagentHalt",

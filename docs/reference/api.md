@@ -186,7 +186,7 @@ name `langchain_sync_monitors` exports, grouped by what it is for.
         - yes_means
         - no_means
 
-::: langchain_sync_monitors.Combine
+::: langchain_sync_monitors.Aggregation
     options:
       members:
         - MAX
@@ -365,7 +365,7 @@ name `langchain_sync_monitors` exports, grouped by what it is for.
     options:
       members: false
 
-::: langchain_sync_monitors.ProviderToolWarning
+::: langchain_sync_monitors.ServerToolWarning
     options:
       members: false
 

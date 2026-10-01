@@ -92,8 +92,8 @@ DEFAULT_FEEDBACK_TEMPLATE: Final = FeedbackTemplate(
 """The feedback Auto Mode sends by default, after Claude Code's auto mode [@hughes2026automode].
 
 It says that none of the agent's tools ran the blocked step, which stays true
-when a provider's built-in tool in that step already ran inside the model
-call. Like every reason, it carries no score.
+when a server tool in that step already ran inside the model call. Like
+every reason, it carries no score.
 """
 
 DEFAULT_WHEN_LIMIT_REACHED: Final = HaltRun()

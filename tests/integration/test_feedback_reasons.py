@@ -30,10 +30,10 @@ def build_wrapped_monitor() -> CalibratedMonitor:
     cascade = CascadeMonitor(
         fast=build_keyword_monitor(),
         careful=build_keyword_monitor(),
-        escalate_at=0.5,
+        escalation_threshold=0.5,
     )
     return CalibratedMonitor(
-        monitor=RepeatedMonitor(monitor=cascade, repeats=2),
+        monitor=RepeatedMonitor(monitor=cascade, ensemble_size=2),
         honest_scores=[0.2] * 20,
         random_seed=1,
     )

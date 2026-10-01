@@ -44,7 +44,7 @@ from langchain_sync_monitors.returned_records import (
     check_returned_records,
     read_tool_caller,
 )
-from langchain_sync_monitors.task_authorship import mark_tool_written_notes, relabel_parent_command
+from langchain_sync_monitors.task_authorship import relabel_parent_command, tag_tool_written_notes
 
 checked_tool_call: ContextVar[ToolCallRequest | None] = ContextVar(
     "monitor_checked_tool_call",
@@ -81,7 +81,7 @@ class CheckedToolCall:
         """Return the call's result with its messages relabelled and its records checked."""
         if self.caller is None:
             return cast_to_tool_call_result(result)
-        written = mark_tool_written_notes(
+        written = tag_tool_written_notes(
             result,
             tool_name=self.caller.tool_call["name"],
             state=self.caller.state,
@@ -105,13 +105,15 @@ def check_tool_call(request: ToolCallRequest, *, agent: str) -> Iterator[Checked
     with set_context_value(checked_tool_call, value=delegated):
         try:
             yield CheckedToolCall(request=delegated, caller=caller)
-        except ParentCommand as bubble:
-            relabel_parent_command(bubble, tool_name=caller.tool_call["name"], state=caller.state)
-            check_parent_command_records(bubble, caller=caller)
+        except ParentCommand as parent_command:
+            relabel_parent_command(
+                parent_command, tool_name=caller.tool_call["name"], state=caller.state
+            )
+            check_parent_command_records(parent_command, caller=caller)
             raise
 
 
-def run_tool_call(
+def run_tool_call_sync(
     request: ToolCallRequest,
     *,
     handler: ToolCallHandler,
@@ -123,7 +125,7 @@ def run_tool_call(
     return checked_call.check_result(result)
 
 
-async def arun_tool_call(
+async def run_tool_call(
     request: ToolCallRequest,
     *,
     handler: AsyncToolCallHandler,

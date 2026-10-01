@@ -14,7 +14,7 @@ import functools
 import itertools
 import threading
 import warnings
-from collections.abc import Coroutine, Iterator, Sequence
+from collections.abc import Coroutine, Iterator
 from dataclasses import dataclass, field
 from typing import ClassVar, TypedDict, override
 
@@ -43,7 +43,7 @@ from langchain_sync_monitors.contracts import (
     Verdict,
 )
 from langchain_sync_monitors.errors import MonitorError, SynchronousRunError
-from langchain_sync_monitors.feedback import build_feedback_messages
+from langchain_sync_monitors.feedback import build_blocked_attempt_messages
 from langchain_sync_monitors.model_calls import CachedResampleWarning, is_response_cache_active
 from langchain_sync_monitors.run_inputs import RunInput, restore_run_inputs
 from langchain_sync_monitors.spans import (
@@ -158,24 +158,6 @@ def find_proposal(response: AgentModelResponse) -> AIMessage:
     raise MonitorError(error_message)
 
 
-def build_sampling_conversation(
-    messages: Sequence[BaseMessage],
-    *,
-    blocked_attempts: tuple[BlockedAttempt, ...],
-) -> tuple[BaseMessage, ...]:
-    """Return the conversation a sample is drawn on: the request, then each blocked attempt.
-
-    Each blocked attempt adds its proposal and the feedback on it, so the agent
-    sees why its earlier try was blocked.
-    """
-    feedback = [
-        message
-        for attempt in blocked_attempts
-        for message in build_feedback_messages(attempt=attempt)
-    ]
-    return (*messages, *feedback)
-
-
 @functools.cache
 def warn_about_cached_resamples() -> None:
     """Emit the `CachedResampleWarning`, on the first call in the process only.
@@ -283,8 +265,12 @@ class MonitoredStep(PendingStep):
         self,
         blocked_attempts: tuple[BlockedAttempt, ...],
     ) -> tuple[BaseMessage, ...]:
-        """Return this step's conversation, followed by any blocked attempts and their feedback."""
-        return build_sampling_conversation(self.request.messages, blocked_attempts=blocked_attempts)
+        """Return the conversation a sample is drawn on: the request, then each blocked attempt.
+
+        Each blocked attempt adds its proposal and the feedback on it, so the
+        agent sees why its earlier try was blocked.
+        """
+        return (*self.request.messages, *build_blocked_attempt_messages(blocked_attempts))
 
     def build_sample_request(self, conversation: tuple[BaseMessage, ...]) -> AgentModelRequest:
         """Return this step's request with the conversation a sample is drawn on."""

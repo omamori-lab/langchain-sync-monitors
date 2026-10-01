@@ -173,7 +173,7 @@ def test_blocked_attempts_of_a_decision_come_out_in_order(
     )
 
     # Act
-    messages = build_blocked_attempt_messages(decision=decision)
+    messages = build_blocked_attempt_messages(decision.blocked_attempts)
 
     # Assert
     assert [type(message).__name__ for message in messages] == [
@@ -196,7 +196,7 @@ def test_a_decision_without_blocked_attempts_adds_no_messages() -> None:
     )
 
     # Act
-    messages = build_blocked_attempt_messages(decision=decision)
+    messages = build_blocked_attempt_messages(decision.blocked_attempts)
 
     # Assert
     assert messages == []

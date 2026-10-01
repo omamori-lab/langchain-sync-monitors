@@ -9,10 +9,12 @@ logger the docs give for committed and failed steps.
 """
 
 import logging
-from collections.abc import Sequence
+from collections.abc import Iterator, Sequence
+from contextlib import contextmanager
 
 from langchain.agents.middleware.types import ExtendedModelResponse, ModelResponse
 from langchain_core.messages import BaseMessage
+from langgraph.errors import GraphBubbleUp
 from langgraph.types import Command
 
 from langchain_sync_monitors._langchain import (
@@ -50,15 +52,15 @@ def render_sample_suspicions(samples: Sequence[SampleRecord]) -> str:
     return ", ".join(f"{sample['suspicion']:.3f}" for sample in samples)
 
 
+@contextmanager
 def report_failed_step(
     step: MonitoredStep,
     *,
     identity: StepIdentity,
-    error: BaseException,
     traced_step: TracedRun,
     middleware_name: str,
-) -> None:
-    """Report the samples judged in a step that raised, before the error propagates.
+) -> Iterator[None]:
+    """Report the samples judged in a step whose block raises, before the error propagates.
 
     The step is never committed, so this is the only trace of its samples:
     a `MonitorStepFailedEvent` on `stream_mode="custom"`, which holds each
@@ -67,33 +69,40 @@ def report_failed_step(
     gives the error's type and each sample's suspicion, and says the event
     holds the samples. It quotes no proposal, reason or error message,
     since any of them can hold the transcript. `identity` names the step as
-    its span does.
+    its span does. LangGraph's own control flow, such as an interrupt, is
+    not a failed step, and passes through unreported.
     """
-    step_number = identity.step_number
-    samples = [build_sample_record(sample, executed=False) for sample in step.judged_samples]
-    traced_step.inputs_at_end = build_step_span_inputs(step_number=step_number, samples=samples)
-    event = MonitorStepFailedEvent(
-        type="monitor_step_failed",
-        agent=identity.agent,
-        monitor=identity.monitor,
-        step_number=step_number,
-        error=f"{type(error).__name__}: {error}",
-        samples=samples,
-    )
-    if identity.delegation_id is not None:
-        event["delegation_id"] = identity.delegation_id
-    write_stream_event(step.request, event=event)
-    if samples:
-        logger.warning(
-            "%s: step %d failed with %s before it was committed, so the %d sample(s) the "
-            "monitor judged are not in monitor_log. Their suspicions: %s. The step's "
-            "monitor_step_failed event on stream_mode='custom' holds the samples.",
-            middleware_name,
-            step_number,
-            type(error).__name__,
-            len(samples),
-            render_sample_suspicions(samples),
+    try:
+        yield
+    except GraphBubbleUp:
+        raise
+    except BaseException as error:
+        step_number = identity.step_number
+        samples = [build_sample_record(sample, executed=False) for sample in step.judged_samples]
+        traced_step.inputs_at_end = build_step_span_inputs(step_number=step_number, samples=samples)
+        event = MonitorStepFailedEvent(
+            type="monitor_step_failed",
+            agent=identity.agent,
+            monitor=identity.monitor,
+            step_number=step_number,
+            error=f"{type(error).__name__}: {error}",
+            samples=samples,
         )
+        if identity.delegation_id is not None:
+            event["delegation_id"] = identity.delegation_id
+        write_stream_event(step.request, event=event)
+        if samples:
+            logger.warning(
+                "%s: step %d failed with %s before it was committed, so the %d sample(s) the "
+                "monitor judged are not in monitor_log. Their suspicions: %s. The step's "
+                "monitor_step_failed event on stream_mode='custom' holds the samples.",
+                middleware_name,
+                step_number,
+                type(error).__name__,
+                len(samples),
+                render_sample_suspicions(samples),
+            )
+        raise
 
 
 def check_step_decision(decision: object, *, protocol: ControlProtocol) -> StepDecision:
@@ -144,7 +153,7 @@ def commit_step(
     """
     messages = list(decision.response.result)
     if feedback_visibility is FeedbackVisibility.IN_TRANSCRIPT:
-        messages = [*build_blocked_attempt_messages(decision=decision), *messages]
+        messages = [*build_blocked_attempt_messages(decision.blocked_attempts), *messages]
     response = ModelResponse(
         result=messages,
         structured_response=decision.response.structured_response,

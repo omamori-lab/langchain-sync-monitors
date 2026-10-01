@@ -34,7 +34,6 @@ from langchain.agents.middleware.types import (
     ToolCallRequest,
     hook_config,
 )
-from langgraph.errors import GraphBubbleUp
 
 from langchain_sync_monitors._langchain import (
     AgentContext,
@@ -273,21 +272,15 @@ class MonitorMiddleware(AgentMiddleware[MonitorState, AgentContext, StructuredOu
             if decision is None:
                 step = SyncPendingStep(handler=handler, **prepared.options)
                 try:
-                    with hide_model_calls_from_message_stream():
-                        decided = run_synchronously(self.protocol.decide(step))
-                    decision = check_step_decision(decided, protocol=self.protocol)
-                except GraphBubbleUp:
-                    # LangGraph's own control flow, such as an interrupt, is not a failed step.
-                    raise
-                except BaseException as error:
-                    report_failed_step(
+                    with report_failed_step(
                         step,
                         identity=prepared.identity,
-                        error=error,
                         traced_step=traced_step,
                         middleware_name=self.name,
-                    )
-                    raise
+                    ):
+                        with hide_model_calls_from_message_stream():
+                            decided = run_synchronously(self.protocol.decide(step))
+                        decision = check_step_decision(decided, protocol=self.protocol)
                 finally:
                     # A task the protocol left on a running loop may run after the step.
                     # Once closed, the step refuses it the model.
@@ -316,21 +309,15 @@ class MonitorMiddleware(AgentMiddleware[MonitorState, AgentContext, StructuredOu
             if decision is None:
                 step = AsyncPendingStep(handler=handler, **prepared.options)
                 try:
-                    with hide_model_calls_from_message_stream():
-                        decided = await self.protocol.decide(step)
-                    decision = check_step_decision(decided, protocol=self.protocol)
-                except GraphBubbleUp:
-                    # LangGraph's own control flow, such as an interrupt, is not a failed step.
-                    raise
-                except BaseException as error:
-                    report_failed_step(
+                    with report_failed_step(
                         step,
                         identity=prepared.identity,
-                        error=error,
                         traced_step=traced_step,
                         middleware_name=self.name,
-                    )
-                    raise
+                    ):
+                        with hide_model_calls_from_message_stream():
+                            decided = await self.protocol.decide(step)
+                        decision = check_step_decision(decided, protocol=self.protocol)
                 finally:
                     # A task the protocol started and left running may outlast the step.
                     # Once closed, the step refuses it the model and the monitor.

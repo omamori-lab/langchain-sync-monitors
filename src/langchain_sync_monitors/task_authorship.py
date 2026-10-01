@@ -155,7 +155,9 @@ def mark_context_note(message: HumanMessage) -> HumanMessage:
     )
 
 
-def is_note_to_mark(message: BaseMessage, *, task_message_ids: Collection[str]) -> bool:
+def is_note_to_mark(
+    message: BaseMessage, *, task_message_ids: Collection[str]
+) -> TypeGuard[HumanMessage]:
     """Tell whether a message is an untagged human message that was not a run's input."""
     return is_untagged_human_message(message) and message.id not in task_message_ids
 
@@ -176,8 +178,7 @@ def mark_context_notes(
     """
     return tuple(
         mark_context_note(message)
-        if isinstance(message, HumanMessage)
-        and is_note_to_mark(message, task_message_ids=task_message_ids)
+        if is_note_to_mark(message, task_message_ids=task_message_ids)
         else message
         for message in history
     )
@@ -264,9 +265,7 @@ def build_note_update(state: object) -> AgentStateUpdate:
     notes = [
         mark_context_note(message)
         for message in read_state_messages(state)
-        if isinstance(message, HumanMessage)
-        and message.id
-        and is_note_to_mark(message, task_message_ids=task_message_ids)
+        if message.id and is_note_to_mark(message, task_message_ids=task_message_ids)
     ]
     update: AgentStateUpdate = {}
     if unseen_ids:
@@ -342,8 +341,9 @@ class StateBeforeTool:
 
 def read_state_before_tool(state: object) -> StateBeforeTool:
     """Return what the state held when a tool ran: its messages, and the ids the monitor saw."""
+    messages = read_state_messages(state)
     return StateBeforeTool(
-        existing_messages=read_existing_messages(state),
+        existing_messages={message.id: message for message in messages if message.id},
         seen_ids=read_message_ids(state, key=SEEN_HUMAN_MESSAGES_KEY),
     )
 
@@ -423,20 +423,14 @@ def relabel_tool_command(
 ) -> Command:
     """Relabel the messages a tool's `Command` writes, and drop its monitor state writes.
 
-    The messages are read as LangGraph writes them, from an update given as
-    a dict, as pairs of key and value, or as an object whose class annotates
-    its keys, such as a dataclass or a pydantic model, and converted as its
-    message reducer converts them, whether one message or a list, given as
-    messages, dictionaries, tuples or strings, or wrapped in an `Overwrite`
-    [@langgraph2026]. A dict stays a dict, and any other update becomes the
-    pairs LangGraph would write, so the state receives the same writes with
-    the messages relabelled. A command that writes no messages, such as one
-    with only a `goto`, is returned as it is. The reader is private to
-    LangGraph; without it, an update other than a dict or pairs raises
-    `MonitorError`. The command's writes to `MONITOR_STATE_KEYS`, in any
-    update shape, are dropped first, by `drop_monitor_state_writes`, and the
-    ids of the seen human messages it writes under are recorded after, by
-    `record_rewritten_ids`.
+    The messages are read and rewritten in every update shape LangGraph
+    accepts, as `read_update_pairs` and `rewrite_update_messages` describe;
+    without LangGraph's private reader, an update other than a dict or pairs
+    raises `MonitorError`. A command that writes no messages, such as one
+    with only a `goto`, is returned as it is. The command's writes to
+    `MONITOR_STATE_KEYS`, in any update shape, are dropped first, by
+    `drop_monitor_state_writes`, and the ids of the seen human messages it
+    writes under are recorded after, by `record_rewritten_ids`.
     """
     rewritten_ids = find_rewritten_ids(read_written_messages(command), before=before)
     relabelled = rewrite_update_messages(
@@ -500,20 +494,13 @@ def relabel_tool_result(
     """
     if isinstance(result, Command):
         return relabel_tool_command(result, tool_name=tool_name, before=before)
-    message = result
-    if not is_unchanged_write_back(result, existing_messages=before.existing_messages):
-        relabelled = relabel_tool_written_message(result, tool_name=tool_name)
-        # A tool message stays one; the check only narrows the type for the type checker.
-        message = relabelled if isinstance(relabelled, ToolMessage) else result
+    relabelled = relabel_unless_written_back(result, tool_name=tool_name, before=before)
+    # A tool message stays one; the check only narrows the type for the type checker.
+    message = relabelled if isinstance(relabelled, ToolMessage) else result
     rewritten_ids = find_rewritten_ids([message], before=before)
     if not rewritten_ids:
         return message
     return Command(update={"messages": [message], REWRITTEN_INPUTS_KEY: rewritten_ids})
-
-
-def read_existing_messages(state: object) -> dict[str, BaseMessage]:
-    """Return the messages in the state by id, leaving out any without an id."""
-    return {message.id: message for message in read_state_messages(state) if message.id}
 
 
 def relabel_parent_command(bubble: ParentCommand, *, tool_name: str, state: object) -> None:

@@ -64,19 +64,20 @@ def is_checked_further_out(request: ToolCallRequest) -> bool:
 
 
 @contextmanager
-def check_tool_call(request: ToolCallRequest) -> Iterator[None]:
-    """Mark the request this monitor hands on as checked while the rest of the stack runs it."""
+def check_tool_call(request: ToolCallRequest, *, caller: ToolCaller) -> Iterator[None]:
+    """Mark the request this monitor hands on as checked while the rest of the stack runs it.
+
+    A `ParentCommand` the call raises is relabelled and checked, in place, on its way out.
+    """
     token = checked_tool_call.set(request)
     try:
         yield
+    except ParentCommand as bubble:
+        relabel_parent_command(bubble, tool_name=caller.tool_call["name"], state=caller.state)
+        check_parent_command_records(bubble, caller=caller)
+        raise
     finally:
         checked_tool_call.reset(token)
-
-
-def check_parent_command(bubble: ParentCommand, *, caller: ToolCaller) -> None:
-    """Relabel and check, in place, what the command in a `ParentCommand` writes."""
-    relabel_parent_command(bubble, tool_name=caller.tool_call["name"], state=caller.state)
-    check_parent_command_records(bubble, caller=caller)
 
 
 def check_tool_result(result: ToolCallResults, *, caller: ToolCaller) -> ToolCallResult:
@@ -100,12 +101,8 @@ def run_tool_call(
         return handler(request)
     caller = read_tool_caller(request.state, agent=agent, tool_call=request.tool_call)
     delegated = add_delegation(request, agent=agent)
-    with check_tool_call(delegated):
-        try:
-            result = handler(delegated)
-        except ParentCommand as bubble:
-            check_parent_command(bubble, caller=caller)
-            raise
+    with check_tool_call(delegated, caller=caller):
+        result = handler(delegated)
     return check_tool_result(result, caller=caller)
 
 
@@ -120,10 +117,6 @@ async def arun_tool_call(
         return await handler(request)
     caller = read_tool_caller(request.state, agent=agent, tool_call=request.tool_call)
     delegated = add_delegation(request, agent=agent)
-    with check_tool_call(delegated):
-        try:
-            result = await handler(delegated)
-        except ParentCommand as bubble:
-            check_parent_command(bubble, caller=caller)
-            raise
+    with check_tool_call(delegated, caller=caller):
+        result = await handler(delegated)
     return check_tool_result(result, caller=caller)

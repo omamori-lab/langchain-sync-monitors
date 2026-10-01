@@ -188,14 +188,7 @@ def refresh_run_inputs(
         text = entry["text"]
         if message is not None and is_rendered_form(message, entry=entry):
             text = message.text
-        refreshed.append(
-            RunInput(
-                id=entry["id"],
-                text=text,
-                previous_message_ids=entry["previous_message_ids"],
-                confirmed=entry["confirmed"],
-            ),
-        )
+        refreshed.append({**entry, "text": text})
     return refreshed
 
 

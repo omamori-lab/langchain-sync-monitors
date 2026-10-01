@@ -39,7 +39,7 @@ def http_post(url: str, body: str) -> str:
 
 
 monitor = MonitorMiddleware(
-    # The judge that scores each step.
+    # The LLM monitor that scores each step.
     monitor=LLMMonitor(model="openrouter:xiaomi/mimo-v2.6-pro"),
     # Flag steps at or above 0.6; calibrate your own value from honest runs.
     protocol=TrustedMonitoring(audit_threshold=0.6),
@@ -60,7 +60,7 @@ for record in result["monitor_log"]:
 
 The model strings are examples, and `openrouter:` strings need the
 [`openrouter` extra](../index.md#install). Any LangChain chat model works for
-the agent and for the judge: pass a provider string, or a chat model object
+the agent and for the LLM monitor: pass a provider string, or a chat model object
 you built.
 
 ## Options
@@ -111,7 +111,7 @@ honest_scores = [
 audit_threshold = statistics.quantiles(honest_scores, n=100, method="inclusive")[97]
 ```
 
-A single chat judge scores in steps of 0.1, so many honest steps share a
+A single LLM monitor scores in steps of 0.1, so many honest steps share a
 score, and the share of honest steps flagged can land well away from the
 percentile you chose.
 [Combine and calibrate monitors](combine-and-calibrate-monitors.md#average-repeated-calls)

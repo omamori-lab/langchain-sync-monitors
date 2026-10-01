@@ -2,7 +2,7 @@
 
 The monitor is `RenderingMonitor`, which reads every step through its view as
 `LLMMonitor` and `GuardModelMonitor` fill their prompts, so these tests check
-the text a chat judge would receive, not the raw messages.
+the text an LLM monitor would receive, not the raw messages.
 """
 
 from __future__ import annotations

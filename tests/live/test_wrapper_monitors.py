@@ -6,7 +6,7 @@ monitor's spans give each judgement's Jev answers and model calls, so:
 
 - `RepeatedMonitor` must ask Jev three times per sample, and its score must
   be the mean of the answers;
-- `CascadeMonitor` must ask the chat judge exactly when Jev's answer reaches
+- `CascadeMonitor` must ask the LLM monitor exactly when Jev's answer reaches
   0.3, and keep Jev's answer as the score otherwise;
 - `CalibratedMonitor`, at a threshold of 0.97, must score each sample within
   the places its Jev answer takes among the stored honest scores.

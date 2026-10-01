@@ -1,4 +1,4 @@
-"""Chat judges: prompt checks, score parsing, parse retries and failing closed."""
+"""LLM monitors: prompt checks, score parsing, parse retries and failing closed."""
 
 from __future__ import annotations
 

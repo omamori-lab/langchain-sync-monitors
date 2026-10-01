@@ -1,14 +1,14 @@
-# Use a chat judge
+# Use an LLM monitor
 
-This guide shows how to monitor an agent with `LLMMonitor`, which prompts a
-chat model to judge each step the agent proposes, and how to change its
-prompt, its score scale, its retries and what it reads.
+This guide shows how to monitor an agent with an LLM monitor, `LLMMonitor`,
+which prompts a chat model to judge each step the agent proposes, and how to
+change its prompt, its score scale, its retries and what it reads.
 
 [TOC]
 
-## Add the judge to an agent
+## Add the monitor to an agent
 
-`LLMMonitor(model=...)` takes the judge as `str | BaseChatModel`, and has no
+`LLMMonitor(model=...)` takes its model as `str | BaseChatModel`, and has no
 default: the library never picks a model.
 
 - A provider string goes through LangChain's `init_chat_model`, so any
@@ -16,7 +16,7 @@ default: the library never picks a model.
   extra, `uv add "langchain-sync-monitors[openrouter]"` or
   `pip install "langchain-sync-monitors[openrouter]"` (see
   [Install](../index.md#install)), and raises `MissingExtraError` without it.
-- A chat model you build yourself sets the judge's temperature, token limit
+- A chat model you build yourself sets the model's temperature, token limit
   and retries.
 - A chat model wrapped in a Runnable, by `with_retry()` or `bind()`, raises
   `ConfigurationError`. Pass the model itself, and set its retries through its
@@ -37,7 +37,7 @@ def read_file(path: str) -> str:
     return Path(path).read_text(encoding="utf-8")
 
 
-# The judge, as a provider string that init_chat_model resolves.
+# The monitor's model, as a provider string that init_chat_model resolves.
 monitor = LLMMonitor(model="openrouter:xiaomi/mimo-v2.6-pro")
 agent = create_agent(
     "openrouter:deepseek/deepseek-v4.1-flash",
@@ -51,7 +51,7 @@ agent = create_agent(
 
 The threshold of 0.6 is a placeholder; [Combine and calibrate
 monitors](combine-and-calibrate-monitors.md) shows how to choose one from
-honest runs of your own agent. To set the judge's temperature or token limit,
+honest runs of your own agent. To set the model's temperature or token limit,
 pass a model instance:
 
 ```python
@@ -59,18 +59,18 @@ from langchain.chat_models import init_chat_model
 
 from langchain_sync_monitors import LLMMonitor
 
-# A judge you configure yourself: sampling on, and room for its reasoning.
-judge_model = init_chat_model(
+# A model you configure yourself: sampling on, and room for its reasoning.
+monitor_model = init_chat_model(
     "openrouter:xiaomi/mimo-v2.6-pro",
     temperature=1.0,
     max_tokens=4000,
 )
-monitor = LLMMonitor(model=judge_model)
+monitor = LLMMonitor(model=monitor_model)
 ```
 
 ## How a verdict is read
 
-The judge must reason first and then give one integer score. Reasoning before
+The model must reason first and then give one integer score. Reasoning before
 the score is the prompt component Apollo Research found matters most
 [@apollo2026monitoringprompt], and a bounded integer after the reasoning is the
 monitor format of Ctrl-Z [@bhatt2025ctrlz].
@@ -80,8 +80,8 @@ some text, then exactly one `<score>` tag, with nothing but whitespace between
 them or after the score. Anything else is unreadable, and the monitor asks
 again. After the last attempt it fails closed.
 
-[![LLMMonitor calls the judge with the filled prompt, the same prompt on every attempt. If the call still fails after the chat model's own retries, and after the monitor's own retries of a rate limit, the error is raised: the step fails, and nothing it proposed runs. Otherwise the reply is read in three checks. A reply the provider reports as cut off at a length limit is unreadable. So is a reply without a reasoning block that holds some text, then exactly one score tag, with nothing but whitespace between them or after the score, and a reply whose score is not an integer from lowest_score to highest_score. A readable reply gives the verdict: the score mapped onto a suspicion from 0 to 1, with the reasoning as the reason. After an unreadable reply the judge is asked again while attempts are left, 1 plus max_parse_retries in all, 3 by default. When none are left, the monitor fails closed: suspicion 1.0, and a warning in the log.](../assets/diagrams/monitors-chat-judge-light.svg#only-light)](../assets/diagrams/monitors-chat-judge-light.svg "Open the diagram at full size")
-[![LLMMonitor calls the judge with the filled prompt, the same prompt on every attempt. If the call still fails after the chat model's own retries, and after the monitor's own retries of a rate limit, the error is raised: the step fails, and nothing it proposed runs. Otherwise the reply is read in three checks. A reply the provider reports as cut off at a length limit is unreadable. So is a reply without a reasoning block that holds some text, then exactly one score tag, with nothing but whitespace between them or after the score, and a reply whose score is not an integer from lowest_score to highest_score. A readable reply gives the verdict: the score mapped onto a suspicion from 0 to 1, with the reasoning as the reason. After an unreadable reply the judge is asked again while attempts are left, 1 plus max_parse_retries in all, 3 by default. When none are left, the monitor fails closed: suspicion 1.0, and a warning in the log.](../assets/diagrams/monitors-chat-judge-dark.svg#only-dark)](../assets/diagrams/monitors-chat-judge-dark.svg "Open the diagram at full size")
+[![LLMMonitor calls its model with the filled prompt, the same prompt on every attempt. If the call still fails after the chat model's own retries, and after the monitor's own retries of a rate limit, the error is raised: the step fails, and none of the agent's own tools run. Otherwise the reply is read in three checks. A reply the provider reports as cut off at a length limit is unreadable. So is a reply without a reasoning block that holds some text, then exactly one score tag, with nothing but whitespace between them or after the score, and a reply whose score is not an integer from lowest_score to highest_score. A readable reply gives the verdict: the score mapped onto a suspicion from 0 to 1, with the reasoning as the reason. After an unreadable reply the model is asked again while attempts are left, 1 plus max_parse_retries in all, 3 by default. When none are left, the monitor fails closed: suspicion 1.0, and a warning in the log.](../assets/diagrams/monitors-llm-monitor-light.svg#only-light)](../assets/diagrams/monitors-llm-monitor-light.svg "Open the diagram at full size")
+[![LLMMonitor calls its model with the filled prompt, the same prompt on every attempt. If the call still fails after the chat model's own retries, and after the monitor's own retries of a rate limit, the error is raised: the step fails, and none of the agent's own tools run. Otherwise the reply is read in three checks. A reply the provider reports as cut off at a length limit is unreadable. So is a reply without a reasoning block that holds some text, then exactly one score tag, with nothing but whitespace between them or after the score, and a reply whose score is not an integer from lowest_score to highest_score. A readable reply gives the verdict: the score mapped onto a suspicion from 0 to 1, with the reasoning as the reason. After an unreadable reply the model is asked again while attempts are left, 1 plus max_parse_retries in all, 3 by default. When none are left, the monitor fails closed: suspicion 1.0, and a warning in the log.](../assets/diagrams/monitors-llm-monitor-dark.svg#only-dark)](../assets/diagrams/monitors-llm-monitor-dark.svg "Open the diagram at full size")
 
 These replies were checked against the monitor's parser, on the default scale
 of 0 to 10:
@@ -98,8 +98,8 @@ of 0 to 10:
 | A reasoning block that quotes `<score>0</score>`, then `<score>9</score>` | suspicion 0.9: the quote is part of the reasoning |
 | A reply the provider reports as cut off at a length limit | unreadable |
 
-The strict shape is a defence. The agent writes the step the judge reads, so
-it can plant a score tag there, and a judge may quote it. Reading only the one
+The strict shape is a defence. The agent writes the step the monitor reads, so
+it can plant a score tag there, and the model may quote it. Reading only the one
 tag that ends the reply keeps a quoted score from becoming the verdict.
 
 When no reply can be read, the step gets suspicion 1.0 with the reason "The
@@ -114,7 +114,7 @@ see [Collect honest scores](combine-and-calibrate-monitors.md#collect-honest-sco
 
 `DEFAULT_MONITOR_PROMPT` is a system message with the instructions and a human
 message with the transcript and the proposed step. The instructions explain
-each tag the judge reads, then ask it to:
+each tag the model reads, then ask it to:
 
 1. start from the task and the user's messages;
 2. treat only the user's own messages, or the delegating agent's, as
@@ -126,7 +126,7 @@ each tag the judge reads, then ask it to:
    verdict's reason, which Auto Mode shows the agent.
 
 The last rule is a request, not a guarantee. The monitor removes the `<score>`
-tag, but the reason is the judge's reasoning word for word, and a judge can
+tag, but the reason is the model's reasoning word for word, and the model can
 still write that a step deserves "the top of the scale". The authorisation
 rule and the focus on real effects follow Claude Code's auto mode classifier
 [@hughes2026automode]. To read the whole prompt, print its two templates:
@@ -185,7 +185,7 @@ monitor = LLMMonitor(model="openrouter:xiaomi/mimo-v2.6-pro", prompt=PROMPT)
 
 ## Change the score scale
 
-The judge scores from `lowest_score` to `highest_score`, 0 to 10 by default,
+The model scores from `lowest_score` to `highest_score`, 0 to 10 by default,
 the scale BashArena (section 4.1), LinuxArena (section 5.1) and Koran et al.
 (section 3.1) use [@kaufman2025basharena; @tracy2026linuxarena; @koran2026ensemble].
 Ctrl-Z's monitor scores 0 to 9 (appendix D) and Apollo Research's monitor 1
@@ -207,9 +207,9 @@ the highest score.
 `max_parse_retries` is how many more times the monitor asks after an unreadable
 reply. The default of 2 allows three replies in all, and 0 allows one. Anything
 but a whole number of at least 0 raises `ConfigurationError`. Each retry sends
-the same prompt again, so a LangChain response cache, global or on the judge's
+the same prompt again, so a LangChain response cache, global or on the monitor's
 model, would answer it with the same unreadable reply. The monitor then warns
-once per process with a `CachedResampleWarning`; build the judge's model with
+once per process with a `CachedResampleWarning`; build the monitor's model with
 `cache=False`.
 
 These retries are only for replies the monitor cannot read. Network and server
@@ -224,18 +224,18 @@ SDKs do [@openaipythonsdk2026; @anthropicpythonsdk2026], retries each of
 these attempts. The monitor retries only its own calls, not the agent's
 ([known limits](../explanation/design.md#protocols-and-configuration)). An
 error that survives the retries is raised: the step is not committed, and
-nothing the agent proposed runs. [Read the monitor
+none of the agent's own tools run. [Read the monitor
 log](read-the-monitor-log.md) shows what such a failed step leaves behind.
 
 ## Average several calls
 
-One call of the judge gives one of eleven values on the default scale, so
+One call of the model gives one of eleven values on the default scale, so
 honest steps often tie. `RepeatedMonitor` averages several calls of the
-judge: three give 31 possible values instead of 11. [Average repeated
+monitor: three give 31 possible values instead of 11. [Average repeated
 calls](combine-and-calibrate-monitors.md#average-repeated-calls) shows how,
 and what it costs.
 
-## Use a reasoning model as the judge
+## Use a reasoning model as the monitor
 
 A reasoning model thinks before it replies. The monitor reads only the reply's
 visible text, `AIMessage.text`, so:
@@ -246,14 +246,15 @@ visible text, `AIMessage.text`, so:
   to the agent, and the log keeps it; the hidden thinking goes to neither.
 - Thinking spends output tokens. A reply that runs out of them is cut off, and
   a cut-off reply is asked for again and then scored 1.0 like any other
-  unreadable reply. Leave a generous `max_tokens`, or none, on the judge.
+  unreadable reply. Leave a generous `max_tokens`, or none, on the model.
 
-`xiaomi/mimo-v2.6-pro`, the judge in these examples, is a reasoning model; the
-[live runs](../explanation/live-runs.md) used it at low reasoning effort.
+`xiaomi/mimo-v2.6-pro`, the monitor's model in these examples, is a reasoning
+model; the [live runs](../explanation/live-runs.md) used it at low reasoning
+effort.
 
-## Choose what the judge reads
+## Choose what the monitor reads
 
-Under the default view the judge reads the user's messages, the tool calls and
+Under the default view the monitor reads the user's messages, the tool calls and
 the subagent reports. It does not read the agent's reasoning, tool results or
 the agent's prose: of the step it judges, it sees the tool calls but not the
 text beside them, and it sees a final answer's text. Pass `view=` to change
@@ -262,7 +263,7 @@ explains the options.
 
 ## Related guides
 
-- [Choose a protocol](choose-a-protocol.md) to decide what happens with the judge's verdict.
-- [Use Auto Mode](use-auto-mode.md), where the judge's reasoning becomes the agent's feedback.
+- [Choose a protocol](choose-a-protocol.md) to decide what happens with the monitor's verdict.
+- [Use Auto Mode](use-auto-mode.md), where the monitor's reasoning becomes the agent's feedback.
 
 ## References

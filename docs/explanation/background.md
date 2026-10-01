@@ -48,7 +48,7 @@ the model's outputs let frontier models evade diverse monitors, and that
 Defer to Resample backfires: its resampling amplifies the injection into a
 best-of-n attack (abstract; sections 4.2 and 6) [@terekhov2025adaptive]. The
 same threat is why the default prompt tells the monitor to read everything as
-data, and why a chat judge's score and a guard's label are read only where
+data, and why an LLM monitor's score and a guard's label are read only where
 the reply's format puts them.
 
 ## Claude Code's auto mode
@@ -137,9 +137,10 @@ simpler rule, one threshold on the cheap score, which is the multi-stage
 classifier of Cunningham et al. (section Multi-stage classifiers)
 [@cunningham2025cheapmonitors].
 
-Weighting a judge's score by the probabilities of its levels gives a finer,
-continuous score [@liu2023geval], and taking the mean of the judgement
-distribution outperforms taking its most likely level [@wang2025judgment];
+In LLM-as-a-judge evaluation [@zheng2023judging], weighting a judge's score
+by the probabilities of its levels gives a finer, continuous score
+[@liu2023geval], and taking the mean of the judgement distribution
+outperforms taking its most likely level [@wang2025judgment];
 the same argument favours the continuous probabilities of decision models.
 
 ## Guard models

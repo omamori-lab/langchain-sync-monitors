@@ -12,8 +12,8 @@ A decision model answers typed questions about some text with probabilities,
 and generates no text. Jev, from TypeSafe, is one. Every question about a step
 goes in one request, so a judged step costs one call.
 
-[![DecisionModelMonitor renders the transcript and the proposed step through its view, and sends the decision model one request with every question. If the request fails, OpenRouterDecisionModel sends it again after a network error, an HTTP 429 or a server error, up to 5 attempts, and stops once an attempt fails 45 seconds or more after the first began; any other failure, or the last one, is raised, so the step fails and nothing it proposed runs. TypeSafeDecisionModel gets no retries from the library. Every question must then be answered with a number from 0 to 1. A missing answer, a bool, a string, None or NaN raises MonitorError, and the step fails the same way. The answers are aggregated, with Aggregation.MAX by default, or MIN or MEAN, into the suspicion. The reason names the question with the highest probability of yes, or, under MIN, every question.](../assets/diagrams/monitors-decision-model-light.svg#only-light)](../assets/diagrams/monitors-decision-model-light.svg "Open the diagram at full size")
-[![DecisionModelMonitor renders the transcript and the proposed step through its view, and sends the decision model one request with every question. If the request fails, OpenRouterDecisionModel sends it again after a network error, an HTTP 429 or a server error, up to 5 attempts, and stops once an attempt fails 45 seconds or more after the first began; any other failure, or the last one, is raised, so the step fails and nothing it proposed runs. TypeSafeDecisionModel gets no retries from the library. Every question must then be answered with a number from 0 to 1. A missing answer, a bool, a string, None or NaN raises MonitorError, and the step fails the same way. The answers are aggregated, with Aggregation.MAX by default, or MIN or MEAN, into the suspicion. The reason names the question with the highest probability of yes, or, under MIN, every question.](../assets/diagrams/monitors-decision-model-dark.svg#only-dark)](../assets/diagrams/monitors-decision-model-dark.svg "Open the diagram at full size")
+[![DecisionModelMonitor renders the transcript and the proposed step through its view, and sends the decision model one request with every question. If the request fails, OpenRouterDecisionModel sends it again after a network error, an HTTP 429 or a server error, up to 5 attempts, and stops once an attempt fails 45 seconds or more after the first began; any other failure, or the last one, is raised, so the step fails, and none of the agent's own tools run. TypeSafeDecisionModel gets no retries from the library. Every question must then be answered with a number from 0 to 1. A missing answer, a bool, a string, None or NaN raises MonitorError, and the step fails the same way. The answers are aggregated, with Aggregation.MAX by default, or MIN or MEAN, into the suspicion. The reason names the question with the highest probability of yes, or, under MIN, every question.](../assets/diagrams/monitors-decision-model-light.svg#only-light)](../assets/diagrams/monitors-decision-model-light.svg "Open the diagram at full size")
+[![DecisionModelMonitor renders the transcript and the proposed step through its view, and sends the decision model one request with every question. If the request fails, OpenRouterDecisionModel sends it again after a network error, an HTTP 429 or a server error, up to 5 attempts, and stops once an attempt fails 45 seconds or more after the first began; any other failure, or the last one, is raised, so the step fails, and none of the agent's own tools run. TypeSafeDecisionModel gets no retries from the library. Every question must then be answered with a number from 0 to 1. A missing answer, a bool, a string, None or NaN raises MonitorError, and the step fails the same way. The answers are aggregated, with Aggregation.MAX by default, or MIN or MEAN, into the suspicion. The reason names the question with the highest probability of yes, or, under MIN, every question.](../assets/diagrams/monitors-decision-model-dark.svg#only-dark)](../assets/diagrams/monitors-decision-model-dark.svg "Open the diagram at full size")
 
 `DecisionModelMonitor(decision_model=...)` takes a `DecisionModel`, not a chat
 model, and has no default. The library reaches Jev in two ways, and you can
@@ -183,8 +183,9 @@ a key off-site, with the default question:
 
 A decision model never fails closed with a score. When its request fails for
 good, or it gives no usable answer, the step fails: the error is raised, the
-step is not committed, and nothing the agent proposed runs. [Read the monitor
-log](read-the-monitor-log.md) shows what such a failed step leaves behind.
+step is not committed, and none of the agent's own tools run. [Read the
+monitor log](read-the-monitor-log.md) shows what such a failed step leaves
+behind.
 
 `DecisionModelMonitor` checks every answer, whichever `DecisionModel` gave
 it, your own included:
@@ -256,8 +257,8 @@ its scores tie at a resolution of 0.01. Averaging calls with `RepeatedMonitor`,
 or aggregating several questions with `Aggregation.MEAN`, restores some
 resolution; `MAX` and `MIN` return one question's answer, at its resolution.
 
-The library suggests a decision model as the fast first stage in front of a
-chat judge, by analogy with Claude Code's auto mode, whose first stage answers
+The library suggests a decision model as the fast first stage in front of an
+LLM monitor, by analogy with Claude Code's auto mode, whose first stage answers
 with a single yes or no token and whose second reasons (section Two-stage
 classification: efficiency and recall) [@hughes2026automode]. No cited source
 evaluates how well this pairing catches attacks. [Combine and calibrate

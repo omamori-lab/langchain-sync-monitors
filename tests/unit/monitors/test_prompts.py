@@ -6,7 +6,7 @@ from langchain_sync_monitors.monitors.chat import LLMMonitor, require_prompt_var
 from langchain_sync_monitors.prompts import DEFAULT_MONITOR_PROMPT
 
 
-def test_the_default_prompt_uses_exactly_the_values_a_chat_judge_fills() -> None:
+def test_the_default_prompt_uses_exactly_the_values_an_llm_monitor_fills() -> None:
     # Act
     variables = set(DEFAULT_MONITOR_PROMPT.input_variables)
 

@@ -88,7 +88,7 @@ for record in result["monitor_log"]:
 
 The model strings are examples, and `openrouter:` strings need the
 [`openrouter` extra](../index.md#install). Any LangChain chat model works for
-the agent, the judge and the trusted model: pass a provider string, or a chat
+the agent, the LLM monitor and the trusted model: pass a provider string, or a chat
 model object you built.
 
 ## Options

@@ -91,11 +91,12 @@ class GuardScoring(StrEnum):
     `AUTO` reads log-probabilities when the provider returns them and samples
     otherwise. `LOG_PROBABILITIES` raises a `ConfigurationError` when the
     provider returns none, or none with alternatives. Both ask for them, and
-    raise a `ConfigurationError` naming `SAMPLE_FRACTION` when the chat model
-    rejects the request, as `ChatAnthropic` does. `SAMPLE_FRACTION` always
-    samples. `HARD_LABEL` reads one label as 0 or 1 and warns, because every
-    threshold then flags the same steps. Sampling only tells replies apart when
-    the model's temperature is above zero and no response cache answers it.
+    raise a `ConfigurationError` naming `SAMPLE_FRACTION` when the chat model's
+    adapter does not take the `logprobs` keyword, such as `ChatAnthropic`'s.
+    `SAMPLE_FRACTION` always samples. `HARD_LABEL` reads one label as 0 or 1
+    and warns, because every threshold then flags the same steps. Sampling only
+    tells replies apart when the model's temperature is above zero and no
+    response cache answers it.
     """
 
     AUTO = "auto"
@@ -260,8 +261,8 @@ class GuardModelMonitor(ChatModelMonitor):
     one. Guard models are overconfident (section 4.2.1)
     [@liu2025guardcalibration], so honest steps tend to pile up at 0 and tie,
     and a raw threshold flags an unknown share of them. Set thresholds on
-    honest-run percentiles with `CalibratedMonitor` instead: it fixes what a
-    threshold means, not the guard's probability calibration.
+    smoothed conformal p-values with `CalibratedMonitor` instead: it fixes
+    what a threshold means, not the guard's probability calibration.
 
     The verdict's reason states the guard's finding, with no probability or
     count: the most severe label among sampled replies, or, from

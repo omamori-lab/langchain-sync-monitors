@@ -51,7 +51,7 @@ monitor_log = result["monitor_log"]
 ## Read a record
 
 This record comes from a scripted run of Auto Mode, with a scripted agent and
-a scripted chat judge. The agent's first attempt posts an API key off-site; the
+a scripted LLM monitor. The agent's first attempt posts an API key off-site; the
 monitor blocks it, and the agent's second attempt reads the file the user
 named.
 
@@ -200,9 +200,10 @@ The monitor writes one event per step to `stream_mode="custom"`:
 
 - a `MonitorStepEvent`, `{"type": "monitor_step", "record": ...}`, when a step
   is committed, carrying the same `StepRecord` that goes into `monitor_log`;
-- a `MonitorStepFailedEvent`, `{"type": "monitor_step_failed", ...}`, when a
-  call inside the step raises before the protocol decides: one of the agent's
-  samples, one of the monitor's calls or the trusted model's step.
+- a `MonitorStepFailedEvent`, `{"type": "monitor_step_failed", ...}`, when
+  something inside the step raises before it is committed, such as one of the
+  agent's samples, one of the monitor's calls, the trusted model's step or a
+  malformed protocol decision.
 
 Other middleware can write to the same stream, so check each event's `type`.
 With the agent and `inputs` built above:
@@ -222,8 +223,8 @@ Without `subgraphs=True`, the stream carries the main agent's events only. A
 subagent's `monitor_step` event carries its `delegation_id` inside
 `event["record"]`; a `monitor_step_failed` event carries it at the top level.
 
-[![A monitored step ends in one of three ways. When it is decided, by the protocol or by a halt found before any sample, it is committed: one StepRecord joins monitor_log, and a monitor_step event is written to the custom stream. When a call inside it raises first, whether one of the agent's samples, one of the monitor's calls or the trusted model's step, it is not committed: none of the agent's own tools run, no record joins monitor_log, a monitor_step_failed event lists the samples judged so far, and the error is raised again. LangGraph's own control flow, such as the interrupt that interrupt() raises, passes through with no record and no event.](../assets/diagrams/step-commit-light.svg#only-light)](../assets/diagrams/step-commit-light.svg "Open the diagram at full size")
-[![A monitored step ends in one of three ways. When it is decided, by the protocol or by a halt found before any sample, it is committed: one StepRecord joins monitor_log, and a monitor_step event is written to the custom stream. When a call inside it raises first, whether one of the agent's samples, one of the monitor's calls or the trusted model's step, it is not committed: none of the agent's own tools run, no record joins monitor_log, a monitor_step_failed event lists the samples judged so far, and the error is raised again. LangGraph's own control flow, such as the interrupt that interrupt() raises, passes through with no record and no event.](../assets/diagrams/step-commit-dark.svg#only-dark)](../assets/diagrams/step-commit-dark.svg "Open the diagram at full size")
+[![A monitored step ends in one of three ways. When it is decided, by the protocol or by a halt found before any sample, it is committed: one StepRecord joins monitor_log, and a monitor_step event is written to the custom stream. When something inside it raises first, such as one of the agent's samples, one of the monitor's calls, the trusted model's step or a malformed protocol decision, it is not committed: none of the agent's own tools run, no record joins monitor_log, a monitor_step_failed event lists the samples judged so far, and the error is raised again. LangGraph's own control flow, such as the interrupt that interrupt() raises, passes through with no record and no event.](../assets/diagrams/step-commit-light.svg#only-light)](../assets/diagrams/step-commit-light.svg "Open the diagram at full size")
+[![A monitored step ends in one of three ways. When it is decided, by the protocol or by a halt found before any sample, it is committed: one StepRecord joins monitor_log, and a monitor_step event is written to the custom stream. When something inside it raises first, such as one of the agent's samples, one of the monitor's calls, the trusted model's step or a malformed protocol decision, it is not committed: none of the agent's own tools run, no record joins monitor_log, a monitor_step_failed event lists the samples judged so far, and the error is raised again. LangGraph's own control flow, such as the interrupt that interrupt() raises, passes through with no record and no event.](../assets/diagrams/step-commit-dark.svg#only-dark)](../assets/diagrams/step-commit-dark.svg "Open the diagram at full size")
 
 A failed step is never committed, so none of the agent's own tools run and no
 record reaches `monitor_log`. Its event lists the samples the monitor had
@@ -343,8 +344,8 @@ The library logs through Python's `logging`, under `langchain_sync_monitors`:
 |---|---|---|
 | `langchain_sync_monitors.middleware` | `DEBUG` | Every committed step, with its outcome |
 | `langchain_sync_monitors.middleware` | `WARNING` | A step failed before it was committed after the monitor had judged a sample; the message gives the error's type and each sample's suspicion, and the step's `monitor_step_failed` event holds the samples |
-| `langchain_sync_monitors.monitors.chat` | `DEBUG` | A chat judge's reply was unreadable, or cut off at a length limit |
-| `langchain_sync_monitors.monitors.chat` | `WARNING` | No reply from a chat judge was readable, so the step is treated as suspicious |
+| `langchain_sync_monitors.monitors.chat` | `DEBUG` | An LLM monitor's reply was unreadable, or cut off at a length limit |
+| `langchain_sync_monitors.monitors.chat` | `WARNING` | No reply from an LLM monitor was readable, so the step is treated as suspicious |
 | `langchain_sync_monitors.monitors.guard` | `DEBUG` | A guard model returned log-probabilities in a format the monitor cannot read; the message names their type |
 | `langchain_sync_monitors.monitors.guard` | `WARNING` | Under `GuardScoring.LOG_PROBABILITIES`, no label could be scored from a reply's log-probabilities, so the step is treated as suspicious |
 | `langchain_sync_monitors.task_authorship` | `WARNING` | A run started after one that stopped before its end, so its new human messages are notes from `unconfirmed_input`; the message names their ids |

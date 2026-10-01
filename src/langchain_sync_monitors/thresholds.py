@@ -180,7 +180,7 @@ def build_calibration_advice(*, parameter_name: str, statistic: ThresholdStatist
         f"{own_records_clause}, and set the threshold at a high percentile of those scores (for "
         f'example the 98th), as the section "{THRESHOLD_SECTION_TITLE}" of the guide '
         f'"{TRUSTED_MONITORING_GUIDE_TITLE}" shows, or wrap the monitor in CalibratedMonitor '
-        "so that its scores are honest-run percentiles."
+        "so that its scores are smoothed conformal p-values against honest scores."
     )
 
 

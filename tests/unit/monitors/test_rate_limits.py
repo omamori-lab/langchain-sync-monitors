@@ -54,7 +54,7 @@ def library_attempts_without_waiting() -> Iterator[None]:
 
 
 def build_judge(model: BaseChatModel) -> Monitor:
-    """Return a chat judge over `model` that never asks again for an unreadable reply."""
+    """Return an LLM monitor over `model` that never asks again for an unreadable reply."""
     return LLMMonitor(model=model, max_parse_retries=0)
 
 

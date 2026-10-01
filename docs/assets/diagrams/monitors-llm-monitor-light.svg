@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1000" height="804" viewBox="0 0 1000 804" role="img" aria-labelledby="title desc">
-  <title id="title">How a chat judge&#x27;s reply becomes a verdict</title>
-  <desc id="desc">LLMMonitor calls the judge with the filled prompt, the same prompt on every attempt. If the call still fails after the chat model&#x27;s own retries, and after the monitor&#x27;s own retries of a rate limit, the error is raised: the step fails, and nothing it proposed runs. Otherwise the reply is read in three checks. A reply the provider reports as cut off at a length limit is unreadable. So is a reply without a reasoning block that holds some text, then exactly one score tag, with nothing but whitespace between them or after the score, and a reply whose score is not an integer from lowest_score to highest_score. A readable reply gives the verdict: the score mapped onto a suspicion from 0 to 1, with the reasoning as the reason. After an unreadable reply the judge is asked again while attempts are left, 1 plus max_parse_retries in all, 3 by default. When none are left, the monitor fails closed: suspicion 1.0, and a warning in the log.</desc>
+  <title id="title">How an LLM monitor&#x27;s reply becomes a verdict</title>
+  <desc id="desc">LLMMonitor calls its model with the filled prompt, the same prompt on every attempt. If the call still fails after the chat model&#x27;s own retries, and after the monitor&#x27;s own retries of a rate limit, the error is raised: the step fails, and none of the agent&#x27;s own tools run. Otherwise the reply is read in three checks. A reply the provider reports as cut off at a length limit is unreadable. So is a reply without a reasoning block that holds some text, then exactly one score tag, with nothing but whitespace between them or after the score, and a reply whose score is not an integer from lowest_score to highest_score. A readable reply gives the verdict: the score mapped onto a suspicion from 0 to 1, with the reasoning as the reason. After an unreadable reply the model is asked again while attempts are left, 1 plus max_parse_retries in all, 3 by default. When none are left, the monitor fails closed: suspicion 1.0, and a warning in the log.</desc>
   <!-- Colours come from the brand tokens: diagrams/render.py fills this style block. -->
   <style>
     svg { color-scheme: light; }
@@ -29,18 +29,18 @@
     .brush { fill: #111111; }
   </style>
   <defs><marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="9" markerHeight="9" markerUnits="userSpaceOnUse" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="head"/></marker></defs>
-  <text x="32.0" y="44.0" text-anchor="start"><tspan class="title">How a chat judge&#x27;s reply becomes a verdict</tspan></text>
-  <text x="32.0" y="70.0" text-anchor="start" class="small">A reply is read only in the shape the prompt asks for.</text>
+  <text x="32.0" y="44.0" text-anchor="start"><tspan class="title">How an LLM monitor&#x27;s reply becomes a verdict</tspan></text>
+  <text x="32.0" y="70.0" text-anchor="start" class="small">A reply is read in one shape only: the reasoning, then one score.</text>
   <path class="charm-cord" d="M226.0,105.0 C222.0,88.0 242.0,88.0 238.0,105.0"/>
   <path class="charm" d="M48.0,104.0 H416.0 L432.0,120.0 V200.0 Q432.0,206.0 426.0,206.0 H38.0 Q32.0,206.0 32.0,200.0 V120.0 Z"/>
   <rect class="seal" x="41.0" y="188.0" width="9" height="9" rx="1"/>
-  <text x="232.0" y="135.0" text-anchor="middle" class="title on-charm">Call the judge</text>
+  <text x="232.0" y="135.0" text-anchor="middle" class="title on-charm">Call the model</text>
   <text x="232.0" y="157.0" text-anchor="middle"><tspan class="mono on-charm">LLMMonitor</tspan></text>
   <text x="232.0" y="178.0" text-anchor="middle" class="small on-charm">with the same filled prompt every time</text>
   <rect class="box" x="588.0" y="104.0" width="380.0" height="102.0" rx="6"/>
   <text x="778.0" y="135.0" text-anchor="middle" class="title">The error is raised</text>
   <text x="778.0" y="157.0" text-anchor="middle"><tspan class="small">after </tspan><tspan class="mono">max_retries</tspan><tspan class="small"> and the monitor&#x27;s 429 retries:</tspan></text>
-  <text x="778.0" y="178.0" text-anchor="middle" class="small">the step fails, and nothing it proposed runs</text>
+  <text x="778.0" y="178.0" text-anchor="middle" class="small">the step fails, and none of the agent&#x27;s own tools run</text>
   <path class="edge" d="M432.0,139.0 L586.0,139.0" marker-end="url(#arrow)"/>
   <text x="510.0" y="129.0" text-anchor="middle" class="small">the call fails</text>
   <path class="box" d="M50.0,258.0 H414.0 L432.0,298.5 L414.0,339.0 H50.0 L32.0,298.5 Z"/>

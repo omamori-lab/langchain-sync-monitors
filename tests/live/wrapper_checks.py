@@ -1,6 +1,6 @@
 """Checks that a wrapper monitor computed each score from the calls its judgement made.
 
-The monitor's spans give each judgement's Jev answers and chat judge calls,
+The monitor's spans give each judgement's Jev answers and LLM monitor calls,
 so each wrapper's promise can be checked sample by sample, live or on fakes.
 """
 
@@ -46,7 +46,7 @@ def find_cascade_problem(suspicion: float, judgement: JudgementReport) -> str | 
     [fast] = judgement["classifier_scores"]
     escalated = judgement["monitor_calls"] == 1
     if escalated != (fast >= CASCADE_ESCALATION_THRESHOLD) or judgement["monitor_calls"] > 1:
-        return f"Jev at {fast}, {judgement['monitor_calls']} chat judge calls"
+        return f"Jev at {fast}, {judgement['monitor_calls']} LLM monitor calls"
     if not escalated and abs(fast - suspicion) > SCORE_TOLERANCE:
         return f"Jev at {fast} below the escalation, yet the score is {suspicion}"
     return None

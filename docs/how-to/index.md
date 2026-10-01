@@ -20,7 +20,7 @@ This page lists the how-to guides, each of which solves one concrete task.
 
 ## Monitors
 
-- [Use a chat judge](use-a-chat-judge.md): any chat model as the monitor, with
+- [Use an LLM monitor](use-an-llm-monitor.md): any chat model as the monitor, with
   a prompt you control.
 - [Use a guard model](use-a-guard-model.md): a safety classifier that follows a
   policy you write.

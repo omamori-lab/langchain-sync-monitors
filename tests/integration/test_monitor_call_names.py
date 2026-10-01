@@ -1,7 +1,7 @@
 """The monitor's own model calls reach a tracer as `monitor call`, with their model still named.
 
 Each monitor kind that makes a LangChain call judges a monitored agent with a
-recording tracer attached: the chat judge, the guard on both its
+recording tracer attached: the LLM monitor, the guard on both its
 log-probability and its sampling path, and `TypeSafeDecisionModel`. Every call
 it makes is a `monitor call` run in its judgement, and carries its model as
 `ls_model_name`. The trusted model's step is the agent's own step, so it keeps
@@ -109,7 +109,7 @@ def find_monitor_calls(tracer: RecordingTracer) -> list[RecordedRun]:
     return calls
 
 
-def test_a_chat_judge_s_calls_are_named_monitor_call(run_mode: RunMode) -> None:
+def test_an_llm_monitor_s_calls_are_named_monitor_call(run_mode: RunMode) -> None:
     # Arrange
     agent = build_agent(monitor=LLMMonitor(model=build_named_model(CALM_JUDGE_REPLY)))
 

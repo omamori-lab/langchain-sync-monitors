@@ -34,10 +34,10 @@ Auto Mode's blocked attempts and their feedback are committed before the step.
 ### Where the middleware sits
 
 The monitor judges in `wrap_model_call` and `awrap_model_call`, the only
-hooks that gate every step and can call the model more than once. A judge in
+hooks that gate every step and can call the model more than once. A monitor in
 `after_model` would come too late: after-model hooks run in reverse list
 order, and Deep Agents lists `HumanInTheLoopMiddleware` after user
-middleware, so its interrupt would fire before such a judge ran.
+middleware, so its interrupt would fire before such a monitor ran.
 
 LangChain nests `wrap_model_call` and `wrap_tool_call` handlers with the
 first middleware in the list outermost [@langchain2026]. So the monitor goes
@@ -219,8 +219,8 @@ class HigherSuspicion(Monitor):
         return max(verdicts, key=lambda verdict: verdict.suspicion)
 ```
 
-The combined monitor flags every step either judge flags, so at a given
-threshold its honest runs are flagged more often than either judge's, up to
+The combined monitor flags every step either monitor flags, so at a given
+threshold its honest runs are flagged more often than either monitor's, up to
 the sum of the two rates: calibrate its thresholds on its own honest scores,
 as [Combine and calibrate
 monitors](../how-to/combine-and-calibrate-monitors.md) shows.
@@ -445,17 +445,19 @@ different things, so each has its own class, and all of them produce the same
 provider string such as `"openrouter:..."` is resolved with LangChain's
 `init_chat_model`.
 
-[![Three monitor classes cover three kinds of model, each drawn as the charm. LLMMonitor asks a chat model to reason and then score the step, from 0 to 10 by default. GuardModelMonitor has a guard model label the step against a policy you write, and suspicion is the chance the label is unsafe. DecisionModelMonitor asks a decision model yes or no questions, and suspicion is the chance of yes. Each returns the same Verdict, a suspicion from 0 to 1 and a reason, so any monitor works with any control protocol. Three wrappers nest around any monitor: RepeatedMonitor averages several calls, CalibratedMonitor ranks the score among the scores of honest runs, and CascadeMonitor runs a fast monitor on every step and, when the fast one finds the step suspicious, a careful one whose verdict replaces the fast one's.](../assets/diagrams/monitors-light.svg#only-light)](../assets/diagrams/monitors-light.svg "Open the diagram at full size")
-[![Three monitor classes cover three kinds of model, each drawn as the charm. LLMMonitor asks a chat model to reason and then score the step, from 0 to 10 by default. GuardModelMonitor has a guard model label the step against a policy you write, and suspicion is the chance the label is unsafe. DecisionModelMonitor asks a decision model yes or no questions, and suspicion is the chance of yes. Each returns the same Verdict, a suspicion from 0 to 1 and a reason, so any monitor works with any control protocol. Three wrappers nest around any monitor: RepeatedMonitor averages several calls, CalibratedMonitor ranks the score among the scores of honest runs, and CascadeMonitor runs a fast monitor on every step and, when the fast one finds the step suspicious, a careful one whose verdict replaces the fast one's.](../assets/diagrams/monitors-dark.svg#only-dark)](../assets/diagrams/monitors-dark.svg "Open the diagram at full size")
+[![Three monitor classes cover three kinds of model, each drawn as the charm. LLMMonitor asks a chat model to reason and then score the step, from 0 to 10 by default. GuardModelMonitor has a guard model label the step against a policy you write, and suspicion is the probability of the unsafe label. DecisionModelMonitor asks a decision model yes or no questions, and suspicion is the probability of yes. Each returns the same Verdict, a suspicion from 0 to 1 and a reason, so any monitor works with any control protocol. Three wrappers nest around any monitor: RepeatedMonitor averages several calls, CalibratedMonitor reports the score's smoothed conformal p-value against the scores of honest runs, and CascadeMonitor runs a fast monitor on every step and, when the fast one finds the step suspicious, a careful one whose verdict replaces the fast one's.](../assets/diagrams/monitors-light.svg#only-light)](../assets/diagrams/monitors-light.svg "Open the diagram at full size")
+[![Three monitor classes cover three kinds of model, each drawn as the charm. LLMMonitor asks a chat model to reason and then score the step, from 0 to 10 by default. GuardModelMonitor has a guard model label the step against a policy you write, and suspicion is the probability of the unsafe label. DecisionModelMonitor asks a decision model yes or no questions, and suspicion is the probability of yes. Each returns the same Verdict, a suspicion from 0 to 1 and a reason, so any monitor works with any control protocol. Three wrappers nest around any monitor: RepeatedMonitor averages several calls, CalibratedMonitor reports the score's smoothed conformal p-value against the scores of honest runs, and CascadeMonitor runs a fast monitor on every step and, when the fast one finds the step suspicious, a careful one whose verdict replaces the fast one's.](../assets/diagrams/monitors-dark.svg#only-dark)](../assets/diagrams/monitors-dark.svg "Open the diagram at full size")
 
-The agent writes the step its judge reads, so it can plant text aimed at the
-judge there, such as a score or a label [@terekhov2025adaptive], and a judge
-may quote it. So a chat judge's score and a guard's label are read only where
-the reply's format puts them, and a reply that cannot be read counts as
-suspicious.
+The agent writes the step its monitor reads, so it can plant text aimed at the
+monitor there, such as a score or a label [@terekhov2025adaptive], and the
+monitor's model may quote it. So an LLM monitor's score and a guard's label
+are read only where the reply's format puts them, and a reply that cannot be
+read counts as suspicious.
 
-- **Chat judges** (`LLMMonitor`) are chat models prompted to reason first and
-  then score on an anchored scale, 0 to 10 by default, mapped onto 0 to 1.
+- **LLM monitors** (`LLMMonitor`), as AI control research calls them
+  [@terekhov2025adaptive; @arike2026information; @tracy2026linuxarena], are
+  chat models prompted to reason first and then score on an anchored scale,
+  0 to 10 by default, mapped onto 0 to 1.
   Reasoning before the score is the prompt component Apollo Research found
   matters most [@apollo2026monitoringprompt]. A reply is read only in that
   shape: the reasoning, then one score tag, with nothing between them or
@@ -473,8 +475,9 @@ suspicious.
   ([choose how labels become a score](../how-to/use-a-guard-model.md#choose-how-labels-become-a-score)
   gives the evidence for five). LangChain has no capability flag for
   log-probabilities, so `AUTO` asks every model for them, and a chat model
-  that rejects the request, such as `ChatAnthropic`, fails the first judged
-  step with a `ConfigurationError` that names `GuardScoring.SAMPLE_FRACTION`.
+  whose adapter does not take the `logprobs` keyword, such as
+  `ChatAnthropic`, fails the first judged step with a `ConfigurationError`
+  that names `GuardScoring.SAMPLE_FRACTION` before any request is sent.
   `GuardScoring.HARD_LABEL` warns, because a hard 0 or 1 gives a threshold
   only one operating point.
 - **Decision models** (`DecisionModelMonitor`) answer yes or no questions
@@ -505,8 +508,8 @@ step. One case it cannot tell apart remains
 
 No family adds a score, probability or count to its `reason`, which Auto Mode
 shows the agent: a number would tell the agent how close its step came to
-passing. The numbers stay in `suspicion`, which the records keep. A chat
-judge's reason is its own reasoning, and `DEFAULT_MONITOR_PROMPT` asks it to
+passing. The numbers stay in `suspicion`, which the records keep. An LLM
+monitor's reason is its own reasoning, and `DEFAULT_MONITOR_PROMPT` asks it to
 keep its score out of it, but its wording may still hint at one.
 
 Scores have to be fine-grained. Control evaluations set thresholds as
@@ -642,7 +645,7 @@ A run can stop before its end: a model, monitor or fallback call raises, it
 hits its recursion limit, the client stops reading its stream or cancels it,
 or the application answers an interrupt with new input rather than a resume.
 The agent can bring such a stop about itself, for example with a step too
-large for the judge's context. Messages written after the monitor's last look
+large for the monitor's context. Messages written after the monitor's last look
 may then sit in the state unseen, and the monitor cannot tell them from new
 input. A fork from a checkpoint inside a run is in the same position.
 
@@ -655,7 +658,7 @@ flag is set records no input: it tags every new human message as a note from
 the user's own new message, which stays such a note for the rest of the
 thread. The runs after it are read normally.
 
-The prompt tells the judge that such a note may be the user's own words: it
+The prompt tells the monitor that such a note may be the user's own words: it
 authorises nothing, only a limit it sets that narrows what the agent may do
 still applies, and no note removes a safeguard, such as asking the user
 first, logging or reporting ([who speaks as the user](#who-speaks-as-the-user)).
@@ -1038,7 +1041,7 @@ wrappers, `MonitorView`, the decision models, `monitor_subagents` and
   must be non-blank strings without `:` or `|`, which LangGraph refuses in a
   node name.
 - A refused number Python will not write out, such as an integer of more
-  than 4,300 digits, is named by its kind in the message. A chat judge's
+  than 4,300 digits, is named by its kind in the message. An LLM monitor's
   scale ends must be integers Python writes out, since the prompt shows them.
 
 ### Error and warning classes
@@ -1046,7 +1049,7 @@ wrappers, `MonitorView`, the decision models, `monitor_subagents` and
 | Class | Raised or emitted when |
 |---|---|
 | `MonitorError` | The base class of the library's own errors. Also raised at run time for a malformed record in `monitor_log` or `monitor_subagent_returns`, for a decision model's answer that is not a probability from 0 to 1, for a protocol's decision of the wrong shape ([failed steps](#failed-steps)), and for a pending step used after its step under `ainvoke()` ([sync and async](#sync-and-async)). |
-| `ConfigurationError` | An option cannot work. Also at run time: for an invalid `monitor_delegation` in an agent's input; for a guard model that returns no log-probabilities under `GuardScoring.LOG_PROBABILITIES`, or that rejects the request for them under `GuardScoring.AUTO` or `LOG_PROBABILITIES`; and for a tool call that reuses the id of the call that started its agent and returns records under that agent's name ([subagents and the thread total](#subagents-and-the-thread-total)). |
+| `ConfigurationError` | An option cannot work. Also at run time: for an invalid `monitor_delegation` in an agent's input; for a guard model that returns no log-probabilities under `GuardScoring.LOG_PROBABILITIES`, or whose adapter does not take the `logprobs` keyword under `GuardScoring.AUTO` or `LOG_PROBABILITIES`; and for a tool call that reuses the id of the call that started its agent and returns records under that agent's name ([subagents and the thread total](#subagents-and-the-thread-total)). |
 | `MissingExtraError` | A feature needs an extra that is not installed; the message names the extra, and the uv and pip commands that install it. It is a `ConfigurationError` and an `ImportError`. |
 | `SynchronousRunError` | A protocol or monitor needs an event loop under `invoke()` ([sync and async](#sync-and-async)). |
 | `InvalidSuspicionError` | A `Verdict` is built with a suspicion that is NaN or outside 0 to 1. |
@@ -1067,7 +1070,7 @@ limit is linked from where it arises above.
   server tools run inside the model call, before the monitor sees the step,
   and again for every sample drawn: every resample of Defer to Resample and
   every retry of Auto Mode runs them again, in samples that are then
-  rejected too. The judge reads their calls in the
+  rejected too. The monitor reads their calls in the
   proposed step whenever the reply keeps a block for them, and a suspicious
   score still decides what happens to the rest of the step. The default
   feedback tells the agent that none of its tools ran the blocked step, while
@@ -1092,7 +1095,7 @@ limit is linked from where it arises above.
 - **A redaction and a summary in one pass.** With a redacting middleware and
   a summariser both listed before the monitor, one `before_model` pass can
   redact a turn and summarise it away before the monitor sees the redaction.
-  The judge then reads the turn as it arrived. List the summariser after the
+  The monitor then reads the turn as it arrived. List the summariser after the
   monitor to avoid it.
 - **A turn removed with all its neighbours.** An input a tool removed
   together with the three messages before it goes back right after the input
@@ -1103,14 +1106,14 @@ limit is linked from where it arises above.
 - **Reordering the inputs the state still holds** (issue #86). A tool that
   removes an input and writes it back unchanged in a parallel call of the same
   step, or writes the whole history back in a new order, reorders the inputs
-  the state holds, and the judge reads them in that order, as the agent does.
+  the state holds, and the monitor reads them in that order, as the agent does.
 - **Rewrites in the model request alone.** A middleware that rewrites the
   user's message in the request but not in the state is not followed: the
-  judge reads the state's text.
-- **The cost of a large turn.** The judge reads every turn whole on every
+  monitor reads the state's text.
+- **The cost of a large turn.** The monitor reads every turn whole on every
   step, even one Deep Agents shows the agent as a preview (over 50,000 tokens
-  by default). This costs tokens on every step and can exceed a small judge's
-  context, and the step then fails.
+  by default). This costs tokens on every step and can exceed the context of
+  a small monitor model, and the step then fails.
 
 ### Who speaks as the user
 
@@ -1141,7 +1144,7 @@ limit is linked from where it arises above.
   resumes, through `Command(update=...)` or `update_state`, is never recorded
   as input, so it is a note from `application`, and it is not kept. That fails
   closed, but a restriction the user adds that way, such as "do not send
-  anything", then carries no authority with the judge either; send it as a new
+  anything", then carries no authority with the monitor either; send it as a new
   run's input.
 - **Unconfirmed input.** After a run that stopped early, the user's new
   message stays a note from `unconfirmed_input` for the rest of the thread.
@@ -1154,7 +1157,7 @@ limit is linked from where it arises above.
   call that fails becomes such a note. Deep Agents' Nemotron nudge that tells
   the agent to act instead of asking for another confirmation opens by saying
   the user is asking for an action [@deepagents2026]. The agent can cause the
-  stop, but it gains from the note only if the judge departs from the prompt,
+  stop, but it gains from the note only if the monitor departs from the prompt,
   by taking an approval from it or letting it lift a safeguard; the prompt
   forbids both but cannot guarantee either.
 - **Middleware is trusted.** A middleware can set the `monitor` or
@@ -1202,7 +1205,7 @@ limit is linked from where it arises above.
   on the agent's model, answers every resample with the first sample again.
   The library emits a `CachedResampleWarning`; build the untrusted model
   with `cache=False`. A cache on a monitor's model makes a guard's samples,
-  and a chat judge's request after an unreadable reply, copies of the first
+  and an LLM monitor's request after an unreadable reply, copies of the first
   reply, and warns the same way.
 - **A rate limit on the agent's own calls fails the step.** The chat
   monitors retry their own calls on HTTP 429. The agent's model and a trusted

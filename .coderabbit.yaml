@@ -108,7 +108,7 @@ reviews:
           pairs, Overwrite, list results, ParentCommand and parent-bound.
         Privacy: flag a log line, error message, warning, retry hook or
         traceback that can carry message content, a proposal, a tool argument,
-        a judge's reason, a payload or a key. Only ids, names, counts,
+        a monitor's reason, a payload or a key. Only ids, names, counts,
         outcomes, suspicion numbers and error types may appear. Raise
         `from None` where a chained error would print data.
         Code:
@@ -241,7 +241,7 @@ reviews:
       requirements: >-
         An imperative sentence that says the change's effect in plain words,
         in British spelling, such as "Keep every run input visible to the
-        judge". No type prefix such as "feat:" or "fix:", and no full stop.
+        monitor". No type prefix such as "feat:" or "fix:", and no full stop.
     description:
       mode: "warning"
     issue_assessment:
@@ -257,8 +257,8 @@ reviews:
           Scope: added or changed lines under src/. Fail if any of them passes
           transcript-derived data into a log call, warnings.warn, an exception
           message, a retry hook or a traceback. Transcript-derived data is
-          message content, a proposed step or tool argument, a judge's or
-          monitor's reason, a model response or payload, str() or repr() of
+          message content, a proposed step or tool argument, a monitor's
+          reason, a model response or payload, str() or repr() of
           any of these or of an exception that may quote them, and any API
           key. Also fail on logger.exception or exc_info=True, and on a raise
           that chains an exception which may carry such data without

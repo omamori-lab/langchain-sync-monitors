@@ -71,7 +71,7 @@ def test_a_chat_model_instance_is_used_as_given() -> None:
 
 
 def build_llm_monitor(model: BaseChatModel) -> object:
-    """Build a chat judge over `model`."""
+    """Build an LLM monitor over `model`."""
     return LLMMonitor(model=model)
 
 

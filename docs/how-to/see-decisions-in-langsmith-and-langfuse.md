@@ -31,7 +31,7 @@ model
   start. The step span opens before the first sample and ends when the step is
   committed; the decision span, tagged with the outcome, opens and ends at
   once, when the protocol has decided.
-- **Judgements.** The chat judges, the guards and `TypeSafeDecisionModel` make
+- **Judgements.** The LLM monitors, the guards and `TypeSafeDecisionModel` make
   model calls, each named `monitor call`, which nest in the judgement. The
   model still shows as the call's model and in `ls_model_name`. A call the
   monitor makes again after HTTP 429 adds one more `monitor call`, and the
@@ -85,7 +85,7 @@ middleware hook [@langchain2026]:
 - **Steps without samples.** A step decided before any sample, such as a
   standing halt, a subagent's halt or Auto Mode's thread total, has `None` as
   its `proposed_step` and `max_suspicion`.
-- **Failed steps.** When a step fails before the protocol decides, its
+- **Failed steps.** When a step fails before it is committed, its
   `proposed_step` is the first sample the monitor had judged, if any.
 
 Every monitor span of a step carries flat metadata keys that name the step:
@@ -233,10 +233,10 @@ span's tags only in its metadata, so filter on `monitor_outcome` and
 
 The monitor's own model calls carry no `monitor` tag, but each one it makes
 through LangChain is named `monitor call`, whatever its model: the calls of
-the chat judges and the guards, and the classifier call of
+the LLM monitors and the guards, and the classifier call of
 `TypeSafeDecisionModel`. The fixed name
-replaces any name you gave the model, so a judge built with
-`name="security judge"` shows as `monitor call` too. The model still shows as
+replaces any name you gave the model, so a model built with
+`name="security monitor"` shows as `monitor call` too. The model still shows as
 the call's model and in its `ls_model_name` metadata, and the judgement span
 around the call names the monitor. A classifier wrapped in `with_retry()`
 gives the name to the wrapper's run, and the attempts inside it keep the
@@ -346,7 +346,7 @@ asyncio.run(print_decisions())
 ```
 
 A scripted run with the same protocol, Trusted Monitoring with an audit
-threshold of 0.6, in which the judge scored the first step 0.9 and the second
+threshold of 0.6, in which the monitor scored the first step 0.9 and the second
 0.1, printed:
 
 ```text

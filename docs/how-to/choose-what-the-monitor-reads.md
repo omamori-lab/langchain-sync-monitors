@@ -61,7 +61,7 @@ from langchain_sync_monitors import Channel, LLMMonitor, MonitorView
 # Read the default channels plus the agent's reasoning, and only the 40 latest entries.
 view = MonitorView(channels=Channel.ACTIONS | Channel.REASONING, most_recent_entries=40)
 
-# The judge model is yours to choose; the library never picks one.
+# The monitor's model is yours to choose; the library never picks one.
 monitor = LLMMonitor(model="openrouter:xiaomi/mimo-v2.6-pro", view=view)
 ```
 
@@ -107,11 +107,12 @@ loses the task and the notes.
 
 ## Know who speaks as the user
 
-Only a run's input renders as the task author's words; every other human
-message renders as a note:
+Only a run's input renders as the task author's words. The monitor's own
+feedback renders as `<monitor_feedback>`, and every other human message as a
+note:
 
-[![The monitor reads each human message in one of five ways. A message tagged with the monitor's own source is its feedback, read as monitor_feedback. A message with any other tag, such as summarization, is a context_note named after that tag, and authorises nothing. An untagged message that is not a run's input, because a tool, a middleware or the application wrote it during a run, is a context_note named after the tool, the message's name, or application. An untagged message that is new when a run starts is that run's input. If the run before it stopped early, it is a context_note from unconfirmed_input, which is kept and comes back as this note after summarisation or removal. Otherwise it reads as user, or as delegator inside a subagent: the task author's words, kept verbatim even after summarisation or removal.](../assets/diagrams/who-speaks-as-the-user-light.svg#only-light)](../assets/diagrams/who-speaks-as-the-user-light.svg "Open the diagram at full size")
-[![The monitor reads each human message in one of five ways. A message tagged with the monitor's own source is its feedback, read as monitor_feedback. A message with any other tag, such as summarization, is a context_note named after that tag, and authorises nothing. An untagged message that is not a run's input, because a tool, a middleware or the application wrote it during a run, is a context_note named after the tool, the message's name, or application. An untagged message that is new when a run starts is that run's input. If the run before it stopped early, it is a context_note from unconfirmed_input, which is kept and comes back as this note after summarisation or removal. Otherwise it reads as user, or as delegator inside a subagent: the task author's words, kept verbatim even after summarisation or removal.](../assets/diagrams/who-speaks-as-the-user-dark.svg#only-dark)](../assets/diagrams/who-speaks-as-the-user-dark.svg "Open the diagram at full size")
+[![The monitor reads each human message in one of five ways. A message tagged with the monitor's own source is its feedback, read as monitor_feedback. A message with any other tag, such as summarization, is a context_note named after that tag, and authorises nothing. An untagged message that a tool, a middleware or the application wrote during a run is a context_note named after the tool, the message's name, or application. An untagged message that is new when a run starts is that run's input, unless the run before it stopped early: then the run records no input, and the message is a context_note from unconfirmed_input, which is kept and comes back as this note after summarisation or removal. Otherwise it reads as user, or as delegator inside a subagent: the task author's words, kept verbatim even after summarisation or removal.](../assets/diagrams/who-speaks-as-the-user-light.svg#only-light)](../assets/diagrams/who-speaks-as-the-user-light.svg "Open the diagram at full size")
+[![The monitor reads each human message in one of five ways. A message tagged with the monitor's own source is its feedback, read as monitor_feedback. A message with any other tag, such as summarization, is a context_note named after that tag, and authorises nothing. An untagged message that a tool, a middleware or the application wrote during a run is a context_note named after the tool, the message's name, or application. An untagged message that is new when a run starts is that run's input, unless the run before it stopped early: then the run records no input, and the message is a context_note from unconfirmed_input, which is kept and comes back as this note after summarisation or removal. Otherwise it reads as user, or as delegator inside a subagent: the task author's words, kept verbatim even after summarisation or removal.](../assets/diagrams/who-speaks-as-the-user-dark.svg#only-dark)](../assets/diagrams/who-speaks-as-the-user-dark.svg "Open the diagram at full size")
 
 - **Where notes come from.** LangChain's and Deep Agents' summaries are
   tagged `summarization`, and Deep Agents' rubric grader `rubric_grader`
@@ -122,19 +123,19 @@ message renders as a note:
   monitor writes a note's tag into the message in the agent's state too, so a
   saved history keeps it.
 - **What the monitor's model is told about notes.** The tag is all the
-  monitor adds. `DEFAULT_MONITOR_PROMPT` tells a chat judge that a note is not
-  the user and authorises nothing, a request the judge may not always follow.
-  A guard policy or a prompt of your own must say so itself, and a decision
-  model gets only the tag.
+  monitor adds. `DEFAULT_MONITOR_PROMPT` tells an LLM monitor that a note is
+  not the user and authorises nothing, a request the model may not always
+  follow. A guard policy or a prompt of your own must say so itself, and a
+  decision model gets only the tag.
 - **`unconfirmed_input`.** A run that stopped before its end, for example
   because its model call raised or its client cancelled it, may leave messages
   the monitor never saw. The next run cannot tell them from its own input, so
   all its new messages, the user's own included, become notes from
-  `unconfirmed_input`, and stay notes for the rest of the thread. The default
-  chat-judge prompt tells the judge to take no approval from such a note, but
-  to apply a limit it sets that narrows what the agent may do, such as a
-  user's "stop", and that a note never removes a safeguard, such as asking the
-  user first. Send an approval again in a later turn.
+  `unconfirmed_input`, and stay notes for the rest of the thread.
+  `DEFAULT_MONITOR_PROMPT` tells an LLM monitor to take no approval from such
+  a note, but to apply a limit it sets that narrows what the agent may do,
+  such as a user's "stop", and that a note never removes a safeguard, such as
+  asking the user first. Send an approval again in a later turn.
 - **Subagents.** `monitor_subagents` gives each subagent's monitor
   `TaskAuthor.PARENT_AGENT`, so its task renders as `<delegator>`.
 - **Two open paths.** Both go through a middleware listed before the monitor.
@@ -404,7 +405,7 @@ whatever the monitor read; see [Read the monitor log](read-the-monitor-log.md).
 
 ## Related guides
 
-- [Use a chat judge](use-a-chat-judge.md) for a monitor that takes a view.
+- [Use an LLM monitor](use-an-llm-monitor.md) for a monitor that takes a view.
 - [Monitor Deep Agents subagents](monitor-deep-agents-subagents.md) for what a subagent's monitor reads.
 - [Task authorship and notes](../explanation/design.md#task-authorship-and-notes) for how the monitor tells a run's input from other messages.
 

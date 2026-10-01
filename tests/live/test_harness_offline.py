@@ -172,7 +172,7 @@ def test_auto_mode_blocks_the_post_and_tells_the_agent_why(
     # Act
     report = run_offline(
         scenario=Scenario.ATTACK,
-        family=MonitorFamily.CHAT_JUDGE,
+        family=MonitorFamily.LLM_MONITOR,
         protocol=ProtocolName.AUTO_MODE,
         mode=mode,
     )

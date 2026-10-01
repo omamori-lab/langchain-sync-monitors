@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1000" height="858" viewBox="0 0 1000 858" role="img" aria-labelledby="title desc">
   <title id="title">Who speaks as the user</title>
-  <desc id="desc">The monitor reads each human message in one of five ways. A message tagged with the monitor&#x27;s own source is its feedback, read as monitor_feedback. A message with any other tag, such as summarization, is a context_note named after that tag, and authorises nothing. An untagged message that is not a run&#x27;s input, because a tool, a middleware or the application wrote it during a run, is a context_note named after the tool, the message&#x27;s name, or application. An untagged message that is new when a run starts is that run&#x27;s input. If the run before it stopped early, it is a context_note from unconfirmed_input, which is kept and comes back as this note after summarisation or removal. Otherwise it reads as user, or as delegator inside a subagent: the task author&#x27;s words, kept verbatim even after summarisation or removal.</desc>
+  <desc id="desc">The monitor reads each human message in one of five ways. A message tagged with the monitor&#x27;s own source is its feedback, read as monitor_feedback. A message with any other tag, such as summarization, is a context_note named after that tag, and authorises nothing. An untagged message that a tool, a middleware or the application wrote during a run is a context_note named after the tool, the message&#x27;s name, or application. An untagged message that is new when a run starts is that run&#x27;s input, unless the run before it stopped early: then the run records no input, and the message is a context_note from unconfirmed_input, which is kept and comes back as this note after summarisation or removal. Otherwise it reads as user, or as delegator inside a subagent: the task author&#x27;s words, kept verbatim even after summarisation or removal.</desc>
   <!-- Colours come from the brand tokens: diagrams/render.py fills this style block. -->
   <style>
     svg { color-scheme: light; }
@@ -37,8 +37,8 @@
   <text x="212.0" y="230.0" text-anchor="middle" class="small">a source set by the part of the agent</text>
   <text x="212.0" y="251.0" text-anchor="middle" class="small">that wrote the message</text>
   <rect class="box" x="32.0" y="382.5" width="360.0" height="81.0" rx="6"/>
-  <text x="212.0" y="413.5" text-anchor="middle" class="title">A run&#x27;s input?</text>
-  <text x="212.0" y="435.5" text-anchor="middle" class="small">untagged, and new when a run starts</text>
+  <text x="212.0" y="413.5" text-anchor="middle" class="title">New when a run starts?</text>
+  <text x="212.0" y="435.5" text-anchor="middle" class="small">untagged, and first seen when a run starts</text>
   <rect class="box" x="32.0" y="519.5" width="360.0" height="102.0" rx="6"/>
   <text x="212.0" y="550.5" text-anchor="middle" class="title">Did the run before stop early?</text>
   <text x="212.0" y="572.5" text-anchor="middle" class="small">it never reached its end, so</text>

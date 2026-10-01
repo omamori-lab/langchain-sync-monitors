@@ -29,7 +29,11 @@ from typing import TYPE_CHECKING
 from langchain_core.runnables import Runnable
 
 from langchain_sync_monitors.contracts import Monitor, MonitorInput, MonitorView, Verdict
-from langchain_sync_monitors.errors import MissingExtraError, MonitorError
+from langchain_sync_monitors.errors import (
+    MissingExtraError,
+    MonitorError,
+    build_missing_extra_message,
+)
 from langchain_sync_monitors.model_calls import build_internal_call_config
 from langchain_sync_monitors.monitors.chat import DEFAULT_MONITOR_VIEW
 from langchain_sync_monitors.monitors.decision_questions import (
@@ -117,10 +121,7 @@ def load_typesafe_module() -> ModuleType:
     try:
         return importlib.import_module("langchain_typesafe")
     except ImportError as error:
-        message = (
-            "TypeSafeDecisionModel needs the typesafe extra: "
-            "pip install 'langchain-sync-monitors[typesafe]'"
-        )
+        message = build_missing_extra_message("TypeSafeDecisionModel", extra="typesafe")
         raise MissingExtraError(message) from error
 
 

@@ -22,6 +22,14 @@ tools run it.
 
 ## Install
 
+With uv, in a project whose `requires-python` starts at 3.12 or later:
+
+```console
+uv add "langchain-sync-monitors[openrouter,deepagents]"
+```
+
+Or with pip, on Python 3.12 or newer:
+
 ```console
 pip install "langchain-sync-monitors[openrouter,deepagents]"
 ```

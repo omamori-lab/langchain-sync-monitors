@@ -14,6 +14,13 @@ change raises the minor version.
 
 ## [Unreleased]
 
+### Changed
+
+- The install instructions lead with `uv add`, with `pip install` as the
+  alternative.
+- Every `MissingExtraError` message has one form, which names the `uv add`
+  command as well as `pip install`.
+
 ## [0.1.0] - 2026-10-01
 
 ### Added

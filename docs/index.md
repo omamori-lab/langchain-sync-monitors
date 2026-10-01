@@ -38,9 +38,25 @@ step, and they run again for every sample a protocol draws.
 
 ## Install
 
+The library needs Python 3.12 or newer. Add it to your project with
+uv [@uv2025]:
+
+```console
+uv add "langchain-sync-monitors[openrouter,deepagents]"
+```
+
+Or install it with pip:
+
 ```console
 pip install "langchain-sync-monitors[openrouter,deepagents]"
 ```
+
+`uv add` writes the package into the project's `pyproject.toml` and lockfile
+and installs it into the project's environment. It needs a project whose
+`requires-python` starts at 3.12 or later, because uv resolves for every
+Python version the project allows [@uv2025]; `uv init --python 3.12` creates
+one. `pip install` installs it into the active environment. Name only the
+extras you need:
 
 | Extra | Adds | Needed for |
 |---|---|---|

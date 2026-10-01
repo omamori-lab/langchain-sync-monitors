@@ -393,14 +393,14 @@ class GuardModelMonitor(ChatModelMonitor):
 
         Every alternative that begins a label counts, so variants such as
         `violation`, ` violation` and `Violation` add up, and dividing by the mass
-        of all label tokens renormalises over the labels, as Granite Guardian's
-        probability of risk does [@padhi2024graniteguardian]. Granite counts the
-        top 20 tokens whose lower-cased, stripped text contains `Yes` or `No`
-        (section 4.3, equation 1); this monitor counts the alternatives that begin
-        one of its labels, because its labels can span several tokens. ShieldGemma
-        renormalises over exactly `Yes` and `No` (section 4.6, equation 1)
-        [@zeng2024shieldgemma]; Llama Guard reads its first token's probability as
-        it is (section 3.1) [@inan2023llamaguard].
+        of all label tokens renormalises over the labels. Granite Guardian's
+        probability of risk renormalises the same way, but counts the top 20
+        tokens whose lower-cased, stripped text contains `Yes` or `No` (section
+        4.3, equation 1) [@padhi2024graniteguardian]; this monitor counts the
+        alternatives that begin one of its labels instead, because its labels can
+        span several tokens. ShieldGemma renormalises over exactly `Yes` and `No`
+        (section 4.6, equation 1) [@zeng2024shieldgemma]; Llama Guard reads its
+        first token's probability as it is (section 3.1) [@inan2023llamaguard].
 
         The probability is `None` unless the provider gave alternatives at the
         position and the guard's own token there begins a label of `label_kind`,

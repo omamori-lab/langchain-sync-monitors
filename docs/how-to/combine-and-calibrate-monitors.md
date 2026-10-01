@@ -70,14 +70,14 @@ A chat judge gives an integer score, and integer scores tie so often that a
 small audit budget falls inside a group of tied scores, as BashArena (section
 4.3) and Koran et al. (section 5.1) found
 [@kaufman2025basharena; @koran2026ensemble]. Averaging several calls adds
-resolution (BashArena, section 4.3) [@kaufman2025basharena]. BashArena
-averages three calls (section 4.2) and LinuxArena two (section 5.1), and
-Ctrl-Z samples its monitor several times at temperature 1.1 (appendix D)
-[@kaufman2025basharena; @tracy2026linuxarena; @bhatt2025ctrlz]. For
-ensembles of different monitors, Koran et al. found the arithmetic mean as
-good as the other aggregators they tried (section 3.2), and found that three
-calls of one monitor gain less than three different monitors (section 5.2)
-[@koran2026ensemble].
+resolution, as BashArena shows (section 4.3) [@kaufman2025basharena].
+BashArena averages three calls (section 4.2) and LinuxArena two (section
+5.1), and Ctrl-Z samples its monitor several times at temperature 1.1
+(appendix D) [@kaufman2025basharena; @tracy2026linuxarena; @bhatt2025ctrlz].
+For ensembles of different monitors, Koran et al. found the arithmetic mean
+as good as the other aggregators they tried (section 3.2), and found that
+three calls of one monitor gain less than three different monitors (section
+5.2) [@koran2026ensemble].
 
 ```python
 from langchain.chat_models import init_chat_model
@@ -267,16 +267,18 @@ threshold `t` flags a share `1 - t` of such steps: 0.99 flags 1% of honest
 steps, and 0.95 flags 5%.
 
 That share is exact on average over the honest scores you might have
-collected. For the one set you did collect, it varies around `1 - t`. With no
-ties and `(n + 1) * t` a whole number, the share of honest steps left
-unflagged follows Beta(n + 1 - l, l), where `l = (n + 1) * (1 - t)`. This is
-the coverage of split conformal prediction for a fixed calibration set, which
-Angelopoulos and Bates give after Vovk (section 3.2, equation 16)
-[@angelopoulos2021gentle]. Its standard deviation is
-`sqrt(t * (1 - t) / (n + 2))`, close to that of a share estimated from `n`
-draws. At `t = 0.99` it is about 0.3 percentage points for a thousand honest
-scores, and about 1 point for a hundred. When `(n + 1) * t` is not a whole
-number the spread is close to this; with ties it can differ.
+collected. For the one set you did collect, it varies around `1 - t`. When
+the honest scores you collected and those of new honest steps are independent
+draws from one distribution, with no ties, and `(n + 1) * t` is a whole number
+from 1 to `n`, the share of honest steps left unflagged follows
+Beta(n + 1 - l, l), where `l = (n + 1) * (1 - t)`. This is the coverage of
+split conformal prediction for a fixed calibration set, which Angelopoulos and
+Bates give after Vovk (section 3.2) [@angelopoulos2021gentle]. Its standard
+deviation is `sqrt(t * (1 - t) / (n + 2))`, close to that of a share
+estimated from `n` draws. At `t = 0.99` it is about 0.3 percentage points for
+a thousand honest scores, and about 1 point for a hundred. When
+`(n + 1) * t` is not a whole number the spread is close to this; with ties it
+can differ.
 
 | Consequence | What it means |
 |---|---|

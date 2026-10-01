@@ -141,11 +141,11 @@ one suspicion.
 With answers of 0.95, 0.05, 0.05 and 0.05, `MAX` gives 0.95 and `MEAN` gives
 0.275.
 
-`MAX` takes the maximum of the raw probabilities. Control evaluations combine
-on the honest scale instead: LinuxArena turns each monitor's score into a
-percentile rank against its honest distribution and then takes the maximum
-(appendix C), and AI Control maps each score through the empirical
-distribution of honest scores before combining (appendix K)
+`MAX` takes the maximum of the raw probabilities. Control evaluations
+aggregate on the honest scale instead: LinuxArena turns each monitor's score
+into a percentile rank against its honest distribution and then takes the
+maximum (appendix C), and AI Control maps each score through the empirical
+distribution of honest scores before aggregating (appendix K)
 [@tracy2026linuxarena; @greenblatt2023aicontrol]. On raw probabilities, a
 question that honest steps often answer yes to can dominate the maximum. Wrap
 the monitor in `CalibratedMonitor` so that a threshold flags a known share of

@@ -425,20 +425,14 @@ def relabel_tool_command(
 ) -> Command:
     """Relabel the messages a tool's `Command` writes, and drop its monitor state writes.
 
-    The messages are read as LangGraph writes them, from an update given as
-    a dict, as pairs of key and value, or as an object whose class annotates
-    its keys, such as a dataclass or a pydantic model, and converted as its
-    message reducer converts them, whether one message or a list, given as
-    messages, dictionaries, tuples or strings, or wrapped in an `Overwrite`
-    [@langgraph2026]. A dict stays a dict, and any other update becomes the
-    pairs LangGraph would write, so the state receives the same writes with
-    the messages relabelled. A command that writes no messages, such as one
-    with only a `goto`, is returned as it is. The reader is private to
-    LangGraph; without it, an update other than a dict or pairs raises
-    `MonitorError`. The command's writes to `MONITOR_STATE_KEYS`, in any
-    update shape, are dropped first, by `drop_monitor_state_writes`, and the
-    ids of the seen human messages it writes under are recorded after, by
-    `record_rewritten_ids`.
+    The messages are read and rewritten in every update shape LangGraph
+    accepts, as `read_update_pairs` and `rewrite_update_messages` describe;
+    without LangGraph's private reader, an update other than a dict or pairs
+    raises `MonitorError`. A command that writes no messages, such as one
+    with only a `goto`, is returned as it is. The command's writes to
+    `MONITOR_STATE_KEYS`, in any update shape, are dropped first, by
+    `drop_monitor_state_writes`, and the ids of the seen human messages it
+    writes under are recorded after, by `record_rewritten_ids`.
     """
     rewritten_ids = find_rewritten_ids(read_written_messages(command), before=before)
     relabelled = rewrite_update_messages(

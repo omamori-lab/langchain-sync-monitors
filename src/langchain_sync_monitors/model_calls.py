@@ -102,12 +102,13 @@ safety filters and routing or guardrail decisions [@langsmith2026trajectory].
 """
 
 MONITOR_CALL_NAME = "monitor call"
-"""The run name of every model call a monitor makes, whatever its model.
+"""The run name of every model call a monitor makes through LangChain, whatever its model.
 
 A tracer otherwise names a call after its chat model's class, the same name
 as the agent's own calls. With this fixed name, LangSmith and Langfuse filter
 the monitor's calls by name, beside the spans in `spans`
-[@langsmith2026traces; @langfuse2026].
+[@langsmith2026traces; @langfuse2026]. `OpenRouterDecisionModel` sends its
+request without LangChain, so it shows as a `monitor classifier` span instead.
 """
 
 

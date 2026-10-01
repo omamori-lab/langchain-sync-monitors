@@ -125,9 +125,9 @@ change raises the minor version.
   for again and then fails closed.
 - A guard's label is read only where its format puts it.
 - The `RepeatedMonitor`, `CalibratedMonitor` and `CascadeMonitor` wrappers.
-- `CalibratedMonitor` reports a step's suspicion as the smoothed conformal rank
-  of its score among honest-run scores, so a threshold of 0.99 flags 1% of new
-  honest steps on average.
+- `CalibratedMonitor` reports a step's suspicion as one minus the smoothed
+  conformal p-value of its score among honest-run scores, so a threshold of
+  0.99 flags 1% of new honest steps on average.
 - The library adds no score, probability or percentile to a verdict's reason,
   which Auto Mode shows the agent; they stay in `monitor_log`.
 - `DEFAULT_MONITOR_PROMPT` asks a chat judge to keep its score out of the

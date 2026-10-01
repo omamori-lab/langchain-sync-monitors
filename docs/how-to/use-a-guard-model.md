@@ -135,7 +135,9 @@ label, and the guard's own token where that label starts comes with
 alternatives and begins a label of the same kind.
 
 `AUTO` and `LOG_PROBABILITIES` bind `logprobs=True` and `top_logprobs=20` to
-the model. LangChain has no capability flag that says whether a chat model
+the model: 20 is the most OpenAI's API returns [@openaipythonsdk2026], and the
+number of alternatives Granite Guardian reads (section 4.3)
+[@padhi2024graniteguardian]. LangChain has no capability flag that says whether a chat model
 accepts them [@langchaincore2026], so a model that rejects them fails the
 first judged step:
 
@@ -151,11 +153,14 @@ makes `AUTO` sample.
 
 **From log-probabilities**, the monitor reads the most likely alternatives at
 the label's first token, adds up those that begin a suspicious label and those
-that begin a safe one, and divides. This is Granite Guardian's probability of
-risk, which adds up the variants of each label in the same way
-[@padhi2024graniteguardian]. ShieldGemma divides the same way over exactly
-`Yes` and `No` [@zeng2024shieldgemma], and Llama Guard reads the probability of
-its first token as it is [@inan2023llamaguard]. It reads them only when the
+that begin a safe one, and divides. Granite Guardian's probability of risk
+divides the same way, but counts the top 20 tokens whose lower-cased, stripped
+text contains `Yes` or `No` (section 4.3, equation 1)
+[@padhi2024graniteguardian]; the monitor counts the alternatives that begin
+one of its labels instead, because a label can span several tokens.
+ShieldGemma divides over exactly `Yes` and `No` (section 4.6, equation 1)
+[@zeng2024shieldgemma], and Llama Guard reads the probability of its first
+token as it is (section 3.1) [@inan2023llamaguard]. It reads them only when the
 guard's own token there begins a label of the kind its reply names, markup such
 as `(`, `**` or `__` aside; otherwise the alternatives describe text the guard
 did not write.
@@ -166,20 +171,26 @@ of 0.2. How many samples are enough has been studied for a language model's
 confidence in its answers, not for guard models:
 
 - Lyu et al. saw calibration improve sharply with the first samples and
-  saturate after 15 to 20 [@lyu2025sampleconsistency];
-- Xiong et al., sampling with misleading hints, saw gains become marginal as
-  they went from 1 to 13 samples [@xiong2024uncertainty];
-- Tian et al. note in a footnote that 20 samples were not meaningfully better
-  calibrated than 10 [@tian2023justask].
+  saturate after 15 to 20, and advise 3 to 5 samples under a tight budget
+  (section 6.3) [@lyu2025sampleconsistency], which is where the default of
+  five comes from;
+- Xiong et al. compare their sampling strategies at five samples (section
+  5.3, table 3), and, sampling with misleading hints, saw gains become
+  marginal as they went from 1 to 13 samples (section 5.3)
+  [@xiong2024uncertainty];
+- Tian et al. note that 20 samples were not meaningfully better calibrated
+  than 10 (footnote 6) [@tian2023justask].
 
 Under `ainvoke()` the samples are drawn concurrently, and one that fails
 cancels the others; under `invoke()` they are drawn one after another.
 
-Guard models tend to be overconfident, and are markedly miscalibrated under
-jailbreak prompts [@liu2025guardcalibration], so honest steps tend to pile up
-at 0 and tie. Set thresholds on honest-run percentiles with
-`CalibratedMonitor`; see [Combine and calibrate
-monitors](combine-and-calibrate-monitors.md).
+Guard models tend to be overconfident (section 4.2.1), and are markedly
+miscalibrated under jailbreak prompts (section 4.2.2)
+[@liu2025guardcalibration], so honest steps tend to pile up at 0 and tie, and
+a raw threshold flags an unknown share of them. Set thresholds on honest-run
+percentiles with `CalibratedMonitor`; see [Combine and calibrate
+monitors](combine-and-calibrate-monitors.md). It fixes what a threshold
+means, not the guard's probability calibration.
 
 ## Know how the label is read
 

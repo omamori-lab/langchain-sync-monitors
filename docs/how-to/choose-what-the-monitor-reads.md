@@ -248,7 +248,8 @@ text in its private state, so the state grows by the size of the user's turns.
 ## Name your delegation tools
 
 Results of the tools in `delegation_tools` are subagent reports; results of
-every other tool are tool results. The default names Deep Agents' `task` tool.
+every other tool are tool results. The default names Deep Agents' `task` tool,
+through which a Deep Agent delegates to a subagent [@deepagents2026].
 If your agent delegates through tools of its own, name them:
 
 ```python

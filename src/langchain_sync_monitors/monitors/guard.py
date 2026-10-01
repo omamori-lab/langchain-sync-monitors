@@ -46,7 +46,12 @@ from langchain_sync_monitors.options import (
 logger = logging.getLogger(__name__)
 
 TOP_LOG_PROBABILITIES = 20
-"""How many alternatives to request per token; 20 is the most OpenAI-style APIs return."""
+"""How many alternatives to request per token.
+
+20 is the most OpenAI's API returns, since it takes `top_logprobs` from 0 to 20
+[@openaipythonsdk2026], and the number of alternatives Granite Guardian reads
+(section 4.3) [@padhi2024graniteguardian].
+"""
 
 LABEL_PATTERN = re.compile(LABEL_WORD)
 """A label the reply parser can read: letters or digits at both ends, where `_` or `-` is markup."""
@@ -230,20 +235,26 @@ class GuardModelMonitor(ChatModelMonitor):
     1.0, and among several samples it is one suspicious vote.
 
     With log-probabilities, suspicion is the probability the guard gives to a
-    suspicious label, the score Llama Guard, ShieldGemma and Granite Guardian
-    report [@inan2023llamaguard; @zeng2024shieldgemma; @padhi2024graniteguardian].
+    suspicious label, the score Llama Guard (section 3.1), ShieldGemma
+    (section 4.6) and Granite Guardian (section 4.3) report
+    [@inan2023llamaguard; @zeng2024shieldgemma; @padhi2024graniteguardian].
     Without them, suspicion is the share of `samples` replies labelled
     suspicious. Studies of sampled answer confidence, none of them on guard
-    models, find that the gain from more samples levels off: Lyu et al. saw
-    calibration saturate after 15 to 20 samples [@lyu2025sampleconsistency],
-    Xiong et al. saw it converge within 13 [@xiong2024uncertainty], and Tian
-    et al. found no meaningful gain from 20 samples over 10 [@tian2023justask].
+    models, guide how many. Lyu et al. saw calibration improve sharply over
+    the first samples and saturate after 15 to 20, and advise 3 to 5 under a
+    tight budget (section 6.3) [@lyu2025sampleconsistency], which is where
+    the default of five comes from. Xiong et al. compare sampling strategies
+    at five samples and saw the gains converge over 1 to 13 (section 5.3)
+    [@xiong2024uncertainty], and Tian et al. found no meaningful gain from 20
+    samples over 10 (footnote 6) [@tian2023justask].
     Sampling needs the model's temperature above zero, and no response
     cache: LangChain's cache answers each sample with the first one's reply,
     and the monitor emits a `CachedResampleWarning` when it samples under
-    one. Guard probabilities are overconfident [@liu2025guardcalibration], so
-    set thresholds on honest-run percentiles with `CalibratedMonitor` rather
-    than on raw values.
+    one. Guard models are overconfident (section 4.2.1)
+    [@liu2025guardcalibration], so honest steps tend to pile up at 0 and tie,
+    and a raw threshold flags an unknown share of them. Set thresholds on
+    honest-run percentiles with `CalibratedMonitor` instead: it fixes what a
+    threshold means, not the guard's probability calibration.
 
     The verdict's reason states the guard's finding, with no probability or
     count: the most severe label among sampled replies, or, from
@@ -373,10 +384,14 @@ class GuardModelMonitor(ChatModelMonitor):
 
         Every alternative that begins a label counts, so variants such as
         `violation`, ` violation` and `Violation` add up, and dividing by the mass
-        of all label tokens renormalises over the labels, as in Granite Guardian's
-        probability of risk [@padhi2024graniteguardian]. ShieldGemma renormalises
-        over exactly `Yes` and `No` [@zeng2024shieldgemma]; Llama Guard reads its
-        first token's probability as it is [@inan2023llamaguard].
+        of all label tokens renormalises over the labels, as Granite Guardian's
+        probability of risk does [@padhi2024graniteguardian]. Granite counts the
+        top 20 tokens whose lower-cased, stripped text contains `Yes` or `No`
+        (section 4.3, equation 1); this monitor counts the alternatives that begin
+        one of its labels, because its labels can span several tokens. ShieldGemma
+        renormalises over exactly `Yes` and `No` (section 4.6, equation 1)
+        [@zeng2024shieldgemma]; Llama Guard reads its first token's probability as
+        it is (section 3.1) [@inan2023llamaguard].
 
         The share is `None` unless the provider gave alternatives at the position
         and the guard's own token there begins a label of `label_kind`, the kind

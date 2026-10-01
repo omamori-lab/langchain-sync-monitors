@@ -106,7 +106,7 @@ monitor gave no readable score, so the step is treated as suspicious.", and
 the `langchain_sync_monitors.monitors.chat` logger writes a warning. That 1.0
 is a bare `LLMMonitor`'s. Inside `RepeatedMonitor` it is averaged with the
 other calls, so one unreadable call of three adds about a third to the mean.
-Inside `CalibratedMonitor` it becomes a rank below 1.0; see [Collect honest
+Inside `CalibratedMonitor` it becomes a percentile rank below 1.0; see [Collect honest
 scores](combine-and-calibrate-monitors.md#collect-honest-scores).
 
 ## Use the default prompt, or write your own
@@ -185,7 +185,11 @@ monitor = LLMMonitor(model="openrouter:xiaomi/mimo-v2.6-pro", prompt=PROMPT)
 ## Change the score scale
 
 The judge scores from `lowest_score` to `highest_score`, 0 to 10 by default,
-and the score maps linearly onto a suspicion from 0 to 1:
+the scale BashArena (section 4.1), LinuxArena (section 5.1) and Koran et al.
+(section 3.1) use [@kaufman2025basharena; @tracy2026linuxarena; @koran2026ensemble].
+Ctrl-Z's monitor scores 0 to 9 (appendix D) and Apollo Research's monitor 1
+to 10 (section Summary) [@bhatt2025ctrlz; @apollo2026monitoringprompt]. The
+score maps linearly onto a suspicion from 0 to 1:
 
 ```text
 suspicion = (score - lowest_score) / (highest_score - lowest_score)

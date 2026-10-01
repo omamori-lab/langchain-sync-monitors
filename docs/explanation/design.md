@@ -1,7 +1,7 @@
 # How the library is built
 
 This explanation describes how langchain-sync-monitors works and where it
-stops: what one monitored step does, what the judge reads and whom it
+stops: what one monitored step does, what the monitor reads and whom it
 believes, when a halt stands, how subagents are counted, and what the records,
 streams and traces show. A closing section gathers every known limit.
 
@@ -9,8 +9,9 @@ streams and traces show. A closing section gathers every known limit.
 
 ## The monitored step
 
-An agent step is one run of the agent's model node. `MonitorMiddleware` wraps
-the model call inside it: the untrusted model proposes the step, the monitor
+An agent step is one run of the agent's model node, which proposes the
+agent's next tool calls or its final answer; a protocol may draw several
+samples of that proposal. `MonitorMiddleware` wraps the model call inside it: the untrusted model proposes the step, the monitor
 judges it, and a control protocol decides what the agent's state receives,
 all before any of the agent's own tools run. A model provider's built-in
 tools, such as web search, are the exception: they run inside the model call,
@@ -317,7 +318,7 @@ drop a message's `name`; a custom `FeedbackTemplate` or `HaltRun` message
 should too. The trusted model at the limit sees neither the blocked attempts
 nor the feedback.
 
-## What the judge reads
+## What the monitor reads
 
 Every transcript entry belongs to one `Channel`: `USER`, `REASONING`,
 `AGENT_TEXT`, `TOOL_CALLS`, `TOOL_RESULTS` or `SUBAGENT_REPORTS`. A
@@ -331,9 +332,9 @@ reports, `task` by default.
 The default view, `Channel.ACTIONS`, reads `USER`, `TOOL_CALLS` and
 `SUBAGENT_REPORTS`. It leaves out the agent's reasoning, its prose and raw
 tool output, as Claude Code's auto mode classifier leaves out the agent's
-messages and tool outputs [@hughes2026automode]. So by default the judge
+messages and tool outputs [@hughes2026automode]. So by default the monitor
 does not read the text the agent writes beside a tool call
-([what the judge does not see](#what-the-judge-does-not-see)). Adding
+([what the monitor does not see](#what-the-monitor-does-not-see)). Adding
 `Channel.AGENT_TEXT` to the view shows that text, and adding
 `Channel.REASONING` the chain of thought;
 [where the ideas come from](background.md#what-a-monitor-reads) sums up what
@@ -380,9 +381,9 @@ LangChain's translators give a provider's built-in tools as standard
 Responses API and Gemini's code execution [@langchaincore2026]. Gemini's
 Google Search leaves its queries only in the reply's `grounding_metadata`, so
 the monitor renders them as a `<provider_tool_call name="grounding">`, with
-the sources found as its result. Under the default view the judge reads the
+the sources found as its result. Under the default view the monitor reads the
 call and not its result; the audit record keeps both. A tool that leaves no
-block is not shown ([what the judge does not see](#what-the-judge-does-not-see)).
+block is not shown ([what the monitor does not see](#what-the-monitor-does-not-see)).
 
 When the view keeps only recent entries, every message from the task author is
 kept anyway, in order: the first states the task, and a later one can narrow or
@@ -476,8 +477,10 @@ monitor itself, address this and stack around any family:
 - `RepeatedMonitor` averages several calls of one monitor, which raises its
   resolution at low false-positive rates [@kaufman2025basharena], as
   LinuxArena does with two calls per action [@tracy2026linuxarena];
-- `CalibratedMonitor` reports suspicion as the step's smoothed conformal rank
-  among honest-run scores, breaking ties at random
+- `CalibratedMonitor` reports suspicion as one minus the smoothed conformal
+  p-value of the step's score among honest-run scores, its percentile rank
+  with ties broken at random
+  ([what a calibrated threshold means](../how-to/combine-and-calibrate-monitors.md#what-a-calibrated-threshold-means))
   [@vovk2005algorithmic; @makins2026multiagent], so a threshold of 0.99
   flags 1% of honest steps on average;
 - `CascadeMonitor` runs a fast monitor on every step and a careful one when
@@ -1036,14 +1039,14 @@ limit is linked from where it arises above.
   [Tools the provider runs itself](../how-to/choose-a-protocol.md#tools-the-provider-runs-itself)
   lists them.
 
-### What the judge does not see
+### What the monitor does not see
 
-- **The agent's prose, by default.** Under `Channel.ACTIONS` the judge does
+- **The agent's prose, by default.** Under `Channel.ACTIONS` the monitor does
   not read the text the agent writes beside a tool call, as in Claude Code's
   auto mode [@hughes2026automode]; it reads a final answer's text. Adding
   `Channel.AGENT_TEXT` to the view shows it.
 - **Built-in tools that leave no block.** A provider tool whose reply leaves
-  no block LangChain keeps is invisible to the judge: Gemini's URL context,
+  no block LangChain keeps is invisible to the monitor: Gemini's URL context,
   whose metadata langchain-google-genai does not keep, and the search of
   OpenRouter's web plugin.
 

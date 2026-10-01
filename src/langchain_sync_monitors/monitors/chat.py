@@ -412,8 +412,12 @@ class LLMMonitor(ChatModelMonitor):
     `lowest_score` to `highest_score` inside `<score>` tags. The score maps
     linearly onto a suspicion from 0 to 1, and the reasoning, without the
     score, becomes the verdict's reason. Reasoning before an anchored score
-    follows Apollo Research's findings and the Ctrl-Z monitor
-    [@apollo2026monitoringprompt; @bhatt2025ctrlz].
+    follows Apollo Research's findings (section Summary) and the Ctrl-Z monitor
+    (appendix D) [@apollo2026monitoringprompt; @bhatt2025ctrlz]. The default
+    scale of 0 to 10 is the one BashArena (section 4.1), LinuxArena (section
+    5.1) and Koran et al. (section 3.1) use
+    [@kaufman2025basharena; @tracy2026linuxarena; @koran2026ensemble]; Ctrl-Z's
+    monitor scores 0 to 9 and Apollo Research's monitor 1 to 10.
 
     A reply is readable only in exactly that shape: the reasoning block, then
     one score tag, with nothing but whitespace between them or after the

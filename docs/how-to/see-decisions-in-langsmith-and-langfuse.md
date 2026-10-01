@@ -229,9 +229,10 @@ negate a tag, so leave the monitor's spans out by name. Langfuse keeps a
 span's tags only in its metadata, so filter on `monitor_outcome` and
 `monitor_flagged` there.
 
-The monitor's own model calls carry no `monitor` tag, but each one is named
-`monitor call`, whatever its model: the calls of the chat judges and the
-guards, and the classifier call of `TypeSafeDecisionModel`. The fixed name
+The monitor's own model calls carry no `monitor` tag, but each one it makes
+through LangChain is named `monitor call`, whatever its model: the calls of
+the chat judges and the guards, and the classifier call of
+`TypeSafeDecisionModel`. The fixed name
 replaces any name you gave the model, so a judge built with
 `name="security judge"` shows as `monitor call` too. The model still shows as
 the call's model and in its `ls_model_name` metadata, and the judgement span

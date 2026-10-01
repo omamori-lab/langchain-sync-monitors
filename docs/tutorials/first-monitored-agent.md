@@ -20,7 +20,9 @@ touches the real world: `read_file` reads from a Python dictionary, and
 [![The agent's model proposes a step: a tool call or its final answer. The monitor, drawn as an omamori charm, reads it through its view and scores it from 0 to 1. Below 0.6, the step runs: a tool call runs, its result comes back and the agent proposes its next step, and a final answer ends the run. At 0.6 or more, the step is blocked before any of the agent's own tools run, the agent is told why, and it tries again. After 3 blocks in one step, or 20 in the conversation thread, the run halts.](../assets/diagrams/protocol-first-agent-light.svg#only-light)](../assets/diagrams/protocol-first-agent-light.svg "Open the diagram at full size")
 [![The agent's model proposes a step: a tool call or its final answer. The monitor, drawn as an omamori charm, reads it through its view and scores it from 0 to 1. Below 0.6, the step runs: a tool call runs, its result comes back and the agent proposes its next step, and a final answer ends the run. At 0.6 or more, the step is blocked before any of the agent's own tools run, the agent is told why, and it tries again. After 3 blocks in one step, or 20 in the conversation thread, the run halts.](../assets/diagrams/protocol-first-agent-dark.svg#only-dark)](../assets/diagrams/protocol-first-agent-dark.svg "Open the diagram at full size")
 
-A step is one turn of the agent: a tool call or its final answer. The agent
+A step is one run of the agent's model, which proposes a tool call or its
+final answer; [the monitored step](../explanation/design.md#the-monitored-step)
+defines it in full. The agent
 may make more than one attempt at a step, when an attempt is blocked. The
 monitor judges each attempt before any of the agent's own tools run, and
 records each step in `monitor_log`. Tools that a model provider runs itself,

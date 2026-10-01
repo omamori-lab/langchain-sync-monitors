@@ -204,7 +204,9 @@ after the first began, stamina's default time budget. With the default
 error, such as a bad key (401) or a request timeout the server reports (408),
 raises `httpx.HTTPStatusError` at once. A request httpx refuses to send, such
 as one to a URL whose scheme it does not support, raises at once too, since it
-would fail the same way every time.
+would fail the same way every time. stamina logs each retry as
+`stamina.retry_scheduled` with its error and wait, never the request, so
+neither the transcript nor the key reaches the log.
 
 The library adds no retries around `TypeSafeDecisionModel`; an error from the
 classifier is raised as it is.

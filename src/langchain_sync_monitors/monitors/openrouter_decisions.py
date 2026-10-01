@@ -144,7 +144,9 @@ class OpenRouterDecisionModel(DecisionModel):
     sent with httpx [@httpx2024]. The response is validated with pydantic
     [@pydantic2026]. Transport errors, rate limits and server errors are
     retried with stamina [@schlawack2026stamina]; other HTTP errors raise
-    `httpx.HTTPStatusError` at once. Each request is one `monitor classifier`
+    `httpx.HTTPStatusError` at once. stamina logs each retry with its error,
+    never the request, so neither the context nor the key reaches a log.
+    Each request is one `monitor classifier`
     span in LangChain tracers, around its retries, with the model and the
     questions as inputs and the answers as outputs; the context stays out,
     since it holds the proposed step.
@@ -279,20 +281,41 @@ class OpenRouterDecisionModel(DecisionModel):
             return nullcontext(self.async_http_client)
         return httpx.AsyncClient(timeout=self.timeout_seconds)
 
-    @stamina.retry(on=is_retryable_http_error, attempts=RETRY_ATTEMPTS)
     async def request_decisions(self, body: DecisionsRequestBody) -> bytes:
-        """POST the request, retrying transient failures, and return the response body."""
-        async with self.open_async_client() as client:
-            response = await client.post(self.endpoint, json=body, headers=self.build_headers())
-        # httpx reads the body before `post` returns, so the response outlives its client.
-        response.raise_for_status()
+        """POST the request, retrying transient failures, and return the response body.
+
+        The retries wrap a block, not a function, so stamina's retry hooks,
+        which log the arguments of a retried function [@schlawack2026stamina],
+        never see the body: its state is the transcript and the proposed step.
+        """
+        async for attempt in stamina.retry_context(
+            on=is_retryable_http_error,
+            attempts=RETRY_ATTEMPTS,
+        ):
+            with attempt:
+                async with self.open_async_client() as client:
+                    response = await client.post(
+                        self.endpoint,
+                        json=body,
+                        headers=self.build_headers(),
+                    )
+                # httpx reads the body before `post` returns, so the response outlives its client.
+                response.raise_for_status()
         return response.content
 
-    @stamina.retry(on=is_retryable_http_error, attempts=RETRY_ATTEMPTS)
     def request_decisions_sync(self, body: DecisionsRequestBody) -> bytes:
-        """POST the request without an event loop, retrying transient failures."""
-        response = self.http_client.post(self.endpoint, json=body, headers=self.build_headers())
-        response.raise_for_status()
+        """POST the request without an event loop, retrying transient failures.
+
+        The retries wrap a block, as in `request_decisions`, so no retry hook sees the body.
+        """
+        for attempt in stamina.retry_context(on=is_retryable_http_error, attempts=RETRY_ATTEMPTS):
+            with attempt:
+                response = self.http_client.post(
+                    self.endpoint,
+                    json=body,
+                    headers=self.build_headers(),
+                )
+                response.raise_for_status()
         return response.content
 
 

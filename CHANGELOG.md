@@ -381,5 +381,8 @@ change raises the minor version.
 - The guides state how a wrapped or sampled monitor counts an unreadable reply,
   and the decision model's retry budget, its handling of HTTP 408, the
   lifetime of its client and when `timeout_seconds` applies.
+- A retried Decisions API request no longer puts its body in the logs: stamina
+  logged the retried method's arguments, the rendered transcript and proposed
+  step among them, on every retry. A retry now logs its error and wait alone.
 
 [Unreleased]: https://github.com/omamori-lab/langchain-sync-monitors/commits/main

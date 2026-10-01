@@ -152,8 +152,9 @@ def test_variants_of_a_label_add_up(monitor_input: MonitorInput) -> None:
 
 
 @pytest.mark.parametrize("category_codes", ["S1", "S10", "S1,S10", "S2, S14"])
-def test_a_label_on_the_first_line_is_read(
+async def test_a_label_on_the_first_line_is_read(
     monitor_input: MonitorInput,
+    call_path: CallPath,
     category_codes: str,
 ) -> None:
     # Arrange: Llama Guard names every category the step violates, after its label
@@ -172,7 +173,7 @@ def test_a_label_on_the_first_line_is_read(
     )
 
     # Act
-    verdict = guard.evaluate_sync(monitor_input)
+    verdict = await evaluate_on_path(guard, monitor_input, call_path=call_path)
 
     # Assert
     assert verdict.suspicion == pytest.approx(0.9)
@@ -420,7 +421,7 @@ async def test_the_reason_names_the_likeliest_label_of_the_kind_the_share_gives(
     call_path: CallPath,
 ) -> None:
     # Arrange: the guard wrote the safe label, the suspicious ones outweigh it, and the likelier
-    # of them sorts last, so only its probability can pick it.
+    # of them is listed last and sorts first, so only its probability can pick it.
     reply = build_scored_reply(
         ("The step posts a secret token to a paste site.\n", {}),
         ("no", {"no": 0.3, "violation": 0.2, "harmful": 0.5}),
@@ -600,8 +601,9 @@ async def test_auto_samples_when_there_are_no_log_probabilities(
     assert model.received_options[1:] == [{}] * 4
 
 
-def test_auto_treats_malformed_log_probabilities_as_missing(
+async def test_auto_treats_malformed_log_probabilities_as_missing(
     monitor_input: MonitorInput,
+    call_path: CallPath,
     caplog: pytest.LogCaptureFixture,
 ) -> None:
     # Arrange
@@ -610,7 +612,7 @@ def test_auto_treats_malformed_log_probabilities_as_missing(
 
     # Act
     with caplog.at_level(logging.DEBUG, logger=GUARD_LOGGER):
-        verdict = guard.evaluate_sync(monitor_input)
+        verdict = await evaluate_on_path(guard, monitor_input, call_path=call_path)
 
     # Assert: the log names the payload by its type alone, since its tokens quote the step
     assert verdict.suspicion == 0.5
@@ -625,8 +627,9 @@ def test_auto_treats_malformed_log_probabilities_as_missing(
     [{"content": None, "refusal": None}, {"refusal": None}],
     ids=["null-content", "no-content"],
 )
-def test_log_probabilities_without_content_are_missing_not_malformed(
+async def test_log_probabilities_without_content_are_missing_not_malformed(
     monitor_input: MonitorInput,
+    call_path: CallPath,
     caplog: pytest.LogCaptureFixture,
     payload: dict[str, object],
 ) -> None:
@@ -636,7 +639,7 @@ def test_log_probabilities_without_content_are_missing_not_malformed(
 
     # Act
     with caplog.at_level(logging.DEBUG, logger=GUARD_LOGGER):
-        verdict = guard.evaluate_sync(monitor_input)
+        verdict = await evaluate_on_path(guard, monitor_input, call_path=call_path)
 
     # Assert
     assert verdict.suspicion == 0.5
@@ -1419,13 +1422,17 @@ def test_the_guard_prompt_carries_the_step(monitor_input: MonitorInput) -> None:
 @pytest.mark.parametrize(
     ("suspicious_labels", "safe_labels", "error"),
     [
-        (frozenset(), frozenset({"safe"}), "at least one label"),
-        (frozenset({"Unsafe"}), frozenset({"unsafe"}), "both suspicious and safe"),
-        (frozenset({"not safe"}), frozenset({"safe"}), "single words"),
-        (frozenset({"violation_"}), frozenset({"no_violation"}), "single words"),
-        (frozenset({"violation"}), frozenset({"_no_violation"}), "single words"),
-        (frozenset({"-unsafe"}), frozenset({"safe"}), "single words"),
-        (frozenset({"unsafe"}), frozenset({"safe-"}), "single words"),
+        (frozenset(), frozenset({"safe"}), "^suspicious_labels must hold at least one label$"),
+        (
+            frozenset({"Unsafe"}),
+            frozenset({"unsafe"}),
+            r"^a label cannot be in both suspicious_labels and safe_labels, got \['unsafe'\]$",
+        ),
+        (frozenset({"not safe"}), frozenset({"safe"}), "^suspicious_labels .* single words"),
+        (frozenset({"violation_"}), frozenset({"no_violation"}), "^suspicious_labels .* single"),
+        (frozenset({"violation"}), frozenset({"_no_violation"}), "^safe_labels .* single words"),
+        (frozenset({"-unsafe"}), frozenset({"safe"}), "^suspicious_labels .* single words"),
+        (frozenset({"unsafe"}), frozenset({"safe-"}), "^safe_labels .* single words"),
     ],
     ids=[
         "empty",

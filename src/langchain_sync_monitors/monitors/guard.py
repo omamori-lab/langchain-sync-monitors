@@ -177,30 +177,35 @@ def collect_alternatives(position: TokenLogProbability) -> dict[str, float]:
 
 
 def validate_labels(*, suspicious_labels: AbstractSet[str], safe_labels: AbstractSet[str]) -> None:
-    """Reject label sets that are not sets of strings, or are empty, overlapping or unreadable.
-
-    A label the reply parser could never read, such as `not safe` or
-    `violation_`, would make every reply unreadable, so it is refused here.
-    """
-    check_string_set_option(
+    """Reject label sets that are not sets of strings, or are empty, overlapping or unreadable."""
+    validate_label_set(
         suspicious_labels,
         parameter_name="suspicious_labels",
         example="{'violation'}",
     )
-    check_string_set_option(safe_labels, parameter_name="safe_labels", example="{'no_violation'}")
-    if not suspicious_labels or not safe_labels:
-        message = "suspicious_labels and safe_labels must each hold at least one label"
+    validate_label_set(safe_labels, parameter_name="safe_labels", example="{'no_violation'}")
+    shared = sorted(set(map(str.lower, suspicious_labels)) & set(map(str.lower, safe_labels)))
+    if shared:
+        message = f"a label cannot be in both suspicious_labels and safe_labels, got {shared}"
         raise ConfigurationError(message)
-    multi_word = sorted(filterfalse(is_one_word, suspicious_labels | safe_labels))
+
+
+def validate_label_set(labels: AbstractSet[str], *, parameter_name: str, example: str) -> None:
+    """Reject one label set that is not a set of strings, is empty, or holds an unreadable label.
+
+    A label the reply parser could never read, such as `not safe` or
+    `violation_`, would make every reply unreadable, so it is refused here.
+    """
+    check_string_set_option(labels, parameter_name=parameter_name, example=example)
+    if not labels:
+        message = f"{parameter_name} must hold at least one label"
+        raise ConfigurationError(message)
+    multi_word = sorted(filterfalse(is_one_word, labels))
     if multi_word:
         message = (
-            "labels must be single words of letters, digits, _ or -, beginning and ending "
-            f"with a letter or digit, got {multi_word}"
+            f"{parameter_name} must hold only single words of letters, digits, _ or -, each "
+            f"beginning and ending with a letter or digit, got {multi_word}"
         )
-        raise ConfigurationError(message)
-    shared = set(map(str.lower, suspicious_labels)) & set(map(str.lower, safe_labels))
-    if shared:
-        message = f"labels cannot be both suspicious and safe: {sorted(shared)}"
         raise ConfigurationError(message)
 
 

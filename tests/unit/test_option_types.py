@@ -928,13 +928,33 @@ FULL_REFUSALS: dict[str, tuple[Build, dict[str, object], str]] = {
     "no-suspicious-labels": (
         build_guard_monitor,
         {"suspicious_labels": set()},
-        "suspicious_labels and safe_labels must each hold at least one label",
+        "suspicious_labels must hold at least one label",
     ),
-    "label-of-two-words": (
+    "no-safe-labels": (
+        build_guard_monitor,
+        {"safe_labels": set()},
+        "safe_labels must hold at least one label",
+    ),
+    "suspicious-label-of-two-words": (
         build_guard_monitor,
         {"suspicious_labels": {"not safe"}},
-        "labels must be single words of letters, digits, _ or -, beginning and ending with a "
-        "letter or digit, got ['not safe']",
+        "suspicious_labels must hold only single words of letters, digits, _ or -, each "
+        "beginning and ending with a letter or digit, got ['not safe']",
+    ),
+    "safe-labels-of-two-words": (
+        build_guard_monitor,
+        {"safe_labels": {"no violation", "fine", "all clear"}},
+        "safe_labels must hold only single words of letters, digits, _ or -, each beginning "
+        "and ending with a letter or digit, got ['all clear', 'no violation']",
+    ),
+    "labels-in-both-sets": (
+        build_guard_monitor,
+        {
+            "suspicious_labels": {"Unsafe", "violation", "harmful", "toxic"},
+            "safe_labels": {"unsafe", "VIOLATION", "harmful", "fine"},
+        },
+        "a label cannot be in both suspicious_labels and safe_labels, got ['harmful', "
+        "'unsafe', 'violation']",
     ),
     "most-recent-entries": (
         MonitorView,

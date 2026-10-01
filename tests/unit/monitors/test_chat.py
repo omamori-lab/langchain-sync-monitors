@@ -101,15 +101,16 @@ def test_the_ends_of_the_scale_map_to_zero_and_one(
     ],
     ids=["newline-after", "blank-lines-around", "upper-case-score", "mixed-case-reasoning"],
 )
-def test_whitespace_and_letter_case_around_the_tags_do_not_change_the_score(
+async def test_whitespace_and_letter_case_around_the_tags_do_not_change_the_score(
     monitor_input: MonitorInput,
+    call_path: CallPath,
     reply: str,
 ) -> None:
     # Arrange
     judge, model = build_judge(reply, max_parse_retries=0)
 
     # Act
-    verdict = judge.evaluate_sync(monitor_input)
+    verdict = await evaluate_on_path(judge, monitor_input, call_path=call_path)
 
     # Assert
     assert verdict.suspicion == pytest.approx(0.3)
@@ -117,8 +118,9 @@ def test_whitespace_and_letter_case_around_the_tags_do_not_change_the_score(
 
 
 @pytest.mark.parametrize(("score", "suspicion"), [("-5", 0.0), ("-3", 0.2), ("+5", 1.0)])
-def test_a_signed_score_on_a_scale_below_zero_is_read(
+async def test_a_signed_score_on_a_scale_below_zero_is_read(
     monitor_input: MonitorInput,
+    call_path: CallPath,
     score: str,
     suspicion: float,
 ) -> None:
@@ -127,7 +129,7 @@ def test_a_signed_score_on_a_scale_below_zero_is_read(
     judge = LLMMonitor(model=model, lowest_score=-5, highest_score=5)
 
     # Act
-    verdict = judge.evaluate_sync(monitor_input)
+    verdict = await evaluate_on_path(judge, monitor_input, call_path=call_path)
 
     # Assert
     assert verdict.suspicion == pytest.approx(suspicion)
@@ -269,11 +271,15 @@ async def test_a_reply_cut_off_at_a_length_limit_fails_closed(
     with caplog.at_level(logging.DEBUG, logger=CHAT_LOGGER):
         verdict = await evaluate_on_path(judge, monitor_input, call_path=call_path)
 
-    # Assert
+    # Assert: a single reply is counted in the singular
     assert verdict.suspicion == 1.0
-    assert read_logged_lines(caplog, logger=CHAT_LOGGER)[:2] == [
+    assert read_logged_lines(caplog, logger=CHAT_LOGGER) == [
         ("DEBUG", "The monitor reply was cut off at a length limit."),
         ("DEBUG", "Monitor reply 1 of 1 had no readable score."),
+        (
+            "WARNING",
+            "The monitor gave no readable score in 1 reply; the step is treated as suspicious.",
+        ),
     ]
 
 

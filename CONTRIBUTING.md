@@ -114,7 +114,8 @@ class DeferToResample(ControlProtocol):
     """
 ```
 
-Give a locator (a section, appendix, table, figure, equation or footnote) in
+When a claim takes a specific number, result or definition from a source,
+give a locator (a section, appendix, table, figure, equation or footnote) in
 the prose, in full lowercase words, as in `(section 3.2, footnote 6)
 [@bhatt2025ctrlz]`. Never write `§`, `Sec.`, `App.`, `Eq.` or `Tab.`, and
 never put the locator inside the brackets. On a docs page the strict build

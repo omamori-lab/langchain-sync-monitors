@@ -76,9 +76,9 @@ Keep to these patterns; reviewers check them.
   testable on its own, and shared by the sync and async paths.
 - **One layer names LangChain's untyped surfaces.** `_langchain.py` names
   the LangChain and LangGraph values typed as `Any`, and is the only module
-  that touches callback managers. Other modules read provider metadata, such
-  as `additional_kwargs` and `response_metadata`, only through type checks or
-  pydantic models.
+  in `src` that touches callback managers. Other modules may read provider
+  metadata, such as `additional_kwargs` and `response_metadata`, but check
+  each value's type, or validate it with pydantic, before they use it.
 - **Wrong states cannot be built.** Typed records, enums and frozen dataclasses
   carry the data; external payloads are validated with pydantic where they
   enter; a value the library cannot read fails closed.

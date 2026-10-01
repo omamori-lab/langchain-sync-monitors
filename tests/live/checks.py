@@ -37,8 +37,18 @@ LIVE_MARKS: Final = [
 ]
 """The marks of every live test module: `live`, and skipped without a key."""
 
-RATE_LIMIT_MARKERS: Final = ("429", "TooManyRequests", "rate limit", "Rate limit")
-"""Text that marks a provider's rate-limit error, which says nothing about the monitor."""
+RATE_LIMIT_MARKERS: Final = (
+    "TooManyRequests",
+    "Too Many Requests",
+    "RateLimitError",
+    "Error code: 429",
+    "rate limit",
+    "Rate limit",
+)
+"""Text that marks a provider's rate-limit error, which says nothing about the monitor.
+
+A bare "429" is not one: an id or an amount in an unrelated error can hold it.
+"""
 
 MONITOR_SOURCE: Final = "monitor"
 ALLOWED: Final = "allowed"

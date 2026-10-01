@@ -27,6 +27,7 @@ from langchain_sync_monitors.spans import (
 )
 from langchain_sync_monitors.transcript import render_proposal_for_audit
 from tests.live.checks import (
+    is_rate_limit,
     list_canary_problems,
     list_feedback_problems,
     list_halt_problems,
@@ -466,3 +467,23 @@ def test_the_trace_check_reports_a_broken_promise(
 
     # Assert
     assert any(expected in problem for problem in problems), problems
+
+
+@pytest.mark.parametrize(
+    ("error", "expected"),
+    [
+        ("TooManyRequestsResponseError: Provider returned error", True),
+        ("RateLimitError: Error code: 429 - {'error': 'slow down'}", True),
+        ("ValueError: no tool call for order 4290", False),
+        ("BudgetExceededError: spent $0.0300, at or above the cap of $0.0300", False),
+    ],
+)
+def test_only_a_rate_limit_error_reads_as_one(error: str, expected: bool) -> None:
+    # Arrange
+    text = error
+
+    # Act
+    rate_limited = is_rate_limit(text)
+
+    # Assert
+    assert rate_limited is expected

@@ -17,7 +17,7 @@ import httpx
 import pytest
 from pydantic import SecretStr
 
-from langchain_sync_monitors import request_pool
+from langchain_sync_monitors import langsmith_scores, request_pool
 from langchain_sync_monitors.errors import ConfigurationError
 from langchain_sync_monitors.langsmith_scores import (
     LANGSMITH_ENDPOINT,
@@ -126,6 +126,23 @@ def test_the_project_is_looked_up_once_for_many_scores_and_kept() -> None:
     [lookup] = service.find_requests("GET", "/sessions")
     assert dict(lookup.url.params) == {"name": PROJECT_NAME, "limit": "1"}
     assert len(service.find_requests("POST", "/feedback")) == 4
+
+
+def test_the_sender_forgets_the_oldest_project_id_past_its_limit(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Arrange: room for two project ids, and three projects
+    monkeypatch.setattr(langsmith_scores, "MAX_PROJECT_IDS", 2)
+    projects = {f"project-{index}": f"id-{index}" for index in range(3)}
+    service = FakeLangSmith(projects=projects)
+    sender = build_sender(service)
+
+    # Act
+    for project in projects:
+        sender.send([build_score(project=project)])
+
+    # Assert
+    assert list(sender.project_ids) == [(CONNECTION, "project-1"), (CONNECTION, "project-2")]
 
 
 def test_a_project_not_found_yet_leaves_its_scores_waiting_until_it_is() -> None:
@@ -639,10 +656,10 @@ def test_a_sender_built_when_no_thread_can_start_posts_one_at_a_time(
 
 
 def test_a_send_starts_no_batch_once_its_time_budget_is_spent() -> None:
-    # Arrange: each post takes two seconds on the sender's clock, against a budget of five
+    # Arrange: each post takes 2.5 seconds on the sender's clock, against a budget of five
     now = [0.0]
     service = FakeLangSmith()
-    service.on_post = lambda: now.__setitem__(0, now[0] + 2.0)
+    service.on_post = lambda: now.__setitem__(0, now[0] + 2.5)
     sender = LangSmithFeedbackSender(
         build_client=service.build_client,
         posts_in_flight=1,
@@ -655,34 +672,99 @@ def test_a_send_starts_no_batch_once_its_time_budget_is_spent() -> None:
     # Act
     report = sender.send(scores)
 
-    # Assert: batches started at 0, 2 and 4 seconds; the rest wait
-    assert report.written == scores[:3]
-    assert report.waiting == scores[3:]
+    # Assert: batches started at 0 and 2.5 seconds; at 5 the budget is spent, and the rest wait
+    assert report.written == scores[:2]
+    assert report.waiting == scores[2:]
     assert report.pause_seconds is None
 
 
-def test_the_sender_keeps_clients_for_the_latest_connections_only() -> None:
-    # Arrange
+def test_a_send_whose_time_budget_is_spent_asks_nothing_of_the_next_connection() -> None:
+    # Arrange: the first connection's post takes the whole budget
+    now = [0.0]
     service = FakeLangSmith()
-    sender = build_sender(service)
-    connections = [
+    service.on_post = lambda: now.__setitem__(0, now[0] + 5.0)
+    sender = LangSmithFeedbackSender(
+        build_client=service.build_client,
+        posts_in_flight=1,
+        send_budget_seconds=5.0,
+        clock=lambda: now[0],
+    )
+    first, second = build_score(), build_score(connection=OWN_CONNECTION)
+
+    # Act
+    report = sender.send([first, second])
+
+    # Assert: the second connection waits, with no client built and no project looked up
+    assert report.written == [first]
+    assert report.waiting == [second]
+    assert service.connections == [CONNECTION]
+
+
+def build_connections(count: int) -> list[LangSmithCredentials]:
+    """Return `count` connections, each to its own endpoint with its own key."""
+    return [
         LangSmithCredentials(
             api_key=SecretStr(f"key-{index}"),
             endpoint=f"https://smith-{index}.test/api/v1",
             workspace_id=None,
         )
-        for index in range(MAX_CLIENTS + 1)
+        for index in range(count)
     ]
+
+
+type CrowdedCase = tuple[FakeLangSmith, LangSmithFeedbackSender, list[LangSmithCredentials]]
+
+
+def build_crowded_case() -> CrowdedCase:
+    """Return a fake LangSmith, a sender on it, and one connection past its client limit."""
+    service = FakeLangSmith()
+    return service, build_sender(service), build_connections(MAX_CLIENTS + 1)
+
+
+def test_the_sender_keeps_clients_for_the_latest_connections_only() -> None:
+    # Arrange
+    service, sender, connections = build_crowded_case()
 
     # Act
     for connection in connections:
         sender.send([build_score(connection=connection)])
 
-    # Assert: the oldest connection's client is closed, and its project forgotten
+    # Assert: the oldest connection's client is closed, and its project id still known
     assert list(sender.clients) == connections[1:]
     assert [client.is_closed for client in service.clients] == [True] + [False] * MAX_CLIENTS
-    assert not any(key[0] == connections[0] for key in sender.project_ids)
-    assert any(key[0] == connections[1] for key in sender.project_ids)
+    assert (connections[0], PROJECT_NAME) in sender.project_ids
+
+
+def test_a_connection_used_again_keeps_its_client_over_one_used_longer_ago() -> None:
+    # Arrange: a client for as many connections as the sender keeps, the first used again
+    service, sender, connections = build_crowded_case()
+    for connection in [*connections[:MAX_CLIENTS], connections[0]]:
+        sender.send([build_score(connection=connection)])
+
+    # Act
+    sender.send([build_score(connection=connections[MAX_CLIENTS])])
+
+    # Assert: the second connection, used least recently, lost its client; the first kept its own
+    assert [client.is_closed for client in service.clients] == (
+        [False, True] + [False] * (MAX_CLIENTS - 1)
+    )
+    assert list(sender.clients) == [*connections[2:MAX_CLIENTS], connections[0], connections[-1]]
+
+
+def test_more_connections_than_clients_rebuild_only_the_clients_past_the_limit() -> None:
+    # Arrange: one score on each of one connection more than the sender keeps clients for
+    service, sender, connections = build_crowded_case()
+
+    # Act: two windows, each sending a score on every connection
+    reports = [
+        sender.send([build_score(connection=connection) for connection in connections])
+        for _ in range(2)
+    ]
+
+    # Assert: one client rebuilt in the second window, and every project looked up once
+    assert all(len(report.written) == MAX_CLIENTS + 1 for report in reports)
+    assert len(service.clients) == MAX_CLIENTS + 2
+    assert len(service.find_requests("GET", "/sessions")) == MAX_CLIENTS + 1
 
 
 def test_langsmith_api_key_comes_before_langchain_api_key(

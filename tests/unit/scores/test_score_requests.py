@@ -7,20 +7,32 @@ anything unreadable pauses for the default, and a date already past for nothing.
 from __future__ import annotations
 
 import logging
+import ssl
 from datetime import UTC, datetime, timedelta
 from email.utils import format_datetime
+from pathlib import Path
+from unittest.mock import MagicMock
 
+import certifi
 import httpx
 import pytest
 
+from langchain_sync_monitors import score_requests
 from langchain_sync_monitors.errors import ConfigurationError
 from langchain_sync_monitors.score_requests import (
     DEFAULT_PAUSE_SECONDS,
+    MAX_PAUSE_SECONDS,
+    PROCESS_ORIGIN,
+    build_http_client,
+    is_system_proxy_lookup_safe,
     is_transient_failure,
+    read_environment_certificates,
     read_environment_value,
     read_pause_seconds,
     send_request,
 )
+
+PROXY_VARIABLES = ("HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "NO_PROXY")
 
 REQUEST = httpx.Request("GET", "https://service.test/items")
 
@@ -32,7 +44,7 @@ def build_rate_limited(retry_after: str | None) -> httpx.Response:
 
 @pytest.mark.parametrize(
     ("retry_after", "expected"),
-    [("7", 7.0), ("1.5", 1.5), ("0", 0.0), ("-3", 0.0)],
+    [("7", 7.0), ("1.5", 1.5), ("0", 0.0), ("-3", 0.0), ("86400", 3600.0)],
 )
 def test_a_retry_after_in_seconds_is_the_pause(retry_after: str, expected: float) -> None:
     # Act
@@ -217,3 +229,120 @@ def test_a_variable_no_header_may_carry_is_refused_without_its_value(
     # Assert
     assert "KEY_NAME_TEST" in str(raised.value)
     assert "secret" not in str(raised.value)
+
+
+def test_a_retry_after_date_more_than_an_hour_ahead_pauses_for_an_hour() -> None:
+    # Arrange
+    tomorrow = format_datetime(datetime.now(UTC) + timedelta(days=1), usegmt=True)
+
+    # Act
+    pause = read_pause_seconds(build_rate_limited(tomorrow))
+
+    # Assert
+    assert pause == MAX_PAUSE_SECONDS == 3600.0
+
+
+def clear_proxy_variables(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Unset every proxy variable, in both cases, as on a machine with none."""
+    for name in PROXY_VARIABLES:
+        monkeypatch.delenv(name, raising=False)
+        monkeypatch.delenv(name.lower(), raising=False)
+
+
+def place_process(
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    platform: str,
+    forked: bool,
+) -> None:
+    """Make the process look as if it ran on `platform`, forked or not."""
+    monkeypatch.setattr(score_requests.sys, "platform", platform)
+    monkeypatch.setattr(PROCESS_ORIGIN, "forked", forked)
+
+
+@pytest.mark.parametrize(
+    ("platform", "forked", "proxy", "expected"),
+    [
+        ("darwin", True, None, False),
+        ("darwin", True, "http://proxy.test:3128", True),
+        ("darwin", False, None, True),
+        ("linux", True, None, True),
+    ],
+)
+def test_only_a_forked_macos_child_without_a_proxy_variable_skips_the_system_lookup(
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    platform: str,
+    forked: bool,
+    proxy: str | None,
+    expected: bool,
+) -> None:
+    # Arrange
+    clear_proxy_variables(monkeypatch)
+    if proxy is not None:
+        monkeypatch.setenv("HTTPS_PROXY", proxy)
+    place_process(monkeypatch, platform=platform, forked=forked)
+
+    # Act
+    safe = is_system_proxy_lookup_safe()
+
+    # Assert
+    assert safe is expected
+
+
+def test_a_client_reads_the_environment_as_httpx_does_where_the_lookup_is_safe(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Arrange
+    place_process(monkeypatch, platform="linux", forked=True)
+
+    # Act
+    with build_http_client(base_url="https://service.test", headers={"x-key": "k"}) as client:
+        # Assert
+        assert client.trust_env is True
+        assert client.headers["x-key"] == "k"
+        assert client.timeout.read == score_requests.REQUEST_TIMEOUT_SECONDS
+
+
+def test_a_forked_macos_child_client_skips_the_system_proxies_and_keeps_the_certificates(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Arrange
+    clear_proxy_variables(monkeypatch)
+    place_process(monkeypatch, platform="darwin", forked=True)
+    monkeypatch.setenv("SSL_CERT_FILE", certifi.where())
+    recorder = MagicMock(wraps=httpx.Client)
+    monkeypatch.setattr(score_requests.httpx, "Client", recorder)
+
+    # Act
+    with build_http_client(base_url="https://service.test", auth=("public", "secret")) as client:
+        # Assert
+        assert client.trust_env is False
+        assert client.timeout.read == score_requests.REQUEST_TIMEOUT_SECONDS
+    assert isinstance(recorder.call_args.kwargs["verify"], ssl.SSLContext)
+
+
+@pytest.mark.parametrize(
+    ("variable", "expected_type"),
+    [("SSL_CERT_FILE", ssl.SSLContext), ("SSL_CERT_DIR", ssl.SSLContext), (None, bool)],
+)
+def test_the_certificates_come_from_the_variables_httpx_reads(
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    variable: str | None,
+    expected_type: type,
+) -> None:
+    # Arrange
+    monkeypatch.delenv("SSL_CERT_FILE", raising=False)
+    monkeypatch.delenv("SSL_CERT_DIR", raising=False)
+    if variable == "SSL_CERT_FILE":
+        monkeypatch.setenv(variable, certifi.where())
+    elif variable == "SSL_CERT_DIR":
+        monkeypatch.setenv(variable, str(Path(certifi.where()).parent))
+
+    # Act
+    certificates = read_environment_certificates()
+
+    # Assert
+    assert isinstance(certificates, expected_type)
+    assert certificates is not False

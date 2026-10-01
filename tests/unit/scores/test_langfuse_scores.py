@@ -597,21 +597,104 @@ def test_a_step_just_under_a_minute_is_looked_up_every_window() -> None:
 
 
 def test_a_fresh_lookup_reaches_back_only_as_far_as_the_fresh_steps() -> None:
-    # Arrange: a stale step made 290 s ago, and a fresh one made now
-    service, _, sender = build_clocked_case()
+    # Arrange: a stale step made 290 s ago and looked up a second ago, and a fresh one made now
+    service, now, sender = build_clocked_case()
     stale = build_score(step_id=build_step_id_seconds_ago(290.0), queued_at=0.0)
+    now[0] = 999.0
+    sender.send([stale])
     fresh = build_score(queued_at=1000.0)
     service.add_step(str(fresh.step_id))
-    sender.last_stale_lookup = 1000.0 - 1.0
+    now[0] = 1000.0
 
     # Act
     report = sender.send([stale, fresh])
 
-    # Assert: one lookup, for the fresh step alone, so its window is seconds wide
-    [lookup] = service.find_requests("GET", "/api/public/v2/observations")
+    # Assert: one more lookup, for the fresh step alone, so its window is seconds wide
+    [_, lookup] = service.find_requests("GET", "/api/public/v2/observations")
     window = read_lookup_filter(lookup)
     earliest = datetime.fromisoformat(window[1]["value"])
     latest = datetime.fromisoformat(window[2]["value"])
     assert latest - earliest == 2 * START_TIME_MARGIN
     assert report.written == [fresh]
     assert report.waiting == [stale]
+
+
+def test_a_step_that_turns_stale_between_stale_lookups_is_looked_up_with_the_fresh_ones() -> None:
+    # Arrange: at 1000 s the stale lookup takes an old step; a newer one is 55 s old then
+    service, now, sender = build_clocked_case()
+    old = build_score(step_id=build_step_id_seconds_ago(290.0), queued_at=900.0)
+    newer = build_score(step_id=build_step_id_seconds_ago(55.0), queued_at=945.0)
+    sender.send([old, newer])
+    service.add_step(str(newer.step_id))
+    now[0] = 1010.0
+
+    # Act: 10 s later, as in the exit drain, the newer step has turned stale
+    report = sender.send([old, newer])
+
+    # Assert: the newer step is sought and found at once; the old one waits for its minute
+    lookups = service.find_requests("GET", "/api/public/v2/observations")
+    assert len(lookups) == 3
+    assert report.written == [newer]
+    assert report.waiting == [old]
+
+
+def test_a_rate_limited_fresh_lookup_skips_the_stale_one_and_leaves_it_due() -> None:
+    # Arrange
+    service, now, sender = build_clocked_case()
+    service.queued_answers = [httpx.Response(429, headers={"Retry-After": "30"})]
+    stale = build_score(queued_at=1000.0 - STALE_AFTER_SECONDS)
+    fresh = build_score(queued_at=1000.0)
+
+    # Act: a window answered 429, then one once the pause is over
+    paused = sender.send([stale, fresh])
+    now[0] = 1030.0
+    sender.send([stale, fresh])
+
+    # Assert: the 429 stopped the send with its pause, and both lookups ran after it
+    assert paused.pause_seconds == 30.0
+    assert paused.waiting == [stale, fresh]
+    assert len(service.find_requests("GET", "/api/public/v2/observations")) == 3
+
+
+def test_a_rate_limited_stale_lookup_is_due_again_once_the_pause_is_over() -> None:
+    # Arrange
+    service, now, sender = build_clocked_case()
+    service.queued_answers = [httpx.Response(429, headers={"Retry-After": "5"})]
+    stale = build_score(queued_at=1000.0 - STALE_AFTER_SECONDS)
+
+    # Act
+    paused = sender.send([stale])
+    now[0] = 1005.0
+    sender.send([stale])
+
+    # Assert: the stale step is asked for again 5 s later, not a minute later
+    assert paused.pause_seconds == 5.0
+    assert len(service.find_requests("GET", "/api/public/v2/observations")) == 2
+
+
+def test_the_next_stale_lookup_counts_its_minute_from_the_end_of_the_last() -> None:
+    # Arrange: each lookup takes 5 s on the sender's clock
+    service = FakeLangfuse()
+    now = [1000.0]
+
+    def answer_slowly(request: httpx.Request) -> httpx.Response:
+        now[0] += 5.0
+        return service.build_reply(request)
+
+    http_client = httpx.Client(
+        base_url=LANGFUSE_BASE_URL, transport=httpx.MockTransport(answer_slowly)
+    )
+    sender = LangfuseScoreSender(http_client=http_client, clock=lambda: now[0])
+    stale = build_score(queued_at=0.0)
+    sender.send([stale])
+
+    # Act: a window a minute after the lookup's start, then one a minute after its end
+    now[0] = 1000.0 + STALE_LOOKUP_SECONDS
+    sender.send([stale])
+    after_its_start = len(service.find_requests("GET", "/api/public/v2/observations"))
+    now[0] = 1005.0 + STALE_LOOKUP_SECONDS
+    sender.send([stale])
+
+    # Assert
+    assert after_its_start == 1
+    assert len(service.find_requests("GET", "/api/public/v2/observations")) == 2

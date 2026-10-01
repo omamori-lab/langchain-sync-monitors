@@ -549,6 +549,90 @@ def test_langfuse_tracing_turned_off_by_its_variable_gets_no_langfuse_score(
     assert score_services.worker.waiting.count() == queued
 
 
+@dataclass(frozen=True)
+class StubSampler:
+    """Stands in for an OpenTelemetry sampler: `TraceIdRatioBased` has a `rate`."""
+
+    rate: object
+
+
+@dataclass(frozen=True)
+class StubLangfuseClient:
+    """Stands in for a Langfuse client, with the private attributes its handler holds."""
+
+    _tracing_enabled: object = True
+    _resources: object = None
+
+
+@dataclass(frozen=True)
+class StubResources:
+    """Stands in for Langfuse's resource manager and its tracer provider."""
+
+    tracer_provider: object = None
+
+
+def build_langfuse_handler(client: object) -> LangfuseHandler:
+    """Return a Langfuse handler whose client is `client`, as `get_client` would set it."""
+    handler = LangfuseHandler()
+    handler._langfuse_client = client  # ty: ignore[unresolved-attribute]
+    return handler
+
+
+def build_sampled_client(rate: object) -> StubLangfuseClient:
+    """Return a Langfuse client whose tracer provider samples at `rate`."""
+    provider = MagicMock(sampler=StubSampler(rate=rate))
+    return StubLangfuseClient(_resources=StubResources(tracer_provider=provider))
+
+
+@pytest.mark.parametrize(
+    "client",
+    [
+        StubLangfuseClient(_tracing_enabled=False),
+        build_sampled_client(0.0),
+        build_sampled_client(0),
+    ],
+    ids=["tracing_enabled=False", "sample_rate=0.0", "sample_rate=0"],
+)
+def test_a_langfuse_client_that_sends_no_trace_gets_no_langfuse_score(
+    score_services: ScoreServices,
+    client: StubLangfuseClient,
+) -> None:
+    # Arrange
+    traced_step = build_traced_step(build_langfuse_handler(client))
+
+    # Act
+    queue_one_score(traced_step, tracers=frozenset({Tracer.LANGFUSE}))
+
+    # Assert
+    assert score_services.worker.waiting.count() == 0
+
+
+@pytest.mark.parametrize(
+    "client",
+    [
+        StubLangfuseClient(),
+        build_sampled_client(0.5),
+        build_sampled_client(True),
+        build_sampled_client("0"),
+        StubLangfuseClient(_resources=StubResources(tracer_provider=object())),
+        None,
+    ],
+    ids=["tracing", "sample_rate=0.5", "rate=True", "rate='0'", "no sampler", "no client"],
+)
+def test_a_langfuse_client_that_traces_or_cannot_be_read_still_gets_its_score(
+    score_services: ScoreServices,
+    client: StubLangfuseClient | None,
+) -> None:
+    # Arrange
+    traced_step = build_traced_step(build_langfuse_handler(client))
+
+    # Act
+    queue_one_score(traced_step, tracers=frozenset({Tracer.LANGFUSE}))
+
+    # Assert
+    assert score_services.worker.waiting.count() == 1
+
+
 def test_a_forked_child_forgets_a_lock_another_thread_held_and_the_parent_worker(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

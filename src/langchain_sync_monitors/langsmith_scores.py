@@ -14,7 +14,7 @@ from pydantic import BaseModel, SecretStr, TypeAdapter, ValidationError
 from langchain_sync_monitors.monitors.openrouter_decisions import check_key_characters
 from langchain_sync_monitors.request_pool import RequestPool
 from langchain_sync_monitors.score_requests import (
-    REQUEST_TIMEOUT_SECONDS,
+    build_http_client,
     is_rate_limited,
     read_environment_value,
     read_pause_seconds,
@@ -35,6 +35,9 @@ SEND_BUDGET_SECONDS: Final = 5.0
 
 MAX_CLIENTS: Final = 8
 """The most connections the sender keeps a client for; the least recently used is closed."""
+
+MAX_PROJECT_IDS: Final = 1024
+"""The most project ids the sender remembers, their client kept or not; the oldest goes first."""
 
 type ClientFactory = Callable[[LangSmithCredentials], httpx.Client]
 """Builds the HTTP client that reaches LangSmith through one connection."""
@@ -101,10 +104,8 @@ def build_langsmith_headers(connection: LangSmithCredentials) -> dict[str, str]:
 
 def build_langsmith_client(connection: LangSmithCredentials) -> httpx.Client:
     """Return a client for the connection's endpoint, with its authentication headers."""
-    return httpx.Client(
-        base_url=connection.endpoint,
-        headers=build_langsmith_headers(connection),
-        timeout=REQUEST_TIMEOUT_SECONDS,
+    return build_http_client(
+        base_url=connection.endpoint, headers=build_langsmith_headers(connection)
     )
 
 
@@ -208,23 +209,21 @@ def record_batch_answers(
     *,
     batch: Sequence[FeedbackPost],
     responses: Sequence[httpx.Response | None],
-) -> bool:
-    """Record each post of a batch by its answer; return whether one asks the send to stop.
+) -> None:
+    """Record each post of a batch by its answer.
 
     A failed post and a `429` leave their score waiting, and the longest
     pause the batch's `429`s ask for becomes the report's.
     """
-    stopping = False
     for (score, _), response in zip(batch, responses, strict=True):
-        if response is None or is_rate_limited(response):
-            stopping = True
+        if response is None:
             report.waiting.append(score)
-            if response is not None:
-                pause = read_pause_seconds(response)
-                report.pause_seconds = max(report.pause_seconds or 0.0, pause)
+        elif is_rate_limited(response):
+            report.waiting.append(score)
+            pause = read_pause_seconds(response)
+            report.pause_seconds = max(report.pause_seconds or 0.0, pause)
         else:
             record_feedback_answer(report, score=score, response=response)
-    return stopping
 
 
 class LangSmithFeedbackSender:
@@ -234,16 +233,19 @@ class LangSmithFeedbackSender:
     workspace of the LangSmith client its tracer sends the run through, so
     the feedback lands where the trace does. The sender keeps one HTTP client
     per connection, built by `build_client`, for the last `MAX_CLIENTS`
-    connections. The step's run id is the library's own, so no lookup finds
-    it. Each score is one `POST {endpoint}/feedback`, the path LangSmith's SDK
-    posts to, relative to the endpoint [@langsmithsdk2026; @langsmith2026api],
-    with:
+    connections, and sends through those first, so that with more
+    connections than that a window rebuilds only the clients past it. The
+    step's run id is the library's own, so no lookup finds it. Each score is
+    one `POST {endpoint}/feedback`, the path LangSmith's SDK posts to,
+    relative to the endpoint [@langsmithsdk2026; @langsmith2026api], with:
 
     - `id`, the score's fixed id, so a retry never adds a second feedback;
     - `run_id`, `key` and `score`: the step, `<label>_suspicion` and the value;
     - `session_id`, the id of the project the run was traced to, which the
       endpoint requires [@langsmith2026smithdbfeedback]. It is found once per
-      connection and project through `GET {endpoint}/sessions?name=...`;
+      connection and project through `GET {endpoint}/sessions?name=...`,
+      and remembered, for up to `MAX_PROJECT_IDS` projects, when the
+      connection's client is closed;
     - `feedback_source` of type `model`, as langchain-core's evaluator
       callback writes it [@langchaincore2026];
     - `extend_trace_retention` false. LangSmith's retention docs say that
@@ -281,7 +283,9 @@ class LangSmithFeedbackSender:
         """Write the scores, connection by connection, until one asks for a pause or time is up."""
         report = DeliveryReport()
         deadline = self.clock() + self.send_budget_seconds
-        for connection, group in group_by_connection(scores).items():
+        groups = group_by_connection(scores)
+        for connection in sorted(groups, key=lambda connection: connection not in self.clients):
+            group = groups[connection]
             if connection is None:
                 report.refused.extend(group)
                 report.refusal = "the score names no LangSmith connection"
@@ -319,7 +323,10 @@ class LangSmithFeedbackSender:
             if self.clock() >= deadline:
                 report.waiting.extend(score for score, _ in posts[start:])
                 return
-            if self.post_batch(client, batch=posts[start : start + width], report=report):
+            batch = posts[start : start + width]
+            responses = self.post_batch(client, batch=batch)
+            record_batch_answers(report, batch=batch, responses=responses)
+            if any(is_stopping_answer(response) for response in responses):
                 report.waiting.extend(score for score, _ in posts[start + width :])
                 return
 
@@ -328,9 +335,8 @@ class LangSmithFeedbackSender:
         client: httpx.Client,
         *,
         batch: Sequence[FeedbackPost],
-        report: DeliveryReport,
-    ) -> bool:
-        """Post a batch side by side, record each answer; return whether the send must stop."""
+    ) -> list[httpx.Response | None]:
+        """Post a batch side by side; return each post's answer, None where it failed."""
 
         def post(item: FeedbackPost) -> httpx.Response | None:
             score, project_id = item
@@ -338,8 +344,7 @@ class LangSmithFeedbackSender:
             request = client.build_request("POST", "/feedback", json=body)
             return send_request(client, request=request)
 
-        responses = self.pool.run_all(post, items=batch)
-        return record_batch_answers(report, batch=batch, responses=responses)
+        return self.pool.run_all(post, items=batch)
 
     def read_client(self, connection: LangSmithCredentials) -> httpx.Client:
         """Return the connection's HTTP client, built the first time; close the least used one."""
@@ -348,10 +353,8 @@ class LangSmithFeedbackSender:
             return self.clients[connection]
         self.clients[connection] = self.build_client(connection)
         while len(self.clients) > MAX_CLIENTS:
-            evicted, client = self.clients.popitem(last=False)
+            _, client = self.clients.popitem(last=False)
             client.close()
-            for key in [key for key in self.project_ids if key[0] == evicted]:
-                del self.project_ids[key]
         return self.clients[connection]
 
     def find_project_ids(
@@ -374,6 +377,8 @@ class LangSmithFeedbackSender:
             project_id = read_project_id(response, name=project)
             if project_id is not None:
                 self.project_ids[(connection, project)] = project_id
+        while len(self.project_ids) > MAX_PROJECT_IDS:
+            del self.project_ids[next(iter(self.project_ids))]
         return None
 
     def close(self) -> None:

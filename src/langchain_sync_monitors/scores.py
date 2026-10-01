@@ -38,11 +38,15 @@ class Tracer(StrEnum):
     - **What sends nothing.** A run with LangSmith tracing turned off by
       `tracing_context(enabled=False)`, a LangSmith client in OpenTelemetry
       mode, whose run ids are not the steps' ids and which is warned once
-      [@langsmithsdk2026], and `LANGFUSE_TRACING_ENABLED=false`.
+      [@langsmithsdk2026], and a Langfuse handler whose tracing is off, by
+      `LANGFUSE_TRACING_ENABLED=false` or by a client built with
+      `tracing_enabled=False` or `sample_rate=0`.
     - **What cannot be seen.** LangSmith accepts feedback on a run it never
       ingested, such as one its sampling rate dropped, so such a score is
-      lost without a sign. A Langfuse step never found, for the same reasons
-      or others, is given up after five minutes with a warning.
+      lost without a sign. A Langfuse step never found, such as one a sample
+      rate between 0 and 1 dropped, is given up after five minutes with a
+      warning, and a process that exits with one waiting spends the whole
+      exit drain on it.
     - **When.** A background thread sends the scores, so the agent never
       waits: LangSmith's within about ten seconds, Langfuse's once Langfuse
       has ingested the step, ten to twenty-five seconds later in our checks.
@@ -53,6 +57,10 @@ class Tracer(StrEnum):
       `atexit`: on `os._exit`, which a `multiprocessing` child started by fork
       calls, on SIGKILL, on SIGTERM without a handler, and when a Jupyter
       kernel is killed.
+    - **Forks.** A forked child sends its own steps' scores, through a worker
+      of its own. On macOS it reads proxies only from the `*_proxy`
+      variables, never from System Settings, since that lookup kills a
+      forked child.
     - **Cost and privacy.** Only numbers and ids leave the process, never the
       judge's reason. LangSmith feedback is sent with
       `extend_trace_retention` false, which by LangSmith's retention docs

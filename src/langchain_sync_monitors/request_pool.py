@@ -4,9 +4,10 @@ The standard library's `concurrent.futures` does not fit an exit drain. Its
 threads are not daemons, so a request still in flight holds the process at
 exit, and its own exit hook runs before `atexit`, after which it refuses new
 work, so the drain could not use it. The threads here are daemons, started
-when the pool is built, and they keep serving during the drain. A thread
-cannot start while the interpreter shuts down, from Python 3.12 on, so a
-pool built during the exit drain has no thread, and runs each call in turn.
+when the pool is built, and they keep serving during the drain. Python
+3.12.0 to 3.12.2 refuse to start a thread once the interpreter shuts down,
+`atexit` hooks included, which 3.12.3 allows again [@cpython2026]; a pool
+that cannot start its threads runs each call in turn.
 """
 
 from __future__ import annotations
@@ -86,6 +87,7 @@ class RequestPool:
         return results
 
     def close(self) -> None:
-        """Let every thread finish once the tasks before it are done."""
+        """Let every thread finish once the tasks before it are done; later calls run in turn."""
         for _ in self.threads:
             self.tasks.put(None)
+        self.threads = []

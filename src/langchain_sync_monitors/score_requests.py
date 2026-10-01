@@ -10,7 +10,10 @@ since both tools count requests per organisation or per key, not per call
 
 The credentials are the variables the tools' own SDKs read, so a process
 that traces to a tool can write its scores with no set-up of its own.
-Neither sender imports the tool's SDK.
+Neither sender imports the tool's SDK. Each client takes its proxies and
+certificates from the environment, as httpx does by default, except for the
+macOS System Settings proxies in a forked child, which
+`is_system_proxy_lookup_safe` explains.
 """
 
 from __future__ import annotations
@@ -19,6 +22,11 @@ import email.utils
 import logging
 import math
 import os
+import ssl
+import sys
+import urllib.request
+from collections.abc import Mapping
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Final
 
@@ -43,6 +51,72 @@ DEFAULT_PAUSE_SECONDS: Final = 30.0
 
 MAX_PAUSE_SECONDS: Final = 3600.0
 """The longest pause a `Retry-After` may ask for: an hour, as LangSmith's hourly limit lasts."""
+
+
+@dataclass(slots=True)
+class ProcessOrigin:
+    """Whether this process is a child forked from another, which the at-fork hook records."""
+
+    forked: bool = False
+
+
+PROCESS_ORIGIN = ProcessOrigin()
+"""This process's origin; `score_export`'s at-fork hook marks a forked child."""
+
+
+def is_system_proxy_lookup_safe() -> bool:
+    """Tell whether a client may look up the system's proxies, as httpx does by default.
+
+    On macOS, when no proxy variable is set, `urllib.request.getproxies`
+    reads the System Settings proxies through the System Configuration
+    framework [@cpython2026], which httpx calls for every client it builds
+    [@httpx2024]. A child forked from a process that has threads, or that
+    has read them already, is killed by that call, with SIGSEGV or SIGABRT.
+    So a forked child on macOS reads them only from the environment.
+    """
+    if sys.platform != "darwin" or not PROCESS_ORIGIN.forked:
+        return True
+    return bool(urllib.request.getproxies_environment())
+
+
+def read_environment_certificates() -> ssl.SSLContext | bool:
+    """Return the certificates httpx trusts from the environment, as its `trust_env` reads them.
+
+    `SSL_CERT_FILE`, else `SSL_CERT_DIR`, else True, httpx's own default
+    [@httpx2024].
+    """
+    certificate_file = os.environ.get("SSL_CERT_FILE")
+    if certificate_file:
+        return ssl.create_default_context(cafile=certificate_file)
+    certificate_directory = os.environ.get("SSL_CERT_DIR")
+    if certificate_directory:
+        return ssl.create_default_context(capath=certificate_directory)
+    return True
+
+
+def build_http_client(
+    *,
+    base_url: str,
+    headers: Mapping[str, str] | None = None,
+    auth: tuple[str, str] | None = None,
+) -> httpx.Client:
+    """Return a client for one service, set up from the environment as httpx sets one up.
+
+    Where the system's proxies cannot be looked up safely, the client skips
+    them and still trusts the environment's certificates.
+    """
+    if is_system_proxy_lookup_safe():
+        return httpx.Client(
+            base_url=base_url, headers=headers, auth=auth, timeout=REQUEST_TIMEOUT_SECONDS
+        )
+    return httpx.Client(
+        base_url=base_url,
+        headers=headers,
+        auth=auth,
+        timeout=REQUEST_TIMEOUT_SECONDS,
+        trust_env=False,
+        verify=read_environment_certificates(),
+    )
 
 
 def read_environment_value(*names: str) -> str | None:

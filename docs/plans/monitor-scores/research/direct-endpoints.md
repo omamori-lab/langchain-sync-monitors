@@ -161,16 +161,24 @@ another project or host.
     takes feedback parts only with the trace's id, which the library does not
     know.
   - `concurrent.futures` does not fit: its threads are not daemons, and its
-    exit hook runs before `atexit` and refuses work after it. No thread can
-    start during interpreter shutdown, so a sender first built during the
-    exit drain posts one at a time.
+    exit hook runs before `atexit` and refuses work after it. Python 3.12.0
+    to 3.12.2 refuse to start a thread inside `atexit`, which 3.12.3 allows
+    again, checked on each; a pool that cannot start its threads, as a
+    sender first built in the drain on those versions, posts one at a time.
   - The sender keeps a client for at most 8 connections, the least recently
-    used closed first.
+    used closed first, and sends through the kept ones first, so with 9
+    connections a window rebuilds one client, not 9. The project ids outlive
+    the clients, up to 1,024, so a rebuilt client looks up no project again.
 - **Langfuse lookups.** Pages come newest first, at most 3 per lookup.
   - Steps whose scores have waited under 60 seconds are looked up every
     window, over their own window. Older ones are looked up apart, together,
     at most once a minute, so that one step Langfuse never ingests cannot
     keep every window five minutes wide.
+  - The minute counts from the end of the last stale lookup that no `429`
+    stopped, and a `429` on the fresh lookup skips the stale one. A step that
+    turns stale between two stale lookups is looked up with the fresh ones
+    until the next, so one that turns stale during the drain is still
+    sought there.
   - One process asks the general rate limit, which the whole organisation
     shares, for at most 21 lookups a minute, 7 when each fits a page, and
     twice the fresh ones during the drain. The writes go to the ingestion
@@ -179,6 +187,12 @@ another project or host.
   its exit hook and its lock, and starts its own. Queuing a score takes no
   lock once the worker runs. A `multiprocessing` child started by fork
   leaves through `os._exit`, so its waiting scores are dropped.
+  - On macOS, httpx reads the System Settings proxies through
+    `urllib.request.getproxies` when no proxy variable is set, and that call
+    killed a forked child with SIGSEGV or SIGABRT once the parent had a
+    thread or had read them. A forked child there reads proxies from the
+    `*_proxy` variables only, and still trusts `SSL_CERT_FILE` and
+    `SSL_CERT_DIR`.
 - **At exit.** The `atexit` hook drains for up to 30 seconds, one window
   every 5 seconds, then logs and drops what is left. The thread is a daemon,
   so a drain that overruns never keeps the process alive.
@@ -258,6 +272,20 @@ in both tools, and the request bodies carried no text. It also found:
   the posts at about 250 a minute; one never-ingested Langfuse step kept the
   lookup window five minutes wide; and a long `Retry-After` held the drain
   to its end. Each is fixed as the sections above describe.
+
+A second review, the same day, found three more, each fixed:
+
+- **A forked child on macOS was killed** by the system proxy lookup, as the
+  Forks section describes.
+- **A Langfuse client built with `tracing_enabled=False` or
+  `sample_rate=0`** made every exit wait the full drain. The writer reads
+  both from the handler's client, which keeps them private, with defaults,
+  so a handler of another shape still sends. A sample rate between 0 and 1
+  still costs the whole drain when a dropped step's score waits at exit, and
+  the warning names it.
+- **The fork test called the reset by hand,** so removing the at-fork hook
+  passed. The test now forks for real, with the locks held by another
+  thread.
 
 ## Not yet checked
 

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+import math
 import time
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
@@ -16,7 +17,7 @@ from pydantic import BaseModel, ConfigDict, Field, SecretStr, ValidationError
 from pydantic import field_validator as validate_field
 
 from langchain_sync_monitors.score_requests import (
-    REQUEST_TIMEOUT_SECONDS,
+    build_http_client,
     is_rate_limited,
     read_environment_value,
     read_pause_seconds,
@@ -179,6 +180,18 @@ class StartWindow:
     latest: datetime
 
 
+@dataclass(frozen=True, slots=True, kw_only=True)
+class StepLookup:
+    """One lookup to make: the steps it seeks, and for the stale lookup, how far it reaches.
+
+    `stale_reach` is, on the sender's clock, the latest queueing time of the
+    scores the stale lookup takes; None for the fresh lookup.
+    """
+
+    scores: list[PendingScore]
+    stale_reach: float | None = None
+
+
 def read_start_window(scores: Sequence[PendingScore]) -> StartWindow:
     """Return the window in which every waiting step's span started."""
     starts = [read_step_start(score.step_id) for score in scores]
@@ -310,7 +323,12 @@ class LangfuseScoreSender:
     would keep that window wide for the whole wait, and its pages many. So the
     steps whose scores have waited `STALE_AFTER_SECONDS` on `clock`, the
     worker's clock, are looked up apart, together, at most once every
-    `STALE_LOOKUP_SECONDS`; the fresh ones every window. One process so asks
+    `STALE_LOOKUP_SECONDS`, counted from the end of the last one that no
+    `429` stopped; the fresh ones every window. A step that turns stale
+    between two stale lookups is looked up with the fresh ones until the
+    next takes it, so one that turns stale during the exit drain is still
+    sought there, and the fresh lookup reaches back about two minutes at
+    most. One process so asks
     the general rate limit, which every project and key of the organisation
     shares, for at most `MAX_OBSERVATION_PAGES` pages per lookup: 6 fresh
     lookups and 1 stale one a minute, 21 requests at most and 7 when each
@@ -338,16 +356,20 @@ class LangfuseScoreSender:
         self.http_client = http_client
         self.clock = clock
         self.last_stale_lookup: float | None = None
+        self.stale_reach = -math.inf
 
     def send(self, scores: Sequence[PendingScore]) -> DeliveryReport:
         """Look up the steps due, fresh and stale apart, and write the scores found at once."""
         report = DeliveryReport()
         observations: dict[str, LangfuseObservation] = {}
-        for group in self.choose_lookups(scores):
-            found, report.pause_seconds = self.find_observations(group)
+        for lookup in self.choose_lookups(scores):
+            found, report.pause_seconds = self.find_observations(lookup.scores)
             observations.update(found)
             if report.pause_seconds is not None:
                 break
+            if lookup.stale_reach is not None:
+                self.last_stale_lookup = self.clock()
+                self.stale_reach = lookup.stale_reach
         ready = [score for score in scores if str(score.step_id) in observations]
         report.waiting.extend(score for score in scores if str(score.step_id) not in observations)
         if report.pause_seconds is not None:
@@ -356,16 +378,20 @@ class LangfuseScoreSender:
             self.write_scores(ready, observations=observations, report=report)
         return report
 
-    def choose_lookups(self, scores: Sequence[PendingScore]) -> list[list[PendingScore]]:
-        """Return the groups to look up now: the fresh steps, and the stale ones when due."""
+    def choose_lookups(self, scores: Sequence[PendingScore]) -> list[StepLookup]:
+        """Return the lookups to make now: the fresh steps, and the stale ones when due.
+
+        Until the stale lookup is due, only the steps the last one took wait;
+        the steps that turned stale since are looked up with the fresh ones.
+        """
         now = self.clock()
-        fresh = [score for score in scores if now - score.queued_at < STALE_AFTER_SECONDS]
-        stale = [score for score in scores if now - score.queued_at >= STALE_AFTER_SECONDS]
-        lookups = [fresh] if fresh else []
         due = self.last_stale_lookup is None or now - self.last_stale_lookup >= STALE_LOOKUP_SECONDS
+        reach = now - STALE_AFTER_SECONDS if due else self.stale_reach
+        fresh = [score for score in scores if score.queued_at > reach]
+        stale = [score for score in scores if score.queued_at <= reach]
+        lookups = [StepLookup(scores=fresh)] if fresh else []
         if stale and due:
-            self.last_stale_lookup = now
-            lookups.append(stale)
+            lookups.append(StepLookup(scores=stale, stale_reach=reach))
         return lookups
 
     def find_observations(
@@ -440,9 +466,8 @@ class LangfuseScoreSender:
 
 def build_langfuse_sender(credentials: LangfuseCredentials) -> LangfuseScoreSender:
     """Return a sender that authenticates with the project's key pair."""
-    http_client = httpx.Client(
+    http_client = build_http_client(
         base_url=credentials.base_url,
         auth=(credentials.public_key, credentials.secret_key.get_secret_value()),
-        timeout=REQUEST_TIMEOUT_SECONDS,
     )
     return LangfuseScoreSender(http_client=http_client)

@@ -679,11 +679,13 @@ def test_a_pause_lasts_at_most_the_give_up_limit() -> None:
     assert case.senders[Tracer.LANGSMITH].calls == [[first], [first, later]]
 
 
+@pytest.mark.parametrize("pause", [60.0, 30.0], ids=["past its end", "to its very end"])
 def test_the_drain_drops_at_once_a_tool_paused_past_its_end(
     caplog: pytest.LogCaptureFixture,
+    pause: float,
 ) -> None:
-    # Arrange: the service asks for a minute, and the drain has 30 seconds
-    case = build_worker_case(langfuse=[pause_for(60.0)], timings=WorkerTimings(drain_seconds=30.0))
+    # Arrange: the service asks for a minute, or exactly 30 seconds, and the drain has 30
+    case = build_worker_case(langfuse=[pause_for(pause)], timings=WorkerTimings(drain_seconds=30.0))
     case.put(tracer=Tracer.LANGFUSE)
 
     # Act

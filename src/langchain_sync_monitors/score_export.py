@@ -22,8 +22,10 @@ sort and chart these, which they do not with metadata [@langsmith2026dashboards;
   their `monitor_step_id`; a handler built with other keys traces to a
   project whose steps it never finds, so it writes nothing there, and warns
   once. A run traced to neither tool sends nothing, and says nothing, nor
-  does a run with LangSmith tracing turned off or Langfuse's tracing off; a
-  LangSmith client in OpenTelemetry mode sends nothing, with one warning.
+  does a run with LangSmith tracing turned off, nor one whose Langfuse
+  tracing is off, by its variable or by a client built with
+  `tracing_enabled=False` or `sample_rate=0`; a LangSmith client in
+  OpenTelemetry mode sends nothing, with one warning.
 - **A step with no sample writes no score**, such as a step that halts
   because an earlier step was halted.
 - **The agent never waits.** The score goes on the queue of one worker
@@ -63,6 +65,7 @@ from langchain_sync_monitors.langsmith_scores import (
 )
 from langchain_sync_monitors.model_calls import is_package_installed
 from langchain_sync_monitors.options import check_enum_option, describe_option_value
+from langchain_sync_monitors.score_requests import PROCESS_ORIGIN
 from langchain_sync_monitors.score_worker import ScoreWorker
 from langchain_sync_monitors.scores import (
     LangSmithCredentials,
@@ -204,6 +207,23 @@ def read_langsmith_destination(tracer: LangChainTracer) -> ScoreDestination | No
     )
 
 
+def is_langfuse_handler_silent(handler: BaseCallbackHandler) -> bool:
+    """Tell whether a Langfuse handler's client sends no trace, so that no step of it is found.
+
+    Langfuse keeps both switches private: `Langfuse(tracing_enabled=False)`
+    leaves its client's `_tracing_enabled` false, and `sample_rate=0` gives
+    the client's tracer provider a sampler whose `rate` is 0 [@langfuse2026].
+    Each is read with a default, so a handler of another shape counts as
+    tracing, and its scores wait as they would have.
+    """
+    client = getattr(handler, "_langfuse_client", None)
+    if getattr(client, "_tracing_enabled", True) is False:
+        return True
+    provider = getattr(getattr(client, "_resources", None), "tracer_provider", None)
+    rate = getattr(getattr(provider, "sampler", None), "rate", None)
+    return isinstance(rate, int | float) and not isinstance(rate, bool) and rate <= 0
+
+
 def read_destination(
     handler: BaseCallbackHandler,
     *,
@@ -211,12 +231,15 @@ def read_destination(
 ) -> ScoreDestination | None:
     """Return where the handler traces to, if it is the tracer of a tool among `tracers`.
 
-    Langfuse's handler gives no destination when Langfuse's tracing is off.
+    Langfuse's handler gives no destination when Langfuse's tracing is off,
+    by its variable or by its client, or its client samples no trace.
     """
     if Tracer.LANGSMITH in tracers and isinstance(handler, LangChainTracer):
         return read_langsmith_destination(handler)
     if Tracer.LANGFUSE in tracers and is_langfuse_handler(handler):
-        return None if is_langfuse_tracing_off() else ScoreDestination(tracer=Tracer.LANGFUSE)
+        if is_langfuse_tracing_off() or is_langfuse_handler_silent(handler):
+            return None
+        return ScoreDestination(tracer=Tracer.LANGFUSE)
     return None
 
 
@@ -252,8 +275,12 @@ class ProcessScoreWorker:
     start the worker, never to queue a score. A child forked from this
     process forgets the parent's worker and lock, whose thread and holder did
     not come with it, and starts a worker of its own; the parent drains what
-    it queued. A `multiprocessing` child started by fork leaves through
-    `os._exit`, so its waiting scores are dropped.
+    it queued. The child's worker sends as the parent's does, except that
+    on macOS it reads proxies only from the environment, never from System
+    Settings, since that lookup kills a forked child (see
+    `score_requests.is_system_proxy_lookup_safe`). A `multiprocessing` child
+    started by fork leaves through `os._exit`, so the scores still waiting
+    then are dropped.
     """
 
     build_worker: Callable[[], ScoreWorker] = build_score_worker
@@ -291,9 +318,14 @@ PROCESS_SCORE_WORKER = ProcessScoreWorker()
 
 
 def forget_process_state_after_fork() -> None:
-    """In a forked child, start afresh: no inherited worker, and no lock another thread held."""
+    """In a forked child, start afresh: no inherited worker, and no lock another thread held.
+
+    It also marks the process as forked, so that its HTTP clients skip the
+    macOS system proxy lookup that would kill it.
+    """
     PROCESS_SCORE_WORKER.forget_after_fork()
     PROCESS_NOTICES.lock = threading.Lock()
+    PROCESS_ORIGIN.forked = True
 
 
 if hasattr(os, "register_at_fork"):

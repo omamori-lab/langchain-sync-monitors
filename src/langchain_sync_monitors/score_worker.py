@@ -69,9 +69,11 @@ UNFOUND_STEP_HINTS: Final = {
         "score export: Langfuse scores go only on steps found in the project that "
         "LANGFUSE_PUBLIC_KEY and LANGFUSE_SECRET_KEY reach. A step is never found there when "
         "its Langfuse handler was built with other keys or another host, when Langfuse "
-        "sampled its trace out (LANGFUSE_SAMPLE_RATE), when its spans never reached "
-        "Langfuse, as after a DNS or network failure, or when Langfuse ingested it later "
-        "than the wait"
+        "sampled its trace out (a sample_rate or LANGFUSE_SAMPLE_RATE below 1), when its "
+        "client's tracing was off in a way the monitor could not read, when its spans never "
+        "reached Langfuse, as after a DNS or network failure, or when Langfuse ingested it "
+        "later than the wait. A process that exits with such a step waiting spends the "
+        "whole exit drain on it"
     ),
 }
 """What can leave a tool's steps unfound, said once per process when its scores are dropped."""

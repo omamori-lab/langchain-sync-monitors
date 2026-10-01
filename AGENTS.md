@@ -66,8 +66,10 @@ Keep to these patterns; reviewers check them.
   model. A subclass is a kind of its parent that can stand anywhere the
   parent does: a template with named hooks, such as `ChatModelMonitor`, or a
   special case, such as `DeferToTrusted`, which is `DeferToResample` with no
-  resamples. Keep hierarchies shallow, with at most one class between a
-  contract and the class you build.
+  resamples. A subclass that refuses part of its parent (Refused Bequest)
+  holds it instead; a holder that only forwards (Middle Man) inherits. Keep
+  hierarchies shallow, with at most one class between a contract and the
+  class you build.
 - **A small core of functions, a thin shell.** The middleware wires
   LangChain's hooks; the decisions live in small functions over typed records
   (`halts.py`, `records.py`, `transcript.py`, `task_authorship.py`), each
@@ -80,6 +82,12 @@ Keep to these patterns; reviewers check them.
 - **Wrong states cannot be built.** Typed records, enums and frozen dataclasses
   carry the data; external payloads are validated with pydantic where they
   enter; a value the library cannot read fails closed.
+- **Known names for smells and fixes.** Design follows SOLID. A review names
+  a smell and its refactoring as Fowler's catalogue does, as listed at
+  [refactoring.guru](https://refactoring.guru/refactoring): Primitive
+  Obsession, Feature Envy, Shotgun Surgery, Replace Conditional with
+  Polymorphism. Patterns keep their Gang of Four names: Strategy, Template
+  Method, Decorator, Composite.
 - **One source of truth.** Each state key is a named constant, in
   `state_keys.py`, or beside its reader in `_langchain.py`. Each message the
   monitor writes into a run is built in one place, such as

@@ -85,7 +85,7 @@ middleware hook [@langchain2026]:
 - **Steps without samples.** A step decided before any sample, such as a
   standing halt, a subagent's halt or Auto Mode's thread total, has `None` as
   its `proposed_step` and `max_suspicion`.
-- **Failed steps.** When a step fails before the protocol decides, its
+- **Failed steps.** When a step fails before it is committed, its
   `proposed_step` is the first sample the monitor had judged, if any.
 
 Every monitor span of a step carries flat metadata keys that name the step:

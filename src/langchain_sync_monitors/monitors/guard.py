@@ -91,11 +91,12 @@ class GuardScoring(StrEnum):
     `AUTO` reads log-probabilities when the provider returns them and samples
     otherwise. `LOG_PROBABILITIES` raises a `ConfigurationError` when the
     provider returns none, or none with alternatives. Both ask for them, and
-    raise a `ConfigurationError` naming `SAMPLE_FRACTION` when the chat model
-    rejects the request, as `ChatAnthropic` does. `SAMPLE_FRACTION` always
-    samples. `HARD_LABEL` reads one label as 0 or 1 and warns, because every
-    threshold then flags the same steps. Sampling only tells replies apart when
-    the model's temperature is above zero and no response cache answers it.
+    raise a `ConfigurationError` naming `SAMPLE_FRACTION` when the chat model's
+    adapter does not take the `logprobs` keyword, such as `ChatAnthropic`'s.
+    `SAMPLE_FRACTION` always samples. `HARD_LABEL` reads one label as 0 or 1
+    and warns, because every threshold then flags the same steps. Sampling only
+    tells replies apart when the model's temperature is above zero and no
+    response cache answers it.
     """
 
     AUTO = "auto"

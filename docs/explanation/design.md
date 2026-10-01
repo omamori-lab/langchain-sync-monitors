@@ -475,8 +475,9 @@ read counts as suspicious.
   ([choose how labels become a score](../how-to/use-a-guard-model.md#choose-how-labels-become-a-score)
   gives the evidence for five). LangChain has no capability flag for
   log-probabilities, so `AUTO` asks every model for them, and a chat model
-  that rejects the request, such as `ChatAnthropic`, fails the first judged
-  step with a `ConfigurationError` that names `GuardScoring.SAMPLE_FRACTION`.
+  whose adapter does not take the `logprobs` keyword, such as
+  `ChatAnthropic`, fails the first judged step with a `ConfigurationError`
+  that names `GuardScoring.SAMPLE_FRACTION` before any request is sent.
   `GuardScoring.HARD_LABEL` warns, because a hard 0 or 1 gives a threshold
   only one operating point.
 - **Decision models** (`DecisionModelMonitor`) answer yes or no questions
@@ -1048,7 +1049,7 @@ wrappers, `MonitorView`, the decision models, `monitor_subagents` and
 | Class | Raised or emitted when |
 |---|---|
 | `MonitorError` | The base class of the library's own errors. Also raised at run time for a malformed record in `monitor_log` or `monitor_subagent_returns`, for a decision model's answer that is not a probability from 0 to 1, for a protocol's decision of the wrong shape ([failed steps](#failed-steps)), and for a pending step used after its step under `ainvoke()` ([sync and async](#sync-and-async)). |
-| `ConfigurationError` | An option cannot work. Also at run time: for an invalid `monitor_delegation` in an agent's input; for a guard model that returns no log-probabilities under `GuardScoring.LOG_PROBABILITIES`, or that rejects the request for them under `GuardScoring.AUTO` or `LOG_PROBABILITIES`; and for a tool call that reuses the id of the call that started its agent and returns records under that agent's name ([subagents and the thread total](#subagents-and-the-thread-total)). |
+| `ConfigurationError` | An option cannot work. Also at run time: for an invalid `monitor_delegation` in an agent's input; for a guard model that returns no log-probabilities under `GuardScoring.LOG_PROBABILITIES`, or whose adapter does not take the `logprobs` keyword under `GuardScoring.AUTO` or `LOG_PROBABILITIES`; and for a tool call that reuses the id of the call that started its agent and returns records under that agent's name ([subagents and the thread total](#subagents-and-the-thread-total)). |
 | `MissingExtraError` | A feature needs an extra that is not installed; the message names the install command. It is a `ConfigurationError` and an `ImportError`. |
 | `SynchronousRunError` | A protocol or monitor needs an event loop under `invoke()` ([sync and async](#sync-and-async)). |
 | `InvalidSuspicionError` | A `Verdict` is built with a suspicion that is NaN or outside 0 to 1. |

@@ -38,7 +38,7 @@
   <text x="212.0" y="251.0" text-anchor="middle" class="small">that wrote the message</text>
   <rect class="box" x="32.0" y="382.5" width="360.0" height="81.0" rx="6"/>
   <text x="212.0" y="413.5" text-anchor="middle" class="title">New when a run starts?</text>
-  <text x="212.0" y="435.5" text-anchor="middle" class="small">untagged, and unseen until this run starts</text>
+  <text x="212.0" y="435.5" text-anchor="middle" class="small">untagged, and first seen when a run starts</text>
   <rect class="box" x="32.0" y="519.5" width="360.0" height="102.0" rx="6"/>
   <text x="212.0" y="550.5" text-anchor="middle" class="title">Did the run before stop early?</text>
   <text x="212.0" y="572.5" text-anchor="middle" class="small">it never reached its end, so</text>

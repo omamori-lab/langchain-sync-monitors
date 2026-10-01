@@ -268,8 +268,9 @@ change raises the minor version.
 - `GuardModelMonitor` refuses a label that begins or ends with `_` or `-`,
   which the reply parser reads as markup, with `ConfigurationError`.
 - A guard's reason from log-probabilities gives one of three findings by the
-  suspicious share, with no number: it breaks the policy (0.5 or more), the
-  guard was uncertain (0.001 to 0.5), or it follows the policy (below 0.001).
+  probability of a suspicious label, with no number: it breaks the policy (0.5
+  or more), the guard was uncertain (0.001 to 0.5), or it follows the policy
+  (below 0.001).
 - `GuardScoring.AUTO` and `GuardScoring.LOG_PROBABILITIES` raise
   `ConfigurationError` naming `SAMPLE_FRACTION` when the chat model rejects
   the `logprobs` keyword, as `ChatAnthropic` and `ChatBedrockConverse` do.

@@ -101,7 +101,7 @@ SPLIT_LABEL_REPLY = build_scored_reply(
 )
 
 
-async def test_log_probabilities_give_the_suspicious_share(
+async def test_log_probabilities_give_the_probability_of_a_suspicious_label(
     monitor_input: MonitorInput,
     call_path: CallPath,
 ) -> None:
@@ -363,7 +363,7 @@ UNCERTAIN_REASON = "The guard model was uncertain whether the step breaks the po
         "wrote the suspicious label, follows",
     ],
 )
-async def test_the_reason_states_the_band_of_the_suspicious_share(
+async def test_the_reason_states_the_band_of_the_probability_of_a_suspicious_label(
     monitor_input: MonitorInput,
     call_path: CallPath,
     chosen: str,
@@ -389,12 +389,14 @@ async def test_the_reason_states_the_band_of_the_suspicious_share(
 
 
 @pytest.mark.parametrize(
-    ("share", "reason"),
+    ("probability", "reason"),
     [(0.5, BREAKS_REASON), (0.001, UNCERTAIN_REASON)],
     ids=["exactly one half", "exactly one in a thousand"],
 )
-def test_a_share_on_a_band_edge_takes_the_higher_band(share: float, reason: str) -> None:
-    # Arrange: log-probabilities round 0.001 on the way to a share, so the edge is set directly.
+def test_a_probability_on_a_band_edge_takes_the_higher_band(
+    probability: float, reason: str
+) -> None:
+    # Arrange: log-probabilities round 0.001 on the way to a probability, so it is set directly.
     guard, _ = build_guard("no_violation", scoring=GuardScoring.LOG_PROBABILITIES)
     position = TokenLogProbability(
         token="no",
@@ -409,7 +411,7 @@ def test_a_share_on_a_band_edge_takes_the_higher_band(share: float, reason: str)
     result = guard.build_log_probability_reason(
         position,
         written_label="no_violation",
-        share=share,
+        probability=probability,
     )
 
     # Assert
@@ -455,7 +457,7 @@ async def test_the_guard_s_own_token_counts_when_the_provider_lists_only_others(
     call_path: CallPath,
 ) -> None:
     # Arrange: a sampled token can fall outside the likeliest alternatives a provider lists;
-    # its own probability still counts towards the share.
+    # its own probability still counts towards the mass of its label.
     reply = build_reply_from_positions(
         TokenLogProbability(
             token="violation",
@@ -538,7 +540,7 @@ async def test_label_probabilities_that_underflow_to_zero_fail_closed(
     monitor_input: MonitorInput,
     call_path: CallPath,
 ) -> None:
-    # Arrange: exp() of these log-probabilities is 0.0, so the labels carry no mass to share.
+    # Arrange: exp() of these log-probabilities is 0.0, so the labels carry no mass to divide by.
     reply = build_reply_from_positions(
         TokenLogProbability(
             token="no_violation",

@@ -22,11 +22,11 @@ names the channels a monitor reads of the history:
 | Channel | What it holds | Default view |
 |---|---|---|
 | `USER` | The task author's messages, context notes and the monitor's feedback | read |
-| `TOOL_CALLS` | Tool calls, malformed calls, tool errors, server tool calls, and blocks LangChain could not map | read |
+| `TOOL_CALLS` | Tool calls, malformed calls, tool errors, server-side tool calls, and blocks LangChain could not map | read |
 | `SUBAGENT_REPORTS` | What a subagent reported back | read |
 | `REASONING` | The agent's chain of thought | left out |
 | `AGENT_TEXT` | The agent's prose | left out |
-| `TOOL_RESULTS` | What a tool returned, a provider's built-in tools included | left out |
+| `TOOL_RESULTS` | What a tool returned, server tools included | left out |
 
 The default view, `Channel.ACTIONS`, is `USER | TOOL_CALLS | SUBAGENT_REPORTS`.
 It leaves out the agent's reasoning, its prose and raw tool output, as Claude
@@ -89,10 +89,10 @@ its tag and pose as the user. System messages are never rendered.
 | `<tool_call name="...">` | `TOOL_CALLS` | A tool call, with its arguments as JSON. |
 | `<malformed_tool_call name="...">` | `TOOL_CALLS` | A call whose arguments could not be parsed, with the raw text. It never ran. |
 | `<tool_error name="...">` | `TOOL_CALLS` | A tool result with `status="error"`: the call failed or did not run, for example because a person rejected it. |
-| `<server_tool_call name="...">` | `TOOL_CALLS` | A built-in tool that the provider ran inside the model call, such as a web search, with its `args` and any provider `extras` as JSON. |
+| `<server_tool_call name="...">` | `TOOL_CALLS` | A server tool that the provider ran inside the model call, such as a web search, with its `args` and any provider `extras` as JSON. |
 | `<unrecognised_block name="...">` | `TOOL_CALLS`, or `REASONING` for a block of reasoning | A part of the reply LangChain could not map to text, reasoning or a tool call, shown whole as JSON and named by its type. It may be a server tool call. |
 | `<tool_result name="...">` | `TOOL_RESULTS` | What a tool returned. |
-| `<server_tool_result name="...">` | `TOOL_RESULTS` | What a provider's built-in tool returned. |
+| `<server_tool_result name="...">` | `TOOL_RESULTS` | What a server tool returned. |
 | `<subagent_report name="...">` | `SUBAGENT_REPORTS` | What a delegation tool returned. |
 | `<agent>` | `AGENT_TEXT` | What the agent wrote, a refusal included. |
 | `<agent_reasoning>` | `REASONING` | The agent's chain of thought. |
@@ -151,13 +151,13 @@ message renders as a note:
 
 ## Know what server tools have done
 
-A provider's built-in tools, such as web search, web fetch and code execution,
-run at the provider, inside the model call. By the time the monitor judges a
-step they have already run, and they run again in every sample a protocol
-draws. A suspicious score still decides what happens to the rest of the step,
-but no monitor can stop a call that has already run. `ServerToolWarning`
-warns about the known ones; [Choose a protocol](choose-a-protocol.md) lists
-them and what the warning cannot see.
+Server tools, such as web search, web fetch and code execution, run at the
+provider, inside the model call. By the time the monitor judges a step they
+have already run, and they run again in every sample a protocol draws. A
+suspicious score still decides what happens to the rest of the step, but no
+monitor can stop a call that has already run. `ServerToolWarning` warns about
+the known ones; [Server tools](choose-a-protocol.md#server-tools) lists them
+and what the warning cannot see.
 
 The judge always reads their calls in the step it judges. Their results sit in
 `TOOL_RESULTS`, which the default view leaves out. This step's only call ran at
@@ -215,7 +215,7 @@ Gemini's URL context or the annotations of OpenAI's Chat Completions.
 Every sample's record keeps each server tool result in full, so a large page
 or code output is copied into `monitor_log` and the checkpoint once per sample
 drawn. In a trace, each sample's model call carries its own output, and the
-step span the first sample's. If that grows too large, drop the built-in tools
+step span the first sample's. If that grows too large, drop the server tools
 that return large outputs, or keep the records out of long-lived storage.
 
 ## Keep only recent entries

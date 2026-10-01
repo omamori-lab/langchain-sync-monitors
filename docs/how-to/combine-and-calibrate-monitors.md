@@ -9,8 +9,9 @@ This guide shows how to wrap a monitor in `RepeatedMonitor`,
 ## Set every threshold yourself
 
 Every control protocol compares the monitor's suspicion with a threshold. Each
-threshold has a default, 0.6 to defer, block or flag and 0.9 to audit, and a
-protocol built with a default warns. This is the warning Auto Mode gives:
+threshold has a default, listed in
+[Thresholds](choose-a-protocol.md#thresholds), and a protocol built with a
+default warns. This is the warning Auto Mode gives:
 
 ```text
 UncalibratedThresholdWarning: block_threshold uses the uncalibrated default 0.6. Suspicion scores differ between monitors and agents, so a fixed default may block honest work or miss attacks. Run the agent on honest tasks, collect the suspicion scores in monitor_log, and set the threshold at a high percentile of them (for example the 98th), or wrap the monitor in CalibratedMonitor so that its scores are honest-run percentiles. Pass block_threshold explicitly to silence this warning.
@@ -61,6 +62,10 @@ reply per call. A chat judge asks again for an unreadable reply, up to
 
 ## Average repeated calls
 
+`RepeatedMonitor` is a homogeneous ensemble: the mean of independent calls of
+one monitor [@koran2026ensemble]. Its `ensemble_size` is the number of calls,
+which LinuxArena calls the ensemble size (appendix C) [@tracy2026linuxarena].
+
 A chat judge gives an integer score, and integer scores tie so often that a
 small audit budget falls inside a group of tied scores
 [@kaufman2025basharena; @koran2026ensemble]. Averaging several calls adds
@@ -81,12 +86,12 @@ judge_model = init_chat_model("openrouter:xiaomi/mimo-v2.6-pro", temperature=1.0
 monitor = RepeatedMonitor(monitor=LLMMonitor(model=judge_model), ensemble_size=3)
 ```
 
-Give the model no LangChain response cache, which would answer every repeat
-with a copy of the first call. The mean is rounded to 12 decimal places, so
-that equal means tie exactly instead of differing in their last bits.
+Give the model no LangChain response cache, which would answer every call
+after the first with a copy of it. The mean is rounded to 12 decimal places,
+so that equal means tie exactly instead of differing in their last bits.
 Under `ainvoke()` the calls run concurrently, and one that fails cancels the
-others; under `invoke()` they run one after another. `ensemble_size` must be a
-whole number of at least 1, or `ConfigurationError` is raised.
+others; under `invoke()` they run one after another. `ensemble_size` must be
+a whole number of at least 1, or `ConfigurationError` is raised.
 
 ## Stack the wrappers in order
 
@@ -103,10 +108,10 @@ and a mean of percentiles is not itself a percentile.
 
 Honest scores are the scores your monitor gives to steps of runs you trust.
 Collect them with exactly the monitor you will calibrate: the same model,
-prompt, view, number of repeats and temperature.
+prompt, view, ensemble size and temperature.
 
-[![Run the agent on honest tasks under TrustedMonitoring, which never changes a step, so every step is judged once, as in an unmonitored run. Its monitor_log holds one record per step; keep the records of this agent and this monitor, since a Deep Agent's log also holds its subagents' records. Every sample's suspicion is an honest score; read the highest first, since a score of 1.0 from a reply that could not be read measures nothing. Pass the scores to CalibratedMonitor as honest_scores. The monitor that judges the honest runs and the one CalibratedMonitor wraps are the same: the same model, prompt, view, repeats and temperature.](../assets/diagrams/monitors-honest-scores-light.svg#only-light)](../assets/diagrams/monitors-honest-scores-light.svg "Open the diagram at full size")
-[![Run the agent on honest tasks under TrustedMonitoring, which never changes a step, so every step is judged once, as in an unmonitored run. Its monitor_log holds one record per step; keep the records of this agent and this monitor, since a Deep Agent's log also holds its subagents' records. Every sample's suspicion is an honest score; read the highest first, since a score of 1.0 from a reply that could not be read measures nothing. Pass the scores to CalibratedMonitor as honest_scores. The monitor that judges the honest runs and the one CalibratedMonitor wraps are the same: the same model, prompt, view, repeats and temperature.](../assets/diagrams/monitors-honest-scores-dark.svg#only-dark)](../assets/diagrams/monitors-honest-scores-dark.svg "Open the diagram at full size")
+[![Run the agent on honest tasks under TrustedMonitoring, which never changes a step, so every step is judged once, as in an unmonitored run. Its monitor_log holds one record per step; keep the records of this agent and this monitor, since a Deep Agent's log also holds its subagents' records. Every sample's suspicion is an honest score; read the highest first, since a score of 1.0 from a reply that could not be read measures nothing. Pass the scores to CalibratedMonitor as honest_scores. The monitor that judges the honest runs and the one CalibratedMonitor wraps are the same: the same model, prompt, view, ensemble size and temperature.](../assets/diagrams/monitors-honest-scores-light.svg#only-light)](../assets/diagrams/monitors-honest-scores-light.svg "Open the diagram at full size")
+[![Run the agent on honest tasks under TrustedMonitoring, which never changes a step, so every step is judged once, as in an unmonitored run. Its monitor_log holds one record per step; keep the records of this agent and this monitor, since a Deep Agent's log also holds its subagents' records. Every sample's suspicion is an honest score; read the highest first, since a score of 1.0 from a reply that could not be read measures nothing. Pass the scores to CalibratedMonitor as honest_scores. The monitor that judges the honest runs and the one CalibratedMonitor wraps are the same: the same model, prompt, view, ensemble size and temperature.](../assets/diagrams/monitors-honest-scores-dark.svg#only-dark)](../assets/diagrams/monitors-honest-scores-dark.svg "Open the diagram at full size")
 
 Run the agent under `TrustedMonitoring`, which never changes a step, so the
 run goes as it would unmonitored and every step is judged once. A protocol
@@ -283,9 +288,9 @@ same calibrated suspicion, and an evaluation can be replayed exactly.
 ## Put a fast monitor in front of a careful one
 
 `CascadeMonitor` runs a fast monitor on every step and sends a step to a
-careful one only when the fast suspicion reaches `escalation_threshold`. Below it, the
-fast verdict stands; at or above it, the careful verdict, reason included,
-replaces it. This follows the two stages of Claude Code's auto mode, a fast
+careful one only when the fast suspicion reaches `escalation_threshold`.
+Below it, the fast verdict stands; at or above it, the careful verdict,
+reason included, replaces it. This follows the two stages of Claude Code's auto mode, a fast
 filter in front of a reasoning classifier [@hughes2026automode]. Hua et
 al.'s best two-monitor protocol calls the expensive monitor only when the
 cheap one's score falls in an uncertain range [@hua2025combining];
@@ -335,17 +340,17 @@ monitor = CascadeMonitor(
 )
 ```
 
-With both stages calibrated, `escalation_threshold` is a share too: 0.95 sends about
-5% of honest steps to the careful stage, which bounds its cost. A threshold
-`t` on the result then flags at most about a share `1 - t` of honest steps,
-since only the escalated ones can reach it.
+With both stages calibrated, `escalation_threshold` is a share too: 0.95
+sends about 5% of honest steps to the careful stage, which bounds its cost. A
+threshold `t` on the result then flags at most about a share `1 - t` of
+honest steps, since only the escalated ones can reach it.
 
-Keep `escalation_threshold` at or below the protocol's lowest threshold. A step the
-fast stage keeps has a suspicion below `escalation_threshold`, so a threshold below
-`escalation_threshold` could trigger the protocol on a step the careful stage never
-read. `escalation_threshold` is checked as a protocol threshold is: a number from 0
-to 1, kept as a float, and anything else, NaN included, raises
-`ConfigurationError`.
+Keep `escalation_threshold` at or below the protocol's lowest threshold. A
+step the fast stage keeps has a suspicion below `escalation_threshold`, so a
+threshold below `escalation_threshold` could trigger the protocol on a step
+the careful stage never read. `escalation_threshold` is checked as a protocol
+threshold is: a number from 0 to 1, kept as a float, and anything else, NaN
+included, raises `ConfigurationError`.
 
 ## Related guides
 

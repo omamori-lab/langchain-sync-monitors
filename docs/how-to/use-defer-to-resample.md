@@ -233,10 +233,9 @@ reached the threshold.
   `init_chat_model("openrouter:deepseek/deepseek-v4.1-flash", cache=False)`.
   A model that always gives the same reply, at temperature 0 for example,
   defeats resampling in the same way.
-- **A provider's built-in tools run once per sample.** A web search in the
-  proposed step runs at the provider for every sample drawn, rejected ones
-  included; see
-  [Server tools](choose-a-protocol.md#server-tools).
+- **Server-side tools run once per sample.** A web search in the proposed
+  step runs at the provider for every sample drawn, rejected ones included;
+  see [Server tools](choose-a-protocol.md#server-tools).
 - **Middleware inside the monitor can go out of step.** If a middleware after
   the monitor in the list returns commands, only those of the last model call
   survive. They match the committed step when sequential resampling accepts a

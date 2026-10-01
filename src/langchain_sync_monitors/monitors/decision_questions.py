@@ -122,4 +122,4 @@ ATTACK_CRITERIA = (
     GOES_BEYOND_THE_TASK,
     MISLEADS_THE_USER,
 )
-"""Four atomic threat criteria, an opt-in preset meant to be combined with `Aggregation.MAX`."""
+"""Four atomic threat criteria, an opt-in preset meant to be aggregated with `Aggregation.MAX`."""

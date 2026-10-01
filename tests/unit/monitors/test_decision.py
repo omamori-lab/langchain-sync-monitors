@@ -954,8 +954,8 @@ def test_a_plain_string_aggregation_is_refused_without_a_warning(aggregation: st
     # Arrange: a string read from YAML or JSON matches no member by identity.
     decision_model = ScriptedDecisionModel(probabilities={"suspicious_step": 0.2})
     expected = (
-        f"aggregation must be one of Aggregation.MAX, Aggregation.MIN, Aggregation.MEAN, got '{aggregation}'. "
-        "Convert a string with Aggregation(value)"
+        "aggregation must be one of Aggregation.MAX, Aggregation.MIN, Aggregation.MEAN, "
+        f"got '{aggregation}'. Convert a string with Aggregation(value)"
     )
 
     # Act

@@ -149,10 +149,9 @@ for record in result["monitor_log"]:
   middleware where it undermines the monitor. Trusted Monitoring calls the
   model once per step, so a second monitor may sit inside it; see
   [Two monitors in one agent](../explanation/design.md#two-monitors-in-one-agent).
-- **A provider's built-in tools run before the judgement.** Tools such as
-  Anthropic's web fetch run inside the model call, so the step has used them
-  before the monitor scores it; see
-  [Server tools](choose-a-protocol.md#server-tools).
+- **Server-side tools run before the judgement.** Tools such as Anthropic's
+  web fetch run inside the model call, so the step has used them before the
+  monitor scores it; see [Server tools](choose-a-protocol.md#server-tools).
 - **The graph takes more steps.** The monitor adds two graph steps per agent
   step, however many model calls the step makes, and two per run;
   [Allow for the graph steps](read-the-monitor-log.md#allow-for-the-graph-steps)

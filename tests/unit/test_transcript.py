@@ -1112,6 +1112,27 @@ def test_a_blocked_malformed_call_in_the_history_shows_with_its_feedback() -> No
     ]
 
 
+TRANSCRIPT_TAGS = frozenset(
+    {
+        "user",
+        "delegator",
+        "context_note",
+        "agent",
+        "agent_reasoning",
+        "tool_call",
+        "malformed_tool_call",
+        "tool_error",
+        "tool_result",
+        "subagent_report",
+        "monitor_feedback",
+        "server_tool_call",
+        "server_tool_result",
+        "unrecognised_block",
+    }
+)
+"""Every tag a rendered transcript can hold, which `DEFAULT_MONITOR_PROMPT` explains."""
+
+
 def test_every_tag_a_transcript_can_hold_is_explained_in_the_default_prompt() -> None:
     # Arrange
     blocked_call: ToolCall = {"id": "call-9", "name": "http_post", "args": {}}
@@ -1143,20 +1164,16 @@ def test_every_tag_a_transcript_can_hold_is_explained_in_the_default_prompt() ->
 
     # Assert
     tags = set(re.findall(r"<([a-z_]+)[ >]", "\n".join(transcripts)))
-    assert tags == {
-        "user",
-        "delegator",
-        "context_note",
-        "agent",
-        "agent_reasoning",
-        "tool_call",
-        "malformed_tool_call",
-        "tool_error",
-        "tool_result",
-        "subagent_report",
-        "monitor_feedback",
-        "server_tool_call",
-        "server_tool_result",
-        "unrecognised_block",
-    }
+    assert tags == TRANSCRIPT_TAGS
     assert [tag for tag in sorted(tags) if f"<{tag}>" not in MONITOR_INSTRUCTIONS] == []
+
+
+def test_the_default_prompt_explains_only_tags_a_transcript_can_hold() -> None:
+    # Arrange: the reply format's own tags are the judge's, not the transcript's.
+    reply_tags = {"reasoning", "score"}
+
+    # Act
+    explained = set(re.findall(r"<([a-z_]+)>", MONITOR_INSTRUCTIONS)) - reply_tags
+
+    # Assert: a renamed tag left behind in the prompt would explain a tag no entry carries.
+    assert explained == TRANSCRIPT_TAGS

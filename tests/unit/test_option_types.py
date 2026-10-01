@@ -305,20 +305,26 @@ def test_a_foreign_type_that_shares_a_builtin_name_is_named_with_its_module() ->
         build_auto_mode(max_consecutive_blocks=foreign_bool)
 
 
-def build_protocol_with_threshold(parameter_name: str, value: object) -> object:
+def build_protocol_with_threshold(protocol: str, *, parameter_name: str, value: object) -> object:
     thresholds: dict[str, Any] = {parameter_name: value}
-    if parameter_name == "audit_threshold":
+    if protocol == "trusted-monitoring":
         return TrustedMonitoring(**thresholds)
-    if parameter_name == "block_threshold":
+    if protocol == "auto-mode":
         return AutoMode(**thresholds)
     settings: dict[str, Any] = {"defer_threshold": 0.6, "audit_threshold": 0.9, **thresholds}
     return DeferToResample(fallback=HaltRun(), **settings)
 
 
-THRESHOLD_PARAMETERS = ["audit_threshold", "block_threshold", "defer_threshold", "audit_threshold"]
+THRESHOLD_PARAMETERS = [
+    pytest.param("trusted-monitoring", "audit_threshold", id="trusted-monitoring-audit"),
+    pytest.param("auto-mode", "block_threshold", id="auto-mode-block"),
+    pytest.param("defer-to-resample", "defer_threshold", id="defer-to-resample-defer"),
+    pytest.param("defer-to-resample", "audit_threshold", id="defer-to-resample-audit"),
+]
+"""Each protocol threshold: Trusted Monitoring and Defer to Resample both take `audit_threshold`."""
 
 
-@pytest.mark.parametrize("parameter_name", THRESHOLD_PARAMETERS)
+@pytest.mark.parametrize(("protocol", "parameter_name"), THRESHOLD_PARAMETERS)
 @pytest.mark.parametrize(
     ("value", "message"),
     [
@@ -333,35 +339,37 @@ THRESHOLD_PARAMETERS = ["audit_threshold", "block_threshold", "defer_threshold",
     ids=["string", "bool", "list", "nan", "above-one", "below-zero", "signalling-nan"],
 )
 def test_a_threshold_that_is_not_a_number_from_zero_to_one_is_refused(
+    protocol: str,
     parameter_name: str,
     value: object,
     message: str,
 ) -> None:
     # Act / Assert
     with pytest.raises(ConfigurationError, match=f"{parameter_name} {message}"):
-        build_protocol_with_threshold(parameter_name, value)
+        build_protocol_with_threshold(protocol, parameter_name=parameter_name, value=value)
 
 
-@pytest.mark.parametrize("parameter_name", THRESHOLD_PARAMETERS)
+@pytest.mark.parametrize(("protocol", "parameter_name"), THRESHOLD_PARAMETERS)
 @pytest.mark.parametrize(
     "value",
     [0, 1, 0.6, Fraction(3, 5), Decimal("0.6")],
     ids=["zero", "one", "float", "fraction", "decimal"],
 )
 def test_a_threshold_given_as_any_real_number_from_zero_to_one_is_kept_as_a_float(
+    protocol: str,
     parameter_name: str,
     value: float | Fraction | Decimal,
 ) -> None:
     # Act
-    protocol = build_protocol_with_threshold(parameter_name, value)
+    built = build_protocol_with_threshold(protocol, parameter_name=parameter_name, value=value)
 
     # Assert
-    threshold = getattr(protocol, parameter_name)
+    threshold = getattr(built, parameter_name)
     assert type(threshold) is float
     assert threshold == float(value)
 
 
-@pytest.mark.parametrize("parameter_name", THRESHOLD_PARAMETERS)
+@pytest.mark.parametrize(("protocol", "parameter_name"), THRESHOLD_PARAMETERS)
 @pytest.mark.parametrize(
     "value",
     [
@@ -390,12 +398,13 @@ def test_a_threshold_given_as_any_real_number_from_zero_to_one_is_kept_as_a_floa
     ],
 )
 def test_a_threshold_just_outside_the_range_is_refused_before_it_is_rounded(
+    protocol: str,
     parameter_name: str,
     value: object,
 ) -> None:
     # Act / Assert: a float would round the first four into [0, 1]
     with pytest.raises(ConfigurationError, match=f"{parameter_name} must be between 0 and 1"):
-        build_protocol_with_threshold(parameter_name, value)
+        build_protocol_with_threshold(protocol, parameter_name=parameter_name, value=value)
 
 
 def test_a_negative_zero_threshold_is_read_as_zero() -> None:

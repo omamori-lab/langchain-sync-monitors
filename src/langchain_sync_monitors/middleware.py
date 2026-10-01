@@ -3,9 +3,9 @@
 `MonitorMiddleware` wraps each model call of an agent. The untrusted model's
 proposal is judged before any of the agent's own tools run, the protocol
 decides what the agent state receives, and one `StepRecord` per step is
-appended to `monitor_log`. Tools the model provider runs itself run inside the
-model call, before the proposal is judged, and the middleware warns about the
-ones it knows.
+appended to `monitor_log`. Server-side tools, which the model provider runs
+inside the model call, run before the proposal is judged, and the middleware
+warns about the ones it knows.
 
 In a `create_agent` middleware list the monitor goes last. LangChain nests
 `wrap_model_call` handlers with the first middleware outermost, and a
@@ -108,12 +108,12 @@ class MonitorMiddleware(AgentMiddleware[MonitorState, AgentContext, StructuredOu
     The monitor judges each proposed step before any of the agent's own tools
     run, and the protocol decides what the agent state receives. Only the
     decision is committed, with one record that keeps every judged sample for
-    audit. Tools the model provider runs itself, such as Anthropic's
-    `web_fetch` or OpenAI's `web_search`, run inside the model call, before
-    the monitor judges the step and again for every sample, so no monitor can
-    stop them; the middleware emits a `ServerToolWarning`, once per
-    instance, when the model request holds such tools. `server_tools` lists
-    the ones it knows, and what it cannot see.
+    audit. Server-side tools, such as Anthropic's `web_fetch` or OpenAI's
+    `web_search`, run inside the model call, before the monitor judges the
+    step and again for every sample, so no monitor can stop them; the
+    middleware emits a `ServerToolWarning`, once per instance, when the model
+    request holds such tools. `server_tools` lists the ones it knows, and
+    what it cannot see.
     Nothing the protocol calls streams to `stream_mode="messages"`: not the
     samples, not the trusted model's step, not the monitor's own calls. The
     committed step streams whole once the model node returns it.

@@ -49,14 +49,17 @@ class SynchronousRunError(MonitorError):
 
 
 class ServerToolWarning(UserWarning):
-    """The agent's model is given tools that the model provider runs itself.
+    """The agent's model is given server tools, which the model provider runs itself.
 
     A provider runs its server-side tools, such as Anthropic's `web_fetch` or
     OpenAI's `web_search`, inside the model call, before the monitor judges
     the step, and again for every sample a protocol draws, so no monitor can
-    stop them. The monitor middleware emits this warning once per middleware
-    instance. It knows the server tools of Anthropic, OpenAI and Gemini that
-    `server_tools` lists, and reads only the tools of a model request: a
-    server-side feature set on the model itself, such as OpenRouter's web
-    plugin, runs without a warning.
+    stop them. The tools of an MCP server the application connects itself
+    are not server tools: they run on the client, as the agent's own tools,
+    and the monitor judges their calls before they run. The monitor
+    middleware emits this warning once per middleware instance. It knows the
+    server tools of Anthropic, OpenAI and Gemini that `server_tools` lists,
+    the providers' MCP connectors among them, and reads only the tools of a
+    model request: a server-side feature set on the model itself, such as
+    OpenRouter's web plugin, runs without a warning.
     """

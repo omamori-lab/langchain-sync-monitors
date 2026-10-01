@@ -1,4 +1,4 @@
-"""The middleware warns once when the agent's model is given tools its provider runs itself.
+"""The middleware warns once when the agent's model is given server tools.
 
 A provider runs its server-side tools inside the model call, before the
 monitor judges the step, so the monitor cannot stop them. Client tools a

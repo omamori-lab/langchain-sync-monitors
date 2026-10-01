@@ -112,19 +112,20 @@ chat judge the agent's reasoning too, under Auto Mode on the attack.
 ## What has changed since the runs
 
 The runs predate every pull request from #50 on. This table lists the changes
-that bear on what this page reports, all from pull requests #58, #59, #67
-and #96; the numbers and transcripts below are as recorded, not rerun.
+that bear on what this page reports, all from pull requests #58, #59, #67, #96
+and #106; the numbers and transcripts below are as recorded, not rerun.
 
 | What changed | Pull request | Where it bears on this page |
 |---|---|---|
-| The chat judge's default prompt now explains notes from `unconfirmed_input`, server tool calls and unrecognised blocks, and asks the judge to keep its score out of its reasoning, which becomes the reason Auto Mode shows the agent | #58 | Every chat judge score and reason |
+| The chat judge's default prompt now explains notes from `unconfirmed_input`, server-side tool calls and unrecognised blocks, and asks the judge to keep its score out of its reasoning, which becomes the reason Auto Mode shows the agent | #58 | Every chat judge score and reason |
 | The guard's label is read from its last line only when it stands alone or follows a verdict key such as `Label:`; a line that may hold its suspicious label off format fails closed | #59 | Every guard score, and the replies with no readable label |
 | The first line of Auto Mode's default feedback read "Your last step was blocked and did not run."; it now reads "Your last step was blocked, and none of your tools ran it." | #58 | The feedback the agent read after each block |
 | The guard's keys and labels are read through markup and list markers, and a label alone on a last line that is a list item or a quote fails closed | #67 | Every guard score, and the replies with no readable label |
 | Under `ainvoke()`, a guard sample that fails now cancels the samples still in flight | #59 | The run that failed on a rate limit |
 | A chat monitor's call that the provider answers with HTTP 429 is made again, up to four attempts in all | #96 | The run that failed on a rate limit |
 | The monitor adds `before_agent`, `before_model` and `after_agent` hooks, so a step, a run of the model node with its tools, now takes four graph steps where it took three, plus two per run | #58 | The harness's fixed `recursion_limit` of 40 |
-| The monitor reads only a run's input as the user, and renders the built-in tool calls a provider runs | #58 | Nothing here: each run had one user message, its input, and used no server tools |
+| The monitor reads only a run's input as the user, and renders server tool calls | #58 | Nothing here: each run had one user message, its input, and used no server tools |
+| The chat judge's default prompt now explains server tool calls as `<server_tool_call>` and `<server_tool_result>`, tags the runs' prompt named otherwise, and calls them server-side tools | #106 | Every chat judge score and reason, through the prompt's text, though the runs used no server tools |
 
 The harness changed too, after the runs: it now checks the budget before each
 call as well as after it, and records each step's cost.

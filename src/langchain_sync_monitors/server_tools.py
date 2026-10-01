@@ -1,13 +1,13 @@
-"""The tools a model provider runs itself, inside the model call.
+"""Server-side tools, which a model provider runs inside the model call.
 
-LangChain passes every dictionary in an agent's tools to the provider as a
-built-in tool and never runs it itself [@langchain2026]. Some of those the
-provider runs on its own servers, inside the model call, before the monitor
-judges the step and again for every sample a protocol draws, so the monitor
-middleware can only warn about them:
+LangChain passes every dictionary in an agent's tools to the provider as it
+is, and never runs it itself [@langchain2026]. Some of those are server
+tools: the provider runs them on its own servers, inside the model call,
+before the monitor judges the step and again for every sample a protocol
+draws, so the monitor middleware can only warn about them:
 
-- Anthropic's server tools web search, web fetch and code execution, and its
-  MCP connector [@anthropic2026tooluse; @langchainanthropic2026];
+- Anthropic's web search, web fetch and code execution, and its MCP
+  connector [@anthropic2026tooluse; @langchainanthropic2026];
 - OpenAI's web search, file search, code interpreter, image generation and
   remote MCP [@openai2026tools; @langchainopenai2026];
 - Gemini's Google Search, Google Maps, code execution and URL context
@@ -20,7 +20,9 @@ such as Anthropic's bash, text editor, memory and computer use tools, which
 langchain-anthropic's middleware hands the model as dictionaries, and
 OpenAI's computer use and patch tools. So are the tool search of Anthropic
 and of OpenAI, and Anthropic's advisor, which run at the provider but act on
-nothing outside it.
+nothing outside it. The tools of an MCP server the application connects
+itself are not dictionaries but the agent's own tools, so they are not
+server tools either; only a provider's MCP connector is.
 
 Detection reads the tools of the model request. It also reads the tools
 bound on the model with `bind_tools` before the agent was built, but only for
@@ -53,10 +55,10 @@ from langchain_sync_monitors.thresholds import LIBRARY_DIRECTORY
 SERVER_TOOL_TYPES: Final = frozenset(
     {"web_search", "file_search", "code_interpreter", "image_generation", "mcp"},
 )
-"""The `type` of each tool OpenAI runs itself, as its Responses API names them."""
+"""The `type` of each OpenAI server tool, as its Responses API names them."""
 
 SERVER_TOOL_TYPE_PREFIXES: Final = ("web_search_", "web_fetch_", "code_execution_", "mcp_toolset")
-"""The start of each versioned `type` a provider runs itself.
+"""The start of each versioned `type` of a server tool.
 
 Anthropic dates its tool types, as in `web_search_20250305`, and OpenAI its
 preview search, as in `web_search_preview_2025_03_11`.
@@ -65,7 +67,7 @@ preview search, as in `web_search_preview_2025_03_11`.
 GEMINI_SERVER_TOOL_KEYS: Final = frozenset(
     {"google_search", "google_search_retrieval", "google_maps", "code_execution", "url_context"},
 )
-"""The keys by which langchain-google-genai recognises a Gemini tool that Google runs itself."""
+"""The keys by which langchain-google-genai recognises a Gemini server tool."""
 
 warned_middleware_ids: Final[set[int]] = set()
 """The ids of the middleware instances that have shown their `ServerToolWarning` already.
@@ -78,11 +80,11 @@ later instance at the same address still warns.
 
 
 def is_server_tool(tool: Mapping[str, object]) -> bool:
-    """Tell whether a tool dictionary of a model request is one the model provider runs itself."""
+    """Tell whether a tool dictionary of a model request is a server tool."""
     tool_type = tool.get("type")
     if isinstance(tool_type, str):
         return tool_type in SERVER_TOOL_TYPES or tool_type.startswith(SERVER_TOOL_TYPE_PREFIXES)
-    # A Gemini built-in tool has no `type`: the key it sits under names it.
+    # A Gemini server tool has no `type`: the key it sits under names it.
     return bool(GEMINI_SERVER_TOOL_KEYS & tool.keys())
 
 
@@ -95,7 +97,7 @@ def describe_server_tool(tool: Mapping[str, object]) -> str:
 
 
 def find_server_tools(tools: Sequence[object]) -> list[str]:
-    """Name each tool of a model request that the model provider runs itself."""
+    """Name each server tool of a model request."""
     return [
         describe_server_tool(tool)
         for tool in tools
@@ -104,13 +106,13 @@ def find_server_tools(tools: Sequence[object]) -> list[str]:
 
 
 def render_server_tool_warning(*, middleware_name: str, server_tools: Sequence[str]) -> str:
-    """Explain that the provider runs these tools before the monitor judges the step."""
+    """Explain that the provider runs these server tools before the monitor judges the step."""
     return (
-        f"{middleware_name}: the agent's model is given tools its provider runs itself: "
-        f"{', '.join(server_tools)}. The provider runs them inside the model call: before "
-        "the monitor judges the step, and again for every sample the protocol draws, so the "
-        "monitor cannot stop them. Give the agent tools of its own for any action that must "
-        "be judged before it runs."
+        f"{middleware_name}: the agent's model is given server tools, which its provider "
+        f"runs itself: {', '.join(server_tools)}. The provider runs them inside the model "
+        "call: before the monitor judges the step, and again for every sample the protocol "
+        "draws, so the monitor cannot stop them. Give the agent tools of its own for any "
+        "action that must be judged before it runs."
     )
 
 
@@ -145,7 +147,7 @@ def warn_about_server_tools(
     middleware: AnyAgentMiddleware,
     middleware_name: str,
 ) -> None:
-    """Emit a `ServerToolWarning` when a model call receives tools the provider runs itself.
+    """Emit a `ServerToolWarning` when a model call receives server tools.
 
     Each middleware instance warns once, at the first step whose model call
     receives such tools. Two steps racing in parallel runs may both warn,

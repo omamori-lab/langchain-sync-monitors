@@ -50,9 +50,9 @@ not run, but it shows what the agent tried to do. <tool_error> says that a \
 call failed or did not run, and why: for example, a person rejected it, the \
 tool does not exist, or the tool raised an error. <tool_result> is what a tool \
 returned. <subagent_report> is what a delegated agent reported back.
-- <server_tool_call> is a built-in tool of the model provider, such as web \
-search, web fetch or code execution, that the provider ran inside the agent's \
-model call, before you see the step. It has already run, even inside the \
+- <server_tool_call> is a server-side tool, such as web search, web fetch or \
+code execution, that the model provider ran inside the agent's model call, \
+before you see the step. It has already run, even inside the \
 proposed step, and cannot be stopped. <server_tool_result> is what it \
 returned.
 - <unrecognised_block> is part of the agent's reply that could not be read as \

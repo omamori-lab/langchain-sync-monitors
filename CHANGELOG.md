@@ -49,8 +49,8 @@ change raises the minor version.
   from its `before_agent` hook, or from its `after_agent` hook without a return
   to the model, counts as a run's input and lifts a halt.
 - `ServerToolWarning`, raised once per middleware when the model call
-  receives a server tool that Anthropic, OpenAI or Gemini runs itself, before
-  the monitor can judge the step.
+  receives a server-side tool that Anthropic, OpenAI or Gemini runs itself,
+  before the monitor can judge the step.
 - `ServerToolWarning` also reads tools bound on the model before the agent
   was built, for an agent with no tools of its own and no `response_format`,
   the only case in which those tools reach the model.
@@ -98,8 +98,8 @@ change raises the minor version.
 - `AutoMode` blocks a step, tells the agent why with a `FeedbackTemplate`, and
   halts after Claude Code's limits, counted per conversation thread.
 - The default feedback tells the agent that none of its tools ran the blocked
-  step, which stays true when a provider's built-in tool in that step already
-  ran inside the model call.
+  step, which stays true when a server tool in that step already ran inside
+  the model call.
 - Auto Mode's total counts across the whole conversation thread, subagents and
   nested subagents included: a subagent starts from the thread's count, so
   delegating again does not reset it.
@@ -108,8 +108,10 @@ change raises the minor version.
   the run is resumed.
 - `PendingStep.blocks_in_thread` and `PendingStep.new_subagent_blocks`, which
   give a protocol these counts.
-- Default thresholds, 0.6 to defer, block or flag and 0.9 to audit, which raise
-  `UncalibratedThresholdWarning` until you set your own.
+- Default thresholds, 0.6 for `defer_threshold`, `block_threshold` and Trusted
+  Monitoring's `audit_threshold`, and 0.9 for the `audit_threshold` of Defer
+  to Trusted and Defer to Resample, which raise `UncalibratedThresholdWarning`
+  until you set your own.
 - A flag marks a step for audit and never blocks it.
 - `CachedResampleWarning`, raised when a response cache would turn resamples
   into copies of the first sample.
@@ -186,7 +188,7 @@ change raises the minor version.
   shows as `<tool_error>`, and one with unreadable arguments as
   `<malformed_tool_call>`.
 - The monitor's own feedback on a blocked step shows as `<monitor_feedback>`.
-- A provider's built-in tools, which run inside the model call, show as
+- Server-side tools, which run inside the model call, show as
   `<server_tool_call>` and `<server_tool_result>`: those LangChain maps for
   Anthropic, OpenAI's Responses API and Gemini's code execution, and Gemini's
   Google Search, read from `grounding_metadata`.
@@ -273,8 +275,8 @@ change raises the minor version.
   the `logprobs` keyword, as `ChatAnthropic` and `ChatBedrockConverse` do.
 - Log-probabilities without alternatives make `GuardScoring.AUTO` sample, and
   make `GuardScoring.LOG_PROBABILITIES` raise `ConfigurationError`.
-- Under `Aggregation.MIN`, a decision monitor's reason names every question in the
-  order given, not one of them.
+- Under `Aggregation.MIN`, a decision monitor's reason names every question in
+  the order given, not one of them.
 - `GuardModelMonitor(scoring=...)` and `DecisionModelMonitor(aggregation=...)`
   refuse a plain string with `ConfigurationError`.
 - `CalibratedMonitor(honest_scores=...)` and `DecisionModelMonitor(questions=...)`
@@ -354,9 +356,9 @@ change raises the minor version.
   (`stopReason`) and Ollama (`done_reason`), and fail closed.
 - A decision answer that is missing, NaN, infinite, outside 0 to 1, a `bool`,
   or not a number at all raises `MonitorError` for any `DecisionModel`,
-  instead of being dropped by `Aggregation.MAX` or `Aggregation.MIN` or raising
-  another error. An `int`, a `float`, a `Decimal` or another real number from
-  0 to 1 is read as a float. On the `TypeSafeDecisionModel` path,
+  instead of being dropped by `Aggregation.MAX` or `Aggregation.MIN` or
+  raising another error. An `int`, a `float`, a `Decimal` or another real
+  number from 0 to 1 is read as a float. On the `TypeSafeDecisionModel` path,
   `langchain-typesafe` parses the answers leniently first, so a `false`,
   `true` or numeric string from the API arrives as a number, `false` as 0.0.
 - `OpenRouterDecisionModel` answers must be JSON numbers: `false`, `true`,

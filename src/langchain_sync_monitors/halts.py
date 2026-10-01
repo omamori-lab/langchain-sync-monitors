@@ -67,8 +67,9 @@ does not say which.
 class InputsAtHalt(TypedDict):
     """How many run inputs the thread had recorded when one monitor last halted.
 
-    `middleware_name` is the middleware's name, such as `monitor[main]`, which is
-    unique within an agent, so stacked monitors count apart.
+    `middleware_name` is the middleware's name, such as `monitor[main]`,
+    which is unique within an agent, so stacked monitors count apart.
+    `StepRecord.monitor` holds the label alone, such as `monitor`.
     """
 
     middleware_name: str
@@ -188,10 +189,10 @@ def find_halt_decision(
 ) -> StepDecision | None:
     """Return the halt a step gets without a sample, or None when the protocol decides it.
 
-    `middleware_name` is the middleware's name, and `returns` holds what this
-    agent's tool calls returned since its last step. The step halts again
-    while this monitor's own halt stands, and halts when one of those calls
-    returned a subagent's halt and the monitor stops the whole run.
+    `returns` holds what this agent's tool calls returned since its last
+    step. The step halts again while this monitor's own halt stands, and
+    halts when one of those calls returned a subagent's halt and the monitor
+    stops the whole run.
     """
     if is_halt_standing(
         previous_records,

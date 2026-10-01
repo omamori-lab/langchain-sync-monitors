@@ -4,9 +4,10 @@ A monitor judges every step an agent proposes before any of the agent's own
 tools run, and a control protocol decides what happens with that judgement.
 `MonitorMiddleware` joins the two and plugs into `create_agent` or
 `create_deep_agent`; `monitor_subagents` gives every Deep Agents subagent a
-monitor of its own. Tools the model provider runs itself run inside the model
-call, before any judgement; the middleware warns about the server tools of
-Anthropic, OpenAI and Gemini it knows with a `ServerToolWarning`.
+monitor of its own. Server-side tools, which the model provider runs inside
+the model call, run before any judgement; the middleware warns about the
+server tools of Anthropic, OpenAI and Gemini it knows with a
+`ServerToolWarning`.
 """
 
 from langchain_sync_monitors._langchain import MonitorStepEvent, MonitorStepFailedEvent

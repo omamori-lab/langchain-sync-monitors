@@ -103,7 +103,9 @@ Every monitor span of a step carries flat metadata keys that name the step:
 | `ls_agent_type`, set to `middleware` | Keeps the span out of LangSmith's Trajectory view, except inside a Deep Agents subagent; see [Limits](#limits) | `monitor judgement`, `monitor classifier` and `monitor decision` |
 
 `monitor_label`, `monitor_agent`, `monitor_step_number` and, inside a subagent,
-`monitor_delegation_id` match a span to its `StepRecord` in `monitor_log`.
+`monitor_delegation_id` match a span to its `StepRecord` in `monitor_log`,
+whose `monitor`, `agent`, `step_number` and `delegation_id` hold the same
+values.
 `monitor_step_id` is the same on every monitor span of a step, so one filter
 on it gathers the step's spans. In LangSmith it is also the step span's own
 id; Langfuse does not keep LangChain's run ids, and gives each observation an

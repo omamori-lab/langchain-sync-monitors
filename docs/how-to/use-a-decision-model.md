@@ -12,8 +12,8 @@ A decision model answers typed questions about some text with probabilities,
 and generates no text. Jev, from TypeSafe, is one. Every question about a step
 goes in one request, so a judged step costs one call.
 
-[![DecisionModelMonitor renders the transcript and the proposed step through its view, and sends the decision model one request with every question. If the request fails, OpenRouterDecisionModel sends it again after a network error, an HTTP 429 or a server error, up to 5 attempts, and stops once an attempt fails 45 seconds or more after the first began; any other failure, or the last one, is raised, so the step fails and nothing it proposed runs. TypeSafeDecisionModel gets no retries from the library. Every question must then be answered with a number from 0 to 1. A missing answer, a bool, a string, None or NaN raises MonitorError, and the step fails the same way. The answers are combined, with MAX by default, or MIN or MEAN, into the suspicion. The reason names the question with the highest probability of yes, or, under MIN, every question.](../assets/diagrams/monitors-decision-model-light.svg#only-light)](../assets/diagrams/monitors-decision-model-light.svg "Open the diagram at full size")
-[![DecisionModelMonitor renders the transcript and the proposed step through its view, and sends the decision model one request with every question. If the request fails, OpenRouterDecisionModel sends it again after a network error, an HTTP 429 or a server error, up to 5 attempts, and stops once an attempt fails 45 seconds or more after the first began; any other failure, or the last one, is raised, so the step fails and nothing it proposed runs. TypeSafeDecisionModel gets no retries from the library. Every question must then be answered with a number from 0 to 1. A missing answer, a bool, a string, None or NaN raises MonitorError, and the step fails the same way. The answers are combined, with MAX by default, or MIN or MEAN, into the suspicion. The reason names the question with the highest probability of yes, or, under MIN, every question.](../assets/diagrams/monitors-decision-model-dark.svg#only-dark)](../assets/diagrams/monitors-decision-model-dark.svg "Open the diagram at full size")
+[![DecisionModelMonitor renders the transcript and the proposed step through its view, and sends the decision model one request with every question. If the request fails, OpenRouterDecisionModel sends it again after a network error, an HTTP 429 or a server error, up to 5 attempts, and stops once an attempt fails 45 seconds or more after the first began; any other failure, or the last one, is raised, so the step fails and nothing it proposed runs. TypeSafeDecisionModel gets no retries from the library. Every question must then be answered with a number from 0 to 1. A missing answer, a bool, a string, None or NaN raises MonitorError, and the step fails the same way. The answers are aggregated, with Aggregation.MAX by default, or MIN or MEAN, into the suspicion. The reason names the question with the highest probability of yes, or, under MIN, every question.](../assets/diagrams/monitors-decision-model-light.svg#only-light)](../assets/diagrams/monitors-decision-model-light.svg "Open the diagram at full size")
+[![DecisionModelMonitor renders the transcript and the proposed step through its view, and sends the decision model one request with every question. If the request fails, OpenRouterDecisionModel sends it again after a network error, an HTTP 429 or a server error, up to 5 attempts, and stops once an attempt fails 45 seconds or more after the first began; any other failure, or the last one, is raised, so the step fails and nothing it proposed runs. TypeSafeDecisionModel gets no retries from the library. Every question must then be answered with a number from 0 to 1. A missing answer, a bool, a string, None or NaN raises MonitorError, and the step fails the same way. The answers are aggregated, with Aggregation.MAX by default, or MIN or MEAN, into the suspicion. The reason names the question with the highest probability of yes, or, under MIN, every question.](../assets/diagrams/monitors-decision-model-dark.svg#only-dark)](../assets/diagrams/monitors-decision-model-dark.svg "Open the diagram at full size")
 
 `DecisionModelMonitor(decision_model=...)` takes a `DecisionModel`, not a chat
 model, and has no default. The library reaches Jev in two ways, and you can
@@ -123,17 +123,18 @@ monitor = DecisionModelMonitor(
 
 `questions` can be a list or any other iterable, such as a generator, which
 the constructor reads once. It must not be empty and its keys must be unique,
-or the constructor raises `ConfigurationError`. `aggregation` must be a member of
-`Aggregation`: a plain string such as `"max"` raises `ConfigurationError` too.
+or the constructor raises `ConfigurationError`. `aggregation` must be a
+member of `Aggregation`: a plain string such as `"max"` raises
+`ConfigurationError` too.
 
-## Combine several answers
+## Aggregate several answers
 
-With several questions, `aggregation` merges their probabilities of yes into one
-suspicion.
+With several questions, `aggregation` merges their probabilities of yes into
+one suspicion.
 
 | `Aggregation` | Suspicion | Fits |
 |---|---|---|
-| `MAX`, the default | The highest probability | Threat criteria, where any one is enough. ShieldGemma combines harm types the same way [@zeng2024shieldgemma]. |
+| `MAX`, the default | The highest probability | Threat criteria, where any one is enough. ShieldGemma aggregates harm types the same way [@zeng2024shieldgemma]. |
 | `MIN` | The lowest probability | Questions that must all hold before a step is suspicious |
 | `MEAN` | The average | Rarely: it dilutes one strong hit, and the constructor warns |
 
@@ -239,10 +240,11 @@ model's score rests on all of its concerns together: 'sends_data_out': ...;
 
 In the library's live runs, Jev's probabilities came back with two decimals, so
 its scores tie at a resolution of 0.01. Averaging calls with `RepeatedMonitor`,
-or combining several questions with `Aggregation.MEAN`, restores some resolution;
-`MAX` and `MIN` return one question's answer, at its resolution. A decision
-model also makes a good fast first stage in front of a chat judge; [Combine and
-calibrate monitors](combine-and-calibrate-monitors.md) shows `CascadeMonitor`.
+or aggregating several questions with `Aggregation.MEAN`, restores some
+resolution; `MAX` and `MIN` return one question's answer, at its resolution. A
+decision model also makes a good fast first stage in front of a chat judge;
+[Combine and calibrate monitors](combine-and-calibrate-monitors.md) shows
+`CascadeMonitor`.
 
 ## Related guides
 

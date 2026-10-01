@@ -1,5 +1,5 @@
 """Default thresholds warn at the user's constructor call, and the docs state them in each
-protocol's guide and on the pages that sum them up; chosen thresholds stay quiet."""
+protocol's guide and once, with the reason, in Choose a protocol; chosen thresholds stay quiet."""
 
 from __future__ import annotations
 
@@ -113,33 +113,47 @@ def test_each_protocol_guide_documents_the_default_threshold(
     assert f"| `{parameter_name}` | {default.value}, with a warning |" in guide
 
 
-@pytest.mark.parametrize(
-    ("page", "actions"),
-    [
-        ("explanation/design.md", "defer, block or flag"),
-        ("how-to/choose-a-protocol.md", "flag, defer or block"),
-        ("how-to/combine-and-calibrate-monitors.md", "defer, block or flag"),
-    ],
-    ids=["design", "choose-a-protocol", "combine-and-calibrate-monitors"],
-)
-def test_each_page_that_sums_up_the_defaults_states_every_default_threshold(
-    page: str,
-    actions: str,
-) -> None:
-    # Arrange: each page gives defer, block and flag one shared value.
-    shared_default = DEFAULT_DEFER_THRESHOLD.value
-    summary = f"{shared_default} to {actions} and {DEFAULT_AUDIT_THRESHOLD.value} to audit"
+def build_defaults_summary() -> str:
+    """Return the sentence that states every default threshold, built from the constants."""
+    return (
+        f"The defaults are {DEFAULT_DEFER_THRESHOLD.value} for `defer_threshold`, "
+        "`block_threshold` and Trusted Monitoring's `audit_threshold`, and "
+        f"{DEFAULT_AUDIT_THRESHOLD.value} for the `audit_threshold` of Defer to Trusted "
+        "and Defer to Resample."
+    )
+
+
+def read_prose(page: Path) -> str:
+    """Return a docs page with its line breaks folded into spaces."""
+    return " ".join(page.read_text(encoding="utf-8").split())
+
+
+def test_the_thresholds_section_states_every_default_threshold() -> None:
+    # Arrange: the sentence gives defer, block and Trusted Monitoring's audit one value.
+    summary = build_defaults_summary()
 
     # Act
-    prose = " ".join((DOCS / page).read_text(encoding="utf-8").split())
+    prose = read_prose(HOW_TO_GUIDES / "choose-a-protocol.md")
 
     # Assert
     assert (
         DEFAULT_BLOCK_THRESHOLD.value
         == DEFAULT_TRUSTED_MONITORING_AUDIT_THRESHOLD.value
-        == shared_default
+        == DEFAULT_DEFER_THRESHOLD.value
     )
     assert summary in prose
+
+
+def test_no_other_page_restates_the_default_thresholds() -> None:
+    # Arrange: the defaults are said once, on the page that owns thresholds.
+    summary = build_defaults_summary()
+    pages = sorted(page for page in DOCS.rglob("*.md") if "plans" not in page.parts)
+
+    # Act
+    stating = [str(page.relative_to(DOCS)) for page in pages if summary in read_prose(page)]
+
+    # Assert
+    assert stating == ["how-to/choose-a-protocol.md"]
 
 
 def test_trusted_monitoring_warns_once_at_the_constructor_call() -> None:

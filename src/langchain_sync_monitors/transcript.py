@@ -3,8 +3,9 @@
 Each transcript entry belongs to one `Channel`, and a monitor only receives the
 entries whose channel is in its `MonitorView`. Entries are wrapped in tags, and
 their content is HTML-escaped, so text inside a tool result cannot close a tag
-and pose as another entry. The built-in tools a model provider runs inside the
-model call are rendered too, with the tool calls and the tool results.
+and pose as another entry. Server-side tools, which a model provider runs
+inside the model call, are rendered too, with the tool calls and the tool
+results.
 
 Only a human message without an `lc_source` tag is rendered as the task
 author's words. LangChain and Deep Agents tag some of the human messages their
@@ -56,11 +57,11 @@ OpenAI gives a refusal as a `refusal` item, which LangChain keeps as a block it 
 """
 
 GROUNDING_QUERY_KEYS = ("web_search_queries", "image_search_queries")
-"""The keys of Gemini's `grounding_metadata` that hold the searches its built-in tools ran."""
+"""The keys of Gemini's `grounding_metadata` that hold the searches its server tools ran."""
 
 
 class ServerToolCallDetails(TypedDict):
-    """What the entry of a provider's built-in tool call shows.
+    """What the entry of a server tool call shows.
 
     `args` is a dictionary once the call is complete; a streamed part of a
     call holds its arguments as a JSON fragment.
@@ -161,7 +162,7 @@ def is_server_tool_call(block: ContentBlock) -> TypeGuard[ServerToolCall | Serve
 
 
 def render_server_tool_call(block: ServerToolCall | ServerToolCallChunk) -> str:
-    """Render a built-in tool call that the model provider ran inside the model call.
+    """Render a server tool call that the model provider ran inside the model call.
 
     The content holds the call's arguments and, when the block has them, its
     provider `extras`, where a remote MCP call keeps the name of the tool it
@@ -178,7 +179,7 @@ def render_server_tool_call(block: ServerToolCall | ServerToolCallChunk) -> str:
 
 
 def render_server_tool_result(block: ServerToolResult, *, tool_name: str) -> str:
-    """Render what a provider's built-in tool returned: its output as text, or else as JSON."""
+    """Render what a server tool returned: its output as text, or else as JSON."""
     output = block.get("output")
     if output is None:
         content = ""
@@ -244,7 +245,7 @@ def build_server_tool_entries(
     tool_names_by_call: Mapping[str, str],
     known_call_ids: Collection[str] = frozenset(),
 ) -> Iterator[TranscriptEntry]:
-    """Yield the built-in tool calls the provider ran inside a model call, and their results.
+    """Yield the server tool calls the provider ran inside a model call, and their results.
 
     Tools such as Anthropic's web fetch or OpenAI's web search run at the
     provider, before the reply reaches the monitor. LangChain's translators
@@ -274,7 +275,7 @@ def build_server_tool_entries(
 
 
 def build_grounding_entries(message: AIMessage) -> Iterator[TranscriptEntry]:
-    """Yield the searches of Gemini's built-in grounding tools as a server tool call and result.
+    """Yield the searches of Gemini's grounding tools as a server tool call and result.
 
     langchain-google-genai keeps the queries of Gemini's Google Search only
     in the reply's `grounding_metadata`, which LangChain's Gemini translator
@@ -443,7 +444,7 @@ def build_message_entries(
 
 
 def read_server_tool_names_by_call(message: AIMessage) -> dict[str, str]:
-    """Return the name of each built-in tool call the provider ran in a message, by id."""
+    """Return the name of each server tool call the provider ran in a message, by id."""
     names: dict[str, str] = {}
     for block in message.content_blocks:
         if is_server_tool_call(block):
@@ -457,7 +458,7 @@ def read_server_tool_names_by_call(message: AIMessage) -> dict[str, str]:
 def read_tool_names_by_call(message: AIMessage) -> dict[str, str]:
     """Return the tool name of each call in an agent message by id.
 
-    Malformed calls and the provider's built-in tool calls are included.
+    Malformed calls and server tool calls are included.
     """
     calls: list[ToolCall | InvalidToolCall] = [*message.tool_calls, *message.invalid_tool_calls]
     names = {call["id"]: call["name"] for call in calls if call["id"] and call["name"]}
@@ -549,7 +550,7 @@ def render_proposal_for_audit(proposal: AIMessage) -> str:
     """Render a proposal with every channel, for the human auditors reading `monitor_log`.
 
     Malformed tool calls are included, so the record keeps what the agent
-    tried even though nothing ran, and so are the provider's built-in tool
-    calls and their full results, which ran before the monitor judged.
+    tried even though nothing ran, and so are server tool calls and their
+    full results, which ran before the monitor judged.
     """
     return render_proposed_step(proposal, view=MonitorView(channels=Channel.ALL))

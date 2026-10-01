@@ -19,9 +19,11 @@ class TrustedMonitoring(ControlProtocol):
     """Observe and flag, never change what the agent does.
 
     Each step is sampled once and always runs. It is flagged for audit when its
-    suspicion reaches `audit_threshold`, the Trusted Monitoring protocol of AI
-    Control [@greenblatt2023aicontrol]. Here a flag marks the step in
-    `monitor_log` for a person to review; it does not stop the step.
+    suspicion reaches `audit_threshold`, as in the Trusted Monitoring protocol
+    of AI Control [@greenblatt2023aicontrol]; Ctrl-Z names that line the
+    auditing threshold (section 3.1.2) [@bhatt2025ctrlz]. Here a flag marks
+    the step in `monitor_log` for a person to review; it does not stop the
+    step.
     """
 
     def __init__(

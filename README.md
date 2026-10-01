@@ -122,10 +122,10 @@ A monitor in every Deep Agents subagent: [Monitor Deep Agents subagents](docs/ho
 
 ## Limits
 
-- **Tools the provider runs.** A provider's built-in tools, such as
-  Anthropic's web search or OpenAI's code interpreter, run inside the model
-  call: they have run before the monitor sees the step, and run again for
-  every sample drawn. `ServerToolWarning` warns about the known ones for
+- **Server tools.** Server-side tools, such as Anthropic's web search or
+  OpenAI's code interpreter, run inside the model call: they have run before
+  the monitor sees the step, and run again for every sample drawn.
+  `ServerToolWarning` warns about the known ones for
   Anthropic, OpenAI and Gemini when it can see them; it cannot see some, such
   as OpenRouter's web plugin.
 - **What the judge reads.** By default it reads the task, the tool calls, the

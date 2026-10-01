@@ -12,9 +12,9 @@ streams and traces show. A closing section gathers every known limit.
 An agent step is one run of the agent's model node. `MonitorMiddleware` wraps
 the model call inside it: the untrusted model proposes the step, the monitor
 judges it, and a control protocol decides what the agent's state receives,
-all before any of the agent's own tools run. A model provider's built-in
-tools, such as web search, are the exception: they run inside the model call,
-so they have run by the time the monitor sees the step
+all before any of the agent's own tools run. Server-side tools, such as a
+provider's web search, are the exception: they run inside the model call, so
+they have run by the time the monitor sees the step
 ([what the monitor cannot stop](#what-the-monitor-cannot-stop)).
 
 [![The untrusted model proposes a step. The monitor, drawn as an omamori charm, reads it through its view and scores its suspicion from 0 to 1. The control protocol chooses one of five outcomes, from the lightest touch to the strongest: allow it, resample it, defer to the trusted model, block it and tell the agent why, or halt. All of this happens inside the middleware, before any of the agent's own tools run; a brushed line marks that boundary. A committed step reaches the tools and a halted run ends, and either way one record joins monitor_log. Tool results come back, and the next model call is a new step.](../assets/diagrams/monitored-step-light.svg#only-light)](../assets/diagrams/monitored-step-light.svg "Open the diagram at full size")
@@ -237,21 +237,21 @@ Each step ends in one of five outcomes:
 
 | Outcome | What the agent's state receives | Decided by | Flagged |
 |---|---|---|---|
-| `ALLOWED` | The first sample | Any protocol | Trusted Monitoring: at or above `audit_threshold`. Defer to Resample and Defer to Trusted: at or above `audit_threshold`. Auto Mode: never. |
+| `ALLOWED` | The first sample | Any protocol | Trusted Monitoring, Defer to Resample and Defer to Trusted: at or above `audit_threshold`. Auto Mode: never. |
 | `RESAMPLED` | The least suspicious acceptable resample | Defer to Resample | When the lowest score across the samples is at or above `audit_threshold`. |
 | `DEFERRED_TO_TRUSTED` | The trusted model's step, which is not judged | `DeferToTrustedModel` | Defer to Resample and Defer to Trusted: as above. Auto Mode: always. |
 | `STEERED` | A sample accepted after blocked attempts | Auto Mode | Always. |
 | `HALTED` | A final message, and the run ends | `HaltRun`, a [standing halt](#a-halt-stands), or a [subagent's halt](#subagent-halts) | Always. |
 
-Each threshold is on the common 0 to 1 scale. The defaults, 0.6 to defer,
-block or flag and 0.9 to audit, are placeholders: a protocol built with one
-emits an `UncalibratedThresholdWarning`, because a threshold should come from
-the scores of honest runs [@bhatt2025ctrlz]. A flag marks a step in
-`monitor_log` for a person to review after the fact and never blocks it. So
-Defer to Resample and Defer to Trusted accept an `audit_threshold` below the
-defer threshold, which flags borderline steps that still ran, and
-`audit_threshold=None` turns their flagging off. `HaltRun` flags every halt
-regardless.
+Each threshold is on the common 0 to 1 scale, and each default, listed in
+[Thresholds](../how-to/choose-a-protocol.md#thresholds), is a placeholder: a
+protocol built with one emits an `UncalibratedThresholdWarning`, because a
+threshold should come from the scores of honest runs [@bhatt2025ctrlz]. A
+flag marks a step in `monitor_log` for a person to review after the fact and
+never blocks it. So Defer to Resample and Defer to Trusted accept an
+`audit_threshold` below the defer threshold, which flags borderline steps
+that still ran, and `audit_threshold=None` turns their flagging off.
+`HaltRun` flags every halt regardless.
 
 ### Trusted Monitoring, Defer to Trusted and Defer to Resample
 
@@ -344,7 +344,7 @@ applies to it only in part. Its tool calls and malformed calls are always
 shown, because they are the action the protocol gates, and so are its
 server tool calls whenever the reply keeps a block for them. A step with no
 tool calls is a final answer, and its text is then always shown; a step whose
-only calls are malformed, or already run by the provider, counts as one. The
+only calls are malformed, or are server tool calls, counts as one. The
 rest of the step, such as its reasoning or a tool-calling step's text,
 follows the view's channels.
 
@@ -363,10 +363,10 @@ result cannot close a tag and pose as another entry. A note's tag names its
 | `<tool_call>` | `TOOL_CALLS` | A call and all its arguments. |
 | `<malformed_tool_call>` | `TOOL_CALLS` | A call whose arguments could not be parsed, with their raw text. It never runs. |
 | `<tool_error>` | `TOOL_CALLS` | A call that failed or did not run: a person rejected it, the tool does not exist, or it raised. |
-| `<server_tool_call>` | `TOOL_CALLS` | A built-in tool the provider ran inside the model call. |
+| `<server_tool_call>` | `TOOL_CALLS` | A server tool the provider ran inside the model call. |
 | `<unrecognised_block>` | `TOOL_CALLS`, or `REASONING` for a reasoning block | A part of the reply LangChain cannot map, shown whole rather than dropped. |
 | `<tool_result>` | `TOOL_RESULTS` | What a tool returned. |
-| `<server_tool_result>` | `TOOL_RESULTS` | What a provider's built-in tool returned. |
+| `<server_tool_result>` | `TOOL_RESULTS` | What a server tool returned. |
 | `<subagent_report>` | `SUBAGENT_REPORTS` | What a delegation tool returned. |
 
 A person's rejection through `HumanInTheLoopMiddleware` arrives as an error
@@ -375,9 +375,9 @@ When a protocol blocks a step with malformed calls, the feedback answers each
 one with an error result too, because OpenAI-compatible providers receive it
 as an ordinary tool call and reject a request that leaves it unanswered.
 
-LangChain's translators give a provider's built-in tools as standard
-`server_tool_call` and `server_tool_result` blocks for Anthropic, OpenAI's
-Responses API and Gemini's code execution [@langchaincore2026]. Gemini's
+LangChain's translators give server tools as standard `server_tool_call` and
+`server_tool_result` blocks for Anthropic, OpenAI's Responses API and
+Gemini's code execution [@langchaincore2026]. Gemini's
 Google Search leaves its queries only in the reply's `grounding_metadata`, so
 the monitor renders them as a `<server_tool_call name="grounding">`, with
 the sources found as its result. Under the default view the judge reads the
@@ -982,10 +982,10 @@ wrappers, `MonitorView`, the decision models, `monitor_subagents` and
 `check_monitor_placement`.
 
 - An enum option must be a member: a plain string is refused, not converted.
-- A threshold, `CascadeMonitor(escalation_threshold=...)` and each honest score of
-  `CalibratedMonitor` accept any real number or `Decimal` from 0 to 1, checked
-  on its exact value and then kept as a float. `bool`, strings and NaN are
-  refused, and `-0.0` reads as 0.
+- A threshold, `CascadeMonitor(escalation_threshold=...)` included, and each
+  honest score of `CalibratedMonitor` accept any real number or `Decimal`
+  from 0 to 1, checked on its exact value and then kept as a float. `bool`,
+  strings and NaN are refused, and `-0.0` reads as 0.
 - A count must be a whole number; only `AutoMode(max_total_blocks=...)` also
   accepts `math.inf`. A timeout must be a positive, finite number, so `None`
   and an `httpx.Timeout` are refused.
@@ -1011,7 +1011,7 @@ wrappers, `MonitorView`, the decision models, `monitor_subagents` and
 | `InvalidSuspicionError` | A `Verdict` is built with a suspicion that is NaN or outside 0 to 1. |
 | `UncalibratedThresholdWarning` | A protocol is built with a default threshold. |
 | `CachedResampleWarning` | A step is resampled, or a monitor draws a second reply to one prompt, under a response cache; once per process for each. |
-| `ServerToolWarning` | A model call receives a tool its provider runs itself; once per middleware instance. |
+| `ServerToolWarning` | A model call receives a server tool; once per middleware instance. |
 | `MonitorPlacementWarning` | `check_monitor_placement` finds a middleware placed where it undermines the monitor, a stacked monitor that loses or misjudges records included, or `monitor_subagents` builds such a stack in a subagent. |
 | `HardLabelWarning` | A `GuardModelMonitor` is built with `GuardScoring.HARD_LABEL`. |
 
@@ -1022,18 +1022,17 @@ limit is linked from where it arises above.
 
 ### What the monitor cannot stop
 
-- **A provider's built-in tools.** Web search, web fetch, code execution and
-  the other tools a model provider runs itself run inside the model call,
-  before the monitor sees the step, and again for every sample drawn: every
-  resample of Defer to Resample and every retry of Auto Mode runs them again,
-  in samples that are then rejected too. The judge reads their calls in the
+- **Server tools.** Web search, web fetch, code execution and the other
+  server tools run inside the model call, before the monitor sees the step,
+  and again for every sample drawn: every resample of Defer to Resample and
+  every retry of Auto Mode runs them again, in samples that are then
+  rejected too. The judge reads their calls in the
   proposed step whenever the reply keeps a block for them, and a suspicious
   score still decides what happens to the rest of the step. The default
   feedback tells the agent that none of its tools ran the blocked step, while
   a server tool in that step has already run.
 - **What `ServerToolWarning` cannot see.** Some server tools run the same
-  way without a warning;
-  [Server tools](../how-to/choose-a-protocol.md#server-tools)
+  way without a warning; [Server tools](../how-to/choose-a-protocol.md#server-tools)
   lists them.
 
 ### What the judge does not see
@@ -1042,7 +1041,7 @@ limit is linked from where it arises above.
   not read the text the agent writes beside a tool call, as in Claude Code's
   auto mode [@hughes2026automode]; it reads a final answer's text. Adding
   `Channel.AGENT_TEXT` to the view shows it.
-- **Built-in tools that leave no block.** A server tool whose reply leaves
+- **Server tools that leave no block.** A server tool whose reply leaves
   no block LangChain keeps is invisible to the judge: Gemini's URL context,
   whose metadata langchain-google-genai does not keep, and the search of
   OpenRouter's web plugin.

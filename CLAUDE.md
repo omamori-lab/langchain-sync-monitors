@@ -60,11 +60,14 @@ Keep to these patterns; reviewers check them.
   a fallback, a monitor, a decision model, `GuardScoring`, `Combine`,
   `MonitorView`, `FeedbackVisibility`, `SubagentHalt`, `Resampling`.
   `PendingStep.sample`'s `concurrently` flag is the one exception.
-- **Composition over inheritance.** Monitors compose: `RepeatedMonitor`,
-  `CalibratedMonitor` and `CascadeMonitor` are monitors that hold monitors.
-  Inherit only from a contract, or from a template with named hooks such as
-  `ChatModelMonitor`. `DeferToTrusted`, which is `DeferToResample` with no
-  resamples, is the one exception.
+- **Composition for parts, inheritance for kinds.** A part that varies on its
+  own is held and passed in: monitors that wrap monitors (`RepeatedMonitor`,
+  `CalibratedMonitor`, `CascadeMonitor`), a protocol's fallback, a monitor's
+  model. A subclass is a kind of its parent that can stand anywhere the
+  parent does: a template with named hooks, such as `ChatModelMonitor`, or a
+  special case, such as `DeferToTrusted`, which is `DeferToResample` with no
+  resamples. Keep hierarchies shallow, with at most one class between a
+  contract and the class you build.
 - **A small core of functions, a thin shell.** The middleware wires
   LangChain's hooks; the decisions live in small functions over typed records
   (`halts.py`, `records.py`, `transcript.py`, `task_authorship.py`), each

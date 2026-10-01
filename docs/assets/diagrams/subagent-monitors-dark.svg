@@ -1,0 +1,74 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1000" height="650" viewBox="0 0 1000 650" role="img" aria-labelledby="title desc">
+  <title id="title">A monitor for every subagent: a copy or an override</title>
+  <desc id="desc">monitor_subagents gives each subagent of a Deep Agent a monitor of its own. The main agent&#x27;s monitor, monitor[main], judges each of the main agent&#x27;s steps, the task call that delegates work included, and each task call starts a subagent. In this example the analyst&#x27;s monitor, monitor[analyst], is a copy of the main monitor. The publisher&#x27;s, monitor[publisher], is a copy of its entry in overrides, so it keeps that entry&#x27;s own protocol and options. The general-purpose subagent&#x27;s, monitor[general-purpose], is a copy of the main monitor, and monitor_subagents adds that subagent when no spec you pass is named general-purpose. Every copy is named after its subagent and reads the delegated task as the parent agent&#x27;s words, not the user&#x27;s. When a task returns, the subagent&#x27;s records, halts included, join the main agent&#x27;s monitor_log.</desc>
+  <!-- Colours come from the brand tokens: diagrams/render.py fills this style block. -->
+  <style>
+    svg { color-scheme: dark; }
+    text { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans", "Noto Sans JP", Helvetica, Arial, sans-serif; font-size: 15px; fill: #ECEBE6; }
+    .title { font-size: 17px; font-weight: 600; }
+    .small { font-size: 14px; fill: #A9A8A2; }
+    .mono { font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace; font-size: 13.5px; }
+    .soft { fill: #A9A8A2; }
+    .dashed { stroke-dasharray: 5 4; fill: none; stroke: #6A6A66; }
+    .box { fill: #141414; stroke: #ECEBE6; stroke-width: 1.4; }
+    .charm { fill: #ECEBE6; }
+    .on-charm { fill: #111111; }
+    .charm-cord { fill: none; stroke: #ECEBE6; stroke-width: 2.2; }
+    .seal { fill: #E0563B; }
+    .allow { fill: #141414; stroke: #ECEBE6; stroke-width: 1.4; }
+    .resample { fill: #1F1F1E; stroke: #ECEBE6; stroke-width: 1.4; }
+    .defer { fill: #34332F; stroke: #ECEBE6; stroke-width: 1.4; }
+    .steer { fill: #D9D8D2; stroke: #D9D8D2; stroke-width: 1.4; }
+    .on-steer { fill: #111111; }
+    .halt { fill: #E0563B; stroke: #E0563B; stroke-width: 1.4; }
+    .on-halt { fill: #111111; }
+    .frame { fill: none; stroke: #6A6A66; stroke-width: 1.2; stroke-dasharray: 6 4; }
+    .edge { fill: none; stroke: #D6D5CF; stroke-width: 1.5; }
+    .loop { fill: none; stroke: #D6D5CF; stroke-width: 1.5; stroke-dasharray: 5 4; }
+    .head { fill: #D6D5CF; }
+    .brush { fill: #ECEBE6; }
+  </style>
+  <defs><marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="9" markerHeight="9" markerUnits="userSpaceOnUse" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="head"/></marker></defs>
+  <path class="charm-cord" d="M494.0,41.0 C490.0,24.0 510.0,24.0 506.0,41.0"/>
+  <path class="charm" d="M306.0,40.0 H694.0 L710.0,56.0 V136.0 Q710.0,142.0 704.0,142.0 H296.0 Q290.0,142.0 290.0,136.0 V56.0 Z"/>
+  <rect class="seal" x="299.0" y="124.0" width="9" height="9" rx="1"/>
+  <text x="500.0" y="71.0" text-anchor="middle"><tspan class="mono on-charm">monitor[main]</tspan></text>
+  <text x="500.0" y="93.0" text-anchor="middle" class="small on-charm">judges each step of the main agent,</text>
+  <text x="500.0" y="114.0" text-anchor="middle"><tspan class="small on-charm">the </tspan><tspan class="mono on-charm">task</tspan><tspan class="small on-charm"> call that delegates included</tspan></text>
+  <path class="charm-cord" d="M172.0,239.0 C168.0,222.0 188.0,222.0 184.0,239.0"/>
+  <path class="charm" d="M48.0,238.0 H308.0 L324.0,254.0 V334.0 Q324.0,340.0 318.0,340.0 H38.0 Q32.0,340.0 32.0,334.0 V254.0 Z"/>
+  <rect class="seal" x="41.0" y="322.0" width="9" height="9" rx="1"/>
+  <text x="178.0" y="269.0" text-anchor="middle"><tspan class="mono on-charm">monitor[analyst]</tspan></text>
+  <text x="178.0" y="291.0" text-anchor="middle" class="small on-charm">a copy of the main monitor,</text>
+  <text x="178.0" y="312.0" text-anchor="middle" class="small on-charm">judging the analyst&#x27;s steps</text>
+  <path class="charm-cord" d="M494.0,239.0 C490.0,222.0 510.0,222.0 506.0,239.0"/>
+  <path class="charm" d="M370.0,238.0 H630.0 L646.0,254.0 V334.0 Q646.0,340.0 640.0,340.0 H360.0 Q354.0,340.0 354.0,334.0 V254.0 Z"/>
+  <rect class="seal" x="363.0" y="322.0" width="9" height="9" rx="1"/>
+  <text x="500.0" y="269.0" text-anchor="middle"><tspan class="mono on-charm">monitor[publisher]</tspan></text>
+  <text x="500.0" y="291.0" text-anchor="middle"><tspan class="small on-charm">a copy of its entry in </tspan><tspan class="mono on-charm">overrides</tspan><tspan class="small on-charm">,</tspan></text>
+  <text x="500.0" y="312.0" text-anchor="middle" class="small on-charm">with that entry&#x27;s own protocol</text>
+  <path class="charm-cord" d="M816.0,239.0 C812.0,222.0 832.0,222.0 828.0,239.0"/>
+  <path class="charm" d="M692.0,238.0 H952.0 L968.0,254.0 V334.0 Q968.0,340.0 962.0,340.0 H682.0 Q676.0,340.0 676.0,334.0 V254.0 Z"/>
+  <rect class="seal" x="685.0" y="322.0" width="9" height="9" rx="1"/>
+  <text x="822.0" y="269.0" text-anchor="middle"><tspan class="mono on-charm">monitor[general-purpose]</tspan></text>
+  <text x="822.0" y="291.0" text-anchor="middle" class="small on-charm">a copy of the main monitor, for the</text>
+  <text x="822.0" y="312.0" text-anchor="middle" class="small on-charm">subagent it adds when you pass none</text>
+  <path class="edge" d="M500.0,142.0 L500.0,190.0"/>
+  <path class="edge" d="M106.0,190.0 L750.0,190.0"/>
+  <path class="edge" d="M106.0,190.0 L106.0,236.0" marker-end="url(#arrow)"/>
+  <path class="edge" d="M428.0,190.0 L428.0,236.0" marker-end="url(#arrow)"/>
+  <path class="edge" d="M750.0,190.0 L750.0,236.0" marker-end="url(#arrow)"/>
+  <text x="514.0" y="172.0" text-anchor="start"><tspan class="small">each </tspan><tspan class="mono">task</tspan><tspan class="small"> call starts a subagent</tspan></text>
+  <rect class="box" x="290.0" y="448.0" width="420.0" height="102.0" rx="6"/>
+  <text x="500.0" y="479.0" text-anchor="middle"><tspan class="title">The main agent&#x27;s </tspan><tspan class="mono">monitor_log</tspan></text>
+  <text x="500.0" y="501.0" text-anchor="middle" class="small">its own records, and each subagent&#x27;s</text>
+  <text x="500.0" y="522.0" text-anchor="middle" class="small">records, halts included</text>
+  <path class="edge" d="M178.0,340.0 L178.0,392.0"/>
+  <path class="edge" d="M500.0,340.0 L500.0,392.0"/>
+  <path class="edge" d="M822.0,340.0 L822.0,392.0"/>
+  <path class="edge" d="M178.0,392.0 L822.0,392.0"/>
+  <path class="edge" d="M500.0,392.0 L500.0,446.0" marker-end="url(#arrow)"/>
+  <text x="514.0" y="424.0" text-anchor="start" class="small">when each task returns</text>
+  <text x="32.0" y="594.0" text-anchor="start" class="small">Every copy is named after its subagent, and reads the delegated task as the parent</text>
+  <text x="32.0" y="618.0" text-anchor="start"><tspan class="small">agent&#x27;s words, not the user&#x27;s: </tspan><tspan class="mono">task_author=TaskAuthor.PARENT_AGENT</tspan><tspan class="small">.</tspan></text>
+</svg>

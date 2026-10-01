@@ -60,9 +60,8 @@ jobs, the tests that render are skipped; ``scripts/check.sh`` sets
 ``REQUIRE_DOCS_GROUP=1``, which turns that skip into a failure. The plans under
 ``docs/plans/`` are working notes, not pages.
 
-The pages do not comply yet, so the page check is expected to fail until the
-docs pass brings every page in line and removes its ``xfail`` mark. Run
-``pytest tests/unit/test_docs_standard.py --runxfail`` to list what is left.
+Every page complies, so the page check fails the run on the first page that
+breaks the standard, and its message lists every violation.
 """
 
 from __future__ import annotations
@@ -460,7 +459,6 @@ def test_the_docs_hold_pages_to_check() -> None:
     assert not any(page.startswith("plans/") for page in pages)
 
 
-@pytest.mark.xfail(strict=True, raises=AssertionError, reason="enabled by the docs pass")
 def test_every_docs_page_meets_the_docs_standard() -> None:
     # Arrange
     pages = read_docs_pages()
@@ -479,16 +477,15 @@ def test_every_docs_page_meets_the_docs_standard() -> None:
     assert violations == [], "Pages that break the docs standard:\n" + "\n".join(violations)
 
 
-def test_the_page_check_expects_only_a_failed_assertion() -> None:
-    # Arrange: a crash in the checker, such as a page it cannot decode, must fail the run.
-    marks = vars(test_every_docs_page_meets_the_docs_standard)["pytestmark"]
+def test_the_page_check_is_never_expected_to_fail() -> None:
+    # Arrange: every page complies, so a violation must fail the run, not pass as expected.
+    marks = vars(test_every_docs_page_meets_the_docs_standard).get("pytestmark", [])
 
     # Act
-    xfail = next(mark for mark in marks if mark.name == "xfail")
+    names = {mark.name for mark in marks}
 
     # Assert
-    assert xfail.kwargs["strict"] is True
-    assert xfail.kwargs["raises"] is AssertionError
+    assert not names & {"xfail", "skip", "skipif"}
 
 
 # The docs group: skipped where it is missing, required by the gate -------------
@@ -1007,3 +1004,200 @@ def test_a_page_that_cites_without_a_final_references_section_is_reported() -> N
     assert violations == [
         "how-to/use-a-thing.md: cites a source, so its last section must be ## References",
     ]
+
+
+# Figures: no Mermaid, and every figure in both schemes -----------------------
+#
+# Every diagram is a brand figure, drawn in the omamori lab brand repository and
+# embedded as a light and a dark SVG, never Mermaid, which the house style cannot
+# reach. These checks read the Markdown source, plans included, and the README.
+
+README_PATH = REPOSITORY_ROOT / "README.md"
+DIAGRAMS_DIRECTORY = DOCS_DIRECTORY / "assets" / "diagrams"
+MERMAID_FENCE_PATTERN = re.compile(
+    r"^[ \t]*(?:`{3,}|~{3,})[ \t]*\{?[ \t]*\.?mermaid\b", re.IGNORECASE
+)
+MERMAID_CLASS_PATTERN = re.compile(
+    r"""<[a-z]+\b[^>]*\bclass=["'][^"']*\bmermaid\b""", re.IGNORECASE
+)
+FIGURE_PATTERN = re.compile(
+    r"assets/diagrams/(?P<name>[a-z0-9-]+)-(?P<scheme>light|dark)\.svg(?:#only-(?P<shown>light|dark))?",
+)
+
+
+def read_figure_sources() -> list[Path]:
+    """Return every Markdown file a figure rule applies to: the README and all of `docs/`."""
+    return [README_PATH, *sorted(DOCS_DIRECTORY.rglob("*.md"))]
+
+
+def find_mermaid_lines(text: str) -> list[int]:
+    """Return the number of each line that opens a Mermaid fence or holds a Mermaid element."""
+    return [
+        number
+        for number, line in enumerate(text.splitlines(), start=1)
+        if MERMAID_FENCE_PATTERN.match(line) or MERMAID_CLASS_PATTERN.search(line)
+    ]
+
+
+def find_unpaired_figures(text: str) -> list[str]:
+    """Describe each figure a page embeds without its twin, or shows in the wrong scheme.
+
+    A figure is a pair of SVGs, `<name>-light.svg` and `<name>-dark.svg`, and
+    the page must name both. An image shown with `#only-light` or
+    `#only-dark` must be the SVG drawn for that scheme, and both SVGs must
+    exist in `docs/assets/diagrams/`.
+    """
+    schemes: dict[str, set[str]] = {}
+    problems: list[str] = []
+    for match in FIGURE_PATTERN.finditer(text):
+        name, scheme, shown = match["name"], match["scheme"], match["shown"]
+        schemes.setdefault(name, set()).add(scheme)
+        if shown is not None and shown != scheme:
+            problems.append(f"{name}: the {scheme} SVG is shown as #only-{shown}")
+    for name, found in sorted(schemes.items()):
+        missing = sorted({"light", "dark"} - found)
+        if missing:
+            problems.append(f"{name}: embedded without its {' and '.join(missing)} twin")
+        absent = [
+            f"{name}-{scheme}.svg"
+            for scheme in ("light", "dark")
+            if not (DIAGRAMS_DIRECTORY / f"{name}-{scheme}.svg").is_file()
+        ]
+        if absent:
+            problems.append(f"{name}: no {' or '.join(absent)} in docs/assets/diagrams")
+    return problems
+
+
+def test_no_page_draws_a_mermaid_diagram() -> None:
+    # Arrange
+    sources = read_figure_sources()
+
+    # Act
+    found = [
+        f"{path.relative_to(REPOSITORY_ROOT)}:{number}"
+        for path in sources
+        for number in find_mermaid_lines(path.read_text(encoding="utf-8"))
+    ]
+
+    # Assert
+    assert found == [], "Mermaid found; draw a brand figure instead:\n" + "\n".join(found)
+
+
+def test_every_figure_is_embedded_in_both_schemes() -> None:
+    # Arrange
+    sources = read_figure_sources()
+
+    # Act
+    problems = [
+        f"{path.relative_to(REPOSITORY_ROOT)}: {problem}"
+        for path in sources
+        for problem in find_unpaired_figures(path.read_text(encoding="utf-8"))
+    ]
+
+    # Assert
+    assert problems == [], "Figures without both schemes:\n" + "\n".join(problems)
+
+
+def test_the_site_config_has_no_mermaid_fence() -> None:
+    # Arrange
+    config = CONFIG_PATH.read_text(encoding="utf-8")
+
+    # Act
+    mentions = [line for line in config.splitlines() if "mermaid" in line.lower()]
+
+    # Assert
+    assert mentions == []
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "```mermaid\nflowchart TD\n```\n",
+        "~~~ mermaid\nflowchart TD\n~~~\n",
+        "- A list item:\n\n    ````Mermaid\n    flowchart TD\n    ````\n",
+        "```{.mermaid}\nflowchart TD\n```\n",
+        '<pre class="mermaid">flowchart TD</pre>\n',
+        '<div class="diagram mermaid">flowchart TD</div>\n',
+    ],
+)
+def test_a_mermaid_diagram_is_found_in_any_form(text: str) -> None:
+    # Act
+    found = find_mermaid_lines(f"# A page\n\n{text}")
+
+    # Assert
+    assert found
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "Mermaid is not used on this site.\n",
+        "```python\nmermaid = 'a variable name'\n```\n",
+        "```text\nmermaid\n```\n",
+        '<pre class="mermaids">not the class</pre>\n',
+    ],
+)
+def test_prose_and_other_code_that_name_mermaid_are_not_diagrams(text: str) -> None:
+    # Act
+    found = find_mermaid_lines(f"# A page\n\n{text}")
+
+    # Assert
+    assert found == []
+
+
+def test_a_figure_embedded_in_both_schemes_has_no_problem() -> None:
+    # Arrange: the embed pattern the pages use, and the README's picture element
+    page = (
+        "[![Alt](../assets/diagrams/protocols-light.svg#only-light)]"
+        "(../assets/diagrams/protocols-light.svg)\n"
+        "[![Alt](../assets/diagrams/protocols-dark.svg#only-dark)]"
+        "(../assets/diagrams/protocols-dark.svg)\n"
+        '<source srcset="docs/assets/diagrams/monitors-dark.svg">\n'
+        '<img alt="Alt" src="docs/assets/diagrams/monitors-light.svg">\n'
+    )
+
+    # Act
+    problems = find_unpaired_figures(page)
+
+    # Assert
+    assert problems == []
+
+
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [
+        (
+            "![Alt](../assets/diagrams/protocols-light.svg#only-light)\n",
+            ["protocols: embedded without its dark twin"],
+        ),
+        (
+            "![Alt](../assets/diagrams/protocols-dark.svg#only-dark)\n",
+            ["protocols: embedded without its light twin"],
+        ),
+        (
+            "![Alt](../assets/diagrams/protocols-light.svg#only-dark)\n"
+            "![Alt](../assets/diagrams/protocols-dark.svg#only-light)\n",
+            [
+                "protocols: the light SVG is shown as #only-dark",
+                "protocols: the dark SVG is shown as #only-light",
+            ],
+        ),
+        (
+            "![Alt](../assets/diagrams/no-such-figure-light.svg#only-light)\n"
+            "![Alt](../assets/diagrams/no-such-figure-dark.svg#only-dark)\n",
+            [
+                "no-such-figure: no no-such-figure-light.svg or no-such-figure-dark.svg "
+                "in docs/assets/diagrams",
+            ],
+        ),
+    ],
+)
+def test_a_figure_without_its_twin_or_in_the_wrong_scheme_is_reported(
+    text: str,
+    expected: list[str],
+) -> None:
+    # Act
+    problems = find_unpaired_figures(text)
+
+    # Assert
+    assert problems == expected

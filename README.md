@@ -4,7 +4,7 @@
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/assets/diagrams/monitored-step-dark.svg">
-  <img alt="The untrusted model proposes a step. The monitor, drawn as an omamori charm, reads it through its view and scores its suspicion from 0 to 1. The control protocol chooses one of five outcomes, from the lightest touch to the strongest: allow it, resample it, defer to the trusted model, block it and tell the agent why, or halt. All of this happens inside the middleware, before any of the agent's own tools run; a brushed line marks that boundary. A provider's built-in tools, such as web search, run inside the model call, above that line. A committed step reaches the tools and a halted run ends, and either way one record joins monitor_log. Tool results come back, and the next model call is a new step." src="docs/assets/diagrams/monitored-step-light.svg">
+  <img alt="The untrusted model proposes a step. The monitor, drawn as an omamori charm, reads it through its view and scores its suspicion from 0 to 1. The control protocol chooses one of five outcomes, from the lightest touch to the strongest: allow it, resample it, defer to the trusted model, block it and tell the agent why, or halt. All of this happens inside the middleware, before any of the agent's own tools run; a brushed line marks that boundary. A committed step reaches the tools and a halted run ends, and either way one record joins monitor_log. Tool results come back, and the next model call is a new step." src="docs/assets/diagrams/monitored-step-light.svg">
 </picture>
 
 ## Why this exists
@@ -15,7 +15,8 @@ a second model that scores each step, and a protocol that acts on the score.
 This library brings those protocols, from AI Control, Ctrl-Z and Claude Code's
 auto mode, to `create_agent` and `create_deep_agent` as one middleware.
 "Sync" means synchronous in the control sense: a step waits for its verdict,
-so a suspicious step can be stopped before it runs.
+so a suspicious step can be stopped before any of the agent's own tools run
+it.
 
 ## Install
 
@@ -58,17 +59,24 @@ def read_file(path: str) -> str:
 
 
 monitor = MonitorMiddleware(
+    # The monitor: a chat model that judges every step the agent proposes.
     monitor=LLMMonitor(model="openrouter:xiaomi/mimo-v2.6-pro"),
+    # The protocol: sample a suspicious step again, and if every sample stays
+    # suspicious, have the trusted model write the step instead.
     protocol=DeferToResample(
         fallback=DeferToTrustedModel(trusted_model="openrouter:xiaomi/mimo-v2.6-flash"),
+        # Resample a step that scores 0.6 or more, and flag it for review
+        # when even its least suspicious sample scores 0.9 or more.
         defer_threshold=0.6,
         audit_threshold=0.9,
     ),
 )
+# The untrusted model does the work, with the monitor last in the list.
 agent = create_agent(
     "openrouter:deepseek/deepseek-v4.1-flash", tools=[read_file], middleware=[monitor]
 )
 result = agent.invoke({"messages": [{"role": "user", "content": "Summarise q3.md."}]})
+# One record per step: what the protocol did, and whether to review it.
 for record in result["monitor_log"]:
     print(record["step_number"], record["outcome"], record["flagged"])
 ```
@@ -76,106 +84,86 @@ for record in result["monitor_log"]:
 Three models play three roles: the untrusted agent does the work, the monitor
 judges each step, and the trusted model writes a step when every sample looks
 suspicious. Each is a parameter, and any LangChain chat model works; the
-library picks none for you. Put the monitor last in the middleware list.
-Thresholds share one scale from 0 to 1 and warn until you set them; calibrate
-them on honest runs of your own agent. Each step leaves one record in
-`monitor_log`, and [Read the monitor log](docs/how-to/read-the-monitor-log.md)
-explains its fields. The [tutorial](docs/tutorials/first-monitored-agent.md)
-builds this agent step by step.
+library picks none for you. Thresholds share one scale from 0 to 1 and warn
+until you set them; calibrate them on honest runs of your own agent. Put the
+monitor last in the middleware list. `check_monitor_placement(middleware=[...])`
+warns about placements known to undermine it, but does not look for the
+`before_agent` and `after_agent` hooks that can lift a halt.
 
-## Pick a protocol
+## How it fits together
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/assets/diagrams/protocols-dark.svg">
   <img alt="What each protocol does with a step the monitor finds suspicious; a step below the threshold runs unchanged under every protocol. Trusted Monitoring lets the step run and flags it for a person to review. Defer to Trusted has the trusted model write the step instead. Defer to Resample draws up to two fresh samples; if one passes, the least suspicious runs, and if none passes, the fallback writes the step, usually the trusted model. Auto Mode blocks the step and tells the agent why, and the agent tries again; after three blocks in a row, or twenty in the thread with subagents' blocks included, the fallback takes over, which by default halts the run." src="docs/assets/diagrams/protocols-light.svg">
 </picture>
 
-| Protocol | Pick it when | Guide |
-|---|---|---|
-| `TrustedMonitoring` | you want to watch and flag, and change nothing the agent does | [Use Trusted Monitoring](docs/how-to/use-trusted-monitoring.md) |
-| `DeferToTrusted` | you have a trusted model and want the simplest intervention | [Use Defer to Trusted](docs/how-to/use-defer-to-trusted.md) |
-| `DeferToResample` | you want to keep the agent's own work where you can, and keep rejected samples as evidence | [Use Defer to Resample](docs/how-to/use-defer-to-resample.md) |
-| `AutoMode` | you want the agent to hear why a step was blocked and find a safer route | [Use Auto Mode](docs/how-to/use-auto-mode.md) |
-
-Not sure which? [Choose a protocol](docs/how-to/choose-a-protocol.md) compares
-them.
-
-## Pick a monitor
+Four control protocols, from watching to blocking: [Choose a protocol](docs/how-to/choose-a-protocol.md) compares them.
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/assets/diagrams/monitors-dark.svg">
-  <img alt="Three monitor classes cover three kinds of model, each drawn as the charm. LLMMonitor asks a chat model to reason and then score the step, from 0 to 10 by default. GuardModelMonitor has a guard model label the step against a policy you write, and suspicion is the chance the label is unsafe. DecisionModelMonitor asks a decision model yes or no questions, and suspicion is the chance of yes. Each returns the same Verdict, a suspicion from 0 to 1 and a reason, so any monitor works with any control protocol. Three wrappers stack around any monitor: RepeatedMonitor averages several calls, CalibratedMonitor ranks the score among the scores of honest runs, and CascadeMonitor runs a fast monitor on every step and a careful one when the fast one finds the step suspicious." src="docs/assets/diagrams/monitors-light.svg">
+  <img alt="Three monitor classes cover three kinds of model, each drawn as the charm. LLMMonitor asks a chat model to reason and then score the step, from 0 to 10 by default. GuardModelMonitor has a guard model label the step against a policy you write, and suspicion is the chance the label is unsafe. DecisionModelMonitor asks a decision model yes or no questions, and suspicion is the chance of yes. Each returns the same Verdict, a suspicion from 0 to 1 and a reason, so any monitor works with any control protocol. Three wrappers nest around any monitor: RepeatedMonitor averages several calls, CalibratedMonitor ranks the score among the scores of honest runs, and CascadeMonitor runs a fast monitor on every step and, when the fast one finds the step suspicious, a careful one whose verdict replaces the fast one's." src="docs/assets/diagrams/monitors-light.svg">
 </picture>
 
-| Monitor | Scores with | Guide |
-|---|---|---|
-| `LLMMonitor` | any chat model, prompted to reason and then score the step | [Use a chat judge](docs/how-to/use-a-chat-judge.md) |
-| `GuardModelMonitor` | a guard model, such as gpt-oss-safeguard or Llama Guard, and a policy you write | [Use a guard model](docs/how-to/use-a-guard-model.md) |
-| `DecisionModelMonitor` | a decision model that answers yes or no questions, such as Jev | [Use a decision model](docs/how-to/use-a-decision-model.md) |
-| `RepeatedMonitor`, `CalibratedMonitor`, `CascadeMonitor` | any of the above: averaged, ranked against honest runs, or cascaded | [Combine and calibrate monitors](docs/how-to/combine-and-calibrate-monitors.md) |
-
-## Choose what the monitor reads
+Monitors for [chat judges](docs/how-to/use-a-chat-judge.md), [guard models](docs/how-to/use-a-guard-model.md) and [decision models](docs/how-to/use-a-decision-model.md), and [wrappers](docs/how-to/combine-and-calibrate-monitors.md) that average, calibrate or cascade them.
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/assets/diagrams/monitor-view-dark.svg">
-  <img alt="Every entry of the transcript belongs to one channel. The default view, Channel.ACTIONS, reads USER (the task, context notes and feedback), TOOL_CALLS (tool calls and errors) and SUBAGENT_REPORTS (what subagents report), and leaves out REASONING, AGENT_TEXT and TOOL_RESULTS, each one flag away. The proposed step's tool calls are always shown, and its text when it is a final answer; the rest of the step follows the view's channels. A MonitorView chooses the channels, can keep only the most recent entries, and names the tools whose results are subagent reports. The monitor reads the chosen entries as escaped, tagged text ending with the proposed step, then scores the step." src="docs/assets/diagrams/monitor-view-light.svg">
+  <img alt="Every entry of the transcript belongs to one channel. The default view, Channel.ACTIONS, reads USER (every turn of the user, kept verbatim even after summarisation, context notes and feedback), TOOL_CALLS (tool calls and errors) and SUBAGENT_REPORTS (what subagents report), and leaves out REASONING, AGENT_TEXT and TOOL_RESULTS, each one flag away. The proposed step's tool calls are always shown, and its text when it is a final answer; the rest of the step follows the view's channels. A MonitorView chooses the channels, can keep only the most recent entries besides the user's turns, and names the tools whose results are subagent reports. The monitor reads the chosen entries as escaped, tagged text ending with the proposed step, then scores the step." src="docs/assets/diagrams/monitor-view-light.svg">
 </picture>
 
-By default a monitor reads the user's messages, the tool calls and the
-subagent reports, and leaves out the agent's reasoning, its prose and raw tool
-output, as Claude Code's auto mode does. Each left-out channel is one flag
-away:
-
-```python
-from langchain_sync_monitors import Channel, LLMMonitor, MonitorView
-
-judge = LLMMonitor(
-    model="openrouter:xiaomi/mimo-v2.6-pro",
-    view=MonitorView(channels=Channel.ACTIONS | Channel.REASONING),
-)
-```
-
-[Choose what the monitor reads](docs/how-to/choose-what-the-monitor-reads.md)
-covers every channel and the limit on recent entries.
-
-## Monitor every subagent
+What the judge reads by default, and each channel it leaves out: [Choose what the monitor reads](docs/how-to/choose-what-the-monitor-reads.md).
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/assets/diagrams/subagents-dark.svg">
-  <img alt="In a Deep Agent, the main agent's monitor, monitor[main], reads the user's task. When the main agent calls the task tool, monitor[main] judges that call first, and the subagent then runs under a monitor of its own, monitor[researcher], which reads the task as the parent agent's words, not the user's, and judges each of the subagent's steps. The subagent's final report returns to the main agent. When the subagent returns or halts, its records flow back into the main agent's monitor_log, halts included. monitor_subagents gives every subagent a copy of the monitor, the general-purpose one included." src="docs/assets/diagrams/subagents-light.svg">
+  <img alt="In a Deep Agent, the main agent's monitor, monitor[main], reads the user's task. When the main agent calls the task tool, monitor[main] judges that call first, and the subagent then runs under a monitor of its own, monitor[researcher], which reads the task as the parent agent's words, not the user's, and judges each of the subagent's steps. The subagent's final report returns to the main agent. When the subagent returns, halted or not, its records flow back into the main agent's monitor_log, halts included; a subagent whose run raises returns none. monitor_subagents gives every subagent a copy of the monitor, the general-purpose one included." src="docs/assets/diagrams/subagents-light.svg">
 </picture>
 
-Deep Agents does not pass the main agent's middleware to its subagents, so
-`monitor_subagents` gives each one, the general-purpose subagent included, a
-copy of the monitor. With `monitor` from the quick start, and Deep Agents'
-own file tools rather than the quick start's `read_file`, which would
-replace Deep Agents' tool of the same name:
+A monitor in every Deep Agents subagent: [Monitor Deep Agents subagents](docs/how-to/monitor-deep-agents-subagents.md).
 
-```python
-from deepagents import create_deep_agent
-from langchain_sync_monitors import monitor_subagents
+## Limits
 
-researcher = {"name": "researcher", "description": "Finds and summarises sources."}
-agent = create_deep_agent(
-    "openrouter:deepseek/deepseek-v4.1-flash",
-    middleware=[monitor],
-    subagents=monitor_subagents(middleware=monitor, subagents=[researcher]),
-)
-```
+- **Tools the provider runs.** A provider's built-in tools, such as
+  Anthropic's web search or OpenAI's code interpreter, run inside the model
+  call: they have run before the monitor sees the step, and run again for
+  every sample drawn. `ProviderToolWarning` warns about the known ones for
+  Anthropic, OpenAI and Gemini when it can see them; it cannot see some, such
+  as OpenRouter's web plugin.
+- **What the judge reads.** By default it reads the task, the tool calls, the
+  subagent reports and a proposed final answer. It does not read the agent's
+  reasoning, the text the agent writes beside a tool call, or raw tool
+  output; each is one flag away.
+- **Halts.** A halt stands until a later run brings a message the monitor
+  records as new input from the user. A middleware listed before the monitor
+  can still lift it, with an untagged human message written from its
+  `before_agent` hook, or from its `after_agent` hook without sending the run
+  back to the model.
+- **Subagents.** A monitor on a Deep Agent's main agent alone leaves every
+  subagent unmonitored, and nothing warns; pass
+  `subagents=monitor_subagents(middleware=monitor, subagents=[...])` to
+  `create_deep_agent`.
+  Subagents that run in parallel do not see each other's blocks, so together
+  they can pass Auto Mode's limit on blocks in the thread; their parent counts
+  every one of them at its next step. A subagent whose run raises returns no
+  records unless the run is resumed.
+- **Time and graph steps.** Each step waits for its verdict and streams whole
+  once committed, not token by token. The monitor adds two graph steps per
+  agent step, however many samples or model calls it draws, and two per run:
+  N steps need a `recursion_limit` of 4N + 2, not 2N, and each further
+  monitor adds another 2N + 2.
 
-[Monitor Deep Agents subagents](docs/how-to/monitor-deep-agents-subagents.md)
-covers per-subagent overrides, what a halt inside a subagent does, and the
-subagents the helper cannot monitor.
+[Known limits and open paths](docs/explanation/design.md#known-limits-and-open-paths)
+explains each of these.
 
-## Where to go next
+## Read the docs
 
 | If you want to | Read |
 |---|---|
-| build a monitored agent from scratch | [Tutorial: your first monitored agent](docs/tutorials/first-monitored-agent.md) |
-| solve one task, such as calibrating thresholds | [How-to guides](docs/how-to/index.md) |
-| look up a class or a keyword | [API reference](https://omamori-lab.github.io/langchain-sync-monitors/reference/api/) |
-| understand how a step flows and why | [How the library is built](docs/explanation/design.md) |
-| see monitored agents run against real models | [Live runs](docs/explanation/live-runs.md) |
+| build a monitored agent step by step, with or without an API key | [Monitor your first agent](docs/tutorials/first-monitored-agent.md) |
+| read the records, the stream events and the logs | [Read the monitor log](docs/how-to/read-the-monitor-log.md) |
+| find halted and flagged steps in a tracer | [See the monitor's decisions in LangSmith and Langfuse](docs/how-to/see-decisions-in-langsmith-and-langfuse.md) |
+| look up a class or a keyword | [API](https://omamori-lab.github.io/langchain-sync-monitors/reference/api/) |
+| understand how a step flows, and why | [How the library is built](docs/explanation/design.md) |
+| see monitored agents run against real models | [Live runs of a monitored agent](docs/explanation/live-runs.md) |
 
 ## Credits
 

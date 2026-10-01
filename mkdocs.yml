@@ -1,8 +1,8 @@
 site_name: langchain-sync-monitors
 site_description: >-
   AI-control monitors for LangChain agents and Deep Agents: every step an agent
-  proposes is judged before its tools run, and a control protocol decides what
-  runs.
+  proposes is judged before any of its own tools run, and a control protocol
+  decides what runs.
 site_url: https://omamori-lab.github.io/langchain-sync-monitors/
 repo_url: https://github.com/omamori-lab/langchain-sync-monitors
 repo_name: omamori-lab/langchain-sync-monitors
@@ -69,10 +69,18 @@ plugins:
       handlers:
         python:
           paths: [src]
+          # docs/reference/api.md names each public object, with explicit members, so
+          # the page shows the API and its extension points, not internal helpers or
+          # LangChain hook overrides.
           options:
             show_source: false
             docstring_style: null
             members_order: source
+            show_root_heading: true
+            show_root_full_path: false
+            heading_level: 3
+            merge_init_into_class: true
+            filters: ["!^_"]
 
 markdown_extensions:
   - admonition
@@ -86,11 +94,7 @@ markdown_extensions:
       toc_depth: "2-3"
   - pymdownx.highlight
   - pymdownx.inlinehilite
-  - pymdownx.superfences:
-      custom_fences:
-        - name: mermaid
-          class: mermaid
-          format: !!python/name:pymdownx.superfences.fence_code_format
+  - pymdownx.superfences
 
 # Report a link to a missing anchor as a warning, so --strict fails on it. A line
 # that Markdown mistakes for a footnote definition shows up this way.
@@ -98,7 +102,7 @@ validation:
   anchors: warn
 
 nav:
-  - Home: index.md
+  - langchain-sync-monitors: index.md
   - Tutorials:
       - tutorials/index.md
       - Monitor your first agent: tutorials/first-monitored-agent.md

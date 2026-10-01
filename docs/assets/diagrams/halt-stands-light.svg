@@ -1,0 +1,66 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1000" height="648" viewBox="0 0 1000 648" role="img" aria-labelledby="title desc">
+  <title id="title">A halt stands</title>
+  <desc id="desc">Before the protocol runs, the monitor checks two halts, and either one decides the step without a sample. A new step can follow a halt, because an after_agent hook can send a halted run back to the model. First, if this monitor&#x27;s last step halted and the thread has recorded no run input since, the step halts again with STANDING_HALT_MESSAGE, from halts.py. If not, and the monitor has SubagentHalt.STOP_WHOLE_RUN, and a subagent halted since this agent&#x27;s last step, the step halts, and that halt stands as this agent&#x27;s own. Otherwise the protocol decides the step as usual. Either halt draws no sample: its record is halted and flagged, and holds no samples.</desc>
+  <!-- Colours come from the brand tokens: diagrams/render.py fills this style block. -->
+  <style>
+    svg { color-scheme: light; }
+    text { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans", "Noto Sans JP", Helvetica, Arial, sans-serif; font-size: 15px; fill: #111111; }
+    .title { font-size: 17px; font-weight: 600; }
+    .small { font-size: 14px; fill: #5B5B57; }
+    .mono { font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace; font-size: 13.5px; }
+    .soft { fill: #5B5B57; }
+    .dashed { stroke-dasharray: 5 4; fill: none; stroke: #9A9A94; }
+    .box { fill: #FFFFFF; stroke: #111111; stroke-width: 1.4; }
+    .charm { fill: #111111; }
+    .on-charm { fill: #FFFFFF; }
+    .charm-cord { fill: none; stroke: #111111; stroke-width: 2.2; }
+    .seal { fill: #BF3A22; }
+    .allow { fill: #FFFFFF; stroke: #111111; stroke-width: 1.4; }
+    .resample { fill: #F2F1EC; stroke: #111111; stroke-width: 1.4; }
+    .defer { fill: #DCDBD4; stroke: #111111; stroke-width: 1.4; }
+    .steer { fill: #3A3A38; stroke: #3A3A38; stroke-width: 1.4; }
+    .on-steer { fill: #FFFFFF; }
+    .halt { fill: #BF3A22; stroke: #BF3A22; stroke-width: 1.4; }
+    .on-halt { fill: #FFFFFF; }
+    .frame { fill: none; stroke: #9A9A94; stroke-width: 1.2; stroke-dasharray: 6 4; }
+    .edge { fill: none; stroke: #2B2B2B; stroke-width: 1.5; }
+    .loop { fill: none; stroke: #2B2B2B; stroke-width: 1.5; stroke-dasharray: 5 4; }
+    .head { fill: #2B2B2B; }
+    .brush { fill: #111111; }
+  </style>
+  <defs><marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="9" markerHeight="9" markerUnits="userSpaceOnUse" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="head"/></marker></defs>
+  <rect class="box" x="32.0" y="40.0" width="440.0" height="102.0" rx="6"/>
+  <text x="252.0" y="71.0" text-anchor="middle" class="title">A new step</text>
+  <text x="252.0" y="93.0" text-anchor="middle"><tspan class="small">even after a halt: an </tspan><tspan class="mono">after_agent</tspan><tspan class="small"> hook</tspan></text>
+  <text x="252.0" y="114.0" text-anchor="middle" class="small">can send a halted run back to the model</text>
+  <rect class="box" x="32.0" y="198.0" width="440.0" height="102.0" rx="6"/>
+  <text x="252.0" y="229.0" text-anchor="middle" class="title">Does this monitor&#x27;s halt stand?</text>
+  <text x="252.0" y="251.0" text-anchor="middle" class="small">its last step halted, and the thread has</text>
+  <text x="252.0" y="272.0" text-anchor="middle" class="small">recorded no run input since</text>
+  <rect class="box" x="32.0" y="356.0" width="440.0" height="102.0" rx="6"/>
+  <text x="252.0" y="387.0" text-anchor="middle" class="title">Does a subagent&#x27;s halt stop the run?</text>
+  <text x="252.0" y="409.0" text-anchor="middle"><tspan class="mono">STOP_WHOLE_RUN</tspan><tspan class="small"> is set, and a subagent</tspan></text>
+  <text x="252.0" y="430.0" text-anchor="middle" class="small">halted since this agent&#x27;s last step</text>
+  <rect class="box" x="32.0" y="514.0" width="440.0" height="102.0" rx="6"/>
+  <text x="252.0" y="545.0" text-anchor="middle" class="title">The protocol decides</text>
+  <text x="252.0" y="567.0" text-anchor="middle" class="small">it draws and judges samples,</text>
+  <text x="252.0" y="588.0" text-anchor="middle" class="small">as on any other step</text>
+  <rect class="halt" x="560.0" y="187.0" width="408.0" height="123.0" rx="6"/>
+  <text x="764.0" y="218.0" text-anchor="middle" class="title on-halt">Halt again</text>
+  <text x="764.0" y="240.0" text-anchor="middle" class="mono on-halt">STANDING_HALT_MESSAGE, from halts.py</text>
+  <text x="764.0" y="261.0" text-anchor="middle" class="small on-halt">no sample is drawn; the record is</text>
+  <text x="764.0" y="282.0" text-anchor="middle"><tspan class="mono on-halt">halted</tspan><tspan class="small on-halt">, flagged, with no samples</tspan></text>
+  <rect class="halt" x="560.0" y="355.0" width="408.0" height="102.0" rx="6"/>
+  <text x="764.0" y="386.0" text-anchor="middle" class="title on-halt">Halt</text>
+  <text x="764.0" y="408.0" text-anchor="middle" class="small on-halt">no sample is drawn; flagged, and it</text>
+  <text x="764.0" y="429.0" text-anchor="middle" class="small on-halt">stands as this agent&#x27;s own halt</text>
+  <path class="edge" d="M252.0,142.0 L252.0,196.0" marker-end="url(#arrow)"/>
+  <path class="edge" d="M252.0,300.0 L252.0,354.0" marker-end="url(#arrow)"/>
+  <path class="edge" d="M252.0,458.0 L252.0,512.0" marker-end="url(#arrow)"/>
+  <text x="264.0" y="333.0" text-anchor="start" class="small">no</text>
+  <text x="264.0" y="491.0" text-anchor="start" class="small">no</text>
+  <path class="edge" d="M472.0,249.0 L558.0,249.0" marker-end="url(#arrow)"/>
+  <text x="516.0" y="237.0" text-anchor="middle" class="small">yes</text>
+  <path class="edge" d="M472.0,407.0 L558.0,407.0" marker-end="url(#arrow)"/>
+  <text x="516.0" y="395.0" text-anchor="middle" class="small">yes</text>
+</svg>

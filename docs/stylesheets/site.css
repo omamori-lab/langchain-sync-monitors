@@ -3,10 +3,11 @@
  *
  * brand.css is copied unchanged from the omamori lab brand repository
  * (diagrams/out/brand.css), so it can be copied again when the brand changes.
- * It sets the primary, accent, link and Mermaid colours of both schemes. This
+ * It sets the primary, accent and link colours of both schemes. This
  * file adds the rest of the custom palette, the header's lower edge in dark
  * mode, the logo size, the contents box that a page's [TOC] marker renders,
- * the section numbers, and the links that open each diagram at full size.
+ * the section numbers, the links that open each diagram at full size, the gap
+ * between neighbouring citations, and unbroken code names in tables.
  */
 
 /* The rest of the custom palette -----------------------------------------
@@ -223,4 +224,28 @@
 [data-md-color-scheme="default"] a:has(> img[src$="#only-dark"]),
 [data-md-color-scheme="slate"] a:has(> img[src$="#only-light"]) {
   display: none;
+}
+
+/* Citations ----------------------------------------------------------------
+ *
+ * mkdocs-bibtex renders a group such as [@a; @b] as neighbouring footnote
+ * superscripts, which run together, so 2, 3 and 4 read as 234. A gap sets each
+ * number apart. It is a gap, not a comma, because a sibling selector skips
+ * text: the rule also matches two citations with words between them, where a
+ * comma would be wrong and a slightly wider space does no harm.
+ */
+.md-typeset sup[id^="fnref"] + sup[id^="fnref"] {
+  margin-left: 0.3em;
+}
+
+/* Code in tables -----------------------------------------------------------
+ *
+ * Material lets inline code break anywhere (word-break: break-word), so a
+ * narrow column splits a name mid-token, as in LOG_PROBABI|LITIES. In a table
+ * cell, code breaks only at its spaces; a table too wide for the page scrolls
+ * inside the wrapper Material gives every table.
+ */
+.md-typeset td code,
+.md-typeset th code {
+  word-break: normal;
 }

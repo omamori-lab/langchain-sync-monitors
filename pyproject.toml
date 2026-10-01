@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 [project]
 name = "langchain-sync-monitors"
 dynamic = ["version", "readme"]
-description = "AI-control monitors for LangChain agents and Deep Agents: every step an agent proposes is judged before its tools run, and a control protocol decides what runs."
+description = "AI-control monitors for LangChain agents and Deep Agents: every step an agent proposes is judged before any of its own tools run, and a control protocol decides what runs."
 requires-python = ">=3.12"
 license = "MIT"
 license-files = ["LICENSE"]

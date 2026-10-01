@@ -200,10 +200,11 @@ def compute_suspicious_share(
     """Share of the label probability at the label's first token that is suspicious.
 
     Every alternative that begins a label counts, so variants such as
-    `violation`, ` violation` and `Violation` add up, as in Granite Guardian's
-    probability of risk [@padhi2024graniteguardian]. Dividing by the mass of
-    all label tokens renormalises over the labels, as Llama Guard and
-    ShieldGemma do [@inan2023llamaguard; @zeng2024shieldgemma].
+    `violation`, ` violation` and `Violation` add up, and dividing by the mass
+    of all label tokens renormalises over the labels, as in Granite Guardian's
+    probability of risk [@padhi2024graniteguardian]. ShieldGemma renormalises
+    over exactly `Yes` and `No` [@zeng2024shieldgemma]; Llama Guard reads its
+    first token's probability as it is [@inan2023llamaguard].
 
     The share is `None` unless the provider gave alternatives at the position
     and the guard's own token there begins a label of `label_kind`, the kind

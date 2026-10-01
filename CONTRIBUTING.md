@@ -180,7 +180,8 @@ commit's copy of the workflow, which anyone with write access can change.
 1. **Date the changelog in a pull request.** Move the `## [Unreleased]` entries
    under a new `## [X.Y.Z] - YYYY-MM-DD` heading, leave an empty
    `## [Unreleased]` above it, and update the link references at the bottom of
-   `CHANGELOG.md`. In `README.md` and `docs/index.md`, rewrite the text each
+   `CHANGELOG.md`. In `README.md`, `docs/index.md` and
+   `docs/tutorials/first-monitored-agent.md`, rewrite the text each
    `release-check` comment marks so it describes the released package, and
    delete the comments. `scripts/check-release.sh X.Y.Z` previews the release
    checks; before the bump it should report only `__version__` and
@@ -209,7 +210,7 @@ Before it publishes anything, the workflow:
   still waits for approval;
 - checks that the tag is `vX.Y.Z`, names a commit on `main`, and agrees with
   `__version__`, `CITATION.cff` and a dated CHANGELOG section, and that
-  `README.md` and `docs/index.md` hold no pre-release text
+  `README.md`, `docs/index.md` and the tutorial hold no pre-release text
   (`scripts/check-release.sh`);
 - runs the whole CI workflow on the tagged commit: every gate on Python 3.12,
   3.13 and 3.14, the offline suite at the lowest allowed dependency versions,

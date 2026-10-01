@@ -12,9 +12,10 @@
 #   - CHANGELOG.md has a non-empty "## [X.Y.Z] - YYYY-MM-DD" section and an
 #     "[X.Y.Z]: " link reference;
 #   - CITATION.cff has version X.Y.Z and date-released equal to that date;
-#   - README.md and docs/index.md hold no pre-release text: no release-check
-#     comment, which marks text written for an unreleased package, and none
-#     of the phrases such text uses, even wrapped across lines.
+#   - README.md, docs/index.md and docs/tutorials/first-monitored-agent.md
+#     hold no pre-release text: no release-check comment, which marks text
+#     written for an unreleased package, and none of the phrases such text
+#     uses, even wrapped across lines.
 #
 # It reports every problem it finds and exits 1 if there was any. Otherwise it
 # prints the CHANGELOG section, without its heading, to standard output: the
@@ -89,7 +90,7 @@ fi
 # phrases catch such text written without the comment. Each page is read as
 # one line, so a phrase wrapped across lines, even at a hyphen, is found too.
 pre_release_phrases='not on PyPI|pre-release|may still change before|until the first release|install it from GitHub|[0-9]+\.[0-9]+\.[0-9]+\.dev[0-9]+'
-for page in README.md docs/index.md; do
+for page in README.md docs/index.md docs/tutorials/first-monitored-agent.md; do
   marker_lines="$(grep -n 'release-check:' "${page}" | cut -d: -f1 | paste -s -d, - || true)"
   if [[ -n "${marker_lines}" ]]; then
     report "${page} still has a release-check comment, at line(s) ${marker_lines}: rewrite the text it marks for the release, then delete it."

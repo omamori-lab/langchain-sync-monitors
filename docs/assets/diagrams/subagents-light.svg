@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1000" height="614" viewBox="0 0 1000 614" role="img" aria-labelledby="title desc">
   <title id="title">A monitor in every subagent</title>
-  <desc id="desc">In a Deep Agent, the main agent&#x27;s monitor, monitor[main], reads the user&#x27;s task. When the main agent calls the task tool, monitor[main] judges that call first, and the subagent then runs under a monitor of its own, monitor[researcher], which reads the task as the parent agent&#x27;s words, not the user&#x27;s, and judges each of the subagent&#x27;s steps. The subagent&#x27;s final report returns to the main agent. When the subagent returns or halts, its records flow back into the main agent&#x27;s monitor_log, halts included. monitor_subagents gives every subagent a copy of the monitor, the general-purpose one included.</desc>
+  <desc id="desc">In a Deep Agent, the main agent&#x27;s monitor, monitor[main], reads the user&#x27;s task. When the main agent calls the task tool, monitor[main] judges that call first, and the subagent then runs under a monitor of its own, monitor[researcher], which reads the task as the parent agent&#x27;s words, not the user&#x27;s, and judges each of the subagent&#x27;s steps. The subagent&#x27;s final report returns to the main agent. When the subagent returns, halted or not, its records flow back into the main agent&#x27;s monitor_log, halts included; a subagent whose run raises returns none. monitor_subagents gives every subagent a copy of the monitor, the general-purpose one included.</desc>
   <!-- Colours come from the brand tokens: diagrams/render.py fills this style block. -->
   <style>
     svg { color-scheme: light; }
@@ -44,8 +44,8 @@
   <text x="222.0" y="293.0" text-anchor="middle" class="small">judged first, then hands the work on</text>
   <rect class="box" x="48.0" y="361.0" width="348.0" height="102.0" rx="6"/>
   <text x="222.0" y="392.0" text-anchor="middle"><tspan class="mono">monitor_log</tspan></text>
-  <text x="222.0" y="414.0" text-anchor="middle" class="small">its own records, and</text>
-  <text x="222.0" y="435.0" text-anchor="middle" class="small">every subagent&#x27;s</text>
+  <text x="222.0" y="414.0" text-anchor="middle" class="small">its own records, and those</text>
+  <text x="222.0" y="435.0" text-anchor="middle" class="small">of every subagent that returns</text>
   <path class="charm-cord" d="M772.0,230.5 C768.0,213.5 788.0,213.5 784.0,230.5"/>
   <path class="charm" d="M620.0,229.5 H936.0 L952.0,245.5 V325.5 Q952.0,331.5 946.0,331.5 H610.0 Q604.0,331.5 604.0,325.5 V245.5 Z"/>
   <rect class="seal" x="613.0" y="313.5" width="9" height="9" rx="1"/>

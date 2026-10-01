@@ -5,13 +5,20 @@ from __future__ import annotations
 import asyncio
 import time
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, override
 
 import pytest
 from langchain.agents.middleware.types import ModelRequest, ModelResponse
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, ToolMessage
 
-from langchain_sync_monitors.contracts import BlockedAttempt, Sample, SampleDrawing, TaskAuthor
+from langchain_sync_monitors.contracts import (
+    BlockedAttempt,
+    MonitorInput,
+    Sample,
+    SampleDrawing,
+    TaskAuthor,
+    Verdict,
+)
 from langchain_sync_monitors.errors import ConfigurationError, MonitorError
 from langchain_sync_monitors.pending_steps import (
     AsyncPendingStep,
@@ -28,15 +35,21 @@ TASK = HumanMessage("Summarise the report.", id="task")
 
 @dataclass
 class RecordingHandler:
-    """Runs the request's model, recording each request and how many ran at once."""
+    """Runs the request's model, recording each request and how many ran at once.
+
+    Each call notes "model call" in `events` as it starts, before the model
+    runs, so a log shared with a monitor shows what ran before each draw.
+    """
 
     delay: float = 0.0
     requests: list[ModelRequest[Any]] = field(default_factory=list)
+    events: list[str] = field(default_factory=list)
     running: int = 0
     most_at_once: int = 0
 
     def __call__(self, request: ModelRequest[Any]) -> ModelResponse[Any]:
         self.requests.append(request)
+        self.events.append("model call")
         self.running += 1
         self.most_at_once = max(self.most_at_once, self.running)
         try:
@@ -47,6 +60,7 @@ class RecordingHandler:
 
     async def run_async(self, request: ModelRequest[Any]) -> ModelResponse[Any]:
         self.requests.append(request)
+        self.events.append("model call")
         self.running += 1
         self.most_at_once = max(self.most_at_once, self.running)
         try:
@@ -54,6 +68,18 @@ class RecordingHandler:
         finally:
             self.running -= 1
         return ModelResponse(result=[await request.model.ainvoke(request.messages)])
+
+
+@dataclass(kw_only=True)
+class EventRecordingMonitor(KeywordMonitor):
+    """Scores as `KeywordMonitor` does, noting each judgement in a log shared with the handler."""
+
+    events: list[str]
+
+    @override
+    def score(self, monitor_input: MonitorInput) -> Verdict:
+        self.events.append(f"judgement of {monitor_input.proposal.text}")
+        return super().score(monitor_input)
 
 
 def build_request(model: ScriptedChatModel) -> ModelRequest[Any]:
@@ -215,6 +241,36 @@ def test_sync_step_draws_samples_one_after_another_however_asked(
     ]
     assert [monitor_input.proposal.text for monitor_input in monitor.inputs] == [
         f"sample {index}" for index in range(count)
+    ]
+
+
+def test_a_sequential_draw_judges_each_sample_before_the_next_model_call(
+    run_mode: RunMode,
+    untrusted_model: ScriptedChatModel,
+) -> None:
+    # Arrange: the handler and the monitor note what they do in one shared log
+    events: list[str] = []
+    handler = RecordingHandler(events=events)
+    monitor = EventRecordingMonitor(events=events)
+    sample_options: dict[str, Any] = {"count": 3, "drawing": SampleDrawing.SEQUENTIAL}
+
+    # Act
+    draw_samples(
+        untrusted_model,
+        mode=run_mode,
+        handler=handler,
+        monitor=monitor,
+        sample_options=sample_options,
+    )
+
+    # Assert: no model call starts before the previous sample's judgement has ended
+    assert events == [
+        "model call",
+        "judgement of sample 0",
+        "model call",
+        "judgement of sample 1",
+        "model call",
+        "judgement of sample 2",
     ]
 
 

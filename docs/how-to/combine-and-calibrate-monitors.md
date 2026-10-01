@@ -14,7 +14,7 @@ threshold has a default, listed in
 default warns. This is the warning Auto Mode gives:
 
 ```text
-UncalibratedThresholdWarning: block_threshold uses the uncalibrated default 0.6. Suspicion scores differ between monitors and agents, so a fixed default may block honest work or miss attacks. Run the agent on honest tasks, collect the suspicion scores in monitor_log, and set the threshold at a high percentile of them (for example the 98th), or wrap the monitor in CalibratedMonitor so that its scores are honest-run percentiles. Pass block_threshold explicitly to silence this warning.
+UncalibratedThresholdWarning: block_threshold uses the uncalibrated default 0.6. Suspicion scores differ between monitors and agents, so a fixed default may block honest work or miss attacks. Run the agent on honest tasks, take the suspicion scores of the monitor_log records whose agent and monitor are your MonitorMiddleware's agent_name and label, and set the threshold at a high percentile of those scores (for example the 98th), as the section "Calibrate the threshold" of the guide "Use Trusted Monitoring" shows, or wrap the monitor in CalibratedMonitor so that its scores are honest-run percentiles. Pass block_threshold explicitly to silence this warning.
 ```
 
 Treat the defaults as placeholders. Each monitor spreads its scores

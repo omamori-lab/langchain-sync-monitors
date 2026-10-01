@@ -255,10 +255,11 @@ reached the threshold.
   suspicion, so one whose highly suspicious sample was rejected, and whose
   resample ran, is not flagged; see
   [Find the rejected samples a flag misses](#find-the-rejected-samples-a-flag-misses).
-- **The graph takes more steps.** The monitor adds two graph steps per agent
-  step, however many samples it draws, and two per run; see
-  [Graph steps, streams and failures](choose-a-protocol.md#graph-steps-streams-and-failures),
-  which also covers a step that fails.
+- **The graph takes more steps.** The monitor's hooks count towards a
+  `recursion_limit` you pass; see
+  [Allow for the graph steps](read-the-monitor-log.md#allow-for-the-graph-steps),
+  and [Graph steps, streams and failures](choose-a-protocol.md#graph-steps-streams-and-failures)
+  for a step that fails.
 
 ## Related guides
 

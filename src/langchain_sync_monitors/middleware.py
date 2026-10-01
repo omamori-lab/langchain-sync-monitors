@@ -193,9 +193,11 @@ class MonitorMiddleware(AgentMiddleware[MonitorState, AgentContext, StructuredOu
     In LangChain tracers such as LangSmith and Langfuse, each step is a
     `monitor step` span, with the spans that `spans` describes nested in it.
 
-    The instance holds configuration only, so it can be copied and pickled.
-    Deep Agents runs parallel subagents through shared middleware instances,
-    so every piece of run state lives in the graph state.
+    The instance keeps no run state of its own: Deep Agents runs parallel
+    subagents through shared middleware instances, so every piece of run state
+    lives in the graph state, and one instance serves parallel runs. It can be
+    copied or pickled only when its monitor, protocol and models can; OpenRouter
+    chat models and `OpenRouterDecisionModel` hold HTTP clients that cannot.
     """
 
     monitor: Monitor

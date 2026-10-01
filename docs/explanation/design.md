@@ -673,7 +673,9 @@ returned, noted when the call returned, not from where the record sits in
 `monitor_log`, so no record a tool writes can hide it. A subagent that shares
 the parent's name, such as a fork or a compiled subagent whose monitor keeps
 `agent_name="main"`, records its own delegation, so its halt is answered the
-same way. That halt is the parent's own, so it stands as above.
+same way. That halt is the parent's own, so it stands as above. A delegation
+tool built with `return_direct=True` leaves the halt to the next run
+([subagents and the thread total](#subagents-and-the-thread-total)).
 
 [![A subagent's monitor halts it, and the halt record reaches the parent agent's monitor_log when the task returns. What happens next depends on when_subagent_halts, an option of the parent's monitor that every copy of that monitor inherits. With SubagentHalt.STOP_SUBAGENT_ONLY, the default, the parent reads the halt message as the task's result and goes on under its own monitor. With SubagentHalt.STOP_WHOLE_RUN, the parent's monitor reads the halt the task call returned and halts the parent at its next model call, without drawing a sample; that halt is flagged, and it stands as the parent's own.](../assets/diagrams/subagent-halts-light.svg#only-light)](../assets/diagrams/subagent-halts-light.svg "Open the diagram at full size")
 [![A subagent's monitor halts it, and the halt record reaches the parent agent's monitor_log when the task returns. What happens next depends on when_subagent_halts, an option of the parent's monitor that every copy of that monitor inherits. With SubagentHalt.STOP_SUBAGENT_ONLY, the default, the parent reads the halt message as the task's result and goes on under its own monitor. With SubagentHalt.STOP_WHOLE_RUN, the parent's monitor reads the halt the task call returned and halts the parent at its next model call, without drawing a sample; that halt is flagged, and it stands as the parent's own.](../assets/diagrams/subagent-halts-dark.svg#only-dark)](../assets/diagrams/subagent-halts-dark.svg "Open the diagram at full size")
@@ -890,23 +892,12 @@ The monitor's four node hooks are graph nodes, named after the monitor, such
 as `monitor[main].before_model`, and each run of one is a graph step:
 `before_model` and `after_model` run once per agent step (each run of the
 model node), and `before_agent` and `after_agent` once per run. The samples,
-monitor calls and trusted steps inside an agent step add no graph step. The
-smallest `recursion_limit` that lets a `create_agent` run finish, with a tool
-call between agent steps, grows as follows:
-
-| Agent steps in the run (N) | Without the monitor (2N) | With the monitor (4N + 2) |
-|---|---|---|
-| 1 | 2 | 6 |
-| 2 | 4 | 10 |
-| 3 | 6 | 14 |
-
-`create_agent` and `create_deep_agent` set a limit of 9,999 by default, so
-this matters only for an explicit `recursion_limit`
-[@langchain2026; @deepagents2026]. To allow the same number of agent steps,
-twice the old limit plus 2 is enough for one monitor, and each further
-monitor adds another 2N + 2. A run the limit cuts off before the monitor's
-`after_agent` hook, on a checkpointed thread, leaves the run open, so the
-next run's new messages are read as notes from `unconfirmed_input`
+monitor calls and trusted steps inside an agent step add no graph step.
+[Allow for the graph steps](../how-to/read-the-monitor-log.md#allow-for-the-graph-steps)
+gives the `recursion_limit` a run then needs. A run the limit cuts off
+before the monitor's `after_agent` hook, on a checkpointed thread, leaves the
+run open, so the next run's new messages are read as notes from
+`unconfirmed_input`
 ([after a run that stopped early](#after-a-run-that-stopped-early)).
 
 ## Sync and async
@@ -1017,18 +1008,10 @@ limit is linked from where it arises above.
   score still decides what happens to the rest of the step. The default
   feedback tells the agent that none of its tools ran the blocked step, while
   a provider tool in that step has already run.
-- **What `ProviderToolWarning` cannot see.** It flags the known server tools
-  of Anthropic, OpenAI and Gemini. It reads the tools of the model request,
-  and the tools bound on the model with `bind_tools` only when the agent has
-  no tools of its own and no `response_format`, because otherwise
-  `create_agent` binds the model afresh and drops them [@langchain2026]. It
-  cannot see a server-side feature switched on in the model's own settings,
-  such as OpenRouter's web plugin or an `:online` model
-  [@langchainopenrouter2026], tools an integration has already turned into
-  its SDK's own objects, tools bound inside `with_fallbacks(...)`, or tools
-  queued with `bind_tools` on `init_chat_model(..., configurable_fields=...)`.
-  Those run the same way, without a warning. The `provider_tools` module
-  docstring lists what it knows.
+- **What `ProviderToolWarning` cannot see.** Some provider tools run the same
+  way without a warning;
+  [Tools the provider runs itself](../how-to/choose-a-protocol.md#tools-the-provider-runs-itself)
+  lists them.
 
 ### What the judge does not see
 
@@ -1159,9 +1142,8 @@ limit is linked from where it arises above.
   it raises `SynchronousRunError`, and inside one it never fires, because the
   synchronous call blocks the loop. Use `ainvoke()` for protocols that need
   asyncio.
-- **More graph steps.** A run of N agent steps needs a `recursion_limit` of
-  4N + 2 rather than 2N, and each further monitor adds another 2N + 2
-  ([graph steps](#graph-steps)).
+- **More graph steps.** The monitor's hooks count towards an explicit
+  `recursion_limit` ([graph steps](#graph-steps)).
 
 ### Subagents and the thread total
 
@@ -1198,6 +1180,13 @@ limit is linked from where it arises above.
   with a warning and counts a halt among them, but their blocks miss Auto
   Mode's total. Give that monitor its own `agent_name`, or pass the state as
   Deep Agents' `task` tool does.
+- **A subagent halt after a `return_direct` tool.** A delegation tool built
+  with `return_direct=True`, which Deep Agents' `task` is not, ends the run
+  without another model call, so under `SubagentHalt.STOP_WHOLE_RUN` no step
+  of that run answers the subagent's halt. On a checkpointed thread, the next
+  run's first step halts in its place, and the halt stands for that run's
+  input: the user's next message is spent on it, and only the run after that
+  is answered.
 - **A reused call id under one name.** When a subagent's tool call reuses
   the id of the call that started it, and the subagent it starts shares its
   name, the monitor raises `ConfigurationError` when the call returns, after

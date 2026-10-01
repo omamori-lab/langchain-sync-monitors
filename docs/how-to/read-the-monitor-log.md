@@ -314,10 +314,10 @@ So a run of N steps, runs of the model node, takes 2N + 2 more graph steps,
 and each further monitor stacked in the agent adds another 2N + 2.
 Samples, monitor calls and trusted steps run inside the model node and add
 none, so a step counts the same whether it draws one sample or three.
-`create_agent` sets a limit of 9,999 by default [@langchain2026], so this
-matters only when you set your own. Scripted runs of an agent that calls one
-tool between steps needed these limits, under Trusted Monitoring and under
-Defer to Resample alike:
+`create_agent` and `create_deep_agent` set a limit of 9,999 by default
+[@langchain2026; @deepagents2026], so this matters only when you set your
+own. Scripted runs of an agent that calls one tool between steps needed these
+limits, under Trusted Monitoring and under Defer to Resample alike:
 
 | Steps (N) | Without a monitor (2N) | With a monitor (4N + 2) |
 |---|---|---|

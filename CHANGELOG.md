@@ -61,13 +61,17 @@ change raises the minor version.
   `after_agent` hooks, which show as graph nodes in a trace and add two graph
   steps per model call and two per run, all counted by an explicit
   `recursion_limit`.
-- Six private state keys, `monitor_task_messages`,
+- Seven private state keys, `monitor_task_messages`,
   `monitor_seen_human_messages`, `monitor_run_inputs`,
-  `monitor_rewritten_inputs`, `monitor_run_open` and `monitor_inputs_at_halt`,
-  which never enter a subagent's input or a run's output but do appear in
-  `stream_mode="values"`, `stream_mode="updates"` and `get_state`.
+  `monitor_rewritten_inputs`, `monitor_run_open`, `monitor_inputs_at_halt` and
+  `monitor_subagent_returns`, which never enter a run's output or an isolated
+  subagent's input but do appear in `stream_mode="values"`,
+  `stream_mode="updates"` and `get_state`.
 - `monitor_inputs_at_halt` keeps how many run inputs the thread had at each
   monitor's latest halt.
+- `monitor_subagent_returns` keeps the subagent halts and blocks each tool
+  call returned until the agent's next step answers them, so a subagent's
+  halt no longer depends on where its records sit in `monitor_log`.
 - The monitor's hooks write back, by id, the human messages they tag as notes,
   so `stream_mode="updates"` can carry such a message twice; merge messages by
   id.
@@ -147,6 +151,18 @@ change raises the minor version.
   one Deep Agents shows the agent only as a preview.
 - A tool's `Command` writes to the state keys only the monitor writes, every
   monitor key but `monitor_log`, are dropped with a warning.
+- A tool's writes to `monitor_log` are checked record by record: an
+  `Overwrite` adds its records instead of erasing the log, and a write that
+  starts with the whole current log, as when a tool writes the state back,
+  adds only the records after it. A record that claims to be a step of the
+  calling agent itself, or that is not a whole `StepRecord` with counts of
+  zero or more, is kept out of the log with a warning; the first counts as a
+  halted subagent when it is a halt, the second always does.
+- A tool call that reuses the id of the call that started its agent, and
+  returns records under that agent's name, raises `ConfigurationError`, since
+  the monitor cannot tell a same-named subagent's steps from the agent's own.
+- A malformed record read from `monitor_log` raises `MonitorError` naming it,
+  its position and the fields at fault, rather than being skipped.
 - Every other human message renders as `<context_note>`, which authorises
   nothing: one another component tagged, such as a conversation summary, and
   one written during a run without a tag, such as Deep Agents' video reads and
@@ -290,6 +306,32 @@ change raises the minor version.
   is dropped, not that the step stands, since a failed step never commits.
 - `STANDING_HALT_MESSAGE` names no cause, and says the halt stands until a
   later run brings new input the monitor can confirm.
+- A record is an agent's own only when it names the agent and the agent's
+  delegation, so a fork, a compiled subagent whose monitor keeps
+  `agent_name="main"`, or a subagent spec named `main` no longer passes for
+  the main agent: under `SubagentHalt.STOP_WHOLE_RUN` its halt stops the
+  parent on every turn, after a halt of the parent's own included.
+- `SubagentHalt.STOP_SUBAGENT_ONLY` is honoured for a subagent that shares its
+  parent's name: the parent carries on, where it used to halt.
+- The parent numbers its steps apart from a same-named subagent's, so its
+  step after such a subagent's records is the next of its own.
+- A tool called beside a subagent can no longer hide the subagent's halt by
+  writing a record under the parent's name.
+- The subagent halt message names a subagent that shares its parent's name by
+  the `subagent_type` of the call that started it, and one nested deeper by
+  its name and the call that started it.
+- With two monitors on one agent, only the outer one checks a tool call's
+  writes, even behind a middleware that copies the call or the state, so the
+  inner one's own record is no longer taken for the tool's write and warned
+  about.
+- A record holds a plain `float` suspicion and a plain `bool` flag when a
+  monitor scores with numpy's numbers, so a checkpointer stores it and the
+  next step reads it.
+- An agent whose tool call reuses the id of the call that started it hands
+  its subagent the thread's current blocks, even when its own parent shares
+  its name.
+- The errors `monitor_subagents` raises for a fork or a compiled subagent no
+  longer say their halts may go unseen.
 - A safe label the agent planted in its step is no longer read as the guard's
   verdict when the guard quotes it after its own label, after a colon on the
   same line, after a prose key, or on the line after a line that holds its

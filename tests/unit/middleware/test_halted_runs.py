@@ -23,7 +23,7 @@ from langgraph.checkpoint.memory import InMemorySaver
 from langgraph.runtime import Runtime
 from pydantic import BaseModel
 
-from langchain_sync_monitors.contracts import OutcomeName, StepRecord
+from langchain_sync_monitors.contracts import Delegation, OutcomeName, StepRecord
 from langchain_sync_monitors.middleware import MonitorMiddleware, MonitorState
 from langchain_sync_monitors.protocols import AutoMode, HaltRun
 from tests.support.agents import (
@@ -271,6 +271,38 @@ async def test_the_hook_ends_the_run_only_right_after_this_monitors_halt(
     # Arrange
     middleware = build_halting_monitor()
     state = build_state(records=records, last_message=last_message)
+    runtime = Runtime(context=None)
+
+    # Act
+    sync_update = middleware.after_model(state, runtime)
+    async_update = await middleware.aafter_model(state, runtime)
+
+    # Assert
+    expected = {"jump_to": "end"} if ends_the_run else None
+    assert sync_update == expected
+    assert async_update == expected
+
+
+@pytest.mark.parametrize(
+    ("record_delegation_id", "ends_the_run"),
+    [("call-fork", True), (None, False), ("call-other", False)],
+    ids=["its-own-halt", "the-parent-s-halt", "another-delegation-s-halt"],
+)
+async def test_a_same_named_subagent_s_hook_ends_its_run_only_after_its_own_halt(
+    record_delegation_id: str | None,
+    ends_the_run: bool,
+) -> None:
+    # Arrange: a fork runs under monitor[main] with a delegation of its own
+    record = build_record(agent="main", outcome="halted")
+    if record_delegation_id is not None:
+        record["delegation_id"] = record_delegation_id
+    state = build_state(records=[record], last_message=AIMessage("Stopped."))
+    state["monitor_delegation"] = Delegation(
+        tool_call_id="call-fork",
+        delegating_agent="main",
+        blocks_before={},
+    )
+    middleware = build_halting_monitor()
     runtime = Runtime(context=None)
 
     # Act

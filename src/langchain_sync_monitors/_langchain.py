@@ -327,14 +327,6 @@ type MonitorStreamEvent = MonitorStepEvent | MonitorStepFailedEvent
 """Every event a monitor writes to `stream_mode="custom"`."""
 
 
-def read_monitor_log(state: Mapping[str, object]) -> list[StepRecord]:
-    """Return the step records in an agent state, or an empty list when there are none."""
-    records = state.get(MONITOR_LOG_KEY)
-    if not isinstance(records, list):
-        return []
-    return cast("list[StepRecord]", records)
-
-
 def read_delegation(state: object) -> Delegation | None:
     """Return the delegation a subagent was started with, or None in an agent started directly.
 
@@ -367,20 +359,23 @@ def build_tool_request_with_delegation(
     *,
     delegation: Delegation,
 ) -> ToolCallRequest:
-    """Return a copy of the tool request whose state holds the delegation.
+    """Return a copy of the tool request whose runtime state holds the delegation.
 
-    A tool reads the state from its injected runtime, not from the request, so
-    both are replaced [@langgraph2026]. Deep Agents' `task` tool passes that
-    state, less a few keys, to the subagent it starts, and the subagent's
-    state schema keeps the key out of its output, as Deep Agents does for its
-    own forked-context flag [@deepagents2026]. A request whose state is not a
-    mapping, or that runs outside a graph, is returned unchanged.
+    A tool reads the state from its injected runtime, not from the request
+    [@langgraph2026], so only the runtime's state is replaced. The request's
+    own state stays the agent's, with the agent's own delegation, which a
+    monitor stacked inside this one reads. Deep Agents' `task` tool passes
+    the runtime's state, less a few keys, to the subagent it starts, and the
+    subagent's state schema keeps the key out of its output, as Deep Agents
+    does for its own forked-context flag [@deepagents2026]. A request whose
+    runtime state is not a mapping, or that runs outside a graph, is
+    returned unchanged.
     """
     runtime = cast("ToolRuntime | None", request.runtime)
-    if not isinstance(request.state, Mapping) or runtime is None:
+    if runtime is None or not isinstance(runtime.state, Mapping):
         return request
-    state = {**request.state, MONITOR_DELEGATION_KEY: delegation}
-    return replace(request, state=state, runtime=replace(runtime, state=state))
+    state = {**runtime.state, MONITOR_DELEGATION_KEY: delegation}
+    return replace(request, runtime=replace(runtime, state=state))
 
 
 def read_bound_tools(model: object) -> list[object]:

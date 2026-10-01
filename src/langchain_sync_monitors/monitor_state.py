@@ -3,8 +3,9 @@
 `MonitorMiddleware` declares this schema, and LangChain merges it into the
 agent's state [@langchain2026]. It holds the log of every monitored step, the
 delegation a subagent was started with, the record of which human messages
-were a run's input and their text, and how many of those the thread had at
-each monitor's latest halt.
+were a run's input and their text, how many of those the thread had at each
+monitor's latest halt, and the subagent halts and blocks the agent's next
+step has to answer.
 """
 
 import operator
@@ -20,6 +21,7 @@ from langchain.agents.middleware.types import (
 from langchain_sync_monitors.contracts import Delegation, StepRecord
 from langchain_sync_monitors.halts import InputsAtHalt, merge_inputs_at_halt
 from langchain_sync_monitors.run_inputs import RunInput, merge_run_inputs
+from langchain_sync_monitors.subagent_returns import SubagentReturn, merge_subagent_returns
 from langchain_sync_monitors.task_authorship import keep_latest_flag, merge_message_ids
 
 
@@ -58,10 +60,18 @@ class MonitorState(AgentState):
     which pass through every checkpointer as `monitor_log` does, and its
     reducer keeps the latest entry for each monitor.
 
-    These six are private, so a subagent starts without its parent's and
-    returns none of its own, and a run's result leaves them out, though
+    `monitor_subagent_returns` holds, for each tool call whose records show
+    a subagent halted or hold blocks, those halts and blocks, until the
+    agent's next step answers them and removes them. `returned_records` and
+    `subagent_returns` have the rules.
+
+    These seven are private, so a run's result leaves them out, though
     `stream_mode="values"`, `stream_mode="updates"` and `get_state` show
-    them. Their reducers let stacked monitors write them in one node.
+    them, and a subagent returns none of its own. An isolated subagent
+    starts without its parent's; a forked one starts with them
+    [@deepagents2026], so each entry of `monitor_subagent_returns` names the
+    delegation of the agent that stored it, and only that agent answers it.
+    Their reducers let stacked monitors write them in one node.
     """
 
     monitor_log: NotRequired[Annotated[list[StepRecord], OmitFromInput, operator.add]]
@@ -75,4 +85,7 @@ class MonitorState(AgentState):
     monitor_run_open: NotRequired[Annotated[bool, PrivateStateAttr, keep_latest_flag]]
     monitor_inputs_at_halt: NotRequired[
         Annotated[list[InputsAtHalt], PrivateStateAttr, merge_inputs_at_halt]
+    ]
+    monitor_subagent_returns: NotRequired[
+        Annotated[list[SubagentReturn], PrivateStateAttr, merge_subagent_returns]
     ]

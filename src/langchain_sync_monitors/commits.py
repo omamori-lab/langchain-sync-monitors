@@ -35,6 +35,7 @@ from langchain_sync_monitors.pending_steps import MonitoredStep
 from langchain_sync_monitors.records import build_sample_record
 from langchain_sync_monitors.run_inputs import build_refresh_update
 from langchain_sync_monitors.spans import StepIdentity, build_step_span_inputs
+from langchain_sync_monitors.subagent_returns import build_answered_update
 from langchain_sync_monitors.task_authorship import build_note_update
 
 # The middleware's logger, which docs/how-to/read-the-monitor-log.md names for these messages.
@@ -105,7 +106,8 @@ def commit_step(
     With `FeedbackVisibility.IN_TRANSCRIPT`, each blocked attempt and its
     feedback come before the step's own messages. The untagged human
     messages in the state that the monitor had not seen are recorded as
-    seen, so the next run does not take them for its input.
+    seen, so the next run does not take them for its input, and the
+    subagent halts and blocks the step answered are removed.
     """
     write_stream_event(request, event=MonitorStepEvent(type="monitor_step", record=record))
     logger.debug(
@@ -126,5 +128,6 @@ def commit_step(
         # A middleware listed after the monitor may have rewritten a kept input since.
         **build_refresh_update(request.state),
         **build_halt_inputs_update(record, state=request.state, monitor=middleware_name),
+        **build_answered_update(request.state),
     }
     return ExtendedModelResponse(model_response=response, command=Command(update=update))

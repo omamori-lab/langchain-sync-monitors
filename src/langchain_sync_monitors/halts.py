@@ -11,11 +11,13 @@ monitor's last step is a halt, every further step halts again, without a
 sample, until the thread has recorded more run inputs than it had at the
 halt.
 
-A fork runs under the main agent's monitor, and a compiled subagent whose own
-monitor keeps the default `agent_name`, `main`, records its steps under the
-main agent's name too, so the halts of either may go unseen, whatever
-`SubagentHalt` says. Set the `agent_name` of a compiled subagent's monitor to
-the subagent's name, and give a monitored agent no forked subagents.
+A halt is this monitor's own when its record names this agent and this
+agent's delegation, so the steps of a subagent that shares this agent's name,
+a fork under the main agent's monitor or a compiled subagent whose monitor
+keeps the default `agent_name`, never count as this agent's. A subagent's
+halt reaches this agent through `subagent_returns`, where `returned_records`
+stores it when the tool call that started the subagent returns, and this
+agent's next step answers it as `SubagentHalt` says.
 
 A run's input is what `task_authorship` records under `TASK_MESSAGES_KEY` at
 the start of a run. Each halt stores how many inputs the thread held then,
@@ -42,15 +44,13 @@ from typing import TypedDict
 from langchain.agents.middleware.types import ModelResponse
 from langchain_core.messages import AIMessage
 
-from langchain_sync_monitors._langchain import AgentStateUpdate, read_monitor_log
+from langchain_sync_monitors._langchain import AgentStateUpdate
 from langchain_sync_monitors.contracts import Outcome, StepDecision, StepRecord, SubagentHalt
-from langchain_sync_monitors.delegation import (
-    build_subagent_halt_decision,
-    find_new_subagent_halts,
-)
+from langchain_sync_monitors.delegation import build_subagent_halt_decision, read_delegation_id
 from langchain_sync_monitors.feedback import build_monitor_message_id
-from langchain_sync_monitors.records import find_monitor_records
+from langchain_sync_monitors.records import find_monitor_records, read_step_records
 from langchain_sync_monitors.state_keys import INPUTS_AT_HALT_KEY, TASK_MESSAGES_KEY
+from langchain_sync_monitors.subagent_returns import SubagentReturn, find_halted_subagents
 from langchain_sync_monitors.task_authorship import read_message_ids, read_state_messages
 
 STANDING_HALT_MESSAGE = (
@@ -137,7 +137,12 @@ def has_just_halted(state: Mapping[str, object], *, monitor: str, agent: str) ->
     message must be the halt, a final message with no tool calls, so an older
     halt record never ends a later turn.
     """
-    own_records = find_monitor_records(read_monitor_log(state), monitor=monitor, agent=agent)
+    own_records = find_monitor_records(
+        read_step_records(state),
+        monitor=monitor,
+        agent=agent,
+        delegation_id=read_delegation_id(state),
+    )
     messages = read_state_messages(state)
     last_message = messages[-1] if messages else None
     return (
@@ -185,15 +190,16 @@ def find_halt_decision(
     state: Mapping[str, object],
     *,
     previous_records: Sequence[StepRecord],
-    agent: str,
+    returns: Sequence[SubagentReturn],
     monitor: str,
     when_subagent_halts: SubagentHalt,
 ) -> StepDecision | None:
     """Return the halt a step gets without a sample, or None when the protocol decides it.
 
-    `monitor` is the middleware's name. The step halts again while this
-    monitor's own halt stands, and halts when a subagent halted since this
-    agent's last step and the monitor stops the whole run.
+    `monitor` is the middleware's name, and `returns` holds what this
+    agent's tool calls returned since its last step. The step halts again
+    while this monitor's own halt stands, and halts when one of those calls
+    returned a subagent's halt and the monitor stops the whole run.
     """
     if is_halt_standing(
         previous_records,
@@ -203,7 +209,7 @@ def find_halt_decision(
         return build_standing_halt_decision()
     if when_subagent_halts is SubagentHalt.STOP_SUBAGENT_ONLY:
         return None
-    halts = find_new_subagent_halts(read_monitor_log(state), agent=agent)
-    if not halts:
+    halted_subagents = find_halted_subagents(returns)
+    if not halted_subagents:
         return None
-    return build_subagent_halt_decision(subagent_names=[record["agent"] for record in halts])
+    return build_subagent_halt_decision(subagent_names=halted_subagents)

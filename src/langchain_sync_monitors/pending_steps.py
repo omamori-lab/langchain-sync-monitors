@@ -18,8 +18,6 @@ from collections.abc import Coroutine, Iterator, Sequence
 from dataclasses import dataclass, field
 from typing import TypedDict, override
 
-from langchain_core.caches import BaseCache
-from langchain_core.globals import get_llm_cache
 from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import AIMessage, BaseMessage
 
@@ -46,6 +44,7 @@ from langchain_sync_monitors.contracts import (
 )
 from langchain_sync_monitors.errors import MonitorError, SynchronousRunError
 from langchain_sync_monitors.feedback import build_feedback_messages
+from langchain_sync_monitors.model_calls import CachedResampleWarning, is_response_cache_active
 from langchain_sync_monitors.run_inputs import RunInput, restore_run_inputs
 from langchain_sync_monitors.spans import (
     StepIdentity,
@@ -72,16 +71,6 @@ CLOSED_STEP_MESSAGE = (
     "A pending step was used after its synchronous invoke() step was over, from a task a "
     "control protocol scheduled on an event loop. Run the agent with ainvoke() to use asyncio."
 )
-
-
-class CachedResampleWarning(UserWarning):
-    """A step is sampled more than once on the same request while a response cache is active.
-
-    LangChain answers an identical request from its cache [@langchaincore2026],
-    so every resample is a copy of the first sample and resampling can never
-    find a safer one: resampling helps less the more deterministic the model
-    is [@bhatt2025ctrlzpost], and a cached model is fully deterministic.
-    """
 
 
 def read_running_loop() -> asyncio.AbstractEventLoop | None:
@@ -179,17 +168,6 @@ def build_sampling_conversation(
         for message in build_feedback_messages(attempt=attempt)
     ]
     return (*messages, *feedback)
-
-
-def is_response_cache_active(model: BaseChatModel) -> bool:
-    """Tell whether LangChain answers this model's calls from a response cache.
-
-    A model's own `cache` wins: an instance is used, `False` turns caching
-    off, and `True` or `None` use the global cache when one is set.
-    """
-    if isinstance(model.cache, BaseCache):
-        return True
-    return model.cache is not False and get_llm_cache() is not None
 
 
 @functools.cache

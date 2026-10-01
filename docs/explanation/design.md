@@ -1008,7 +1008,7 @@ wrappers, `MonitorView`, the decision models, `monitor_subagents` and
 | `SynchronousRunError` | A protocol or monitor needs an event loop under `invoke()` ([sync and async](#sync-and-async)). |
 | `InvalidSuspicionError` | A `Verdict` is built with a suspicion that is NaN or outside 0 to 1. |
 | `UncalibratedThresholdWarning` | A protocol is built with a default threshold. |
-| `CachedResampleWarning` | A step is resampled under a response cache; once per process. |
+| `CachedResampleWarning` | A step is resampled, or a monitor draws a second reply to one prompt, under a response cache; once per process for each. |
 | `ProviderToolWarning` | A model call receives a tool its provider runs itself; once per middleware instance. |
 | `MonitorPlacementWarning` | `check_monitor_placement` finds a middleware placed where it undermines the monitor, a stacked monitor that loses or misjudges records included, or `monitor_subagents` builds such a stack in a subagent. |
 | `HardLabelWarning` | A `GuardModelMonitor` is built with `GuardScoring.HARD_LABEL`. |
@@ -1165,7 +1165,10 @@ limit is linked from where it arises above.
   more deterministic the model, the less it helps [@bhatt2025ctrlzpost]. A
   LangChain response cache, global or on the agent's model, answers every
   resample with the first sample again. The library emits a
-  `CachedResampleWarning`; build the untrusted model with `cache=False`.
+  `CachedResampleWarning`; build the untrusted model with `cache=False`. A
+  cache on a monitor's model makes a guard's samples, and a chat judge's
+  request after an unreadable reply, copies of the first reply, and warns
+  the same way.
 - **No timeouts under `invoke()`.** `asyncio.timeout` or `asyncio.wait_for`
   cannot limit a pending step's call under `invoke()`: outside a running loop
   it raises `SynchronousRunError`, and inside one it never fires, because the

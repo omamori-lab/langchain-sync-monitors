@@ -88,7 +88,7 @@ class GuardScoring(StrEnum):
     rejects the request, as `ChatAnthropic` does. `SAMPLE_FRACTION` always
     samples. `HARD_LABEL` reads one label as 0 or 1 and warns, because every
     threshold then flags the same steps. Sampling only tells replies apart when
-    the model's temperature is above zero.
+    the model's temperature is above zero and no response cache answers it.
     """
 
     AUTO = "auto"
@@ -294,9 +294,12 @@ class GuardModelMonitor(ChatModelMonitor):
     calibration saturate after 15 to 20 samples [@lyu2025sampleconsistency],
     Xiong et al. saw it converge within 13 [@xiong2024uncertainty], and Tian
     et al. found no meaningful gain from 20 samples over 10 [@tian2023justask].
-    Sampling needs the model's temperature above zero. Guard probabilities
-    are overconfident [@liu2025guardcalibration], so set thresholds on
-    honest-run percentiles with `CalibratedMonitor` rather than on raw values.
+    Sampling needs the model's temperature above zero, and no response
+    cache: LangChain's cache answers each sample with the first one's reply,
+    and the monitor emits a `CachedResampleWarning` when it samples under
+    one. Guard probabilities are overconfident [@liu2025guardcalibration], so
+    set thresholds on honest-run percentiles with `CalibratedMonitor` rather
+    than on raw values.
 
     The verdict's reason states the guard's finding, with no probability or
     count: the most severe label among sampled replies, or, from

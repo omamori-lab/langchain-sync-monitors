@@ -395,5 +395,14 @@ change raises the minor version.
   while new input came that way. The monitor now gives such a message an id
   at the start of a run, and one a hook writes during a run an id and a note
   tag at its end.
+- A protocol that resamples a step no longer fails it when the agent's model
+  is a runtime-configurable `init_chat_model(...)`, whose `cache` raises when
+  read; such a model counts as uncached, and no `CachedResampleWarning` is
+  shown for it.
+- A response cache on a monitor's model emits a `CachedResampleWarning`, once
+  per process, when a guard samples several replies to one prompt or a chat
+  judge asks again after an unreadable reply: the cache answered each with
+  the first reply, so a guard's score became one label and a judge's retries
+  failed closed, with no warning.
 
 [Unreleased]: https://github.com/omamori-lab/langchain-sync-monitors/commits/main

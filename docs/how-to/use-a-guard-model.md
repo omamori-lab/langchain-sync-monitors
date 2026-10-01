@@ -76,7 +76,9 @@ chat model wrapped in a Runnable, by `with_retry()` or `bind()`, raises
 `ConfigurationError`. Build the model with a temperature above zero: the
 monitor samples several replies when the provider returns no
 log-probabilities, and at temperature zero every sample carries the same
-label.
+label. Give it no LangChain response cache either, global or on the model,
+which would answer every sample with a copy of the first: the monitor warns
+once per process with a `CachedResampleWarning` when it samples under one.
 
 ```python
 from langchain.chat_models import init_chat_model

@@ -10,11 +10,13 @@ This keeps the protocol logic free of I/O, the sans-I/O pattern
 
 from __future__ import annotations
 
+import functools
 import logging
 import re
+import warnings
 from abc import ABC, abstractmethod
 from collections.abc import Awaitable, Callable, Generator
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import ClassVar
 
 import httpx
@@ -27,13 +29,19 @@ from langchain_core.runnables import Runnable
 from langchain_sync_monitors.concurrency import run_concurrently
 from langchain_sync_monitors.contracts import Monitor, MonitorInput, MonitorView, Verdict
 from langchain_sync_monitors.errors import ConfigurationError
-from langchain_sync_monitors.model_calls import build_internal_call_config, resolve_chat_model
+from langchain_sync_monitors.model_calls import (
+    CachedResampleWarning,
+    build_internal_call_config,
+    is_response_cache_active,
+    resolve_chat_model,
+)
 from langchain_sync_monitors.options import (
     check_instance_option,
     read_count_option,
     read_integer_option,
 )
 from langchain_sync_monitors.prompts import DEFAULT_MONITOR_PROMPT
+from langchain_sync_monitors.thresholds import LIBRARY_DIRECTORY
 from langchain_sync_monitors.transcript import render_proposed_step, render_transcript
 
 logger = logging.getLogger(__name__)
@@ -91,11 +99,15 @@ def is_rate_limit_error(error: Exception) -> bool:
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class ReplyRequest:
-    """What a scoring plan asks for: `count` independent replies from `model` to `messages`."""
+    """What a scoring plan asks for: `count` independent replies from `model` to `messages`.
+
+    `repeated` says the plan asked for a reply to the same messages before.
+    """
 
     model: Runnable[LanguageModelInput, AIMessage]
     messages: tuple[BaseMessage, ...]
     count: int = 1
+    repeated: bool = False
 
 
 type VerdictPlan = Generator[ReplyRequest, list[AIMessage], Verdict]
@@ -135,6 +147,25 @@ def run_verdict_plan_sync(
     while isinstance(step, ReplyRequest):
         step = resume_verdict_plan(plan, replies=request_replies(step))
     return step
+
+
+@functools.cache
+def warn_about_cached_monitor_replies() -> None:
+    """Emit the `CachedResampleWarning` for a monitor's model, on the first call in the process.
+
+    The cache on this function keeps the warning to one per process, as
+    `pending_steps.warn_about_cached_resamples` does for the agent's model.
+    """
+    warnings.warn(
+        "A LangChain response cache is active for a monitor's model, so each repeat of its "
+        "prompt returns a copy of the first reply: a guard's samples all carry the first "
+        "label, and a chat judge asked again after an unreadable reply gets the same reply. "
+        "Build the monitor's model with cache=False, or unset the global cache with "
+        "set_llm_cache(None).",
+        CachedResampleWarning,
+        stacklevel=2,
+        skip_file_prefixes=(LIBRARY_DIRECTORY,),
+    )
 
 
 def require_prompt_variables(prompt: ChatPromptTemplate, *, allowed: frozenset[str]) -> None:
@@ -224,11 +255,23 @@ class ChatModelMonitor(Monitor, ABC):
 
     async def request_replies(self, request: ReplyRequest) -> list[AIMessage]:
         """Draw the requested replies concurrently; one failed call cancels the others."""
+        self.warn_when_replies_are_cached(request)
         return await run_concurrently(self.request_reply(request) for _ in range(request.count))
 
     def request_replies_sync(self, request: ReplyRequest) -> list[AIMessage]:
         """Draw the requested replies one after another."""
+        self.warn_when_replies_are_cached(request)
         return [self.request_reply_sync(request) for _ in range(request.count)]
+
+    def warn_when_replies_are_cached(self, request: ReplyRequest) -> None:
+        """Warn, once per process, when a request repeats a prompt under a response cache.
+
+        A request repeats one when it asks for several replies at once, or
+        when the plan asked for a reply to the same messages before. The cache
+        is checked at each draw, so one set after the monitor was built counts.
+        """
+        if (request.count > 1 or request.repeated) and is_response_cache_active(self.model):
+            warn_about_cached_monitor_replies()
 
     async def request_reply(self, request: ReplyRequest) -> AIMessage:
         """Draw one reply, calling the model again after a rate limit.
@@ -354,7 +397,10 @@ class LLMMonitor(ChatModelMonitor):
 
     An unreadable reply is asked for again, up to `max_parse_retries` more
     times. If none can be read, the monitor fails closed: the step gets
-    suspicion 1.0 and a warning is logged.
+    suspicion 1.0 and a warning is logged. A response cache on the model
+    answers each request again with the first reply, so the monitor emits a
+    `CachedResampleWarning` when it asks again under one; build the model
+    with `cache=False`.
 
     One call gives an integer score, which ties often at low audit budgets;
     wrap the monitor in `RepeatedMonitor` to average several calls.
@@ -403,7 +449,7 @@ class LLMMonitor(ChatModelMonitor):
         request = ReplyRequest(model=self.model, messages=self.build_prompt_messages(monitor_input))
         attempts = self.max_parse_retries + 1
         for attempt in range(1, attempts + 1):
-            (reply,) = yield request
+            (reply,) = yield replace(request, repeated=attempt > 1)
             verdict = self.parse_verdict(reply)
             if verdict is not None:
                 return verdict

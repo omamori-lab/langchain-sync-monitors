@@ -202,7 +202,10 @@ the highest score.
 `max_parse_retries` is how many more times the monitor asks after an unreadable
 reply. The default of 2 allows three replies in all, and 0 allows one. Anything
 but a whole number of at least 0 raises `ConfigurationError`. Each retry sends
-the same prompt again.
+the same prompt again, so a LangChain response cache, global or on the judge's
+model, would answer it with the same unreadable reply. The monitor then warns
+once per process with a `CachedResampleWarning`; build the judge's model with
+`cache=False`.
 
 These retries are only for replies the monitor cannot read. Network and server
 errors are the chat model's own business, retried through its `max_retries`.

@@ -113,9 +113,10 @@ def test_zero_repeats_is_rejected() -> None:
 
 
 @pytest.mark.parametrize("random_seed", [None, 7], ids=["unseeded", "seeded"])
-def test_tied_scores_spread_at_random_over_the_slots_of_the_tie(
+async def test_tied_scores_spread_at_random_over_the_slots_of_the_tie(
     honest_scores: list[float],
     monitor_input: MonitorInput,
+    call_path: CallPath,
     random_seed: int | None,
 ) -> None:
     # Arrange
@@ -127,7 +128,8 @@ def test_tied_scores_spread_at_random_over_the_slots_of_the_tie(
     steps = [build_step_with_text(monitor_input, text=f"step {index}") for index in range(50)]
 
     # Act
-    percentiles = [calibrated.evaluate_sync(step).suspicion for step in steps]
+    verdicts = [await evaluate_on_path(calibrated, step, call_path=call_path) for step in steps]
+    percentiles = [verdict.suspicion for verdict in verdicts]
 
     # Assert: one honest score below, two tied, so slots 1 to 3 of 5, the first and last of
     # which 50 uniform draws each miss with a chance of (2/3)^50, about 2e-9

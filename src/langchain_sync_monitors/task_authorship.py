@@ -111,8 +111,8 @@ def merge_message_ids(  # lanorme: ignore[KWARG-001]
     return list(dict.fromkeys([*recorded, *new]))
 
 
-def keep_latest_flag(earlier: bool, latest: bool) -> bool:  # lanorme: ignore[KWARG-001]
-    """Keep the latest value of a flag that stacked monitors may write in the same node."""
+def keep_latest[ValueT](earlier: ValueT, latest: ValueT) -> ValueT:  # lanorme: ignore[KWARG-001]
+    """Keep the latest of two values, such as a flag stacked monitors write in the same node."""
     del earlier
     return latest
 

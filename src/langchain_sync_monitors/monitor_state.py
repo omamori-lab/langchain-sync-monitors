@@ -22,7 +22,7 @@ from langchain_sync_monitors.contracts import Delegation, StepRecord
 from langchain_sync_monitors.halts import InputsAtHalt, merge_inputs_at_halt
 from langchain_sync_monitors.run_inputs import RunInput, merge_run_inputs
 from langchain_sync_monitors.subagent_returns import SubagentReturn, merge_subagent_returns
-from langchain_sync_monitors.task_authorship import keep_latest_flag, merge_message_ids
+from langchain_sync_monitors.task_authorship import keep_latest, merge_message_ids
 
 
 class MonitorState(AgentState):
@@ -82,7 +82,7 @@ class MonitorState(AgentState):
     ]
     monitor_run_inputs: NotRequired[Annotated[list[RunInput], PrivateStateAttr, merge_run_inputs]]
     monitor_rewritten_inputs: NotRequired[Annotated[list[str], PrivateStateAttr, merge_message_ids]]
-    monitor_run_open: NotRequired[Annotated[bool, PrivateStateAttr, keep_latest_flag]]
+    monitor_run_open: NotRequired[Annotated[bool, PrivateStateAttr, keep_latest]]
     monitor_inputs_at_halt: NotRequired[
         Annotated[list[InputsAtHalt], PrivateStateAttr, merge_inputs_at_halt]
     ]

@@ -374,15 +374,6 @@ def test_the_docs_hold_python_examples_to_check() -> None:
 
 
 @pytest.mark.parametrize("block", DOCS_BLOCKS, ids=[block.label for block in DOCS_BLOCKS])
-def test_every_docs_example_parses(block: CodeBlock) -> None:
-    # Act
-    tree = ast.parse(block.source, filename=block.label)
-
-    # Assert
-    assert isinstance(tree, ast.Module)
-
-
-@pytest.mark.parametrize("block", DOCS_BLOCKS, ids=[block.label for block in DOCS_BLOCKS])
 def test_every_name_a_docs_example_imports_from_the_package_exists(block: CodeBlock) -> None:
     # Arrange
     tree = ast.parse(block.source, filename=block.label)

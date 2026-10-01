@@ -19,7 +19,7 @@ from pydantic import TypeAdapter, ValidationError
 
 from langchain_sync_monitors._langchain import AgentStateUpdate, read_delegation
 from langchain_sync_monitors.errors import MonitorError
-from langchain_sync_monitors.records import render_value
+from langchain_sync_monitors.records import describe_record_error, render_value
 from langchain_sync_monitors.state_keys import SUBAGENT_RETURNS_KEY
 
 
@@ -67,7 +67,9 @@ def merge_subagent_returns(  # lanorme: ignore[KWARG-001]
 def read_stored_returns(state: object) -> list[SubagentReturn]:
     """Return every entry in the state, raising `MonitorError` for a value that does not fit.
 
-    Skipping an entry could hide a halt, so none is skipped.
+    Skipping an entry could hide a halt, so none is skipped. The error names
+    the value and the fields at fault, and is raised from None, since
+    pydantic's own error quotes the value, which the traceback would print.
     """
     value = state.get(SUBAGENT_RETURNS_KEY) if isinstance(state, Mapping) else None
     if value is None:
@@ -76,10 +78,11 @@ def read_stored_returns(state: object) -> list[SubagentReturn]:
         return RETURNS_ADAPTER.validate_python(value, strict=True)
     except ValidationError as error:
         message = (
-            f"{SUBAGENT_RETURNS_KEY} holds a value the monitor cannot read: "
-            f"{render_value(value)}. Only the monitor writes this key; remove the value."
+            f"{SUBAGENT_RETURNS_KEY} holds a value the monitor cannot read "
+            f"({describe_record_error(error)}): {render_value(value)}. Only the monitor "
+            "writes this key; remove the value."
         )
-        raise MonitorError(message) from error
+        raise MonitorError(message) from None
 
 
 def read_subagent_returns(state: object) -> list[SubagentReturn]:

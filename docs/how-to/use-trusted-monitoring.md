@@ -154,9 +154,9 @@ for record in result["monitor_log"]:
   before the monitor scores it; see
   [Tools the provider runs itself](choose-a-protocol.md#tools-the-provider-runs-itself).
 - **The graph takes more steps.** The monitor adds two graph steps per agent
-  step, however many samples it draws, and two per run, which count towards a
-  `recursion_limit` you pass; see
-  [Graph steps, streams and failures](choose-a-protocol.md#graph-steps-streams-and-failures).
+  step, however many model calls the step makes, and two per run;
+  [Allow for the graph steps](read-the-monitor-log.md#allow-for-the-graph-steps)
+  gives the `recursion_limit` a run needs.
 
 ## Related guides
 

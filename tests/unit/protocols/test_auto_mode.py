@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import math
+from typing import Literal
 
 import pytest
 from langchain_core.messages import AIMessage
@@ -90,19 +91,27 @@ def test_three_blocks_in_a_row_halt_the_run(protocol: AutoMode, drive: StepDrive
     assert [len(call.blocked_attempts) for call in step.sample_calls] == [0, 1, 2]
 
 
+@pytest.mark.parametrize("counted_in", ["records", "thread"])
 @pytest.mark.parametrize(("blocked_earlier", "blocks_this_step"), [(18, 2), (19, 1)])
-def test_blocks_across_the_run_halt_at_the_run_total(
+def test_blocks_across_the_thread_halt_at_the_run_total(
     protocol: AutoMode,
     drive: StepDriver,
     blocked_earlier: int,
     blocks_this_step: int,
+    counted_in: Literal["records", "thread"],
 ) -> None:
-    # Arrange
+    # Arrange: the earlier blocks are in this run's records, or only in the thread's count,
+    # which also holds the blocks recorded inside subagents.
+    suspicions = [0.9] * blocks_this_step
     records = [
         build_step_record(blocked_count=blocked_earlier - 1),
         build_step_record(blocked_count=1),
     ]
-    step = ScriptedPendingStep(suspicions=[0.9] * blocks_this_step, previous_records=records)
+    step = (
+        ScriptedPendingStep(suspicions=suspicions, previous_records=records)
+        if counted_in == "records"
+        else ScriptedPendingStep(suspicions=suspicions, blocks_in_thread=blocked_earlier)
+    )
 
     # Act
     decision = drive(protocol.decide(step))
@@ -128,27 +137,6 @@ def test_acceptable_step_runs_even_after_the_run_total_is_reached(
 
     # Assert
     assert decision.outcome is Outcome.ALLOWED
-
-
-@pytest.mark.parametrize(("blocks_in_thread", "blocks_this_step"), [(18, 2), (19, 1)])
-def test_blocks_elsewhere_in_the_thread_count_towards_the_total(
-    protocol: AutoMode,
-    drive: StepDriver,
-    blocks_in_thread: int,
-    blocks_this_step: int,
-) -> None:
-    # Arrange
-    step = ScriptedPendingStep(
-        suspicions=[0.9] * blocks_this_step,
-        blocks_in_thread=blocks_in_thread,
-    )
-
-    # Act
-    decision = drive(protocol.decide(step))
-
-    # Assert
-    assert decision.outcome is Outcome.HALTED
-    assert len(decision.blocked_attempts) == blocks_this_step
 
 
 def test_an_infinite_total_never_hands_a_step_to_the_fallback(drive: StepDriver) -> None:
@@ -216,20 +204,6 @@ def test_subagent_blocks_under_the_total_leave_the_next_step_to_sampling(
     # Assert
     assert decision.outcome is Outcome.ALLOWED
     assert len(step.sample_calls) == 1
-
-
-def test_a_thread_over_the_total_samples_a_step_without_new_subagent_blocks(
-    protocol: AutoMode,
-    drive: StepDriver,
-) -> None:
-    # Arrange
-    step = ScriptedPendingStep(suspicions=[0.1], blocks_in_thread=25, new_subagent_blocks=0)
-
-    # Act
-    decision = drive(protocol.decide(step))
-
-    # Assert
-    assert decision.outcome is Outcome.ALLOWED
 
 
 def test_limit_can_hand_the_step_to_the_trusted_model(

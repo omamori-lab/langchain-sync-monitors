@@ -31,6 +31,7 @@ from tests.support.agents import (
     build_exfiltration_step,
     build_read_step,
     build_task_input,
+    stream_v3_messages,
 )
 from tests.support.chat_models import StreamingScriptedChatModel
 from tests.support.monitors import KeywordMonitor
@@ -112,10 +113,9 @@ def stream_parts(
     return render_parts(asyncio.run(collect()))
 
 
-def stream_v3_messages(*, tracer: RecordingTracer | None) -> list[str]:
-    """Return every message of the v3 event stream's `run.messages`, rendered."""
-    run = build_agent().stream_events(build_task_input(), build_config(tracer), version="v3")
-    return render_parts([message_stream.output for message_stream in run.messages])
+def render_v3_messages(*, mode: RunMode, tracer: RecordingTracer | None) -> list[str]:
+    """Return every message of a fresh agent's v3 event stream's `run.messages`, rendered."""
+    return render_parts(stream_v3_messages(build_agent(), mode=mode, config=build_config(tracer)))
 
 
 def switch_spans_off(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -162,6 +162,7 @@ def test_the_spans_leave_the_stream_byte_for_byte_the_same(
 
 @pytest.mark.filterwarnings("ignore::langchain_core._api.beta_decorator.LangChainBetaWarning")
 def test_the_spans_leave_the_v3_event_stream_s_messages_the_same(
+    run_mode: RunMode,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     # Arrange
@@ -170,9 +171,9 @@ def test_the_spans_leave_the_v3_event_stream_s_messages_the_same(
     # Act
     with monkeypatch.context() as patch:
         switch_spans_off(patch)
-        without_spans = stream_v3_messages(tracer=None)
-    untraced = stream_v3_messages(tracer=None)
-    traced = stream_v3_messages(tracer=tracer)
+        without_spans = render_v3_messages(mode=run_mode, tracer=None)
+    untraced = render_v3_messages(mode=run_mode, tracer=None)
+    traced = render_v3_messages(mode=run_mode, tracer=tracer)
 
     # Assert
     assert len(without_spans) == 2

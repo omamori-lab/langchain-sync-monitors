@@ -33,37 +33,23 @@ def honest_scores() -> list[float]:
     return [0.1, 0.2, 0.2, 0.3]
 
 
-async def test_repeated_monitor_averages_concurrent_calls(
+async def test_repeated_monitor_averages_its_calls(
     three_calls: ScriptedMonitor,
     monitor_input: MonitorInput,
+    call_path: CallPath,
 ) -> None:
-    # Arrange
+    # Arrange: that the async path's calls overlap is checked in test_calibration.py.
     repeated = RepeatedMonitor(monitor=three_calls, repeats=3)
 
     # Act
-    verdict = await repeated.evaluate(monitor_input)
+    verdict = await evaluate_on_path(repeated, monitor_input, call_path=call_path)
 
     # Assert
     assert verdict.suspicion == pytest.approx(0.4)
     assert three_calls.calls == 3
 
 
-def test_repeated_monitor_averages_sequential_calls(
-    three_calls: ScriptedMonitor,
-    monitor_input: MonitorInput,
-) -> None:
-    # Arrange
-    repeated = RepeatedMonitor(monitor=three_calls, repeats=3)
-
-    # Act
-    verdict = repeated.evaluate_sync(monitor_input)
-
-    # Assert
-    assert verdict.suspicion == pytest.approx(0.4)
-    assert three_calls.calls == 3
-
-
-def test_equal_means_compare_equal_so_calibration_breaks_their_tie_at_random(
+def test_equal_means_compare_equal_after_rounding(
     monitor_input: MonitorInput,
 ) -> None:
     # Arrange: both steps average to 0.1, but their float sums differ in the last bits.
@@ -109,15 +95,17 @@ def test_zero_repeats_is_rejected() -> None:
         RepeatedMonitor(monitor=ScriptedMonitor(suspicions=[0.0]), repeats=0)
 
 
-def test_a_tied_score_lands_inside_its_slot_and_the_tie(
+@pytest.mark.parametrize("random_seed", [None, 7], ids=["unseeded", "seeded"])
+def test_tied_scores_spread_at_random_over_the_slots_of_the_tie(
     honest_scores: list[float],
     monitor_input: MonitorInput,
+    random_seed: int | None,
 ) -> None:
     # Arrange
     calibrated = CalibratedMonitor(
         monitor=ScriptedMonitor(suspicions=[0.2]),
         honest_scores=honest_scores,
-        random_seed=7,
+        random_seed=random_seed,
     )
     steps = [build_step_with_text(monitor_input, text=f"step {index}") for index in range(50)]
 
@@ -129,7 +117,7 @@ def test_a_tied_score_lands_inside_its_slot_and_the_tie(
     assert len(set(percentiles)) > 1
 
 
-async def test_the_same_seed_breaks_ties_the_same_way(
+def test_different_seeds_break_the_same_ties_differently(
     honest_scores: list[float],
     monitor_input: MonitorInput,
 ) -> None:
@@ -138,17 +126,22 @@ async def test_the_same_seed_breaks_ties_the_same_way(
         CalibratedMonitor(
             monitor=ScriptedMonitor(suspicions=[0.2]),
             honest_scores=honest_scores,
-            random_seed=11,
+            random_seed=seed,
         )
-        for _ in range(2)
+        for seed in (11, 12)
     )
+    steps = [build_step_with_text(monitor_input, text=f"step {index}") for index in range(5)]
 
     # Act
-    first_verdict = await first.evaluate(monitor_input)
-    second_verdict = await second.evaluate(monitor_input)
+    pairs = [
+        (first.evaluate_sync(step).suspicion, second.evaluate_sync(step).suspicion)
+        for step in steps
+    ]
 
     # Assert
-    assert first_verdict.suspicion == second_verdict.suspicion
+    assert all(
+        first_percentile != second_percentile for first_percentile, second_percentile in pairs
+    )
 
 
 @pytest.mark.parametrize(

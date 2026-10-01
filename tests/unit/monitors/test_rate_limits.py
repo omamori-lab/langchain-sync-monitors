@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
+import time
 from collections.abc import Callable, Iterator
 
 import httpx
@@ -131,6 +133,33 @@ async def test_a_rate_limit_on_every_attempt_is_raised_after_the_last(
     # Assert
     assert raised.value is rate_limits[-1]
     assert model.started_calls == RATE_LIMIT_ATTEMPTS == 4
+
+
+async def test_each_retry_after_a_rate_limit_waits_longer_from_one_second(
+    monitor_input: MonitorInput,
+    call_path: CallPath,
+    retry_details: list[RetryDetails],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Arrange: stamina computes its real waits, and the sleeps themselves are skipped
+    sleep_on_the_loop = asyncio.sleep
+
+    async def skip_the_wait(_delay: float) -> None:
+        await sleep_on_the_loop(0)
+
+    monkeypatch.setattr(asyncio, "sleep", skip_the_wait)
+    monkeypatch.setattr(time, "sleep", lambda _delay: None)
+    model = FlakyChatModel(replies=[ProviderStatusError(429) for _ in range(RATE_LIMIT_ATTEMPTS)])
+
+    # Act
+    with stamina.set_testing(False), pytest.raises(ProviderStatusError):
+        await evaluate_on_path(build_judge(model), monitor_input, call_path=call_path)
+
+    # Assert: each wait doubles from one second, with up to one second of jitter, up to five
+    first, second, third = (details.wait_for for details in retry_details)
+    assert 1.0 <= first <= 2.0
+    assert 2.0 <= second <= 3.0
+    assert 4.0 <= third <= 5.0
 
 
 async def test_a_guard_draws_again_only_the_rate_limited_sample(

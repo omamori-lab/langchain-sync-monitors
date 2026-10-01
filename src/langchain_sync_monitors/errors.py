@@ -16,8 +16,8 @@ class ConfigurationError(MonitorError):
     checked during a run, so the same error is raised then: a
     `monitor_delegation` in an agent's input that is not a valid
     `Delegation`, and a guard model that returns no log-probabilities with
-    alternatives under `GuardScoring.LOG_PROBABILITIES`, or rejects the
-    request for them under `GuardScoring.AUTO` or
+    alternatives under `GuardScoring.LOG_PROBABILITIES`, or whose adapter
+    does not take the `logprobs` keyword under `GuardScoring.AUTO` or
     `GuardScoring.LOG_PROBABILITIES`.
     """
 

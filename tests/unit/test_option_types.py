@@ -832,6 +832,7 @@ HUGE_OPTIONS = {
     "lowest-score-above-highest": lambda: LLMMonitor(
         model=FakeListChatModel(responses=["ok"]), lowest_score=HUGE, highest_score=0
     ),
+    "overrides-key": lambda: build_monitored_subagents(overrides={HUGE: build_middleware()}),
 }
 """Options each refusal of which once wrote the value out, and raised `ValueError` doing so;
 the scale's ends were written into the prompt only at the first step."""

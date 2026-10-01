@@ -30,5 +30,8 @@ CLAUDE.local.md
 site/
 live-reports/
 
+# Browser tool logs
+.playwright-mcp/
+
 # Agent worktrees (one checkout per parallel agent)
 .claude/worktrees/

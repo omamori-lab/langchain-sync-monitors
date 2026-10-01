@@ -37,15 +37,6 @@ You need Python 3.12 or newer. Install the library with the OpenRouter extra:
 pip install "langchain-sync-monitors[openrouter]"
 ```
 
-<!-- release-check: the text below describes an unreleased package. scripts/check-release.sh refuses a release while this comment is here; rewrite that text for the release, then delete this comment. -->
-
-The package is not on PyPI yet. Until the first release, install it from
-GitHub:
-
-```console
-pip install "langchain-sync-monitors[openrouter] @ git+https://github.com/omamori-lab/langchain-sync-monitors"
-```
-
 The tutorial uses two models through OpenRouter: a small, fast model as the
 agent and a stronger model as the judge, since a weaker monitor cannot
 reliably tell an attack from honest work (section 3.4)

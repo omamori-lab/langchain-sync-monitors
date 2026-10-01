@@ -382,3 +382,5 @@ name `langchain_sync_monitors` exports, grouped by what it is for.
 ::: langchain_sync_monitors.HardLabelWarning
     options:
       members: false
+
+## References

@@ -8,9 +8,16 @@ repo_url: https://github.com/omamori-lab/langchain-sync-monitors
 repo_name: omamori-lab/langchain-sync-monitors
 edit_uri: edit/main/docs/
 docs_dir: docs
-# Plans are working documents for contributors, not user docs.
+# Plans are working documents for contributors, not user docs, and the hooks
+# are build code.
 exclude_docs: |
   plans/
+  hooks/
+
+# mkdocs-bibtex reads only the Markdown of a page, so this hook turns the
+# citations in rendered docstrings into footnotes.
+hooks:
+  - docs/hooks/citations.py
 
 theme:
   name: material

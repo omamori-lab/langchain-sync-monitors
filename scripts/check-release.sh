@@ -54,12 +54,25 @@ if [[ -z "${release_date}" ]]; then
 else
   # The section runs to the next "## [" heading. Link references, which Keep a
   # Changelog puts at the end of the file, and outer blank lines are dropped.
+  # A wrapped line is joined to the line it continues, because GitHub renders
+  # each line break in Release notes as a break: a line continues the one
+  # before it unless either is blank, or it starts a heading, a list item, a
+  # table row or a code fence. Lines inside a code fence are kept as they are.
   # The awk sticks to what gawk, mawk and BSD awk all read the same way.
   notes="$(awk -v heading="## [${version}] - " '
     index($0, heading) == 1 { grab = 1; next }
     grab && /^## \[/ { exit }
     grab && /^\[.+\]: http/ { next }
-    grab { lines[++count] = $0 }
+    grab && /^[ \t]*```/ { fence = !fence; lines[++count] = $0; joinable = 0; next }
+    grab && fence { lines[++count] = $0; next }
+    grab && /^[ \t]*$/ { lines[++count] = $0; joinable = 0; next }
+    grab && joinable && $0 !~ /^[ \t]*([-*+] |[0-9]+\. |#|\|)/ {
+      text = $0
+      sub(/^[ \t]+/, "", text)
+      lines[count] = lines[count] " " text
+      next
+    }
+    grab { lines[++count] = $0; joinable = ($0 !~ /^#/) }
     END {
       first = 1
       while (first <= count && lines[first] ~ /^[ \t]*$/) first++

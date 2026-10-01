@@ -58,7 +58,7 @@ def test_the_final_answer_guard_s_quote_of_the_agent_never_speaks_as_the_user(
     )
     middleware: list[AgentMiddleware[Any, Any, Any]] = [
         nemotron_profile.FinalAnswerGuardMiddleware(),
-        MonitorMiddleware(monitor=monitor, protocol=TrustedMonitoring(flag_threshold=0.6)),
+        MonitorMiddleware(monitor=monitor, protocol=TrustedMonitoring(audit_threshold=0.6)),
     ]
     agent = create_agent(
         model=model,

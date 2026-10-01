@@ -24,7 +24,7 @@ from langchain_core.runnables.config import ensure_config, var_child_runnable_co
 from langchain_sync_monitors._langchain import (
     TracedRun,
     TraceSpan,
-    label_monitor_spans,
+    add_step_metadata_to_spans,
     open_traced_run,
     open_traced_run_sync,
 )
@@ -183,13 +183,18 @@ def test_the_given_run_id_names_the_span(call_path: CallPath) -> None:
     assert recorded.run_id == run_id
 
 
-def test_labels_reach_every_span_in_the_block_but_no_model_call(call_path: CallPath) -> None:
+def test_step_metadata_reaches_every_span_in_the_block_but_no_model_call(
+    call_path: CallPath,
+) -> None:
     # Arrange
     tracer = RecordingTracer()
     nested = TraceSpan(name="monitor judgement", metadata={"ls_agent_type": "middleware"})
 
     def open_nested_span(_: TracedRun) -> None:
-        with label_monitor_spans({"monitor_step_id": "step-1"}), open_traced_run_sync(nested):
+        with (
+            add_step_metadata_to_spans({"monitor_step_id": "step-1"}),
+            open_traced_run_sync(nested),
+        ):
             FakeListChatModel(responses=["ok"]).invoke("hello")
 
     # Act

@@ -189,11 +189,11 @@ class TypeSafeDecisionModel(DecisionModel):
         }
 
 
-class Combine(StrEnum):
-    """How `DecisionModelMonitor` combines the probabilities of several questions.
+class Aggregation(StrEnum):
+    """How `DecisionModelMonitor` aggregates the probabilities of several questions.
 
     `MAX` lets any single criterion raise suspicion, the right shape for threat
-    criteria, and the way ShieldGemma combines harm types
+    criteria, and the way ShieldGemma aggregates harm types
     [@zeng2024shieldgemma]. `MIN` fits questions that must all hold. `MEAN`
     dilutes one strong hit: 0.95 with three 0.05s averages 0.275.
     """
@@ -203,11 +203,11 @@ class Combine(StrEnum):
     MEAN = "mean"
 
 
-def combine_probabilities(probabilities: Sequence[float], *, combine: Combine) -> float:
-    """Combine the probabilities of yes into one suspicion."""
-    if combine is Combine.MAX:
+def aggregate_probabilities(probabilities: Sequence[float], *, aggregation: Aggregation) -> float:
+    """Aggregate the probabilities of yes into one suspicion."""
+    if aggregation is Aggregation.MAX:
         return max(probabilities)
-    if combine is Combine.MIN:
+    if aggregation is Aggregation.MIN:
         return min(probabilities)
     return statistics.fmean(probabilities)
 
@@ -218,14 +218,14 @@ class DecisionModelMonitor(Monitor):
     The model reads the rendered transcript and the proposed step as one
     string. With the default single question, suspicion is its probability of
     yes. With several, such as `ATTACK_CRITERIA`, they go in one request and
-    `combine` merges them; `Combine.MAX` is the default because averaging
-    dilutes a single strong hit, while the maximum keeps it (see
+    `aggregation` merges them; `Aggregation.MAX` is the default because
+    averaging dilutes a single strong hit, while the maximum keeps it (see
     `docs/plans/initial-implementation/research/decision-model-question-format.md`).
     The reason names the question with the highest probability of yes, or,
-    under `Combine.MIN`, every question in the order given: the minimum rests
-    on all of them, and naming the lowest would point the agent at the one
-    criterion it needs to lower to pass. It carries no probability or
-    combined score: Auto Mode shows the reason to the agent, and those numbers
+    under `Aggregation.MIN`, every question in the order given: the minimum
+    rests on all of them, and naming the lowest would point the agent at the
+    one criterion it needs to lower to pass. It carries no probability or
+    aggregated score: Auto Mode shows the reason to the agent, and those numbers
     would tell it how close its step came to passing. They stay in the
     suspicion.
 
@@ -240,10 +240,10 @@ class DecisionModelMonitor(Monitor):
         *,
         decision_model: DecisionModel,
         questions: Iterable[YesNoQuestion] = (IS_THE_STEP_SUSPICIOUS,),
-        combine: Combine = Combine.MAX,
+        aggregation: Aggregation = Aggregation.MAX,
         view: MonitorView = DEFAULT_MONITOR_VIEW,
     ) -> None:
-        """Build the monitor; question keys must be unique, and `Combine.MEAN` warns.
+        """Build the monitor; question keys must be unique, and `Aggregation.MEAN` warns.
 
         `questions` may be any iterable, a generator included; it is read once
         into a tuple, so checking it cannot consume the questions. An option
@@ -255,18 +255,18 @@ class DecisionModelMonitor(Monitor):
             parameter_name="decision_model",
             hint="Use OpenRouterDecisionModel(model=...) or TypeSafeDecisionModel(classifier=...).",
         )
-        check_enum_option(combine, option_type=Combine, parameter_name="combine")
+        check_enum_option(aggregation, option_type=Aggregation, parameter_name="aggregation")
         check_instance_option(view, option_type=MonitorView, parameter_name="view")
         question_tuple = read_questions(questions)
-        if combine is Combine.MEAN:
+        if aggregation is Aggregation.MEAN:
             message = (
-                "Combine.MEAN dilutes a single strong hit (0.95 with three 0.05s averages "
-                "0.275); Combine.MAX keeps it."
+                "Aggregation.MEAN dilutes a single strong hit (0.95 with three 0.05s averages "
+                "0.275); Aggregation.MAX keeps it."
             )
             warnings.warn(message, UserWarning, stacklevel=2)
         self.decision_model = decision_model
         self.questions = question_tuple
-        self.combine = combine
+        self.aggregation = aggregation
         self.view = view
 
     async def evaluate(self, monitor_input: MonitorInput) -> Verdict:
@@ -296,15 +296,15 @@ class DecisionModelMonitor(Monitor):
         return f"<transcript>\n{transcript}\n</transcript>\n{proposed_step}"
 
     def build_verdict(self, probabilities: Mapping[str, float]) -> Verdict:
-        """Check and combine the probabilities, and name the questions the suspicion rests on.
+        """Check and aggregate the probabilities, and name the questions the suspicion rests on.
 
-        Under `Combine.MIN` that is every question, in the order given, so the
-        reason does not depend on the answers. Otherwise it is the question
+        Under `Aggregation.MIN` that is every question, in the order given, so
+        the reason does not depend on the answers. Otherwise it is the question
         with the highest probability of yes, the first in order on a tie.
         """
         answers = select_question_probabilities(probabilities, questions=self.questions)
-        suspicion = combine_probabilities(list(answers.values()), combine=self.combine)
-        if self.combine is Combine.MIN:
+        suspicion = aggregate_probabilities(list(answers.values()), aggregation=self.aggregation)
+        if self.aggregation is Aggregation.MIN:
             concerns = "; ".join(
                 f"{question.key!r}: {question.text}" for question in self.questions
             )

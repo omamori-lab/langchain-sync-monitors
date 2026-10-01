@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1000" height="404" viewBox="0 0 1000 404" role="img" aria-labelledby="title desc">
   <title id="title">Collect honest scores with the monitor you will calibrate</title>
-  <desc id="desc">Run the agent on honest tasks under TrustedMonitoring, which never changes a step, so every step is judged once, as in an unmonitored run. Its monitor_log holds one record per step; keep the records of this agent and this monitor, since a Deep Agent&#x27;s log also holds its subagents&#x27; records. Every sample&#x27;s suspicion is an honest score; read the highest first, since a score of 1.0 from a reply that could not be read measures nothing. Pass the scores to CalibratedMonitor as honest_scores. The monitor that judges the honest runs and the one CalibratedMonitor wraps are the same: the same model, prompt, view, repeats and temperature.</desc>
+  <desc id="desc">Run the agent on honest tasks under TrustedMonitoring, which never changes a step, so every step is judged once, as in an unmonitored run. Its monitor_log holds one record per step; keep the records of this agent and this monitor, since a Deep Agent&#x27;s log also holds its subagents&#x27; records. Every sample&#x27;s suspicion is an honest score; read the highest first, since a score of 1.0 from a reply that could not be read measures nothing. Pass the scores to CalibratedMonitor as honest_scores. The monitor that judges the honest runs and the one CalibratedMonitor wraps are the same: the same model, prompt, view, ensemble size and temperature.</desc>
   <!-- Colours come from the brand tokens: diagrams/render.py fills this style block. -->
   <style>
     svg { color-scheme: dark; }
@@ -55,7 +55,7 @@
   <rect class="seal" x="339.0" y="354.0" width="9" height="9" rx="1"/>
   <text x="500.0" y="301.0" text-anchor="middle" class="title on-charm">Your monitor</text>
   <text x="500.0" y="323.0" text-anchor="middle" class="small on-charm">the same model, prompt, view,</text>
-  <text x="500.0" y="344.0" text-anchor="middle" class="small on-charm">repeats and temperature</text>
+  <text x="500.0" y="344.0" text-anchor="middle" class="small on-charm">ensemble size and temperature</text>
   <path class="edge" d="M330.0,321.0 L135.5,321.0 L135.5,208.0" marker-end="url(#arrow)"/>
   <text x="232.8" y="347.0" text-anchor="middle" class="small">judges every step</text>
   <path class="edge" d="M670.0,321.0 L864.5,321.0 L864.5,208.0" marker-end="url(#arrow)"/>

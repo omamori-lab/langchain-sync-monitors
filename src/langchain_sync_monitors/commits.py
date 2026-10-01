@@ -165,7 +165,7 @@ def commit_step(
         **build_note_update(request.state),
         # A middleware listed after the monitor may have rewritten a kept input since.
         **build_refresh_update(request.state),
-        **build_halt_inputs_update(record, state=request.state, monitor=middleware_name),
+        **build_halt_inputs_update(record, state=request.state, middleware_name=middleware_name),
         **build_answered_update(request.state),
     }
     write_stream_event(request, event=MonitorStepEvent(type="monitor_step", record=record))

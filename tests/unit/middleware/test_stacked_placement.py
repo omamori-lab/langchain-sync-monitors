@@ -74,7 +74,7 @@ def build_trusted_fallback() -> DeferToTrustedModel:
 
 
 def build_trusted_monitoring() -> ControlProtocol:
-    return TrustedMonitoring(flag_threshold=THRESHOLD)
+    return TrustedMonitoring(audit_threshold=THRESHOLD)
 
 
 def build_resampling(
@@ -139,7 +139,7 @@ REPEATING_PROTOCOLS: dict[str, ProtocolBuilder] = {
     "auto-mode-one-block-then-defer": lambda: build_auto_mode(
         max_consecutive_blocks=1, when_limit_reached=build_trusted_fallback()
     ),
-    "trusted-monitoring-subclass": lambda: TeamTrustedMonitoring(flag_threshold=THRESHOLD),
+    "trusted-monitoring-subclass": lambda: TeamTrustedMonitoring(audit_threshold=THRESHOLD),
     "resample-subclass-none-then-halt": lambda: TeamDeferToResample(
         fallback=HaltRun(),
         defer_threshold=THRESHOLD,
@@ -434,7 +434,7 @@ def test_an_inner_monitor_that_never_blocks_may_keep_feedback_in_the_transcript(
         lambda: build_auto_mode(max_consecutive_blocks=3, when_limit_reached=HaltRun()),
         lambda: build_auto_mode(max_consecutive_blocks=1, when_limit_reached=HaltRun()),
         lambda: build_resampling(fallback=LoudHaltRun(), max_resamples=2),
-        lambda: TeamTrustedMonitoring(flag_threshold=THRESHOLD),
+        lambda: TeamTrustedMonitoring(audit_threshold=THRESHOLD),
         lambda: TeamDeferToResample(
             fallback=HaltRun(), defer_threshold=THRESHOLD, audit_threshold=THRESHOLD
         ),

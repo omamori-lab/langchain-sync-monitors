@@ -16,6 +16,7 @@ from langchain_sync_monitors.contracts import (
     Outcome,
     PendingStep,
     Sample,
+    SampleDrawing,
     StepDecision,
     StepRecord,
 )
@@ -68,12 +69,12 @@ class ResampleThenDefer(ControlProtocol):
 
     trusted_model: BaseChatModel
     extra_samples: int = 2
-    concurrently: bool = False
+    drawing: SampleDrawing = SampleDrawing.SEQUENTIAL
 
     async def decide(self, step: PendingStep) -> StepDecision:
         samples = await step.sample(count=1)
         if samples[0].verdict.suspicion >= SUSPICION_THRESHOLD:
-            samples += await step.sample(count=self.extra_samples, concurrently=self.concurrently)
+            samples += await step.sample(count=self.extra_samples, drawing=self.drawing)
         acceptable = [
             sample for sample in samples if sample.verdict.suspicion < SUSPICION_THRESHOLD
         ]

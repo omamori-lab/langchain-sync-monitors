@@ -60,10 +60,10 @@ def check_fallback_option(value: object, *, parameter_name: str) -> None:
 class DeferToTrustedModel(Fallback):
     """The trusted model writes the step, with the same conversation and tools.
 
-    This is the fallback of Defer to Trusted [@greenblatt2023aicontrol] and of
-    Ctrl-Z's Defer to Resample [@bhatt2025ctrlz]. The trusted model never sees
-    the rejected samples. A model string is resolved once, when the fallback is
-    built.
+    This is the fallback of Defer to Trusted (section 3.3)
+    [@greenblatt2023aicontrol] and of Ctrl-Z's Defer to Resample (section 3.2)
+    [@bhatt2025ctrlz]. The trusted model never sees the rejected samples. A
+    model string is resolved once, when the fallback is built.
     """
 
     def __init__(self, *, trusted_model: str | BaseChatModel) -> None:
@@ -104,6 +104,10 @@ class HaltRun(Fallback):
     `RubricMiddleware` does [@deepagents2026], the monitor middleware halts
     each further step itself, without drawing a sample, and with a final
     message of its own.
+
+    The flag, the standing halt and the use of `HaltRun` as Defer to
+    Resample's fallback are the library's own rules; the design explanation's
+    "Protocols and outcomes" section says why.
     """
 
     message: str = DEFAULT_HALT_MESSAGE

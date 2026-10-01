@@ -1,4 +1,4 @@
-"""The provider tool warning names a tool bound on the model only when it reaches the model call.
+"""The server tool warning names a tool bound on the model only when it reaches the model call.
 
 `create_agent` binds the tools of an agent that has tools of its own, or a
 `response_format`, with the model's `bind_tools`, which on a model bound in
@@ -24,7 +24,7 @@ from langchain_core.runnables import Runnable, RunnableBinding
 from langchain_core.tools import BaseTool
 from pydantic import BaseModel, Field
 
-from langchain_sync_monitors.errors import ProviderToolWarning
+from langchain_sync_monitors.errors import ServerToolWarning
 from langchain_sync_monitors.middleware import MonitorMiddleware
 from tests.support.agents import RunMode, Workspace, build_keyword_monitor, run_agent
 from tests.support.protocols import AcceptFirst
@@ -83,7 +83,7 @@ def run_and_read_warnings(
     with warnings.catch_warnings(record=True) as caught:
         warnings.simplefilter("always")
         run_agent(agent, mode=mode)
-    return [str(item.message) for item in caught if item.category is ProviderToolWarning]
+    return [str(item.message) for item in caught if item.category is ServerToolWarning]
 
 
 def has_received(model: RecordingBindingChatModel, tool_label: str) -> bool:

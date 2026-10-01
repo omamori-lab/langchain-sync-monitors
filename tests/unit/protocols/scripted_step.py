@@ -21,10 +21,12 @@ from langchain_sync_monitors.contracts import (
     BlockedAttempt,
     PendingStep,
     Sample,
+    SampleDrawing,
     StepDecision,
     StepRecord,
     Verdict,
 )
+from langchain_sync_monitors.options import check_enum_option
 
 TRUSTED_STEP_ID = "trusted-step"
 """The id of the message the scripted step returns for a trusted model's step."""
@@ -39,16 +41,18 @@ class SampleCall:
 
     count: int
     blocked_attempts: tuple[BlockedAttempt, ...]
-    concurrently: bool
+    drawing: SampleDrawing
 
 
 class ScriptedPendingStep(PendingStep):
     """A pending step whose samples carry scripted suspicion scores.
 
     Drawing more samples than the test scripted fails the test, so a protocol
-    that oversamples cannot pass unnoticed. Without `blocks_in_thread`, the
-    thread's blocks are the ones in `previous_records`, as `PendingStep`
-    counts them by default.
+    that oversamples cannot pass unnoticed. Like the library's pending steps,
+    it refuses a `drawing` that is not a `SampleDrawing` member, which would
+    otherwise compare equal to the member it names in a `SampleCall`. Without
+    `blocks_in_thread`, the thread's blocks are the ones in
+    `previous_records`, as `PendingStep` counts them by default.
     """
 
     def __init__(
@@ -90,11 +94,12 @@ class ScriptedPendingStep(PendingStep):
         *,
         count: int,
         blocked_attempts: tuple[BlockedAttempt, ...] = (),
-        concurrently: bool = False,
+        drawing: SampleDrawing = SampleDrawing.SEQUENTIAL,
     ) -> tuple[Sample, ...]:
         """Record the call and return the next `count` scripted samples."""
+        check_enum_option(drawing, option_type=SampleDrawing, parameter_name="drawing")
         self.sample_calls.append(
-            SampleCall(count=count, blocked_attempts=blocked_attempts, concurrently=concurrently),
+            SampleCall(count=count, blocked_attempts=blocked_attempts, drawing=drawing),
         )
         if count > len(self.remaining_suspicions):
             message = f"the protocol drew {count} samples, but only the scripted ones exist"

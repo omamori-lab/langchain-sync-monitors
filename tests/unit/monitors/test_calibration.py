@@ -236,7 +236,7 @@ async def test_a_seeded_draw_keeps_its_recorded_value(call_path: CallPath) -> No
 async def test_a_failed_repeat_cancels_the_other_calls_and_raises_its_own_error() -> None:
     # Arrange
     inner = SlowOrFailingMonitor(delay=0.2)
-    repeated = RepeatedMonitor(monitor=inner, repeats=3)
+    repeated = RepeatedMonitor(monitor=inner, ensemble_size=3)
 
     # Act
     with pytest.raises(TimeoutError, match="judge timed out"):
@@ -255,8 +255,8 @@ async def test_the_wrappers_pass_the_inner_reason_on_without_numbers(call_path: 
     fast = ScoreInProposal(reason="The fast stage escalates.")
     stack = CalibratedMonitor(
         monitor=RepeatedMonitor(
-            monitor=CascadeMonitor(fast=fast, careful=careful, escalate_at=0.5),
-            repeats=3,
+            monitor=CascadeMonitor(fast=fast, careful=careful, escalation_threshold=0.5),
+            ensemble_size=3,
         ),
         honest_scores=[0.1, 0.2, 0.3],
         random_seed=5,

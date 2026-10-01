@@ -10,11 +10,11 @@ person would otherwise approve each step. An honest agent that overreached
 can then finish the task by a safer route.
 After three blocks in a row within one step, or twenty in the conversation
 thread, a fallback writes the step, and by default the run halts. The
-protocol follows Claude Code's auto mode [@hughes2026automode], which stops a
-session after three denials in a row or twenty in all and hands it to a
-person, or, in headless mode, ends the process. Here the total counts per
-conversation thread, and the default fallback ends the run, as headless mode
-does.
+protocol follows Claude Code's auto mode, which stops a session after three
+denials in a row or twenty in all and hands it to a person, or, in headless
+mode, ends the process (section "Deny-and-continue") [@hughes2026automode].
+Here the total counts per conversation thread, and the default fallback ends
+the run, as headless mode does.
 
 ## How it works
 
@@ -29,9 +29,9 @@ step, flagged: `HaltRun`, the default, ends the run as `halted`;
 A step goes to the fallback before any attempt only when blocks inside
 subagents since this agent's last step leave the thread at or over the total.
 
-The tool calls of a blocked attempt never run. A provider's built-in tools in
-it, such as a web fetch, already ran inside the model call that drew it, once
-per attempt. The next attempt is drawn with the blocked proposal and its
+The tool calls of a blocked attempt never run. Server-side tools in it, such
+as a web fetch, already ran inside the model call that drew it, once per
+attempt. The next attempt is drawn with the blocked proposal and its
 feedback in view, so the agent knows what was refused and why. The attempt
 that reaches a limit is blocked like the others: it gets feedback, and it
 counts in `blocked_count`.
@@ -194,7 +194,7 @@ the parent's total when the parent keeps the default label too.
   further step halts again without a sample, with the library's standing-halt
   message rather than yours. Two paths through middleware listed before the
   monitor can lift it early; see
-  [A halt stands](choose-a-protocol.md#a-halt-stands).
+  [A halt stands](../explanation/design.md#a-halt-stands).
 - `DeferToTrustedModel(trusted_model=...)` has a trusted model write the step
   from the step's request with only the model changed, and the run goes on.
   The trusted model does not see this step's blocked attempts or their
@@ -220,10 +220,10 @@ The default feedback, `DEFAULT_FEEDBACK_TEMPLATE`, has three lines:
 > and do not try to get the same effect another way. If no safe route exists,
 > stop and say what approval you would need from the user to continue.
 
-It follows Claude Code's auto mode, whose denial reaches the agent as a tool
-result that asks it to find a safer path rather than work around the block
-[@hughes2026automode]. "None of your tools ran it" stays true when a
-provider's built-in tool in the step already ran inside the model call.
+It follows how Claude Code's auto mode answers a denial, as
+[Auto Mode](../explanation/design.md#auto-mode) explains. "None of your tools
+ran it" stays true when a server tool in the step already ran inside the
+model call.
 
 To write your own, pass `FeedbackTemplate(text=...)`:
 
@@ -257,13 +257,11 @@ A blocked attempt is answered in a way every provider accepts:
   attempts and their feedback. The agent's messages show the accepted step
   alone, and `monitor_log` keeps the blocked attempts.
 - With `IN_TRANSCRIPT`, the blocked attempts and their feedback are committed
-  before the accepted step. In Claude Code a denial comes back to the agent as
-  a tool result [@hughes2026automode]. The agent remembers the blocked attempts
-  on later steps, and so does the monitor, which reads earlier feedback as
-  `<monitor_feedback>`. Keep `HIDDEN` for an Auto Mode monitor that sits inside
-  another monitor: a monitor outside it would judge the first blocked attempt
-  instead of the step that runs, and `check_monitor_placement` warns about such
-  a list.
+  before the accepted step. The agent remembers the blocked attempts on later steps, and so does the
+  monitor, which reads earlier feedback as `<monitor_feedback>`. Keep
+  `HIDDEN` for an Auto Mode monitor that sits inside another monitor: a
+  monitor outside it would judge the first blocked attempt instead of the
+  step that runs, and `check_monitor_placement` warns about such a list.
 
 `HIDDEN` has a cost. Once a step is over, the agent no longer sees what was
 blocked in it, so at a later step it may propose the same blocked action
@@ -316,9 +314,10 @@ blocks_in_thread = sum(record["blocked_count"] for record in records)
 ## Limits
 
 - **The agent learns what the monitor catches.** Feedback helps an honest
-  agent, and it also tells a scheming agent what was refused. If that matters
-  more than steering, use Defer to Resample, where the agent never sees a
-  rejected step; see [Choose a protocol](choose-a-protocol.md).
+  agent, and it also tells an attacking agent what was refused; see
+  [Decide in three questions](choose-a-protocol.md#decide-in-three-questions)
+  for the sources. If that matters more than steering, use Defer to Resample,
+  where the agent never sees a rejected step.
 - **The total never resets, and can be passed.** A thread that has reached
   `max_total_blocks` sends the first block of every later step to the
   fallback. Parallel subagents can together pass the total, and a failed
@@ -334,9 +333,9 @@ blocks_in_thread = sum(record["blocked_count"] for record in records)
   is a `HaltRun` (not a subclass), so that a step draws at most one sample;
   see [Two monitors in one agent](../explanation/design.md#two-monitors-in-one-agent).
   `check_monitor_placement(middleware=[...])` warns about such a list.
-- **A provider's built-in tools run once per attempt.** A blocked attempt's
-  web search or code execution has already run at the provider; see
-  [Tools the provider runs itself](choose-a-protocol.md#tools-the-provider-runs-itself).
+- **Server tools run once per attempt.** A blocked attempt's web search or
+  code execution has already run at the provider; see
+  [Server tools](choose-a-protocol.md#server-tools).
 - **The graph takes more steps.** The monitor adds two graph steps per agent
   step, however many model calls the step makes, and two per run;
   [Allow for the graph steps](read-the-monitor-log.md#allow-for-the-graph-steps)

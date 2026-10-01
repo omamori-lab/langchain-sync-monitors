@@ -264,7 +264,7 @@ MONITOR_DELEGATION_KEY = "monitor_delegation"
 DELEGATION_ADAPTER = TypeAdapter(Delegation)
 """Validates a `Delegation` read from the state, where an agent's input can also put one."""
 
-span_labels: ContextVar[TraceValues | None] = ContextVar("monitor_span_labels", default=None)
+step_metadata: ContextVar[TraceValues | None] = ContextVar("monitor_step_metadata", default=None)
 """The metadata keys every monitor span opened in the current step carries, if any."""
 
 
@@ -470,16 +470,16 @@ def hide_model_calls_from_message_stream() -> Iterator[None]:
 
 
 @contextmanager
-def label_monitor_spans(labels: TraceValues) -> Iterator[None]:
+def add_step_metadata_to_spans(metadata: TraceValues) -> Iterator[None]:
     """Give every span a monitor opens inside the block these metadata keys as well.
 
-    The labels name the step, so a span deep inside a monitor, such as a
+    The keys name the step, so a span deep inside a monitor, such as a
     decision model's request, can be traced back to its step. They sit in a
     context variable, which the tasks started inside the block copy, and not
     in the metadata LangChain passes down, so no model call inside the block
     carries them.
     """
-    with set_context_value(span_labels, value=labels):
+    with set_context_value(step_metadata, value=metadata):
         yield
 
 
@@ -503,14 +503,14 @@ def build_span_manager[ManagerT: (CallbackManager, AsyncCallbackManager)](
     The span takes the handlers and parent of that manager, and the tags and
     metadata it passes on, as LangChain's `get_child` does; a tag meant for
     the node's own next run, such as `seq:step:1`, stays behind. The node's
-    manager is never changed, and the span's own tags, metadata and labels are
-    not inherited by the LangChain runs inside it, model calls included.
-    LangSmith's `traceable` runs are the exception: LangSmith builds one
-    opened inside the span from the span's run, and copies the span's
-    metadata into it [@langsmithsdk2026]. So the hook run `create_agent`
-    opens for a middleware inside the monitor, or a monitor's own `traceable`
-    code, carries the step's `monitor_` labels in LangSmith. Only dropping
-    the labels from the spans would prevent it.
+    manager is never changed, and the span's own tags and metadata, the
+    step's included, are not inherited by the LangChain runs inside it, model
+    calls included. LangSmith's `traceable` runs are the exception: LangSmith
+    builds one opened inside the span from the span's run, and copies the
+    span's metadata into it [@langsmithsdk2026]. So the hook run
+    `create_agent` opens for a middleware inside the monitor, or a monitor's
+    own `traceable` code, carries the step's `monitor_` metadata in LangSmith.
+    Only dropping that metadata from the spans would prevent it.
     """
     callbacks = config.get("callbacks")
     source = (
@@ -532,10 +532,10 @@ def build_span_manager[ManagerT: (CallbackManager, AsyncCallbackManager)](
         metadata=dict(source.inheritable_metadata),
         inheritable_metadata=dict(source.inheritable_metadata),
     )
-    # Not inherited, so the span's own tags, labels and metadata do not spread to the runs
-    # nested in it.
+    # Not inherited, so the span's own tags and metadata, the step's included, do not spread to
+    # the runs nested in it.
     callback_manager.add_tags(list(span.tags), inherit=False)
-    callback_manager.add_metadata({**(span_labels.get() or {}), **span.metadata}, inherit=False)
+    callback_manager.add_metadata({**(step_metadata.get() or {}), **span.metadata}, inherit=False)
     return callback_manager
 
 

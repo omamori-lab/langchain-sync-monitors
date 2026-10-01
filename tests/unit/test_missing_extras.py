@@ -27,7 +27,7 @@ OPENROUTER_MODEL = "openrouter:vendor/model"
 def middleware() -> MonitorMiddleware:
     return MonitorMiddleware(
         monitor=LLMMonitor(model=FakeListChatModel(responses=["unused"])),
-        protocol=TrustedMonitoring(flag_threshold=0.6),
+        protocol=TrustedMonitoring(audit_threshold=0.6),
     )
 
 

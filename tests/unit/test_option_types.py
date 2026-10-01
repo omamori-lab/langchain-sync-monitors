@@ -37,6 +37,7 @@ from langchain_sync_monitors.contracts import (
     MonitorInput,
     MonitorView,
     Resampling,
+    SampleDrawing,
     TaskAuthor,
 )
 from langchain_sync_monitors.deepagents import monitor_subagents
@@ -45,9 +46,9 @@ from langchain_sync_monitors.middleware import MonitorMiddleware
 from langchain_sync_monitors.monitors import (
     ATTACK_CRITERIA,
     IS_THE_STEP_SUSPICIOUS,
+    Aggregation,
     CalibratedMonitor,
     CascadeMonitor,
-    Combine,
     DecisionModelMonitor,
     GuardModelMonitor,
     GuardScoring,
@@ -305,20 +306,26 @@ def test_a_foreign_type_that_shares_a_builtin_name_is_named_with_its_module() ->
         build_auto_mode(max_consecutive_blocks=foreign_bool)
 
 
-def build_protocol_with_threshold(parameter_name: str, value: object) -> object:
+def build_protocol_with_threshold(protocol: str, *, parameter_name: str, value: object) -> object:
     thresholds: dict[str, Any] = {parameter_name: value}
-    if parameter_name == "flag_threshold":
+    if protocol == "trusted-monitoring":
         return TrustedMonitoring(**thresholds)
-    if parameter_name == "block_threshold":
+    if protocol == "auto-mode":
         return AutoMode(**thresholds)
     settings: dict[str, Any] = {"defer_threshold": 0.6, "audit_threshold": 0.9, **thresholds}
     return DeferToResample(fallback=HaltRun(), **settings)
 
 
-THRESHOLD_PARAMETERS = ["flag_threshold", "block_threshold", "defer_threshold", "audit_threshold"]
+THRESHOLD_PARAMETERS = [
+    pytest.param("trusted-monitoring", "audit_threshold", id="trusted-monitoring-audit"),
+    pytest.param("auto-mode", "block_threshold", id="auto-mode-block"),
+    pytest.param("defer-to-resample", "defer_threshold", id="defer-to-resample-defer"),
+    pytest.param("defer-to-resample", "audit_threshold", id="defer-to-resample-audit"),
+]
+"""Each protocol threshold: Trusted Monitoring and Defer to Resample both take `audit_threshold`."""
 
 
-@pytest.mark.parametrize("parameter_name", THRESHOLD_PARAMETERS)
+@pytest.mark.parametrize(("protocol", "parameter_name"), THRESHOLD_PARAMETERS)
 @pytest.mark.parametrize(
     ("value", "message"),
     [
@@ -333,35 +340,37 @@ THRESHOLD_PARAMETERS = ["flag_threshold", "block_threshold", "defer_threshold", 
     ids=["string", "bool", "list", "nan", "above-one", "below-zero", "signalling-nan"],
 )
 def test_a_threshold_that_is_not_a_number_from_zero_to_one_is_refused(
+    protocol: str,
     parameter_name: str,
     value: object,
     message: str,
 ) -> None:
     # Act / Assert
     with pytest.raises(ConfigurationError, match=f"{parameter_name} {message}"):
-        build_protocol_with_threshold(parameter_name, value)
+        build_protocol_with_threshold(protocol, parameter_name=parameter_name, value=value)
 
 
-@pytest.mark.parametrize("parameter_name", THRESHOLD_PARAMETERS)
+@pytest.mark.parametrize(("protocol", "parameter_name"), THRESHOLD_PARAMETERS)
 @pytest.mark.parametrize(
     "value",
     [0, 1, 0.6, Fraction(3, 5), Decimal("0.6")],
     ids=["zero", "one", "float", "fraction", "decimal"],
 )
 def test_a_threshold_given_as_any_real_number_from_zero_to_one_is_kept_as_a_float(
+    protocol: str,
     parameter_name: str,
     value: float | Fraction | Decimal,
 ) -> None:
     # Act
-    protocol = build_protocol_with_threshold(parameter_name, value)
+    built = build_protocol_with_threshold(protocol, parameter_name=parameter_name, value=value)
 
     # Assert
-    threshold = getattr(protocol, parameter_name)
+    threshold = getattr(built, parameter_name)
     assert type(threshold) is float
     assert threshold == float(value)
 
 
-@pytest.mark.parametrize("parameter_name", THRESHOLD_PARAMETERS)
+@pytest.mark.parametrize(("protocol", "parameter_name"), THRESHOLD_PARAMETERS)
 @pytest.mark.parametrize(
     "value",
     [
@@ -390,20 +399,21 @@ def test_a_threshold_given_as_any_real_number_from_zero_to_one_is_kept_as_a_floa
     ],
 )
 def test_a_threshold_just_outside_the_range_is_refused_before_it_is_rounded(
+    protocol: str,
     parameter_name: str,
     value: object,
 ) -> None:
     # Act / Assert: a float would round the first four into [0, 1]
     with pytest.raises(ConfigurationError, match=f"{parameter_name} must be between 0 and 1"):
-        build_protocol_with_threshold(parameter_name, value)
+        build_protocol_with_threshold(protocol, parameter_name=parameter_name, value=value)
 
 
 def test_a_negative_zero_threshold_is_read_as_zero() -> None:
     # Act
-    protocol = TrustedMonitoring(flag_threshold=-0.0)
+    protocol = TrustedMonitoring(audit_threshold=-0.0)
 
     # Assert
-    threshold = protocol.flag_threshold
+    threshold = protocol.audit_threshold
     assert threshold == 0.0
     assert math.copysign(1.0, threshold) == 1.0
 
@@ -473,7 +483,9 @@ def build_question(**options: Any) -> YesNoQuestion:
 
 
 def build_repeated_monitor(**options: Any) -> RepeatedMonitor:
-    return RepeatedMonitor(**merge_options({"monitor": KeywordMonitor(), "repeats": 2}, options))
+    return RepeatedMonitor(
+        **merge_options({"monitor": KeywordMonitor(), "ensemble_size": 2}, options)
+    )
 
 
 def build_calibrated_monitor(**options: Any) -> CalibratedMonitor:
@@ -482,7 +494,7 @@ def build_calibrated_monitor(**options: Any) -> CalibratedMonitor:
 
 
 def build_cascade_monitor(**options: Any) -> CascadeMonitor:
-    defaults = {"fast": KeywordMonitor(), "careful": KeywordMonitor(), "escalate_at": 0.5}
+    defaults = {"fast": KeywordMonitor(), "careful": KeywordMonitor(), "escalation_threshold": 0.5}
     return CascadeMonitor(**merge_options(defaults, options))
 
 
@@ -499,7 +511,7 @@ def build_monitored_subagents(**options: Any) -> list[Any]:
 
 
 def build_resolved_threshold(**options: Any) -> float:
-    defaults = {"parameter_name": "flag_threshold", "threshold": 0.5}
+    defaults = {"parameter_name": "audit_threshold", "threshold": 0.5}
     return resolve_threshold(**merge_options(defaults, options))
 
 
@@ -513,8 +525,8 @@ WRONG_DURATIONS: list[object] = [0, -1, math.inf, math.nan, 10**400, Decimal("1E
 WHOLE = "be a whole number of at least"
 BETWEEN_ZERO_AND_ONE = "be (a number )?between 0 and 1, got"
 REFUSAL_RULES: list[tuple[Build, str, list[object], str]] = [
-    (build_repeated_monitor, "repeats", [*WRONG_WHOLE_NUMBERS, None], f"{WHOLE} 1"),
-    (build_repeated_monitor, "repeats", [0, -1], "be at least 1, got"),
+    (build_repeated_monitor, "ensemble_size", [*WRONG_WHOLE_NUMBERS, None], f"{WHOLE} 1"),
+    (build_repeated_monitor, "ensemble_size", [0, -1], "be at least 1, got"),
     (build_guard_monitor, "samples", [*WRONG_WHOLE_NUMBERS, None], f"{WHOLE} 1"),
     (build_guard_monitor, "samples", [0], "be at least 1, got 0"),
     (build_llm_monitor, "max_parse_retries", [*WRONG_WHOLE_NUMBERS, None], f"{WHOLE} 0"),
@@ -524,7 +536,7 @@ REFUSAL_RULES: list[tuple[Build, str, list[object], str]] = [
     (build_llm_monitor, "lowest_score", [*WRONG_WHOLE_NUMBERS, None], "be an integer, got"),
     (build_llm_monitor, "highest_score", [*WRONG_WHOLE_NUMBERS, None], "be an integer, got"),
     (build_calibrated_monitor, "random_seed", WRONG_WHOLE_NUMBERS, "be an integer, got"),
-    (build_cascade_monitor, "escalate_at", WRONG_THRESHOLDS, BETWEEN_ZERO_AND_ONE),
+    (build_cascade_monitor, "escalation_threshold", WRONG_THRESHOLDS, BETWEEN_ZERO_AND_ONE),
     (build_calibrated_monitor, "honest_scores", ["0.1", True, 0.5, None], "be an iterable of"),
     (build_calibrated_monitor, "honest_scores", [[]], "hold at least one score"),
     (build_decision_model, "timeout_seconds", [True, "30", None], "be a positive number, got"),
@@ -541,7 +553,7 @@ REFUSAL_RULES: list[tuple[Build, str, list[object], str]] = [
     (build_guard_monitor, "safe_labels", [*WRONG_OBJECTS, ["x"]], "be a set of strings"),
     (build_guard_monitor, "safe_labels", [{None}], "hold only strings, got None"),
     (build_guard_monitor, "scoring", WRONG_OBJECTS, "be one of GuardScoring.AUTO"),
-    (build_decision_monitor, "combine", WRONG_OBJECTS, "be one of Combine.MAX"),
+    (build_decision_monitor, "aggregation", WRONG_OBJECTS, "be one of Aggregation.MAX"),
     (build_decision_monitor, "decision_model", WRONG_OBJECTS, "be a DecisionModel, got"),
     (build_decision_monitor, "questions", [*WRONG_OBJECTS, *ONE_QUESTION], "be an iterable of"),
     (build_decision_monitor, "questions", [[], ONE_QUESTION * 2], "be non-empty, with unique"),
@@ -670,8 +682,8 @@ def test_the_ends_of_a_scale_are_read_before_they_are_compared() -> None:
 
 SCORES_IN_ANY_FORM = iter([Decimal("0.5"), Fraction(1, 4), 1, 0, -0.0])
 ACCEPTED_CASES: list[tuple[Build, dict[str, object], str, object]] = [
-    (build_repeated_monitor, {"repeats": 1}, "repeats", 1),
-    (build_repeated_monitor, {"repeats": ArrayInteger(3)}, "repeats", 3),
+    (build_repeated_monitor, {"ensemble_size": 1}, "ensemble_size", 1),
+    (build_repeated_monitor, {"ensemble_size": ArrayInteger(3)}, "ensemble_size", 3),
     (build_guard_monitor, {"samples": 1}, "samples", 1),
     (build_guard_monitor, {"samples": ArrayInteger(2)}, "samples", 2),
     (build_llm_monitor, {"max_parse_retries": 0}, "max_parse_retries", 0),
@@ -693,10 +705,10 @@ ACCEPTED_CASES: list[tuple[Build, dict[str, object], str, object]] = [
         "sorted_honest_scores",
         [0.0, 0.0, 0.25, 0.5, 1.0],
     ),
-    (build_cascade_monitor, {"escalate_at": 0}, "escalate_at", 0.0),
-    (build_cascade_monitor, {"escalate_at": 1}, "escalate_at", 1.0),
-    (build_cascade_monitor, {"escalate_at": -0.0}, "escalate_at", 0.0),
-    (build_cascade_monitor, {"escalate_at": Decimal("0.3")}, "escalate_at", 0.3),
+    (build_cascade_monitor, {"escalation_threshold": 0}, "escalation_threshold", 0.0),
+    (build_cascade_monitor, {"escalation_threshold": 1}, "escalation_threshold", 1.0),
+    (build_cascade_monitor, {"escalation_threshold": -0.0}, "escalation_threshold", 0.0),
+    (build_cascade_monitor, {"escalation_threshold": Decimal("0.3")}, "escalation_threshold", 0.3),
     (build_decision_model, {"timeout_seconds": 30}, "timeout_seconds", 30.0),
     (build_decision_model, {"timeout_seconds": 5e-324}, "timeout_seconds", 5e-324),
     (build_decision_model, {"timeout_seconds": Decimal("0.5")}, "timeout_seconds", 0.5),
@@ -743,7 +755,7 @@ async def test_a_decimal_escalation_threshold_escalates_the_float_score_it_names
     cascade = build_cascade_monitor(
         fast=KeywordMonitor(suspicion_by_keyword={"read_file": 0.3}),
         careful=KeywordMonitor(suspicion_by_keyword={"read_file": 0.9}),
-        escalate_at=Decimal("0.3"),
+        escalation_threshold=Decimal("0.3"),
     )
 
     # Act
@@ -795,7 +807,7 @@ def test_the_placement_check_takes_a_tuple_as_it_takes_a_list() -> None:
             {"decision_model": OpenRouterDecisionModel},
             "; pass an instance. Use",
         ),
-        (build_repeated_monitor, {"repeats": int}, "got the class int; pass an instance$"),
+        (build_repeated_monitor, {"ensemble_size": int}, "got the class int; pass an instance$"),
     ],
     ids=["class-for-monitor", "class-with-hint", "class-for-count"],
 )
@@ -832,9 +844,9 @@ def test_a_refusal_ends_with_a_full_stop_only_after_a_hint(
 HUGE = 10**5000
 """An integer of 5,001 digits: by default Python refuses to write out one of over 4,300."""
 HUGE_OPTIONS = {
-    "flag-threshold": lambda: TrustedMonitoring(flag_threshold=HUGE),
+    "audit-threshold": lambda: TrustedMonitoring(audit_threshold=HUGE),
     "threshold-fraction": lambda: TrustedMonitoring(
-        flag_threshold=Fraction(HUGE, 3)  # ty: ignore[invalid-argument-type]
+        audit_threshold=Fraction(HUGE, 3)  # ty: ignore[invalid-argument-type]
     ),
     "consecutive-blocks": lambda: AutoMode(block_threshold=0.6, max_consecutive_blocks=-HUGE),
     "total-blocks": lambda: AutoMode(block_threshold=0.6, max_total_blocks=-HUGE),
@@ -1028,15 +1040,17 @@ def test_a_refusal_reads_in_full(
 @pytest.mark.parametrize(
     ("option_type", "text", "member"),
     [
-        (Combine, "max", Combine.MAX),
-        (Combine, "min", Combine.MIN),
-        (Combine, "mean", Combine.MEAN),
+        (Aggregation, "max", Aggregation.MAX),
+        (Aggregation, "min", Aggregation.MIN),
+        (Aggregation, "mean", Aggregation.MEAN),
         (GuardScoring, "auto", GuardScoring.AUTO),
         (GuardScoring, "log_probabilities", GuardScoring.LOG_PROBABILITIES),
         (GuardScoring, "sample_fraction", GuardScoring.SAMPLE_FRACTION),
         (GuardScoring, "hard_label", GuardScoring.HARD_LABEL),
         (Resampling, "sequential", Resampling.SEQUENTIAL),
         (Resampling, "parallel", Resampling.PARALLEL),
+        (SampleDrawing, "sequential", SampleDrawing.SEQUENTIAL),
+        (SampleDrawing, "concurrent", SampleDrawing.CONCURRENT),
     ],
 )
 def test_a_string_from_configuration_converts_to_the_member_it_names(
@@ -1044,7 +1058,7 @@ def test_a_string_from_configuration_converts_to_the_member_it_names(
     text: str,
     member: StrEnum,
 ) -> None:
-    # Act: as each refusal of a plain string advises, such as with Combine(value)
+    # Act: as each refusal of a plain string advises, such as with Aggregation(value)
     converted = option_type(text)
 
     # Assert

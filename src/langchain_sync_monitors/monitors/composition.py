@@ -3,8 +3,8 @@
 Each wrapper is a `Monitor` itself, so it stacks around any monitor family, and
 around other wrappers, without the control protocols noticing. A common stack
 averages a few calls first, then expresses the result as an honest-run
-percentile: `CalibratedMonitor(monitor=RepeatedMonitor(monitor=judge, repeats=3),
-honest_scores=scores)`.
+percentile: `CalibratedMonitor(monitor=RepeatedMonitor(monitor=judge,
+ensemble_size=3), honest_scores=scores)`.
 
 The wrappers change the suspicion and pass on the wrapped monitor's reason word
 for word. Auto Mode shows the reason to the agent, so it carries no scores:
@@ -34,6 +34,11 @@ from langchain_sync_monitors.transcript import render_proposal_for_audit
 class RepeatedMonitor(Monitor):
     """Ask the same monitor several times and report the mean suspicion.
 
+    This is a homogeneous ensemble: the mean of independent calls of one
+    monitor [@koran2026ensemble]. `ensemble_size` is the number of calls,
+    which LinuxArena calls the ensemble size (appendix C)
+    [@tracy2026linuxarena].
+
     A single call of a chat judge gives an integer score, and integer scores tie
     so often that a low audit budget cannot be set: the budget falls inside a
     group of tied steps. Averaging repeated calls adds resolution
@@ -43,33 +48,35 @@ class RepeatedMonitor(Monitor):
     mean works as well as more elaborate aggregators [@koran2026ensemble]. The
     calls only differ when the wrapped monitor samples, so its model needs a
     temperature above zero, and no LangChain response cache, which would
-    answer every repeat with a copy of the first call.
+    answer every call after the first with a copy of it.
 
     The reason is the most suspicious call's own reason, since that is the one
     an auditor needs to read. `evaluate` makes the calls concurrently, and one
     failed call cancels the others.
     """
 
-    def __init__(self, *, monitor: Monitor, repeats: int) -> None:
-        """Wrap `monitor`, calling it `repeats` times for each step.
+    def __init__(self, *, monitor: Monitor, ensemble_size: int) -> None:
+        """Wrap `monitor`, calling it `ensemble_size` times for each step.
 
-        `repeats` must be a whole number of at least 1; anything else, or a
-        `monitor` that is not a `Monitor`, raises `ConfigurationError`.
+        `ensemble_size` must be a whole number of at least 1; anything else, or
+        a `monitor` that is not a `Monitor`, raises `ConfigurationError`.
         """
         check_instance_option(monitor, option_type=Monitor, parameter_name="monitor")
         self.monitor = monitor
-        self.repeats = read_count_option(repeats, parameter_name="repeats", minimum=1)
+        self.ensemble_size = read_count_option(
+            ensemble_size, parameter_name="ensemble_size", minimum=1
+        )
 
     async def evaluate(self, monitor_input: MonitorInput) -> Verdict:
-        """Call the wrapped monitor `repeats` times concurrently and average."""
+        """Call the wrapped monitor `ensemble_size` times concurrently and average."""
         verdicts = await run_concurrently(
-            self.monitor.evaluate(monitor_input) for _ in range(self.repeats)
+            self.monitor.evaluate(monitor_input) for _ in range(self.ensemble_size)
         )
         return build_mean_verdict(verdicts)
 
     def evaluate_sync(self, monitor_input: MonitorInput) -> Verdict:
-        """Call the wrapped monitor `repeats` times in turn and average."""
-        verdicts = [self.monitor.evaluate_sync(monitor_input) for _ in range(self.repeats)]
+        """Call the wrapped monitor `ensemble_size` times in turn and average."""
+        verdicts = [self.monitor.evaluate_sync(monitor_input) for _ in range(self.ensemble_size)]
         return build_mean_verdict(verdicts)
 
 
@@ -130,37 +137,28 @@ class CalibratedMonitor(Monitor):
     """Report suspicion as the rank of a step's score among the scores of honest runs.
 
     Control evaluations set thresholds as percentiles of honest-run scores, so
-    an audit budget of 1% means flagging the top 1% of honest steps. This
-    wrapper reports the smoothed conformal rank of the raw score among the `n`
-    honest scores [@vovk2005algorithmic]:
-
-        (below + U * (tied + 1)) / (n + 1)
-
-    where `below` counts the honest scores lower than the raw score, `tied`
-    counts those equal to it, and `U` is uniform on [0, 1). The step takes one
-    of `n + 1` rank slots, and `U` spreads it evenly over its own slot and
-    those of the honest scores it ties with, the tie-breaking of Makins and
-    Angelini and of LinuxArena [@makins2026multiagent; @tracy2026linuxarena].
-    A score above every honest score lands between `n / (n + 1)` and 1.
-
-    What a threshold means: when a step's raw score is exchangeable with the
-    honest scores, as for a step of the same kind of honest run scored by the
-    same monitor with the same settings, its calibrated suspicion is uniform
-    on [0, 1]. A threshold `t` then flags exactly a share `1 - t` of such
-    steps, so 0.99 flags 1% of honest steps. The share is exact on average
-    over the honest scores collected; for one fixed set of `n` scores it
-    varies around `1 - t` with a standard deviation of about
-    `sqrt(t * (1 - t) / n)`, so collect enough of them: at `t = 0.99`, a
-    thousand scores give a spread of about 0.3 percentage points.
+    an audit budget of 1% means flagging for review the top 1% of honest
+    steps. This wrapper reports the raw score's smoothed conformal rank among
+    the `n` honest scores: its place among them, as a share of `n + 1`, with
+    its ties broken by a uniform random draw. That is the smoothed conformal
+    p-value of Vovk et al., with the raw score in the place of their
+    conformity score (section 2, equation 2) [@vovk2016criteria], and its ties
+    are broken at random as Makins et al. and LinuxArena break them
+    [@makins2026multiagent; @tracy2026linuxarena]. The formula, and the
+    guarantee that a threshold of 0.99 flags 1% of the steps whose raw scores
+    are exchangeable with the honest scores, on average, are in
+    `docs/how-to/combine-and-calibrate-monitors.md` ("What a calibrated
+    threshold means").
 
     Collect `honest_scores` by running the wrapped monitor, with the same
     settings, on steps from runs you trust, and pass them as Python floats or
     numpy float64s: each is read as a float, so a float32 0.1 becomes
     0.10000000149011612 and no longer ties with a score of 0.1. With
-    `random_seed`, `U` is derived from the seed and the step's content, so a
-    step always gets the same suspicion, whatever else the instance has
-    scored and however many runs share it. Without a seed, `U` is drawn afresh
-    on every call. The reason is the wrapped monitor's, unchanged.
+    `random_seed`, the tie-breaking draw is derived from the seed and the
+    step's content, so a step always gets the same suspicion, whatever else
+    the instance has scored and however many runs share it. Without a seed,
+    the draw is made afresh on every call. The reason is the wrapped
+    monitor's, unchanged.
     """
 
     def __init__(
@@ -200,8 +198,8 @@ class CalibratedMonitor(Monitor):
     def build_calibrated_verdict(self, verdict: Verdict, *, monitor_input: MonitorInput) -> Verdict:
         """Replace the raw suspicion with its smoothed conformal rank among the honest scores."""
         scores = self.sorted_honest_scores
-        # A conformal rank with ties: every honest score below counts, and the tied ones count
-        # for a random share.
+        # (below + U * (tied + 1)) / (n + 1): every honest score below counts, and the tied
+        # ones, with the step itself, count for a random share U.
         below = bisect_left(scores, verdict.suspicion)
         tied = bisect_right(scores, verdict.suspicion) - below
         tie_share = self.draw_tie_share(monitor_input)
@@ -209,7 +207,7 @@ class CalibratedMonitor(Monitor):
         return Verdict(suspicion=percentile, reason=verdict.reason)
 
     def draw_tie_share(self, monitor_input: MonitorInput) -> float:
-        """Draw `U`, uniform on [0, 1), from the seed and the step when a seed is set.
+        """Draw the tie share `U`, uniform on [0, 1), from the seed and the step when a seed is set.
 
         A string seed goes through SHA-512 in Python's `random`, so the draw is
         the same in every process.
@@ -223,27 +221,29 @@ class CalibratedMonitor(Monitor):
 class CascadeMonitor(Monitor):
     """Run a fast monitor on every step and a careful one only when it is needed.
 
-    Steps the fast monitor scores below `escalate_at` keep its verdict; the
-    rest go to the careful monitor, whose verdict, reason included, replaces
-    it. This follows the two stages of Claude Code's auto mode, a fast filter
-    tuned for recall in front of a reasoning classifier [@hughes2026automode],
-    and the idea of calling an expensive monitor only when a cheap one asks
-    for it [@hua2025combining]. A decision model makes a good fast stage and a
-    chat judge a good careful one.
+    Steps the fast monitor scores below `escalation_threshold` keep its
+    verdict; the rest go to the careful monitor, whose verdict, reason
+    included, replaces it. This follows the two stages of Claude Code's auto
+    mode, a fast filter tuned for recall in front of a reasoning classifier
+    [@hughes2026automode], and the idea of calling an expensive monitor only
+    when a cheap one asks for it [@hua2025combining]. A decision model makes a
+    good fast stage and a chat judge a good careful one.
     """
 
-    def __init__(self, *, fast: Monitor, careful: Monitor, escalate_at: float) -> None:
-        """Escalate from `fast` to `careful` when the fast suspicion reaches `escalate_at`.
+    def __init__(self, *, fast: Monitor, careful: Monitor, escalation_threshold: float) -> None:
+        """Escalate from `fast` to `careful` once the fast suspicion reaches the threshold.
 
-        `escalate_at` is read as a threshold is: a number from 0 to 1, kept as
-        a float. Anything else, or a stage that is not a `Monitor`, raises
-        `ConfigurationError`.
+        `escalation_threshold` is read as any threshold is: a number from 0 to
+        1, kept as a float. Anything else, or a stage that is not a `Monitor`,
+        raises `ConfigurationError`.
         """
         check_instance_option(fast, option_type=Monitor, parameter_name="fast")
         check_instance_option(careful, option_type=Monitor, parameter_name="careful")
         self.fast = fast
         self.careful = careful
-        self.escalate_at = read_threshold_value(escalate_at, parameter_name="escalate_at")
+        self.escalation_threshold = read_threshold_value(
+            escalation_threshold, parameter_name="escalation_threshold"
+        )
 
     async def evaluate(self, monitor_input: MonitorInput) -> Verdict:
         """Score with the fast monitor, and with the careful one if that escalates."""
@@ -261,4 +261,4 @@ class CascadeMonitor(Monitor):
 
     def is_escalated(self, fast_verdict: Verdict) -> bool:
         """Tell whether the fast verdict is suspicious enough for the careful monitor."""
-        return fast_verdict.suspicion >= self.escalate_at
+        return fast_verdict.suspicion >= self.escalation_threshold

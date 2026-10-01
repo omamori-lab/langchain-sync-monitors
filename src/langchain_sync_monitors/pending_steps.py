@@ -37,6 +37,7 @@ from langchain_sync_monitors.contracts import (
     MonitorInput,
     PendingStep,
     Sample,
+    SampleDrawing,
     StepDecision,
     StepRecord,
     TaskAuthor,
@@ -45,13 +46,14 @@ from langchain_sync_monitors.contracts import (
 from langchain_sync_monitors.errors import MonitorError, SynchronousRunError
 from langchain_sync_monitors.feedback import build_blocked_attempt_messages
 from langchain_sync_monitors.model_calls import CachedResampleWarning, is_response_cache_active
+from langchain_sync_monitors.options import check_enum_option
 from langchain_sync_monitors.run_inputs import RunInput, restore_run_inputs
 from langchain_sync_monitors.spans import (
     StepIdentity,
     build_judgement_span,
     build_verdict_outputs,
 )
-from langchain_sync_monitors.task_authorship import mark_context_notes
+from langchain_sync_monitors.task_authorship import tag_context_notes
 from langchain_sync_monitors.thresholds import LIBRARY_DIRECTORY
 
 SYNCHRONOUS_RUN_MESSAGE = (
@@ -60,7 +62,7 @@ SYNCHRONOUS_RUN_MESSAGE = (
     "run the agent with ainvoke() to use anything else."
 )
 MONITOR_EVENT_LOOP_MESSAGE = (
-    "The monitor {monitor_name} started asynchronous work in evaluate_sync, where no event "
+    "The monitor {monitor_class} started asynchronous work in evaluate_sync, where no event "
     "loop can run it, during a synchronous invoke(). A monitor's evaluate_sync must finish "
     "without an event loop; run the agent with ainvoke() to use asyncio."
 )
@@ -294,12 +296,12 @@ class MonitoredStep(PendingStep):
         there verbatim, even one the request no longer holds. A turn put back
         carries its text alone, without any image it held.
         """
-        marked = mark_context_notes(conversation, task_message_ids=self.task_message_ids)
+        tagged = tag_context_notes(conversation, task_message_ids=self.task_message_ids)
         history = restore_run_inputs(
-            marked,
+            tagged,
             run_inputs=self.run_inputs,
             task_message_ids=self.task_message_ids,
-            rewritten_ids=self.rewritten_input_ids,
+            rewritten_input_ids=self.rewritten_input_ids,
         )
         return MonitorInput(history=history, proposal=proposal, task_author=self.task_author)
 
@@ -307,6 +309,26 @@ class MonitoredStep(PendingStep):
         """Remember a judged sample as evidence, and return it."""
         self.judged_samples.append(sample)
         return sample
+
+    def prepare_draws(
+        self,
+        *,
+        count: int,
+        blocked_attempts: tuple[BlockedAttempt, ...],
+        drawing: SampleDrawing,
+    ) -> tuple[BaseMessage, ...]:
+        """Check a call to `sample`, and return the conversation its samples are drawn on.
+
+        A closed step raises `closed_step_error`, and a `drawing` that is not
+        a `SampleDrawing` member raises `ConfigurationError` naming the
+        members. Both entry points check `drawing`, though `invoke()` draws
+        one after another whatever it says, so a protocol that passes a plain
+        string fails alike under both.
+        """
+        self.check_open()
+        check_enum_option(drawing, option_type=SampleDrawing, parameter_name="drawing")
+        self.warn_when_resamples_are_cached(count=count, blocked_attempts=blocked_attempts)
+        return self.build_conversation(blocked_attempts)
 
     def warn_when_resamples_are_cached(
         self,
@@ -340,17 +362,19 @@ class AsyncPendingStep(MonitoredStep):
         *,
         count: int,
         blocked_attempts: tuple[BlockedAttempt, ...] = (),
-        concurrently: bool = False,
+        drawing: SampleDrawing = SampleDrawing.SEQUENTIAL,
     ) -> tuple[Sample, ...]:
         """Draw `count` samples through the rest of the stack and have the monitor judge each.
 
-        With `concurrently`, the samples are drawn at once in a task group, so
-        one failed draw cancels the others.
+        With `SampleDrawing.CONCURRENT`, the samples are drawn at once in a
+        task group, so one failed draw cancels the others.
         """
-        self.check_open()
-        self.warn_when_resamples_are_cached(count=count, blocked_attempts=blocked_attempts)
-        conversation = self.build_conversation(blocked_attempts)
-        if concurrently:
+        conversation = self.prepare_draws(
+            count=count,
+            blocked_attempts=blocked_attempts,
+            drawing=drawing,
+        )
+        if drawing is SampleDrawing.CONCURRENT:
             draws = (self.draw_sample(conversation) for _ in range(count))
             return tuple(await run_concurrently(draws))
         return tuple([await self.draw_sample(conversation) for _ in range(count)])
@@ -405,16 +429,18 @@ class SyncPendingStep(MonitoredStep):
         *,
         count: int,
         blocked_attempts: tuple[BlockedAttempt, ...] = (),
-        concurrently: bool = False,
+        drawing: SampleDrawing = SampleDrawing.SEQUENTIAL,
     ) -> tuple[Sample, ...]:
         """Draw `count` samples one after another and have the monitor judge each.
 
-        Without an event loop nothing can run at once, so `concurrently` draws
-        the same samples in sequence.
+        Without an event loop nothing can run at once, so
+        `SampleDrawing.CONCURRENT` draws the same samples in sequence.
         """
-        self.check_open()
-        self.warn_when_resamples_are_cached(count=count, blocked_attempts=blocked_attempts)
-        conversation = self.build_conversation(blocked_attempts)
+        conversation = self.prepare_draws(
+            count=count,
+            blocked_attempts=blocked_attempts,
+            drawing=drawing,
+        )
         return tuple(self.draw_sample(conversation) for _ in range(count))
 
     def draw_sample(self, conversation: tuple[BaseMessage, ...]) -> Sample:
@@ -443,8 +469,8 @@ class SyncPendingStep(MonitoredStep):
         except RuntimeError as error:
             if not is_missing_event_loop_error(error):
                 raise
-            monitor_name = type(self.monitor).__name__
-            message = MONITOR_EVENT_LOOP_MESSAGE.format(monitor_name=monitor_name)
+            monitor_class_name = type(self.monitor).__name__
+            message = MONITOR_EVENT_LOOP_MESSAGE.format(monitor_class=monitor_class_name)
             raise SynchronousRunError(message) from error
 
     @override

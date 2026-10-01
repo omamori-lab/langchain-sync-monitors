@@ -14,9 +14,11 @@ file, run a command. AI control research guards against this with a monitor,
 a second model that scores each step, and a protocol that acts on the score.
 This library brings those protocols, from AI Control, Ctrl-Z and Claude Code's
 auto mode, to `create_agent` and `create_deep_agent` as one middleware.
-"Sync" means synchronous in the control sense: a step waits for its verdict,
-so a suspicious step can be stopped before any of the agent's own tools run
-it.
+"Sync" means synchronous in the control sense of
+[Blocking live failures with synchronous monitors](https://blog.redwoodresearch.org/p/blocking-live-failures-with-synchronous)
+(Lucassen and Kaufman, Redwood Research, 2026): a step waits for its
+verdict, so a suspicious step can be stopped before any of the agent's own
+tools run it.
 
 ## Install
 
@@ -122,10 +124,10 @@ A monitor in every Deep Agents subagent: [Monitor Deep Agents subagents](docs/ho
 
 ## Limits
 
-- **Tools the provider runs.** A provider's built-in tools, such as
-  Anthropic's web search or OpenAI's code interpreter, run inside the model
-  call: they have run before the monitor sees the step, and run again for
-  every sample drawn. `ProviderToolWarning` warns about the known ones for
+- **Server tools.** Server-side tools, such as Anthropic's web search or
+  OpenAI's code interpreter, run inside the model call: they have run before
+  the monitor sees the step, and run again for every sample drawn.
+  `ServerToolWarning` warns about the known ones for
   Anthropic, OpenAI and Gemini when it can see them; it cannot see some, such
   as OpenRouter's web plugin.
 - **What the judge reads.** By default it reads the task, the tool calls, the

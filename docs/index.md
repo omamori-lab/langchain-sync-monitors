@@ -22,16 +22,19 @@ a second model that scores each step, and a protocol that acts on the score.
 This library brings those protocols, from AI Control [@greenblatt2023aicontrol],
 Ctrl-Z [@bhatt2025ctrlz] and Claude Code's auto mode
 [@hughes2026automode], to `create_agent` and `create_deep_agent` as one
-middleware. "Sync" means synchronous in the control sense: a step waits for
-its verdict, so a suspicious step can be stopped before any of the agent's own
-tools run it.
+middleware. "Sync" means synchronous in the control sense: the monitor runs
+after the model proposes an action and before the action executes
+(the opening) [@lucassen2026synchronous]. A step waits for its verdict, so a
+protocol can also make the monitor blocking, with the authority to stop a
+suspicious step before any of the agent's own tools run it (section
+"Blocking with synchronous monitors") [@lucassen2026synchronous].
 
-Tools that the model provider runs itself are the exception. Anthropic's web
-search, OpenAI's code interpreter and Gemini's Google Search run inside the
-model call, so they have run by the time the monitor sees the step, and they
-run again for every sample a protocol draws.
-[Tools the provider runs itself](how-to/choose-a-protocol.md#tools-the-provider-runs-itself)
-lists the ones `ProviderToolWarning` warns about and the ones it cannot see.
+Server-side tools, which the model provider runs itself, are the exception.
+Anthropic's web search, OpenAI's code interpreter and Gemini's Google Search
+run inside the model call, so they have run by the time the monitor sees the
+step, and they run again for every sample a protocol draws.
+[Server tools](how-to/choose-a-protocol.md#server-tools) lists the ones
+`ServerToolWarning` warns about and the ones it cannot see.
 
 ## Install
 

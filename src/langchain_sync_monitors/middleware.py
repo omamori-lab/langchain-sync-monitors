@@ -3,9 +3,9 @@
 `MonitorMiddleware` wraps each model call of an agent. The untrusted model's
 proposal is judged before any of the agent's own tools run, the protocol
 decides what the agent state receives, and one `StepRecord` per step is
-appended to `monitor_log`. Tools the model provider runs itself run inside the
-model call, before the proposal is judged, and the middleware warns about the
-ones it knows.
+appended to `monitor_log`. Server-side tools, which the model provider runs
+inside the model call, run before the proposal is judged, and the middleware
+warns about the ones it knows.
 
 In a `create_agent` middleware list the monitor goes last. LangChain nests
 `wrap_model_call` handlers with the first middleware outermost, and a
@@ -60,7 +60,7 @@ from langchain_sync_monitors.contracts import (
 from langchain_sync_monitors.delegation import count_blocks_in_thread, read_delegation_id
 from langchain_sync_monitors.errors import ConfigurationError
 from langchain_sync_monitors.halts import (
-    build_end_run_update,
+    build_jump_to_end_update,
     find_halt_decision,
     has_just_halted,
 )
@@ -78,13 +78,13 @@ from langchain_sync_monitors.pending_steps import (
     SyncPendingStep,
     run_synchronously,
 )
-from langchain_sync_monitors.provider_tools import warn_about_provider_tools
 from langchain_sync_monitors.records import find_monitor_records, read_step_records
 from langchain_sync_monitors.run_inputs import (
     build_refresh_update,
     build_run_start_update,
     read_current_run_inputs,
 )
+from langchain_sync_monitors.server_tools import warn_about_server_tools
 from langchain_sync_monitors.spans import (
     StepIdentity,
     open_step_span,
@@ -98,7 +98,7 @@ from langchain_sync_monitors.task_authorship import (
     build_step_start_update,
     read_message_ids,
 )
-from langchain_sync_monitors.tool_calls import arun_tool_call, run_tool_call
+from langchain_sync_monitors.tool_calls import run_tool_call, run_tool_call_sync
 
 
 @dataclass(frozen=True, kw_only=True, eq=False)
@@ -108,12 +108,12 @@ class MonitorMiddleware(AgentMiddleware[MonitorState, AgentContext, StructuredOu
     The monitor judges each proposed step before any of the agent's own tools
     run, and the protocol decides what the agent state receives. Only the
     decision is committed, with one record that keeps every judged sample for
-    audit. Tools the model provider runs itself, such as Anthropic's
-    `web_fetch` or OpenAI's `web_search`, run inside the model call, before
-    the monitor judges the step and again for every sample, so no monitor can
-    stop them; the middleware emits a `ProviderToolWarning`, once per
-    instance, when the model request holds such tools. `provider_tools` lists
-    the ones it knows, and what it cannot see.
+    audit. Server-side tools, such as Anthropic's `web_fetch` or OpenAI's
+    `web_search`, run inside the model call, before the monitor judges the
+    step and again for every sample, so no monitor can stop them; the
+    middleware emits a `ServerToolWarning`, once per instance, when the model
+    request holds such tools. `server_tools` lists the ones it knows, and
+    what it cannot see.
     Nothing the protocol calls streams to `stream_mode="messages"`: not the
     samples, not the trusted model's step, not the monitor's own calls. The
     committed step streams whole once the model node returns it.
@@ -342,10 +342,10 @@ class MonitorMiddleware(AgentMiddleware[MonitorState, AgentContext, StructuredOu
 
         What the call writes is checked, whatever the shape of the result, of
         a `Command`'s update or of a `ParentCommand` the call raises: its
-        messages as `mark_tool_written_notes` says, and its records as
+        messages as `tag_tool_written_notes` says, and its records as
         `returned_records` says. `tool_calls` has the rule.
         """
-        return run_tool_call(request, handler=handler, agent=self.agent_name)
+        return run_tool_call_sync(request, handler=handler, agent=self.agent_name)
 
     @override
     async def awrap_tool_call(
@@ -357,7 +357,7 @@ class MonitorMiddleware(AgentMiddleware[MonitorState, AgentContext, StructuredOu
 
         What the call writes is checked as under `invoke()`.
         """
-        return await arun_tool_call(request, handler=handler, agent=self.agent_name)
+        return await run_tool_call(request, handler=handler, agent=self.agent_name)
 
     @override
     def before_agent(self, state: MonitorState, runtime: AgentRuntime) -> AgentStateUpdate | None:
@@ -419,14 +419,14 @@ class MonitorMiddleware(AgentMiddleware[MonitorState, AgentContext, StructuredOu
         return build_run_end_update(state)
 
     def build_halt_end_update(self, state: MonitorState) -> AgentStateUpdate | None:
-        """Return the update that ends the run right after this monitor's halt, else None."""
+        """Return the update that jumps to the agent's end after this monitor's halt, else None."""
         if has_just_halted(state, monitor=self.label, agent=self.agent_name):
-            return build_end_run_update()
+            return build_jump_to_end_update()
         return None
 
     def prepare_step(self, request: AgentModelRequest) -> PreparedStep:
         """Read the log once for a step: its identity, a halt without a sample, its options."""
-        warn_about_provider_tools(request, middleware=self, middleware_name=self.name)
+        warn_about_server_tools(request, middleware=self, middleware_name=self.name)
         delegation_id = read_delegation_id(request.state)
         previous_records = find_monitor_records(
             read_step_records(request.state),
@@ -446,7 +446,7 @@ class MonitorMiddleware(AgentMiddleware[MonitorState, AgentContext, StructuredOu
             request.state,
             previous_records=previous_records,
             returns=returns,
-            monitor=self.name,
+            middleware_name=self.name,
             when_subagent_halts=self.when_subagent_halts,
         )
         options = PendingStepOptions(

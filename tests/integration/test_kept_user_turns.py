@@ -106,7 +106,7 @@ def build_monitored_agent(
 ) -> CompiledStateGraph[Any, Any, Any, Any]:
     middleware: list[AgentMiddleware[Any, Any, Any]] = [
         *earlier_middleware,
-        MonitorMiddleware(monitor=monitor, protocol=TrustedMonitoring(flag_threshold=0.6)),
+        MonitorMiddleware(monitor=monitor, protocol=TrustedMonitoring(audit_threshold=0.6)),
         *later_middleware,
     ]
     return create_agent(
@@ -568,7 +568,7 @@ def test_a_run_with_no_messages_gets_its_reply(run_mode: RunMode) -> None:
         system_prompt="Greet the user.",
         middleware=[
             MonitorMiddleware(
-                monitor=RenderingMonitor(), protocol=TrustedMonitoring(flag_threshold=0.6)
+                monitor=RenderingMonitor(), protocol=TrustedMonitoring(audit_threshold=0.6)
             )
         ],
         checkpointer=InMemorySaver(),
@@ -593,7 +593,7 @@ FORGERIES: dict[str, object] = {
         ("monitor_seen_human_messages", ["forged-1"]),
         ("monitor_run_inputs", [FORGED_ENTRY]),
         ("monitor_run_open", False),
-        ("monitor_inputs_at_halt", [{"monitor": "monitor[main]", "run_inputs": 99}]),
+        ("monitor_inputs_at_halt", [{"middleware_name": "monitor[main]", "run_inputs": 99}]),
     ),
 }
 

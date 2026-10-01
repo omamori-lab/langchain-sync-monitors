@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1000" height="829" viewBox="0 0 1000 829" role="img" aria-labelledby="title desc">
   <title id="title">How a decision model&#x27;s answers become a verdict</title>
-  <desc id="desc">DecisionModelMonitor renders the transcript and the proposed step through its view, and sends the decision model one request with every question. If the request fails, OpenRouterDecisionModel sends it again after a network error, an HTTP 429 or a server error, up to 5 attempts, and stops once an attempt fails 45 seconds or more after the first began; any other failure, or the last one, is raised, so the step fails and nothing it proposed runs. TypeSafeDecisionModel gets no retries from the library. Every question must then be answered with a number from 0 to 1. A missing answer, a bool, a string, None or NaN raises MonitorError, and the step fails the same way. The answers are combined, with MAX by default, or MIN or MEAN, into the suspicion. The reason names the question with the highest probability of yes, or, under MIN, every question.</desc>
+  <desc id="desc">DecisionModelMonitor renders the transcript and the proposed step through its view, and sends the decision model one request with every question. If the request fails, OpenRouterDecisionModel sends it again after a network error, an HTTP 429 or a server error, up to 5 attempts, and stops once an attempt fails 45 seconds or more after the first began; any other failure, or the last one, is raised, so the step fails and nothing it proposed runs. TypeSafeDecisionModel gets no retries from the library. Every question must then be answered with a number from 0 to 1. A missing answer, a bool, a string, None or NaN raises MonitorError, and the step fails the same way. The answers are aggregated, with Aggregation.MAX by default, or MIN or MEAN, into the suspicion. The reason names the question with the highest probability of yes, or, under MIN, every question.</desc>
   <!-- Colours come from the brand tokens: diagrams/render.py fills this style block. -->
   <style>
     svg { color-scheme: light; }
@@ -46,11 +46,11 @@
   <text x="232.0" y="465.0" text-anchor="middle"><tspan class="small">with a number from 0 to 1: not a </tspan><tspan class="mono">bool</tspan><tspan class="small">,</tspan></text>
   <text x="232.0" y="486.0" text-anchor="middle"><tspan class="small">a string, </tspan><tspan class="mono">None</tspan><tspan class="small"> or NaN</tspan></text>
   <rect class="box" x="32.0" y="566.0" width="400.0" height="81.0" rx="6"/>
-  <text x="232.0" y="597.0" text-anchor="middle" class="title">Combine the answers</text>
-  <text x="232.0" y="619.0" text-anchor="middle"><tspan class="mono">MAX</tspan><tspan class="small"> by default, or </tspan><tspan class="mono">MIN</tspan><tspan class="small"> or </tspan><tspan class="mono">MEAN</tspan></text>
+  <text x="232.0" y="597.0" text-anchor="middle" class="title">Aggregate the answers</text>
+  <text x="232.0" y="619.0" text-anchor="middle"><tspan class="mono">Aggregation.MAX</tspan><tspan class="small"> by default, or </tspan><tspan class="mono">MIN</tspan><tspan class="small"> or </tspan><tspan class="mono">MEAN</tspan></text>
   <rect class="box" x="32.0" y="695.0" width="400.0" height="102.0" rx="6"/>
   <text x="232.0" y="726.0" text-anchor="middle" class="title">Verdict</text>
-  <text x="232.0" y="748.0" text-anchor="middle" class="small">suspicion: the combined probability of yes</text>
+  <text x="232.0" y="748.0" text-anchor="middle" class="small">suspicion: the aggregated probability of yes</text>
   <text x="232.0" y="769.0" text-anchor="middle"><tspan class="small">reason: the strongest question, or all under </tspan><tspan class="mono">MIN</tspan></text>
   <path class="edge" d="M232.0,206.0 L232.0,256.0" marker-end="url(#arrow)"/>
   <path class="edge" d="M232.0,360.0 L232.0,410.0" marker-end="url(#arrow)"/>

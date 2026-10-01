@@ -50,7 +50,11 @@ DecisionModelMonitor(decision_model=UnusedDecisionModel(), combine=Combine.MEAN)
 def test_every_construction_warning_shows_under_the_default_filters(tmp_path: Path) -> None:
     # Arrange
     (tmp_path / "user_code.py").write_text(BUILDS_EVERY_OPTION_THAT_WARNS, encoding="utf-8")
-    environment = {name: value for name, value in os.environ.items() if name != "PYTHONWARNINGS"}
+    environment = {
+        name: value
+        for name, value in os.environ.items()
+        if name not in {"PYTHONWARNINGS", "PYTHONDEVMODE"}
+    }
 
     # Act
     finished = subprocess.run(

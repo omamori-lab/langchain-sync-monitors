@@ -55,7 +55,8 @@ class DeferToResample(ControlProtocol):
     still ran, a review queue of borderline steps below the deferral line.
     Every sample stays in the step's record as evidence, and an auditor should
     read the most suspicious one first. The agent never sees the rejected
-    samples, so it cannot tell that it was resampled [@bhatt2025ctrlzpost].
+    samples. Each is a fresh call on the same conversation, so the agent
+    cannot tell that it was resampled [@bhatt2025ctrlzpost].
     `audit_threshold=None` turns this flagging off; `HaltRun` still
     flags every step it halts, so with that fallback a step that reaches it
     is flagged anyway.

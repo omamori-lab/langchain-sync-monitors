@@ -152,9 +152,21 @@ markers = ["live: calls real model providers; needs OPENROUTER_API_KEY and spend
 addopts = "-m 'not live'"
 
 [tool.lanorme]
+# lanorme takes the outermost directory with a config as the project root. In an agent
+# worktree under .claude/worktrees that is the main checkout, whose exclude then drops
+# every file of the worktree. `root = true` makes each checkout its own project, and the
+# main checkout leaves the worktrees, not the tracked .claude files, to their own runs.
+root = true
 ignore = ["LAYER", "PORT", "TERM"]
 promote = ["NAMING-006", "NAMING-007", "NAMING-008", "NAMING-011"]
-exclude = [".venv/*", ".claude/*", "dist/*", "site/*", "docs/plans/*"]
+exclude = [
+    ".venv/*",
+    ".claude/worktrees",
+    ".claude/worktrees/*",
+    "dist/*",
+    "site/*",
+    "docs/plans/*",
+]
 
 [tool.lanorme.file_limits]
 func_warn_lines = 40

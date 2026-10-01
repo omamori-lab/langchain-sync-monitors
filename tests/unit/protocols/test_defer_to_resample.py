@@ -5,7 +5,7 @@ from __future__ import annotations
 import pytest
 from langchain_core.language_models.fake_chat_models import FakeListChatModel
 
-from langchain_sync_monitors.contracts import Outcome, Resampling
+from langchain_sync_monitors.contracts import Outcome, Resampling, SampleDrawing
 from langchain_sync_monitors.errors import ConfigurationError
 from langchain_sync_monitors.protocols import (
     DeferToResample,
@@ -16,8 +16,8 @@ from langchain_sync_monitors.protocols import (
 
 from .scripted_step import TRUSTED_STEP_ID, SampleCall, ScriptedPendingStep, StepDriver
 
-ONE_SAMPLE = SampleCall(count=1, blocked_attempts=(), concurrently=False)
-TWO_CONCURRENT_SAMPLES = SampleCall(count=2, blocked_attempts=(), concurrently=True)
+ONE_SAMPLE = SampleCall(count=1, blocked_attempts=(), drawing=SampleDrawing.SEQUENTIAL)
+TWO_CONCURRENT_SAMPLES = SampleCall(count=2, blocked_attempts=(), drawing=SampleDrawing.CONCURRENT)
 
 
 @pytest.fixture

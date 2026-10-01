@@ -37,6 +37,7 @@ from langchain_sync_monitors.contracts import (
     MonitorInput,
     MonitorView,
     Resampling,
+    SampleDrawing,
     TaskAuthor,
 )
 from langchain_sync_monitors.deepagents import monitor_subagents
@@ -1031,6 +1032,8 @@ def test_a_refusal_reads_in_full(
         (GuardScoring, "hard_label", GuardScoring.HARD_LABEL),
         (Resampling, "sequential", Resampling.SEQUENTIAL),
         (Resampling, "parallel", Resampling.PARALLEL),
+        (SampleDrawing, "sequential", SampleDrawing.SEQUENTIAL),
+        (SampleDrawing, "concurrent", SampleDrawing.CONCURRENT),
     ],
 )
 def test_a_string_from_configuration_converts_to_the_member_it_names(

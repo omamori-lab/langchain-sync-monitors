@@ -11,6 +11,7 @@ from langchain_sync_monitors.contracts import (
     PendingStep,
     Resampling,
     Sample,
+    SampleDrawing,
     StepDecision,
 )
 from langchain_sync_monitors.options import check_enum_option, read_count_option
@@ -139,7 +140,11 @@ class DeferToResample(ControlProtocol):
         if not self.is_suspicious(samples[0]) or self.max_resamples == 0:
             return samples
         if self.resampling is Resampling.PARALLEL:
-            return samples + await step.sample(count=self.max_resamples, concurrently=True)
+            resamples = await step.sample(
+                count=self.max_resamples,
+                drawing=SampleDrawing.CONCURRENT,
+            )
+            return samples + resamples
         return samples + await self.resample_sequentially(step)
 
     async def resample_sequentially(self, step: PendingStep) -> tuple[Sample, ...]:

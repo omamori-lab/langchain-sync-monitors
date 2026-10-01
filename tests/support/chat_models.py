@@ -79,6 +79,46 @@ class ScriptedChatModel(BaseChatModel):
         return self._build_next_result(messages)
 
 
+class OverlapCountingChatModel(ScriptedChatModel):
+    """A scripted model that counts the most calls it was answering at once.
+
+    Give it a `delay`, so that async calls drawn at once overlap.
+    """
+
+    answering: int = 0
+    most_at_once: int = 0
+
+    def start_call(self) -> None:
+        self.answering += 1
+        self.most_at_once = max(self.most_at_once, self.answering)
+
+    def _generate(
+        self,
+        messages: list[BaseMessage],
+        stop: list[str] | None = None,
+        run_manager: CallbackManagerForLLMRun | None = None,
+        **kwargs: Any,
+    ) -> ChatResult:
+        self.start_call()
+        try:
+            return super()._generate(messages, stop, run_manager, **kwargs)
+        finally:
+            self.answering -= 1
+
+    async def _agenerate(
+        self,
+        messages: list[BaseMessage],
+        stop: list[str] | None = None,
+        run_manager: AsyncCallbackManagerForLLMRun | None = None,
+        **kwargs: Any,
+    ) -> ChatResult:
+        self.start_call()
+        try:
+            return await super()._agenerate(messages, stop, run_manager, **kwargs)
+        finally:
+            self.answering -= 1
+
+
 class SummarisingScriptedChatModel(ScriptedChatModel):
     """A scripted agent model that also writes the summaries Deep Agents asks it for.
 

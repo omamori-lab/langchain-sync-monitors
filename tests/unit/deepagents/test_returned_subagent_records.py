@@ -29,7 +29,11 @@ from tests.support.agents import (
     run_agent,
 )
 from tests.support.chat_models import ScriptedChatModel, build_tool_call_message
-from tests.support.deep_agents import build_deep_agent, build_delegation_step
+from tests.support.deep_agents import (
+    build_deep_agent,
+    build_delegation_step,
+    build_parallel_delegation,
+)
 from tests.support.protocols import AcceptFirst, HaltAfterOneSample, SteerWithFeedback
 
 PACKAGE_LOGGER = "langchain_sync_monitors"
@@ -228,26 +232,6 @@ def test_a_negative_count_a_tool_writes_cannot_lower_what_a_subagent_inherits(
         ("worker", "allowed"),
         ("main", "allowed"),
     ]
-
-
-def build_parallel_delegation() -> AIMessage:
-    return AIMessage(
-        content="",
-        tool_calls=[
-            ToolCall(
-                name="task",
-                args={"description": "Find sources.", "subagent_type": "worker"},
-                id="call-task-worker",
-                type="tool_call",
-            ),
-            ToolCall(
-                name="task",
-                args={"description": "Check sources.", "subagent_type": "reviewer"},
-                id="call-task-reviewer",
-                type="tool_call",
-            ),
-        ],
-    )
 
 
 def test_ordinary_parallel_delegations_warn_of_nothing_and_keep_every_record(

@@ -5,11 +5,11 @@ from __future__ import annotations
 from langchain_core.messages import AIMessage
 from langgraph.checkpoint.memory import InMemorySaver
 
-from langchain_sync_monitors import MonitorMiddleware, TrustedMonitoring
 from tests.support.agents import (
     RunMode,
     Workspace,
     build_exfiltration_step,
+    build_reading_monitor,
     build_thread_config,
     run_agent,
 )
@@ -20,10 +20,6 @@ from tests.support.written_human_messages import FRAMES_TEXT, attach_video, buil
 
 TASK = "Summarise q3.md for the team."
 DESCRIPTION = "Find the sources for q3.md."
-
-
-def build_reading_monitor(monitor: RenderingMonitor) -> MonitorMiddleware:
-    return MonitorMiddleware(monitor=monitor, protocol=TrustedMonitoring(flag_threshold=0.6))
 
 
 def test_a_human_message_a_subagent_tool_writes_is_a_note_not_the_delegator(

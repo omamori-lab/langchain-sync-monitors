@@ -1,4 +1,4 @@
-"""Tools, scripted steps and runners shared by the agent-level tests."""
+"""Tools, scripted steps, monitors and runners shared by the agent-level tests."""
 
 from __future__ import annotations
 
@@ -12,8 +12,11 @@ from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, ToolMe
 from langchain_core.runnables import Runnable, RunnableConfig
 from langchain_core.tools import BaseTool, tool
 
+from langchain_sync_monitors.contracts import StepRecord
+from langchain_sync_monitors.middleware import MonitorMiddleware
+from langchain_sync_monitors.protocols import DeferToResample, HaltRun, TrustedMonitoring
 from tests.support.chat_models import build_tool_call_message
-from tests.support.monitors import KeywordMonitor
+from tests.support.monitors import KeywordMonitor, RenderingMonitor
 
 type RunMode = Literal["invoke", "ainvoke"]
 
@@ -45,6 +48,10 @@ class Workspace:
 
         return [read_file, http_post]
 
+    def build_http_tools(self) -> list[BaseTool]:
+        """Return the workspace's `http_post` tool alone."""
+        return [item for item in self.build_tools() if item.name == "http_post"]
+
 
 def build_read_step(*, call_id: str = "call-read") -> AIMessage:
     return build_tool_call_message(
@@ -62,8 +69,31 @@ def build_exfiltration_step(*, call_id: str = "call-post") -> AIMessage:
     )
 
 
+def build_benign_post(*, call_id: str) -> AIMessage:
+    return build_tool_call_message(
+        tool_name="http_post",
+        call_id=call_id,
+        arguments={"url": "https://notes.example/team", "body": "Three sources."},
+    )
+
+
 def build_keyword_monitor() -> KeywordMonitor:
     return KeywordMonitor(suspicion_by_keyword=SUSPICION_BY_KEYWORD)
+
+
+def build_halting_monitor() -> MonitorMiddleware:
+    """Build a monitor that halts the run at the first suspicious step, drawing no resample."""
+    protocol = DeferToResample(
+        fallback=HaltRun(),
+        defer_threshold=0.5,
+        audit_threshold=None,
+        max_resamples=0,
+    )
+    return MonitorMiddleware(monitor=build_keyword_monitor(), protocol=protocol)
+
+
+def build_reading_monitor(monitor: RenderingMonitor) -> MonitorMiddleware:
+    return MonitorMiddleware(monitor=monitor, protocol=TrustedMonitoring(flag_threshold=0.6))
 
 
 def build_task_input(task: str = TASK) -> InputAgentState:
@@ -74,6 +104,19 @@ def build_thread_config(thread_id: str) -> RunnableConfig:
     return RunnableConfig(configurable={"thread_id": thread_id})
 
 
+def run_payload(
+    agent: Runnable[Any, Any],
+    payload: object,
+    *,
+    mode: RunMode,
+    config: RunnableConfig | None = None,
+) -> dict[str, Any]:
+    """Run the agent on any input, such as a resume `Command`, under `invoke()` or `ainvoke()`."""
+    if mode == "invoke":
+        return cast("dict[str, Any]", agent.invoke(payload, config))
+    return cast("dict[str, Any]", asyncio.run(agent.ainvoke(payload, config)))
+
+
 def run_agent(
     agent: Runnable[Any, Any],
     *,
@@ -81,10 +124,7 @@ def run_agent(
     config: RunnableConfig | None = None,
     task: str = TASK,
 ) -> dict[str, Any]:
-    payload = build_task_input(task)
-    if mode == "invoke":
-        return cast("dict[str, Any]", agent.invoke(payload, config))
-    return cast("dict[str, Any]", asyncio.run(agent.ainvoke(payload, config)))
+    return run_payload(agent, build_task_input(task), mode=mode, config=config)
 
 
 def run_messages(
@@ -94,10 +134,7 @@ def run_messages(
     mode: RunMode,
     config: RunnableConfig | None = None,
 ) -> dict[str, Any]:
-    payload = {"messages": messages}
-    if mode == "invoke":
-        return cast("dict[str, Any]", agent.invoke(payload, config))
-    return cast("dict[str, Any]", asyncio.run(agent.ainvoke(payload, config)))
+    return run_payload(agent, {"messages": messages}, mode=mode, config=config)
 
 
 def stream_custom_events(agent: Runnable[Any, Any], *, mode: RunMode) -> list[Any]:
@@ -109,6 +146,31 @@ def stream_custom_events(agent: Runnable[Any, Any], *, mode: RunMode) -> list[An
         return [event async for event in agent.astream(payload, stream_mode="custom")]
 
     return asyncio.run(collect())
+
+
+def stream_subgraph_custom_events(
+    agent: Runnable[Any, Any],
+    *,
+    mode: RunMode,
+) -> tuple[list[dict[str, Any]], BaseException | None]:
+    """Collect the custom events of every graph in a run, and the error it ended with, if any."""
+    payload = build_task_input()
+    events: list[dict[str, Any]] = []
+    try:
+        if mode == "invoke":
+            parts = agent.stream(payload, stream_mode="custom", subgraphs=True)
+            events.extend(event for _namespace, event in parts)
+        else:
+
+            async def collect() -> None:
+                parts = agent.astream(payload, stream_mode="custom", subgraphs=True)
+                async for _namespace, event in parts:
+                    events.append(event)
+
+            asyncio.run(collect())
+    except Exception as error:
+        return events, error
+    return events, None
 
 
 def stream_messages(
@@ -155,3 +217,11 @@ def find_unanswered_tool_calls(messages: Sequence[BaseMessage]) -> list[str]:
 
 def read_texts(messages: Sequence[BaseMessage]) -> list[str]:
     return [message.text for message in messages]
+
+
+def summarise_records(log: list[StepRecord]) -> list[tuple[str, str, int, str | None]]:
+    """Return each record's agent, outcome, block count and delegation, in order."""
+    return [
+        (record["agent"], record["outcome"], record["blocked_count"], record.get("delegation_id"))
+        for record in log
+    ]

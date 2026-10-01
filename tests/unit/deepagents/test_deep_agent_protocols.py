@@ -78,7 +78,7 @@ def workspace() -> Workspace:
 
 @pytest.fixture
 def http_tools(workspace: Workspace) -> list[BaseTool]:
-    return [tool for tool in workspace.build_tools() if tool.name == "http_post"]
+    return workspace.build_http_tools()
 
 
 @pytest.fixture

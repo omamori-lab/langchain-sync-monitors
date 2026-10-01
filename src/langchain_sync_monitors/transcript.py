@@ -23,7 +23,7 @@ import html
 import json
 from collections.abc import Collection, Iterator, Mapping, Sequence
 from dataclasses import dataclass
-from typing import NotRequired, TypedDict
+from typing import NotRequired, TypedDict, TypeGuard
 
 from langchain_core.messages import (
     AIMessage,
@@ -155,6 +155,11 @@ def render_malformed_tool_call(tool_call: InvalidToolCall) -> str:
     )
 
 
+def is_provider_tool_call(block: ContentBlock) -> TypeGuard[ServerToolCall | ServerToolCallChunk]:
+    """Tell whether a content block is a built-in tool call the provider ran, whole or streamed."""
+    return block["type"] == "server_tool_call" or block["type"] == "server_tool_call_chunk"
+
+
 def render_provider_tool_call(block: ServerToolCall | ServerToolCallChunk) -> str:
     """Render a built-in tool call that the model provider ran inside the model call.
 
@@ -184,6 +189,24 @@ def render_provider_tool_result(block: ServerToolResult, *, tool_name: str) -> s
     return wrap_in_tag(tag="provider_tool_result", content=content, name=tool_name)
 
 
+def read_unrecognised_block_value(block: NonStandardContentBlock) -> Mapping[str, object]:
+    """Return what a block LangChain could not map holds, under `value` when it is no mapping."""
+    value: object = block.get("value", {})
+    return value if isinstance(value, Mapping) else {"value": value}
+
+
+def read_unrecognised_block_name(value: Mapping[str, object]) -> str | None:
+    """Return the `type` that a block LangChain could not map gives itself, if it is a string."""
+    block_type = value.get("type")
+    return block_type if isinstance(block_type, str) else None
+
+
+def is_repeated_tool_call(value: Mapping[str, object], *, known_call_ids: Collection[str]) -> bool:
+    """Tell whether a block carries the id of one of the message's tool calls, and so repeats it."""
+    block_id = value.get("id")
+    return isinstance(block_id, str) and block_id in known_call_ids
+
+
 def build_unrecognised_block_entry(
     block: NonStandardContentBlock,
     *,
@@ -201,14 +224,10 @@ def build_unrecognised_block_entry(
     the id of one of the message's tool calls repeats that call, which is
     rendered already, so it renders as nothing.
     """
-    value = block.get("value", {})
-    if not isinstance(value, Mapping):
-        value = {"value": value}
-    block_id = value.get("id")
-    if isinstance(block_id, str) and block_id in known_call_ids:
+    value = read_unrecognised_block_value(block)
+    if is_repeated_tool_call(value, known_call_ids=known_call_ids):
         return None
-    block_type = value.get("type")
-    name = block_type if isinstance(block_type, str) else None
+    name = read_unrecognised_block_name(value)
     prose = value.get(name) if name in PROSE_BLOCK_TYPES else None
     if isinstance(prose, str):
         return TranscriptEntry(
@@ -237,7 +256,7 @@ def build_provider_tool_entries(
     with the tool calls too, so it is never dropped unseen.
     """
     for block in blocks:
-        if block["type"] == "server_tool_call" or block["type"] == "server_tool_call_chunk":
+        if is_provider_tool_call(block):
             yield TranscriptEntry(
                 channel=Channel.TOOL_CALLS,
                 text=render_provider_tool_call(block),
@@ -427,7 +446,7 @@ def read_provider_tool_names_by_call(message: AIMessage) -> dict[str, str]:
     """Return the name of each built-in tool call the provider ran in a message, by id."""
     names: dict[str, str] = {}
     for block in message.content_blocks:
-        if block["type"] == "server_tool_call" or block["type"] == "server_tool_call_chunk":
+        if is_provider_tool_call(block):
             call_id = block.get("id")
             name = block.get("name")
             if call_id and name:

@@ -177,16 +177,27 @@ def read_suspicious_mentions(line: str, *, suspicious_labels: frozenset[str]) ->
     naming the suspicious label, so a reply that also names a safe label is
     unreadable and scores as suspicious.
     """
-    mentions: set[str] = set()
-    for pattern in (UNKEYED_LABEL_START_PATTERN, LISTED_LABEL_START_PATTERN):
-        opening = pattern.match(line)
-        if opening is not None and opening["label"].lower() in suspicious_labels:
-            mentions.add(opening["label"].lower())
+    openings = [
+        pattern.match(line) for pattern in (UNKEYED_LABEL_START_PATTERN, LISTED_LABEL_START_PATTERN)
+    ]
     _, colon, after = line.rpartition(":")
     ending = LABEL_AFTER_COLON_PATTERN.fullmatch(after) if colon else None
-    if ending is not None and ending["label"].lower() in suspicious_labels:
-        mentions.add(ending["label"].lower())
-    return mentions
+    mentions = (
+        read_suspicious_label(match, suspicious_labels=suspicious_labels)
+        for match in (*openings, ending)
+    )
+    return {label for label in mentions if label is not None}
+
+
+def read_suspicious_label(
+    match: re.Match[str] | None,
+    *,
+    suspicious_labels: frozenset[str],
+) -> str | None:
+    """Return the label a pattern matched, in lower case, when it is a suspicious one."""
+    if match is None or match["label"].lower() not in suspicious_labels:
+        return None
+    return match["label"].lower()
 
 
 def find_label_lines(
@@ -273,15 +284,28 @@ def find_reply_label(
     if last_line is not None:
         return last_line if last_line.is_verdict_line else None
     # Llama Guard's unsafe reply: the label first, then only category codes.
+    return find_first_line_label(
+        lines,
+        label_lines=label_lines,
+        suspicious_labels=suspicious_labels,
+    )
+
+
+def find_first_line_label(
+    lines: list[re.Match[str]],
+    *,
+    label_lines: dict[int, LabelMatch],
+    suspicious_labels: frozenset[str],
+) -> LabelMatch | None:
+    """Find Llama Guard's unsafe reply: a suspicious label first, then only category codes."""
     first_line = label_lines.get(0)
+    if (
+        first_line is None
+        or not first_line.is_verdict_line
+        or first_line.label not in suspicious_labels
+    ):
+        return None
     only_category_codes_follow = all(
         CATEGORY_CODES_PATTERN.fullmatch(line.group()) for line in lines[1:]
     )
-    if (
-        first_line
-        and first_line.is_verdict_line
-        and first_line.label in suspicious_labels
-        and only_category_codes_follow
-    ):
-        return first_line
-    return None
+    return first_line if only_category_codes_follow else None

@@ -192,7 +192,8 @@ another project or host.
     killed a forked child with SIGSEGV or SIGABRT once the parent had a
     thread or had read them. A forked child there reads proxies from the
     `*_proxy` variables only, and still trusts `SSL_CERT_FILE` and
-    `SSL_CERT_DIR`.
+    `SSL_CERT_DIR`. The at-fork hook marks the child, so a child that
+    imports the library only after the fork is not covered.
 - **At exit.** The `atexit` hook drains for up to 30 seconds, one window
   every 5 seconds, then logs and drops what is left. The thread is a daemon,
   so a drain that overruns never keeps the process alive.

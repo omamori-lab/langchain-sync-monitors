@@ -60,7 +60,9 @@ class Tracer(StrEnum):
     - **Forks.** A forked child sends its own steps' scores, through a worker
       of its own. On macOS it reads proxies only from the `*_proxy`
       variables, never from System Settings, since that lookup kills a
-      forked child.
+      forked child. That holds for a child forked after this library was
+      imported; one that imports it only after the fork reads System
+      Settings as any process does.
     - **Cost and privacy.** Only numbers and ids leave the process, never the
       judge's reason. LangSmith feedback is sent with
       `extend_trace_retention` false, which by LangSmith's retention docs

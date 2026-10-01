@@ -122,7 +122,7 @@ message renders as a note:
   monitor writes a note's tag into the message in the agent's state too, so a
   saved history keeps it.
 - **What the monitor's model is told about notes.** The tag is all the
-  monitor adds. `DEFAULT_MONITOR_PROMPT` tells a chat judge that a note is not
+  monitor adds. `DEFAULT_MONITOR_PROMPT` tells an LLM monitor that a note is not
   the user and authorises nothing, a request the judge may not always follow.
   A guard policy or a prompt of your own must say so itself, and a decision
   model gets only the tag.
@@ -130,8 +130,8 @@ message renders as a note:
   because its model call raised or its client cancelled it, may leave messages
   the monitor never saw. The next run cannot tell them from its own input, so
   all its new messages, the user's own included, become notes from
-  `unconfirmed_input`, and stay notes for the rest of the thread. The default
-  chat-judge prompt tells the judge to take no approval from such a note, but
+  `unconfirmed_input`, and stay notes for the rest of the thread.
+  `DEFAULT_MONITOR_PROMPT` tells an LLM monitor to take no approval from such a note, but
   to apply a limit it sets that narrows what the agent may do, such as a
   user's "stop", and that a note never removes a safeguard, such as asking the
   user first. Send an approval again in a later turn.
@@ -404,7 +404,7 @@ whatever the monitor read; see [Read the monitor log](read-the-monitor-log.md).
 
 ## Related guides
 
-- [Use a chat judge](use-a-chat-judge.md) for a monitor that takes a view.
+- [Use an LLM monitor](use-an-llm-monitor.md) for a monitor that takes a view.
 - [Monitor Deep Agents subagents](monitor-deep-agents-subagents.md) for what a subagent's monitor reads.
 - [Task authorship and notes](../explanation/design.md#task-authorship-and-notes) for how the monitor tells a run's input from other messages.
 

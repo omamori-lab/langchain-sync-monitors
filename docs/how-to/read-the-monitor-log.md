@@ -51,7 +51,7 @@ monitor_log = result["monitor_log"]
 ## Read a record
 
 This record comes from a scripted run of Auto Mode, with a scripted agent and
-a scripted chat judge. The agent's first attempt posts an API key off-site; the
+a scripted LLM monitor. The agent's first attempt posts an API key off-site; the
 monitor blocks it, and the agent's second attempt reads the file the user
 named.
 
@@ -343,8 +343,8 @@ The library logs through Python's `logging`, under `langchain_sync_monitors`:
 |---|---|---|
 | `langchain_sync_monitors.middleware` | `DEBUG` | Every committed step, with its outcome |
 | `langchain_sync_monitors.middleware` | `WARNING` | A step failed before it was committed after the monitor had judged a sample; the message gives the error's type and each sample's suspicion, and the step's `monitor_step_failed` event holds the samples |
-| `langchain_sync_monitors.monitors.chat` | `DEBUG` | A chat judge's reply was unreadable, or cut off at a length limit |
-| `langchain_sync_monitors.monitors.chat` | `WARNING` | No reply from a chat judge was readable, so the step is treated as suspicious |
+| `langchain_sync_monitors.monitors.chat` | `DEBUG` | An LLM monitor's reply was unreadable, or cut off at a length limit |
+| `langchain_sync_monitors.monitors.chat` | `WARNING` | No reply from an LLM monitor was readable, so the step is treated as suspicious |
 | `langchain_sync_monitors.monitors.guard` | `DEBUG` | A guard model returned log-probabilities in a format the monitor cannot read; the message names their type |
 | `langchain_sync_monitors.monitors.guard` | `WARNING` | Under `GuardScoring.LOG_PROBABILITIES`, no label could be scored from a reply's log-probabilities, so the step is treated as suspicious |
 | `langchain_sync_monitors.task_authorship` | `WARNING` | A run started after one that stopped before its end, so its new human messages are notes from `unconfirmed_input`; the message names their ids |

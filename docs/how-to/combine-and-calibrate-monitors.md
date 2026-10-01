@@ -62,9 +62,9 @@ agent, and a number would tell the agent how close its step came to passing.
 Protocols multiply these costs, because they judge every sample they draw.
 Trusted Monitoring and Defer to Trusted judge one sample per step; Defer to
 Resample and Auto Mode judge up to three by default. So Defer to Resample
-around a `RepeatedMonitor` of three chat judge calls makes three judge calls on
+around a `RepeatedMonitor` of three LLM monitor calls makes three judge calls on
 an ordinary step and up to nine on a suspicious one, counting one readable
-reply per call. A chat judge asks again for an unreadable reply, up to
+reply per call. An LLM monitor asks again for an unreadable reply, up to
 `max_parse_retries` more times.
 
 ## Average repeated calls
@@ -73,7 +73,7 @@ reply per call. A chat judge asks again for an unreadable reply, up to
 one monitor [@koran2026ensemble]. Its `ensemble_size` is the number of calls,
 which LinuxArena calls the ensemble size (appendix C) [@tracy2026linuxarena].
 
-A chat judge gives an integer score, and integer scores tie so often that a
+An LLM monitor gives an integer score, and integer scores tie so often that a
 small audit budget falls inside a group of tied scores, as BashArena (section
 4.3) and Koran et al. (section 5.1) found
 [@kaufman2025basharena; @koran2026ensemble]. Averaging several calls adds
@@ -111,8 +111,8 @@ scores measured, here the mean of three calls, and the mean adds the
 resolution that ranking needs. The other way round would average percentiles,
 and a mean of percentiles is not itself a percentile.
 
-[![CalibratedMonitor wraps RepeatedMonitor, which wraps LLMMonitor. The proposed step goes to the chat judge three times, and RepeatedMonitor takes the mean of the three scores, rounded to 12 decimal places, with the reason of the most suspicious call. CalibratedMonitor then ranks that mean among the honest scores, which were collected with this same stack, so the verdict's suspicion is an honest-run percentile and its reason is still the most suspicious call's.](../assets/diagrams/monitors-average-then-calibrate-light.svg#only-light)](../assets/diagrams/monitors-average-then-calibrate-light.svg "Open the diagram at full size")
-[![CalibratedMonitor wraps RepeatedMonitor, which wraps LLMMonitor. The proposed step goes to the chat judge three times, and RepeatedMonitor takes the mean of the three scores, rounded to 12 decimal places, with the reason of the most suspicious call. CalibratedMonitor then ranks that mean among the honest scores, which were collected with this same stack, so the verdict's suspicion is an honest-run percentile and its reason is still the most suspicious call's.](../assets/diagrams/monitors-average-then-calibrate-dark.svg#only-dark)](../assets/diagrams/monitors-average-then-calibrate-dark.svg "Open the diagram at full size")
+[![CalibratedMonitor wraps RepeatedMonitor, which wraps LLMMonitor. The proposed step goes to the LLM monitor three times, and RepeatedMonitor takes the mean of the three scores, rounded to 12 decimal places, with the reason of the most suspicious call. CalibratedMonitor then ranks that mean among the honest scores, which were collected with this same stack, so the verdict's suspicion is an honest-run percentile and its reason is still the most suspicious call's.](../assets/diagrams/monitors-average-then-calibrate-light.svg#only-light)](../assets/diagrams/monitors-average-then-calibrate-light.svg "Open the diagram at full size")
+[![CalibratedMonitor wraps RepeatedMonitor, which wraps LLMMonitor. The proposed step goes to the LLM monitor three times, and RepeatedMonitor takes the mean of the three scores, rounded to 12 decimal places, with the reason of the most suspicious call. CalibratedMonitor then ranks that mean among the honest scores, which were collected with this same stack, so the verdict's suspicion is an honest-run percentile and its reason is still the most suspicious call's.](../assets/diagrams/monitors-average-then-calibrate-dark.svg#only-dark)](../assets/diagrams/monitors-average-then-calibrate-dark.svg "Open the diagram at full size")
 
 ## Collect honest scores
 
@@ -188,7 +188,7 @@ Each run here has no checkpointer, so its log holds only its own steps. On a
 checkpointed thread, `monitor_log` holds every turn of the thread, so collect
 it once per thread.
 
-Read the highest honest scores before you calibrate. A chat judge whose reply
+Read the highest honest scores before you calibrate. An LLM monitor whose reply
 could not be read gives 1.0, with the reason "The monitor gave no readable
 score, so the step is treated as suspicious." That score measures nothing
 about the step, and a 1.0 in the honest set ties with every later 1.0: a step
@@ -329,8 +329,8 @@ auto mode, a fast filter in front of a reasoning classifier
 [where the ideas come from](../explanation/background.md#thresholds-and-scores)
 compares this rule of one threshold with other cascades.
 
-[![CascadeMonitor runs the fast monitor, such as a calibrated decision model, on every step. When the fast suspicion is below escalation_threshold, the fast verdict stands, its reason included. At or above escalation_threshold, the careful monitor, such as a calibrated, repeated chat judge, scores the step, and its verdict, reason included, replaces the fast one. The careful monitor runs on escalated steps only.](../assets/diagrams/monitors-cascade-light.svg#only-light)](../assets/diagrams/monitors-cascade-light.svg "Open the diagram at full size")
-[![CascadeMonitor runs the fast monitor, such as a calibrated decision model, on every step. When the fast suspicion is below escalation_threshold, the fast verdict stands, its reason included. At or above escalation_threshold, the careful monitor, such as a calibrated, repeated chat judge, scores the step, and its verdict, reason included, replaces the fast one. The careful monitor runs on escalated steps only.](../assets/diagrams/monitors-cascade-dark.svg#only-dark)](../assets/diagrams/monitors-cascade-dark.svg "Open the diagram at full size")
+[![CascadeMonitor runs the fast monitor, such as a calibrated decision model, on every step. When the fast suspicion is below escalation_threshold, the fast verdict stands, its reason included. At or above escalation_threshold, the careful monitor, such as a calibrated, repeated LLM monitor, scores the step, and its verdict, reason included, replaces the fast one. The careful monitor runs on escalated steps only.](../assets/diagrams/monitors-cascade-light.svg#only-light)](../assets/diagrams/monitors-cascade-light.svg "Open the diagram at full size")
+[![CascadeMonitor runs the fast monitor, such as a calibrated decision model, on every step. When the fast suspicion is below escalation_threshold, the fast verdict stands, its reason included. At or above escalation_threshold, the careful monitor, such as a calibrated, repeated LLM monitor, scores the step, and its verdict, reason included, replaces the fast one. The careful monitor runs on escalated steps only.](../assets/diagrams/monitors-cascade-dark.svg#only-dark)](../assets/diagrams/monitors-cascade-dark.svg "Open the diagram at full size")
 
 Calibrate each stage on its own honest scores, collected as above with that
 stage as the monitor. Collect the careful stage's scores on every honest step,

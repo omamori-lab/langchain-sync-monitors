@@ -253,8 +253,8 @@ its scores tie at a resolution of 0.01. Averaging calls with `RepeatedMonitor`,
 or aggregating several questions with `Aggregation.MEAN`, restores some
 resolution; `MAX` and `MIN` return one question's answer, at its resolution.
 
-The library suggests a decision model as the fast first stage in front of a
-chat judge, by analogy with Claude Code's auto mode, whose first stage answers
+The library suggests a decision model as the fast first stage in front of an
+LLM monitor, by analogy with Claude Code's auto mode, whose first stage answers
 with a single yes or no token and whose second reasons (section Two-stage
 classification: efficiency and recall) [@hughes2026automode]. No cited source
 evaluates how well this pairing catches attacks. [Combine and calibrate

@@ -10,7 +10,7 @@ included. A run a provider rate-limited is skipped.
 - With a copy of the main monitor, Jev under Auto Mode, the honest run must
   email the team, and in both runs every sample at or above the threshold,
   the subagent's included, must be blocked and its step flagged.
-- With the chat judge under Defer to Resample ending in `HaltRun` on the
+- With the LLM monitor under Defer to Resample ending in `HaltRun` on the
   subagent, and `SubagentHalt.STOP_WHOLE_RUN`, a halted subagent must stop
   the main agent at its next step: a record that is halted and flagged, with
   no sample, and the run ends on the monitor's message naming the subagent.

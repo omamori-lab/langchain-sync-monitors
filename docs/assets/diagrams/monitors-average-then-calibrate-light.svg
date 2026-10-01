@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1000" height="710" viewBox="0 0 1000 710" role="img" aria-labelledby="title desc">
   <title id="title">Average first, then calibrate</title>
-  <desc id="desc">CalibratedMonitor wraps RepeatedMonitor, which wraps LLMMonitor. The proposed step goes to the chat judge three times, and RepeatedMonitor takes the mean of the three scores, rounded to 12 decimal places, with the reason of the most suspicious call. CalibratedMonitor then ranks that mean among the honest scores, which were collected with this same stack, so the verdict&#x27;s suspicion is an honest-run percentile and its reason is still the most suspicious call&#x27;s.</desc>
+  <desc id="desc">CalibratedMonitor wraps RepeatedMonitor, which wraps LLMMonitor. The proposed step goes to the LLM monitor three times, and RepeatedMonitor takes the mean of the three scores, rounded to 12 decimal places, with the reason of the most suspicious call. CalibratedMonitor then ranks that mean among the honest scores, which were collected with this same stack, so the verdict&#x27;s suspicion is an honest-run percentile and its reason is still the most suspicious call&#x27;s.</desc>
   <!-- Colours come from the brand tokens: diagrams/render.py fills this style block. -->
   <style>
     svg { color-scheme: light; }

@@ -14,6 +14,16 @@ change raises the minor version.
 
 ## [Unreleased]
 
+### Changed
+
+- The docs and docstrings call `LLMMonitor`'s family an LLM monitor, the AI
+  control literature's term, not a chat judge. The guide "Use a chat judge" is
+  now [Use an LLM monitor](https://omamori-lab.github.io/langchain-sync-monitors/how-to/use-an-llm-monitor/),
+  and its old address redirects there.
+- The `CachedResampleWarning` about a monitor's cached model says "an LLM
+  monitor" where it said "a chat judge"; a warning filter that matches the old
+  text needs the new one.
+
 ## [0.1.0] - 2026-10-01
 
 ### Added

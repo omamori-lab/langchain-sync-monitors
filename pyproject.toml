@@ -73,6 +73,7 @@ docs = [
     "mkdocs-material>=9.5",
     "mkdocstrings[python]>=0.27",
     "mkdocs-bibtex>=4",
+    "mkdocs-redirects>=1.2",
 ]
 
 [tool.hatch.version]

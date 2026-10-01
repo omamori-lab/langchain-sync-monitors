@@ -39,7 +39,7 @@ class RepeatedMonitor(Monitor):
     which LinuxArena calls the ensemble size (appendix C)
     [@tracy2026linuxarena].
 
-    A single call of a chat judge gives an integer score, and integer scores tie
+    A single call of an LLM monitor gives an integer score, and integer scores tie
     so often that a low audit budget cannot be set: the budget falls inside a
     group of tied steps. Averaging repeated calls adds resolution at low false
     positive rates, as BashArena shows (section 4.3) [@kaufman2025basharena];

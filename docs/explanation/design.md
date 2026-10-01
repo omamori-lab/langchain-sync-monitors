@@ -450,12 +450,14 @@ provider string such as `"openrouter:..."` is resolved with LangChain's
 
 The agent writes the step its judge reads, so it can plant text aimed at the
 judge there, such as a score or a label [@terekhov2025adaptive], and a judge
-may quote it. So a chat judge's score and a guard's label are read only where
+may quote it. So an LLM monitor's score and a guard's label are read only where
 the reply's format puts them, and a reply that cannot be read counts as
 suspicious.
 
-- **Chat judges** (`LLMMonitor`) are chat models prompted to reason first and
-  then score on an anchored scale, 0 to 10 by default, mapped onto 0 to 1.
+- **LLM monitors** (`LLMMonitor`), as AI control research calls them
+  [@terekhov2025adaptive; @arike2026information; @tracy2026linuxarena], are
+  chat models prompted to reason first and then score on an anchored scale,
+  0 to 10 by default, mapped onto 0 to 1.
   Reasoning before the score is the prompt component Apollo Research found
   matters most [@apollo2026monitoringprompt]. A reply is read only in that
   shape: the reasoning, then one score tag, with nothing between them or
@@ -505,8 +507,8 @@ step. One case it cannot tell apart remains
 
 No family adds a score, probability or count to its `reason`, which Auto Mode
 shows the agent: a number would tell the agent how close its step came to
-passing. The numbers stay in `suspicion`, which the records keep. A chat
-judge's reason is its own reasoning, and `DEFAULT_MONITOR_PROMPT` asks it to
+passing. The numbers stay in `suspicion`, which the records keep. An LLM
+monitor's reason is its own reasoning, and `DEFAULT_MONITOR_PROMPT` asks it to
 keep its score out of it, but its wording may still hint at one.
 
 Scores have to be fine-grained. Control evaluations set thresholds as
@@ -1038,7 +1040,7 @@ wrappers, `MonitorView`, the decision models, `monitor_subagents` and
   must be non-blank strings without `:` or `|`, which LangGraph refuses in a
   node name.
 - A refused number Python will not write out, such as an integer of more
-  than 4,300 digits, is named by its kind in the message. A chat judge's
+  than 4,300 digits, is named by its kind in the message. An LLM monitor's
   scale ends must be integers Python writes out, since the prompt shows them.
 
 ### Error and warning classes
@@ -1202,7 +1204,7 @@ limit is linked from where it arises above.
   on the agent's model, answers every resample with the first sample again.
   The library emits a `CachedResampleWarning`; build the untrusted model
   with `cache=False`. A cache on a monitor's model makes a guard's samples,
-  and a chat judge's request after an unreadable reply, copies of the first
+  and an LLM monitor's request after an unreadable reply, copies of the first
   reply, and warns the same way.
 - **A rate limit on the agent's own calls fails the step.** The chat
   monitors retry their own calls on HTTP 429. The agent's model and a trusted

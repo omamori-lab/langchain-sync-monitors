@@ -97,7 +97,7 @@ Four control protocols, from watching to blocking: [Choose a protocol](docs/how-
   <img alt="Three monitor classes cover three kinds of model, each drawn as the charm. LLMMonitor asks a chat model to reason and then score the step, from 0 to 10 by default. GuardModelMonitor has a guard model label the step against a policy you write, and suspicion is the chance the label is unsafe. DecisionModelMonitor asks a decision model yes or no questions, and suspicion is the chance of yes. Each returns the same Verdict, a suspicion from 0 to 1 and a reason, so any monitor works with any control protocol. Three wrappers nest around any monitor: RepeatedMonitor averages several calls, CalibratedMonitor ranks the score among the scores of honest runs, and CascadeMonitor runs a fast monitor on every step and, when the fast one finds the step suspicious, a careful one whose verdict replaces the fast one's." src="docs/assets/diagrams/monitors-light.svg">
 </picture>
 
-Monitors for [chat judges](docs/how-to/use-a-chat-judge.md), [guard models](docs/how-to/use-a-guard-model.md) and [decision models](docs/how-to/use-a-decision-model.md), and [wrappers](docs/how-to/combine-and-calibrate-monitors.md) that average, calibrate or cascade them.
+Monitors for [LLM monitors](docs/how-to/use-an-llm-monitor.md), [guard models](docs/how-to/use-a-guard-model.md) and [decision models](docs/how-to/use-a-decision-model.md), and [wrappers](docs/how-to/combine-and-calibrate-monitors.md) that average, calibrate or cascade them.
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/assets/diagrams/monitor-view-dark.svg">

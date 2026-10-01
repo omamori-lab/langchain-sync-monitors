@@ -80,7 +80,7 @@ class RenderingMonitor(Monitor):
 
     The transcript and the proposed step are rendered with the library's own
     `render_transcript` and `render_proposed_step`, so `readings` holds exactly
-    the text a chat judge with the same view would receive. The verdict comes
+    the text an LLM monitor with the same view would receive. The verdict comes
     from the first keyword the rendered proposed step contains, so a step the
     view hides cannot be flagged.
     """

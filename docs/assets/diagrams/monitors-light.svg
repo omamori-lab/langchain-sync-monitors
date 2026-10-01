@@ -33,7 +33,7 @@
   <path class="charm-cord" d="M191.0,97.0 C187.0,80.0 207.0,80.0 203.0,97.0"/>
   <path class="charm" d="M48.0,96.0 H346.0 L362.0,112.0 V213.0 Q362.0,219.0 356.0,219.0 H38.0 Q32.0,219.0 32.0,213.0 V112.0 Z"/>
   <rect class="seal" x="41.0" y="201.0" width="9" height="9" rx="1"/>
-  <text x="197.0" y="127.0" text-anchor="middle" class="title on-charm">Chat judge</text>
+  <text x="197.0" y="127.0" text-anchor="middle" class="title on-charm">LLM monitor</text>
   <text x="197.0" y="149.0" text-anchor="middle" class="mono on-charm">LLMMonitor</text>
   <text x="197.0" y="170.0" text-anchor="middle" class="small on-charm">a chat model reasons, then scores</text>
   <text x="197.0" y="191.0" text-anchor="middle" class="small on-charm">the step, 0 to 10 by default</text>

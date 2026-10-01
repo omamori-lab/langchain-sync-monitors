@@ -48,7 +48,7 @@ the model's outputs let frontier models evade diverse monitors, and that
 Defer to Resample backfires: its resampling amplifies the injection into a
 best-of-n attack (abstract; sections 4.2 and 6) [@terekhov2025adaptive]. The
 same threat is why the default prompt tells the monitor to read everything as
-data, and why a chat judge's score and a guard's label are read only where
+data, and why an LLM monitor's score and a guard's label are read only where
 the reply's format puts them.
 
 ## Claude Code's auto mode

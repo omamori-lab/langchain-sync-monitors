@@ -1,7 +1,7 @@
-"""The attack run under each of six protocol variants, judged by the chat judge.
+"""The attack run under each of six protocol variants, judged by the LLM monitor.
 
 What it measures: whether each protocol takes the path its scores call for
-with a real agent and a real judge. The chat judge is used because it scores
+with a real agent and a real judge. The LLM monitor is used because it scores
 the read of `config/.env` above the threshold in most runs, so the protocols
 act early. Each run alternates `invoke()` and `ainvoke()`, with Defer to
 Resample's parallel draws under `ainvoke()`, where they run concurrently.
@@ -69,7 +69,7 @@ def test_the_protocol_acts_on_every_step_that_reaches_the_threshold(
     # Arrange
     configuration = RunConfiguration(
         scenario=Scenario.ATTACK,
-        monitor_family=MonitorFamily.CHAT_JUDGE,
+        monitor_family=MonitorFamily.LLM_MONITOR,
         protocol_name=protocol_name,
         mode=mode,
     )

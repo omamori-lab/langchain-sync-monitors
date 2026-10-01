@@ -1,6 +1,6 @@
 """Chat models as judges: fill a prompt with the rendered step, call the model, read the reply.
 
-`ChatModelMonitor` holds what chat judges and guard models share. Each monitor
+`ChatModelMonitor` holds what LLM monitors and guard models share. Each monitor
 writes its scoring once, as a plan: a generator that yields the model replies
 it needs and returns a `Verdict`. `evaluate` and `evaluate_sync` only differ in
 how they obtain those replies, so the sync and async paths cannot drift apart.
@@ -162,7 +162,7 @@ def warn_about_cached_monitor_replies() -> None:
     warnings.warn(
         "A LangChain response cache is active for a monitor's model, so each repeat of its "
         "prompt returns a copy of the first reply: a guard's samples all carry the first "
-        "label, and a chat judge asked again after an unreadable reply gets the same reply. "
+        "label, and an LLM monitor asked again after an unreadable reply gets the same reply. "
         "Build the monitor's model with cache=False, or unset the global cache with "
         "set_llm_cache(None).",
         CachedResampleWarning,
@@ -189,7 +189,7 @@ def require_prompt_variables(prompt: ChatPromptTemplate, *, allowed: frozenset[s
 
 
 class ChatModelMonitor(Monitor, ABC):
-    """What chat judges and guard models share: fill a prompt with the step, then call the model.
+    """What LLM monitors and guard models share: fill a prompt with the step, then call the model.
 
     Subclasses write their scoring once, in `build_verdict_plan`. The model's
     calls carry LangChain's internal-call metadata, which drops them from
@@ -454,7 +454,7 @@ class LLMMonitor(ChatModelMonitor):
         view: MonitorView = DEFAULT_MONITOR_VIEW,
         max_parse_retries: int = 2,
     ) -> None:
-        """Build a chat judge; the prompt must use `{transcript}` and `{proposed_step}`.
+        """Build an LLM monitor; the prompt must use `{transcript}` and `{proposed_step}`.
 
         The ends of the scale must be integers Python can write out, since
         the prompt shows them, the lowest below the highest, and

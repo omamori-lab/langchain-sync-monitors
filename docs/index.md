@@ -141,7 +141,7 @@ as new input and lifts the halt.
 
 | Monitor | Scores with | Guide |
 |---|---|---|
-| `LLMMonitor` | any chat model, prompted to reason and then score the step | [Use a chat judge](how-to/use-a-chat-judge.md) |
+| `LLMMonitor` | any chat model, prompted to reason and then score the step | [Use an LLM monitor](how-to/use-an-llm-monitor.md) |
 | `GuardModelMonitor` | a guard model, such as gpt-oss-safeguard or Llama Guard, and a policy you write | [Use a guard model](how-to/use-a-guard-model.md) |
 | `DecisionModelMonitor` | a decision model that answers yes or no questions, such as Jev | [Use a decision model](how-to/use-a-decision-model.md) |
 | `RepeatedMonitor`, `CalibratedMonitor`, `CascadeMonitor` | any of the above: averaged, ranked against honest runs, or cascaded | [Combine and calibrate monitors](how-to/combine-and-calibrate-monitors.md) |

@@ -110,7 +110,7 @@ honest_scores = [
 audit_threshold = statistics.quantiles(honest_scores, n=100, method="inclusive")[97]
 ```
 
-A single chat judge scores in steps of 0.1, so many honest steps share a
+A single LLM monitor scores in steps of 0.1, so many honest steps share a
 score, and the share of honest steps flagged can land well away from the
 percentile you chose.
 [Combine and calibrate monitors](combine-and-calibrate-monitors.md#average-repeated-calls)

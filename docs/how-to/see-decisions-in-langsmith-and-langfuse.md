@@ -31,7 +31,7 @@ model
   start. The step span opens before the first sample and ends when the step is
   committed; the decision span, tagged with the outcome, opens and ends at
   once, when the protocol has decided.
-- **Judgements.** The chat judges, the guards and `TypeSafeDecisionModel` make
+- **Judgements.** The LLM monitors, the guards and `TypeSafeDecisionModel` make
   model calls, each named `monitor call`, which nest in the judgement. The
   model still shows as the call's model and in `ls_model_name`. A call the
   monitor makes again after HTTP 429 adds one more `monitor call`, and the
@@ -233,7 +233,7 @@ span's tags only in its metadata, so filter on `monitor_outcome` and
 
 The monitor's own model calls carry no `monitor` tag, but each one it makes
 through LangChain is named `monitor call`, whatever its model: the calls of
-the chat judges and the guards, and the classifier call of
+the LLM monitors and the guards, and the classifier call of
 `TypeSafeDecisionModel`. The fixed name
 replaces any name you gave the model, so a judge built with
 `name="security judge"` shows as `monitor call` too. The model still shows as

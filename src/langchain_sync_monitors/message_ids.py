@@ -15,6 +15,7 @@ as a note, so the next run cannot take it for input.
 from __future__ import annotations
 
 from collections.abc import Mapping
+from typing import TypeGuard
 from uuid import uuid4
 
 from langchain_core.messages import BaseMessage, HumanMessage
@@ -30,9 +31,16 @@ from langchain_sync_monitors.task_authorship import (
 )
 
 
-def is_unidentified_human_message(message: BaseMessage) -> bool:
+def is_unidentified_human_message(message: BaseMessage) -> TypeGuard[HumanMessage]:
     """Tell whether a message is an untagged human message without an id."""
     return is_untagged_human_message(message) and not message.id
+
+
+def identify_human_message(message: HumanMessage, *, as_notes: bool) -> HumanMessage:
+    """Return the message with a fresh id, and tagged as a context note with `as_notes`."""
+    # The plain uuid4 LangGraph gives a message it writes; the monitor did not write it.
+    identified = message.model_copy(update={"id": str(uuid4())})
+    return mark_context_note(identified) if as_notes else identified
 
 
 def identify_human_messages(state: object, *, as_notes: bool) -> list[BaseMessage] | None:
@@ -44,14 +52,12 @@ def identify_human_messages(state: object, *, as_notes: bool) -> list[BaseMessag
     messages = read_state_messages(state)
     if not any(is_unidentified_human_message(message) for message in messages):
         return None
-    identified: list[BaseMessage] = []
-    for message in messages:
-        if isinstance(message, HumanMessage) and is_unidentified_human_message(message):
-            # The plain uuid4 LangGraph gives a message it writes; the monitor did not write it.
-            message = message.model_copy(update={"id": str(uuid4())})
-            message = mark_context_note(message) if as_notes else message
-        identified.append(message)
-    return identified
+    return [
+        identify_human_message(message, as_notes=as_notes)
+        if is_unidentified_human_message(message)
+        else message
+        for message in messages
+    ]
 
 
 def replace_state_messages(state: object, *, messages: list[BaseMessage]) -> dict[str, object]:

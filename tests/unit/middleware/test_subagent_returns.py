@@ -97,15 +97,38 @@ def test_an_entry_the_monitor_cannot_read_raises() -> None:
     # Arrange
     state = {"monitor_subagent_returns": [{"id": "a", "halted_subagents": "worker"}]}
 
-    # Act / Assert
-    with pytest.raises(MonitorError, match="monitor_subagent_returns"):
+    # Act
+    with pytest.raises(MonitorError) as raised:
         read_subagent_returns(state)
 
+    # Assert: the fields at fault are named, the value only by its type and length, and
+    # pydantic's error, which quotes the value, is neither chained nor shown as the context
+    assert str(raised.value) == (
+        "monitor_subagent_returns holds a value the monitor cannot read "
+        "(0.delegation_id: Field required; 0.tool_call_id: Field required; "
+        "0.halted_subagents: Input should be a valid list): a list of length 1. "
+        "Only the monitor writes this key; remove the value."
+    )
+    assert "worker" not in str(raised.value)
+    assert raised.value.__cause__ is None
+    assert raised.value.__suppress_context__
 
-def test_a_state_without_entries_answers_nothing() -> None:
-    # Act / Assert
-    assert read_subagent_returns({}) == []
-    assert build_answered_update({}) == {}
+
+@pytest.mark.parametrize(
+    "state",
+    [{}, {"monitor_subagent_returns": None}, "not a state"],
+    ids=["no-entries", "entries-none", "not-a-mapping"],
+)
+def test_a_state_without_entries_answers_nothing(state: object) -> None:
+    # Arrange: the parametrised state holds no entries, or is no mapping at all
+
+    # Act
+    returns = read_subagent_returns(state)
+    update = build_answered_update(state)
+
+    # Assert
+    assert returns == []
+    assert update == {}
 
 
 def test_an_entry_whose_count_is_a_string_raises_rather_than_being_converted() -> None:

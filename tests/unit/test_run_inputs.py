@@ -3,6 +3,8 @@ put back, verbatim and in order, in the monitor's copy of a conversation that no
 
 from __future__ import annotations
 
+from types import SimpleNamespace
+
 import pytest
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, ToolMessage
 
@@ -225,6 +227,17 @@ def test_the_reducer_leaves_out_a_value_that_is_not_a_list() -> None:
 
     # Assert
     assert merged == [KEPT_TASK]
+
+
+def test_a_state_that_is_not_a_mapping_holds_no_kept_input() -> None:
+    # Arrange: an object whose attributes bear the state keys' names, which are not read
+    state = SimpleNamespace(messages=[TASK], monitor_run_inputs=[KEPT_TASK])
+
+    # Act
+    current = read_current_run_inputs(state)
+
+    # Assert
+    assert current == ()
 
 
 def test_a_history_that_holds_every_input_is_returned_unchanged() -> None:

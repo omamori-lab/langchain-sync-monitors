@@ -33,6 +33,7 @@ from langchain_sync_monitors.pending_steps import (
     warn_about_cached_resamples,
 )
 from langchain_sync_monitors.protocols import AutoMode, DeferToResample, HaltRun
+from langchain_sync_monitors.thresholds import LIBRARY_DIRECTORY
 from tests.support.agents import (
     RunMode,
     Workspace,
@@ -168,7 +169,12 @@ async def call_model_async(request: ModelRequest[Any]) -> ModelResponse[Any]:
     return ModelResponse(result=[await request.model.ainvoke(request.messages)])
 
 
-def draw_first_samples(model: ScriptedChatModel, *, count: int, mode: RunMode) -> list[str]:
+def draw_first_samples(
+    model: ScriptedChatModel,
+    *,
+    count: int,
+    mode: RunMode,
+) -> list[warnings.WarningMessage]:
     """Draw a step's first `count` samples at once, and return the cache warnings raised."""
     task = HumanMessage("Summarise the report.")
     request = ModelRequest(model=model, messages=[task], state={"messages": [task]})
@@ -188,7 +194,7 @@ def draw_first_samples(model: ScriptedChatModel, *, count: int, mode: RunMode) -
                 task_author=TaskAuthor.USER,
             )
             asyncio.run(async_step.sample(count=count, concurrently=True))
-    return [str(warning.message) for warning in caught if warning.category is CachedResampleWarning]
+    return [warning for warning in caught if warning.category is CachedResampleWarning]
 
 
 @pytest.mark.usefixtures("global_cache")
@@ -206,6 +212,18 @@ def test_a_first_draw_of_two_samples_under_a_cache_warns_and_of_one_does_not(
 
     # Assert
     assert len(caught) == expected_warnings
+
+
+@pytest.mark.usefixtures("global_cache")
+def test_the_warning_points_at_a_frame_outside_the_library(run_mode: RunMode) -> None:
+    # Arrange
+    model = ScriptedChatModel(responses=[build_read_step(), build_read_step()])
+
+    # Act
+    [warning] = draw_first_samples(model, count=2, mode=run_mode)
+
+    # Assert
+    assert not warning.filename.startswith(LIBRARY_DIRECTORY)
 
 
 class RunPickedModel(AgentMiddleware[Any, Any, Any]):

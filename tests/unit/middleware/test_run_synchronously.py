@@ -11,7 +11,7 @@ from collections.abc import Callable, Coroutine
 import pytest
 
 from langchain_sync_monitors.errors import SynchronousRunError
-from langchain_sync_monitors.pending_steps import run_synchronously
+from langchain_sync_monitors.pending_steps import SYNCHRONOUS_RUN_MESSAGE, run_synchronously
 
 
 async def return_after_awaiting_plain_coroutines() -> str:
@@ -165,3 +165,42 @@ async def test_work_scheduled_inside_a_running_loop_is_cancelled_before_it_runs(
 
     # Assert
     assert calls == []
+
+
+async def schedule_then_fail(scheduled: list[asyncio.Future[str]], *, error: Exception) -> str:
+    scheduled.append(asyncio.ensure_future(record_call([])))
+    raise error
+
+
+STEP_ERROR = "The monitor started asynchronous work in evaluate_sync."
+FAILURES_AFTER_SCHEDULING: dict[str, tuple[Callable[[], Exception], str]] = {
+    "the-pending-step-s-own-error": (lambda: SynchronousRunError(STEP_ERROR), STEP_ERROR),
+    "asyncio-s-missing-loop-error": (
+        lambda: RuntimeError("no running event loop"),
+        SYNCHRONOUS_RUN_MESSAGE,
+    ),
+}
+"""How a protocol can fail after it scheduled work, and what the error that ends the call says."""
+
+
+@pytest.mark.parametrize(
+    ("build_error", "expected_message"),
+    FAILURES_AFTER_SCHEDULING.values(),
+    ids=FAILURES_AFTER_SCHEDULING.keys(),
+)
+async def test_work_scheduled_before_a_synchronous_run_error_is_cancelled_before_it_runs(
+    build_error: Callable[[], Exception],
+    expected_message: str,
+) -> None:
+    # Arrange
+    scheduled: list[asyncio.Future[str]] = []
+
+    # Act
+    with pytest.raises(SynchronousRunError) as raised:
+        run_synchronously(schedule_then_fail(scheduled, error=build_error()))
+    await asyncio.sleep(0.05)
+
+    # Assert
+    assert str(raised.value) == expected_message
+    [task] = scheduled
+    assert task.cancelled()

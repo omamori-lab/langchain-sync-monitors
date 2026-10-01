@@ -19,10 +19,11 @@ change must pass, how to send a pull request and how to cut a release.
 
 ## Principles
 
-- **Simple to use, open to configure.** A monitored agent takes one line; every
-  behaviour is an option with a sensible default; anything beyond the options
-  is your own implementation of a contract in `contracts.py`. `AGENTS.md`
-  ("How the code is designed") lists the design patterns the code keeps to.
+- **Simple to use, open to configure.** A monitored agent takes one line;
+  every behaviour is an option, with a default where one is safe; anything
+  beyond the options is your own implementation of a contract in
+  `contracts.py`. `AGENTS.md` ("How the code is designed") lists the design
+  patterns the code keeps to.
 - **Every model is a parameter.** The library never picks a model for you.
 - **Core dependencies stay small.** Providers sit behind extras.
 - **Types say what the data is.** No `Any` where the shape is known.
@@ -31,9 +32,9 @@ change must pass, how to send a pull request and how to cut a release.
 - **Standard words.** Names use the terms software engineering, machine
   learning, technical AI safety and AI control already have, in full words.
   A new term is coined only when none exists.
-- **Protocols rest on the literature.** A protocol changes only on the evidence
-  of AI control or AI safety research, or a published control evaluation or
-  benchmark.
+- **Protocols rest on the literature.** A protocol follows AI control or
+  technical AI safety research, or a published control evaluation or
+  benchmark. A behaviour no source supports says so.
 - **Credit the source.** Code and docs cite the papers and codebases they draw
   on, and the bibliography is checked by the tests.
 
@@ -96,9 +97,8 @@ fired, run `uvx --python 3.13 lanorme==0.21.0 rule CODE`.
   implements `Fallback.take_over`, under the same rule as `decide`.
 - Keep no run state on the instance: one copy serves parallel subagent runs.
 - Keep every model a constructor parameter.
-- Base a protocol on AI control or AI safety research, or on a published
-  control evaluation or benchmark, and cite it. Cite the paper or codebase
-  any idea comes from, and add a changelog entry.
+- Cite the research, evaluation or codebase it rests on (see "Citing
+  sources"), and add a changelog entry.
 
 ## Citing sources
 
@@ -108,18 +108,23 @@ that applies the source or in the docs text:
 
 ```python
 class DeferToResample(ControlProtocol):
-    """Defer to Resample, the basic protocol of Ctrl-Z [@bhatt2025ctrlz]."""
+    """Replace a suspicious step with a fresh sample of it, or hand it to a fallback.
+
+    This is the basic Defer to Resample protocol of Ctrl-Z [@bhatt2025ctrlz].
+    """
 ```
 
-Put a section, table or equation in the prose, as in "the audit statistic
-Ctrl-Z found to work well (section 3.2, footnote 6) [@bhatt2025ctrlz]", not
-inside the brackets: the docs build reads only the key and fails on a
-locator.
+Give a locator (a section, appendix, table, figure, equation or footnote) in
+the prose, in full lowercase words, as in `(section 3.2, footnote 6)
+[@bhatt2025ctrlz]`. Never write `§`, `Sec.`, `App.`, `Eq.` or `Tab.`, and
+never put the locator inside the brackets. On a docs page the strict build
+fails on one there; in a docstring nothing checks it, so reviewers do.
 
 Add the entry to `docs/references.bib` in the same change, under the `%`
 heading for its topic. A key is the first author's surname or the
-organisation, the year and a word from the title (`bhatt2025ctrlz`); a
-codebase's key is its package name and year (`langgraph2026`). Papers use `@misc`,
+organisation, the year and a short title stem (`bhatt2025ctrlz`). A codebase
+is keyed by its name and year (`langgraph2026`), or by author, year and name
+when it is better known that way (`schlawack2026stamina`). Papers use `@misc`,
 `@inproceedings` or `@article`, reports `@techreport`, books `@book`, posts
 `@online`, and codebases and libraries `@software` with the version you
 learned from. `tests/unit/test_references.py`

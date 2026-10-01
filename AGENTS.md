@@ -37,8 +37,6 @@ a lanorme finding.
 - Plans live in `docs/plans/<feature>/`, one directory per feature: the plan
   (diagrams and pseudocode) and the research behind its decisions. The first
   is `docs/plans/initial-implementation/`. A new feature gets a new directory.
-- Shared interfaces live in `src/langchain_sync_monitors/contracts.py`. Code
-  against them; change them only in a dedicated pull request.
 - Errors live in `errors.py` and derive from `MonitorError`. Diagnostics go
   through `logging.getLogger(__name__)`, never `print`.
 
@@ -48,34 +46,42 @@ Keep to these patterns; reviewers check them.
 
 - **Simple for the user, configurable for the expert.** A monitored agent is
   one line, `MonitorMiddleware(monitor=..., protocol=...)`. Every behaviour
-  is an option with a sensible default (never a default model), checked when
-  the object is built, and anything beyond the options is an implementation
-  of a contract.
+  is an option, checked when the object is built. An option has a default
+  where one is safe, and a threshold's default warns until you calibrate it.
+  Anything beyond the options is an implementation of a contract.
 - **Program to the contracts.** `contracts.py` defines the interfaces:
   `Monitor`, `ControlProtocol`, `Fallback` and `PendingStep`, with
-  `DecisionModel` in `monitors/decision.py`. Code depends on these, not on
-  concrete classes, so any monitor works with any protocol.
-- **A strategy for every choice.** Behaviour that can vary is an object or an
-  enum passed in: a protocol, a fallback, a monitor, a decision model,
-  `GuardScoring`, `Combine`, `MonitorView`, `FeedbackVisibility`,
-  `SubagentHalt`, `Resampling`. No flag switches behaviour inside one class.
+  `DecisionModel` in `monitors/decision.py`. The middleware and the protocols
+  depend on these, not on concrete classes, so any monitor works with any
+  protocol; only `placement.py` recognises the library's own protocols by
+  class, to give advice. Change a contract only in a dedicated pull request.
+- **A strategy for every choice.** Behaviour that varies is an object or an
+  enum passed to the constructor, never a bool or a plain string: a protocol,
+  a fallback, a monitor, a decision model, `GuardScoring`, `Combine`,
+  `MonitorView`, `FeedbackVisibility`, `SubagentHalt`, `Resampling`.
+  `PendingStep.sample`'s `concurrently` flag is the one exception.
 - **Composition over inheritance.** Monitors compose: `RepeatedMonitor`,
   `CalibratedMonitor` and `CascadeMonitor` are monitors that hold monitors.
   Inherit only from a contract, or from a template with named hooks such as
-  `ChatModelMonitor`.
+  `ChatModelMonitor`. `DeferToTrusted`, which is `DeferToResample` with no
+  resamples, is the one exception.
 - **A small core of functions, a thin shell.** The middleware wires
   LangChain's hooks; the decisions live in small functions over typed records
   (`halts.py`, `records.py`, `transcript.py`, `task_authorship.py`), each
   testable on its own, and shared by the sync and async paths.
-- **One layer touches LangChain's untyped surfaces.** `_langchain.py` reads
-  and writes them; everything else sees typed values.
+- **One layer names LangChain's untyped surfaces.** `_langchain.py` names
+  the LangChain and LangGraph values typed as `Any`, and is the only module
+  that touches callback managers. Other modules read provider metadata, such
+  as `additional_kwargs` and `response_metadata`, only through type checks or
+  pydantic models.
 - **Wrong states cannot be built.** Typed records, enums and frozen dataclasses
   carry the data; external payloads are validated with pydantic where they
   enter; a value the library cannot read fails closed.
-- **One source of truth.** Each state key is a named constant, gathered in
-  `state_keys.py`; the messages the monitor writes into a run, such as
-  `DEFAULT_HALT_MESSAGE` and `STANDING_HALT_MESSAGE`, are named constants; and
-  each documented fact lives on one page.
+- **One source of truth.** Each state key is a named constant, in
+  `state_keys.py`, or beside its reader in `_langchain.py`. Each message the
+  monitor writes into a run is built in one place, such as
+  `DEFAULT_HALT_MESSAGE` and `STANDING_HALT_MESSAGE`. Each documented fact
+  lives on one page.
 
 ## Rules that the gates do not fully catch
 
@@ -86,8 +92,9 @@ Keep to these patterns; reviewers check them.
   first (`build_`, `render_`, `read_`, `is_`); classes, modules and packages
   are nouns, named for what they are. Use full words: no shorthands or
   abbreviations beyond standard ones such as `id` or `url`.
-  LangChain's fixed hook names, such as `wrap_model_call`, `awrap_tool_call`
-  and `aafter_model`, are the only exception.
+  Properties are nouns, named for the value they return. LangChain's fixed
+  hook names, such as `wrap_model_call`, `awrap_tool_call` and
+  `aafter_model`, and Python's dunder methods are the exceptions.
 - **Canonical terms, not coined ones.** Name a thing with the term software
   engineering, machine learning, technical AI safety or AI control already
   uses for it: trusted and untrusted model, suspicion score, audit, defer to
@@ -97,7 +104,7 @@ Keep to these patterns; reviewers check them.
   the first positional one, except LangChain hooks marked with `@override`.
 - **Intentional types.** No `Any` and no `dict[str, Any]` for data whose shape
   we know: use `StrEnum`, `Literal`, frozen dataclasses, `TypedDict` or pydantic
-  models. Untyped LangChain surfaces are confined to `_langchain.py`.
+  models.
 - **Prefer a canonical library to hand-rolled logic**: stamina for retries of
   network calls, pydantic for validating external payloads, httpx for HTTP,
   the standard library `statistics` and `bisect` for numbers. Chat models
@@ -111,14 +118,12 @@ Keep to these patterns; reviewers check them.
   never borrows a citation that does not cover it.
 - **Cite sources at the point of use.** When code or a docs page takes an idea,
   a protocol, a number or a code pattern from a paper, a post or another
-  codebase, cite it in pandoc's citation syntax, `[@key]` or
-  `[@first; @second]`, straight after the claim, in the docstring of the code
-  that applies it or in the docs text. Give a section, table or equation in
-  the prose, not inside the brackets, where the docs build fails on it. Add
-  the entry to `docs/references.bib` in the same change; `CONTRIBUTING.md`
-  ("Citing sources") gives the key and entry formats. The unit tests fail on
-  a cited key that is missing from the bibliography and on an entry nothing
-  cites.
+  codebase, cite it in pandoc's citation syntax, `[@key]`, straight after the
+  claim, in the docstring of the code that applies it or in the docs text,
+  with any locator in the prose. Add the entry to `docs/references.bib` in
+  the same change. `CONTRIBUTING.md` ("Citing sources") gives the formats.
+  The unit tests fail on a cited key that is missing from the bibliography
+  and on an entry nothing cites.
 - **State records hold plain values**: `str`, `int`, `float`, `bool`, `None`,
   lists and `TypedDict`; enums are stored as `Literal` strings; lists, not
   tuples. Declare `monitor_log` as `Annotated[list[StepRecord], OmitFromInput,

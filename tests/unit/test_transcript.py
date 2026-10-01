@@ -1172,8 +1172,8 @@ def test_the_default_prompt_explains_only_tags_a_transcript_can_hold() -> None:
     # Arrange: the reply format's own tags are the judge's, not the transcript's.
     reply_tags = {"reasoning", "score"}
 
-    # Act
-    explained = set(re.findall(r"<([a-z_]+)>", MONITOR_INSTRUCTIONS)) - reply_tags
+    # Act: read opening, closing, attribute and self-closing forms alike.
+    explained = set(re.findall(r"</?([a-z_]+)[\s/>]", MONITOR_INSTRUCTIONS)) - reply_tags
 
     # Assert: a renamed tag left behind in the prompt would explain a tag no entry carries.
     assert explained == TRANSCRIPT_TAGS

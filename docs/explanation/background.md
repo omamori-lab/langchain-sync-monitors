@@ -32,14 +32,15 @@ Defer to Resample comes from Ctrl-Z (section 3.2) [@bhatt2025ctrlz]. When a
 step looks suspicious, the protocol draws up to two more samples of it, runs
 the least suspicious one below the threshold, and falls back to the trusted
 model when every sample looks suspicious. The paper flags a step for audit on
-the lowest score across its samples (section 3.2, footnote 6), and finds
-that several samples of a step help tell an attack from honest work
-(section 3.2.1; figure 4), which is why the library keeps every sample in
-the record. The authors' post stresses that resampling is stateless, so a
-model that keeps no state between calls does not know it is being resampled
-(note "Note on statelessness") [@bhatt2025ctrlzpost], and that the more
-deterministic the models are, the less resampling helps (section "Important
-Limitations").
+the lowest score across its samples (section 3.2, footnote 6)
+[@bhatt2025ctrlz], and finds that several samples of a step help tell an
+attack from honest work (section 3.2.1; figure 4) [@bhatt2025ctrlz], which is
+why the library keeps every sample in the record. The authors' post stresses
+that resampling is stateless, so a model that keeps no state between calls
+does not know it is being resampled (note "Note on statelessness")
+[@bhatt2025ctrlzpost], and that the more deterministic the models are, the
+less resampling helps (section "Important Limitations")
+[@bhatt2025ctrlzpost].
 
 The agent writes the steps its monitor reads, so it can aim a prompt
 injection at the monitor. Terekhov et al. show that injections embedded in
@@ -60,28 +61,28 @@ library takes four things from Hughes's account of it:
   payload of the agent's tool calls. The agent's own messages, tool-call
   descriptions and all tool outputs are stripped, which makes it
   reasoning-blind by design (section "Why we strip assistant text and tool
-  results"; figure 3). `Channel.ACTIONS`, the library's default view,
-  follows it, with differences: it shows a call's name and all its arguments,
-  and it also reads `<tool_error>` entries, subagent reports and the text of a
-  final answer. When a subagent returns, the post's classifier reviews its
-  whole action history, and a flag only adds a warning (section
-  "Multi-agent handoffs"); the library shows the report to the parent's
-  monitor as a `<subagent_report>`.
+  results"; figure 3) [@hughes2026automode]. `Channel.ACTIONS`, the
+  library's default view, follows it, with differences: it shows a call's
+  name and all its arguments, and it also reads `<tool_error>` entries,
+  subagent reports and the text of a final answer. When a subagent returns,
+  the post's classifier reviews its whole action history, and a flag only
+  adds a warning (section "Multi-agent handoffs") [@hughes2026automode]; the
+  library shows the report to the parent's monitor as a `<subagent_report>`.
 - **Deny and continue.** A denied action comes back to the agent with the
   reason and an instruction to find a safer path rather than route around
-  the block (section "Deny-and-continue"; figure 4). `AutoMode` does the
-  same with its `FeedbackTemplate`.
+  the block (section "Deny-and-continue"; figure 4) [@hughes2026automode].
+  `AutoMode` does the same with its `FeedbackTemplate`.
 - **The limits.** After three consecutive denials or twenty in all within a
   session, Claude Code stops the model and escalates to a person, or ends the
-  process when there is no one to ask (section "Deny-and-continue").
-  `AutoMode` uses the same numbers; here
-  the three count within one step, a session is a conversation thread, and
-  the twenty include the blocks inside its subagents.
+  process when there is no one to ask (section "Deny-and-continue")
+  [@hughes2026automode]. `AutoMode` uses the same numbers; here the three
+  count within one step, a session is a conversation thread, and the twenty
+  include the blocks inside its subagents.
 - **Two stages.** A fast single-token filter runs first, and reasoning
   follows only when it flags the action (section "Two-stage classification:
-  efficiency and recall"). `CascadeMonitor` runs a fast monitor
-  on every step and a careful one on the steps the fast one finds
-  suspicious.
+  efficiency and recall") [@hughes2026automode]. `CascadeMonitor` runs a
+  fast monitor on every step and a careful one on the steps the fast one
+  finds suspicious.
 
 The rule that everything the agent chooses on its own is unauthorised until
 the user asks for it comes from the same post, and `DEFAULT_MONITOR_PROMPT`
@@ -117,10 +118,10 @@ gives to honest runs, so an audit budget of 1% means flagging for review the
 top 1% of honest steps. BashArena shows that averaging a few calls of a
 monitor raises its resolution at low false-positive rates
 (section 4.3) [@kaufman2025basharena], and LinuxArena averages two calls per
-action [@tracy2026linuxarena]. Koran et al. [@koran2026ensemble] note that
-integer scores from 0 to 10 leave a sparse threshold space (section 5.1),
+action [@tracy2026linuxarena]. Koran et al. note that integer scores from
+0 to 10 leave a sparse threshold space (section 5.1) [@koran2026ensemble],
 and find the plain mean as good a way to combine monitors' scores as the
-other aggregators they tried (section 3.2).
+other aggregators they tried (section 3.2) [@koran2026ensemble].
 
 `CalibratedMonitor` reports a step's smoothed conformal rank among honest
 scores [@vovk2005algorithmic], and breaks the remaining ties at random, as

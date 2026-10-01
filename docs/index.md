@@ -27,7 +27,7 @@ after the model proposes an action and before the action executes
 (the opening) [@lucassen2026synchronous]. A step waits for its verdict, so a
 protocol can also make the monitor blocking, with the authority to stop a
 suspicious step before any of the agent's own tools run it (section
-"Blocking with synchronous monitors").
+"Blocking with synchronous monitors") [@lucassen2026synchronous].
 
 Server-side tools, which the model provider runs itself, are the exception.
 Anthropic's web search, OpenAI's code interpreter and Gemini's Google Search

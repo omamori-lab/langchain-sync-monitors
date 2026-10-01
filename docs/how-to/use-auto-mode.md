@@ -10,11 +10,11 @@ person would otherwise approve each step. An honest agent that overreached
 can then finish the task by a safer route.
 After three blocks in a row within one step, or twenty in the conversation
 thread, a fallback writes the step, and by default the run halts. The
-protocol follows Claude Code's auto mode [@hughes2026automode], which stops a
-session after three denials in a row or twenty in all and hands it to a
-person, or, in headless mode, ends the process (section
-"Deny-and-continue"). Here the total counts per conversation thread, and the
-default fallback ends the run, as headless mode does.
+protocol follows Claude Code's auto mode, which stops a session after three
+denials in a row or twenty in all and hands it to a person, or, in headless
+mode, ends the process (section "Deny-and-continue") [@hughes2026automode].
+Here the total counts per conversation thread, and the default fallback ends
+the run, as headless mode does.
 
 ## How it works
 

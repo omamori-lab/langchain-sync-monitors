@@ -11,8 +11,9 @@ suspicious, a model you trust writes the step instead, from the same request.
 The protocol comes from the AI control paper (section 3.3)
 [@greenblatt2023aicontrol], where the trusted model is weaker than the
 untrusted one but trusted not to work against you (section 2), and a person
-also reviews the most suspicious code before it is used (section 1). Here
-that review is a flag on the step's record, read after the step.
+also reviews the most suspicious code before it is used (section 1)
+[@greenblatt2023aicontrol]. Here that review is a flag on the step's record,
+read after the step.
 
 ## How it works
 

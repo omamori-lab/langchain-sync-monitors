@@ -179,11 +179,11 @@ class DeferToTrusted(DeferToResample):
     [@bhatt2025ctrlz]: a step whose suspicion is at or above `defer_threshold`
     is written by `trusted_model` instead, and a step at or above
     `audit_threshold` is also flagged. In the configuration AI Control
-    evaluates (table 2), the audited top 2% is not deferred; here a flag never
-    blocks, so a step above both thresholds is deferred and flagged. It is
-    Defer to Resample with zero resamples. As there, a flag is a mark for
-    review after the fact, so an `audit_threshold` below `defer_threshold`
-    flags steps that still ran.
+    evaluates (table 2) [@greenblatt2023aicontrol], the audited top 2% is not
+    deferred; here a flag never blocks, so a step above both thresholds is
+    deferred and flagged. It is Defer to Resample with zero resamples. As
+    there, a flag is a mark for review after the fact, so an `audit_threshold`
+    below `defer_threshold` flags steps that still ran.
     """
 
     def __init__(

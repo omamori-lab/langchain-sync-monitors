@@ -11,7 +11,8 @@ fallback write the step: a trusted model, or a halt. The protocol comes from
 Ctrl-Z (section 3.2) [@bhatt2025ctrlz]. At the same deferral threshold it
 costs much less usefulness than deferring to a trusted model at once, since a
 fresh sample of an innocent step may look innocent (section 3.2; figure 3),
-and the extra samples are evidence for an audit (section 3.2.1).
+and the extra samples are evidence for an audit (section 3.2.1)
+[@bhatt2025ctrlz].
 
 ## How it works
 
@@ -187,8 +188,8 @@ A round is one call of the agent's model followed by one call of the monitor.
 Ctrl-Z's authors describe the protocol as asking again after each suspicious
 sample (section "Resampling") [@bhatt2025ctrlzpost], and so does the paper's
 restatement of it (appendix J) [@bhatt2025ctrlz]. The paper's main statement
-(section 3.2), which draws up to two new samples and runs the least
-suspicious acceptable one, fits either way of drawing them.
+(section 3.2) [@bhatt2025ctrlz], which draws up to two new samples and runs
+the least suspicious acceptable one, fits either way of drawing them.
 
 ## Read the outcome in `monitor_log`
 
@@ -258,14 +259,14 @@ It also returns steps in which every sample was rejected, such as a
 `deferred_to_trusted` one, which are flagged already when their lowest score
 reached the threshold.
 
-Terekhov et al. [@terekhov2025adaptive] find on APPS that the most suspicious
-sample tells attacks from honest work better than the least suspicious one,
-for both of their attacks, and that it removes the best-of-n effect under
-prompt injection (appendix A, figure 8). Defer to Resample's apparent benefit
-from it does not persist under injection (section 6), and the authors
-caution that which statistic works better depends on the attacker: Ctrl-Z
-found the minimum better for its attacks, and an adaptive attacker may
-subvert the maximum too (appendix A).
+Terekhov et al. find on APPS that the most suspicious sample tells attacks
+from honest work better than the least suspicious one, for both of their
+attacks, and that it removes the best-of-n effect under prompt injection
+(appendix A, figure 8) [@terekhov2025adaptive]. Defer to Resample's apparent
+benefit from it does not persist under injection (section 6), and the
+authors caution that which statistic works better depends on the attacker:
+Ctrl-Z found the minimum better for its attacks, and an adaptive attacker
+may subvert the maximum too (appendix A) [@terekhov2025adaptive].
 
 ## Limits
 
@@ -289,11 +290,12 @@ subvert the maximum too (appendix A).
   [@bhatt2025ctrlzpost]. A much larger `max_resamples` therefore makes the
   flag less informative.
 - **The lowest score can be the weaker audit signal.** Terekhov et al.
-  [@terekhov2025adaptive] find on APPS, with three samples per step
-  (appendix D.1), that the minimum tells attacks from honest work less well
-  than the single score Defer to Trusted audits on. They put down to it that
-  Ctrl-Z's result for Defer to Resample on BashBench does not carry over to
-  APPS (section 4.2; figure 3, left panel).
+  find on APPS, with up to two resamples of a suspicious step (appendix D.1)
+  [@terekhov2025adaptive], that the minimum tells attacks from honest work
+  less well than the single score Defer to Trusted audits on. They put
+  down to it that Ctrl-Z's result for Defer to Resample on BashBench does not
+  carry over to APPS (section 4.2; figure 3, left panel)
+  [@terekhov2025adaptive].
 - **The least suspicious acceptable sample runs, not the first.** Under
   sequential resampling they are the same, because drawing stops at the first
   acceptable sample. Under parallel resampling, any resample may win.

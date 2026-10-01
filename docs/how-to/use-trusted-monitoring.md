@@ -9,8 +9,8 @@ Use it to watch an agent before you let a monitor intervene, to collect the
 honest-run scores that calibrate a threshold, or to queue steps for a person to
 review. It comes from the AI control paper (section 3.2)
 [@greenblatt2023aicontrol], where a person reviews flagged code before it is
-used (section 1). Here nothing waits for review: the step runs, and the flag
-marks its record.
+used (section 1) [@greenblatt2023aicontrol]. Here nothing waits for review:
+the step runs, and the flag marks its record.
 
 ## How it works
 
@@ -80,11 +80,11 @@ any value yourself silences the warning.
 
 Control evaluations set thresholds at percentiles of the scores the monitor
 gives on honest runs [@greenblatt2023aicontrol; @bhatt2025ctrlz];
-[Set every threshold yourself](combine-and-calibrate-monitors.md#set-every-threshold-yourself)
-gives the percentiles they use. Trusted Monitoring never changes a run, so it
-is the protocol to collect them with for a protocol threshold compared with
-one sample's score: `defer_threshold`, `block_threshold`, and the
-`audit_threshold` of Trusted Monitoring and Defer to Trusted. Defer to
+[Thresholds](choose-a-protocol.md#thresholds) gives the percentiles they
+use. Trusted Monitoring never changes a run, so it is the protocol to collect
+them with for a protocol threshold compared with one sample's score:
+`defer_threshold`, `block_threshold`, and the `audit_threshold` of Trusted
+Monitoring and Defer to Trusted. Defer to
 Resample's `audit_threshold` is compared with the lowest score across a
 step's samples instead, and
 [Calibrate the audit threshold](use-defer-to-resample.md#calibrate-the-audit-threshold)
@@ -95,10 +95,14 @@ percentile:
 import statistics
 
 # honest_results holds the results of your honest runs.
+# Your MonitorMiddleware's agent_name and label; these are the defaults.
+agent_name, label = "main", "monitor"
 honest_scores = [
     sample["suspicion"]
     for result in honest_results
     for record in result["monitor_log"]
+    # Keep only this agent's records under this monitor.
+    if record["agent"] == agent_name and record["monitor"] == label
     for sample in record["samples"]
 ]
 # The 98th percentile flags about 2% of honest steps, if the scores do not tie.

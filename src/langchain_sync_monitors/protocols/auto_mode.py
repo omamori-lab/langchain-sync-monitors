@@ -92,10 +92,10 @@ DEFAULT_FEEDBACK_TEMPLATE: Final = FeedbackTemplate(
 """The feedback Auto Mode sends by default, after Claude Code's auto mode [@hughes2026automode].
 
 Claude Code's denial asks the agent to find a safer path rather than route
-around the block (section "Deny-and-continue"). This feedback says that none
-of the agent's tools ran the blocked step, which stays true when a server
-tool in that step already ran inside the model call. Like every reason, it
-carries no score.
+around the block (section "Deny-and-continue") [@hughes2026automode]. This
+feedback says that none of the agent's tools ran the blocked step, which
+stays true when a server tool in that step already ran inside the model call.
+Like every reason, it carries no score.
 """
 
 DEFAULT_WHEN_LIMIT_REACHED: Final = HaltRun()

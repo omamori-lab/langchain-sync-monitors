@@ -270,8 +270,9 @@ nearest source is Claude Code's auto mode. At its limits it stops the model
 and escalates to a person, or ends the process in headless mode
 (section "Deny-and-continue") [@hughes2026automode], and its check when a
 subagent returns only adds a warning for the agent that started it
-(figure 2; section "Multi-agent handoffs"), as `STOP_SUBAGENT_ONLY` leaves
-the parent to carry on. The library chose them for these reasons:
+(figure 2; section "Multi-agent handoffs") [@hughes2026automode], as
+`STOP_SUBAGENT_ONLY` leaves the parent to carry on. The library chose them
+for these reasons:
 
 - `HaltRun` ends the run so that a person can decide, the only way to ask one
   that the model node allows ([asking a person](#asking-a-person)).
@@ -289,18 +290,19 @@ Trusted Monitoring lets every step run and flags a suspicious one for a
 person to review, and Defer to Trusted replaces a suspicious step with the
 trusted model's own (sections 3.2 and 3.3) [@greenblatt2023aicontrol]. In AI
 Control the monitor of both is the trusted model: less capable than the
-untrusted model, and known not to try to backdoor solutions (section 2). The
-library accepts any model as the monitor, and a monitor at least as capable
-as the agent is not trusted in that sense; the trusted model, in this
-library, is the one that writes a deferred step. Defer to Trusted is Defer to
-Resample with no resamples. Defer to Resample draws up to two more samples of
-a suspicious step, runs the least suspicious one below the threshold, and
-hands the step to its fallback when every sample is suspicious
-(section 3.2) [@bhatt2025ctrlz]. `Resampling.SEQUENTIAL` stops at the first
-acceptable resample, and `Resampling.PARALLEL` draws them all at once, for
-lower latency and more calls. The audit flag uses the lowest score across the
-samples, as in Ctrl-Z (section 3.2, footnote 6). Resampling needs fresh
-draws, and it gives an injection aimed at the monitor more tries
+untrusted model, and known not to try to backdoor solutions (section 2)
+[@greenblatt2023aicontrol]. The library accepts any model as the monitor,
+and a monitor at least as capable as the agent is not trusted in that sense;
+the trusted model, in this library, is the one that writes a deferred step.
+Defer to Trusted is Defer to Resample with no resamples. Defer to Resample
+draws up to two more samples of a suspicious step, runs the least suspicious
+one below the threshold, and hands the step to its fallback when every
+sample is suspicious (section 3.2) [@bhatt2025ctrlz]. `Resampling.SEQUENTIAL`
+stops at the first acceptable resample, and `Resampling.PARALLEL` draws them
+all at once, for lower latency and more calls. The audit flag uses the lowest
+score across the samples, as in Ctrl-Z (section 3.2, footnote 6)
+[@bhatt2025ctrlz]. Resampling needs fresh draws, and it gives an injection
+aimed at the monitor more tries
 ([protocols and configuration](#protocols-and-configuration)).
 
 ### Auto Mode

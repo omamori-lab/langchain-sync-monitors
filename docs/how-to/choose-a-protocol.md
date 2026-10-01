@@ -83,19 +83,20 @@ once a subagent was halted, and records a flagged step with no samples; see
   the most suspicious 2% is shown to a person before it is used. Defer to
   Trusted also submits code the trusted model writes when the untrusted
   model's code scores above a deferral threshold but outside the audited 2%
-  (table 2). Here nothing waits for a person: a flag marks the step's record,
-  and the step has already run.
+  (table 2) [@greenblatt2023aicontrol]. Here nothing waits for a person: a
+  flag marks the step's record, and the step has already run.
 - **Defer to Resample** comes from Ctrl-Z [@bhatt2025ctrlz]. When a step looks
   suspicious, it draws up to two new samples, runs the least suspicious one
   below the deferral threshold, and defers to the trusted model only when every
-  sample is above it (section 3.2). At the same deferral threshold it costs
-  much less usefulness than deferring at once, because a fresh sample of an
-  innocent step may look innocent (section 3.2; figure 3). In Ctrl-Z's
-  BashBench setting, with a 1% audit budget (section 2.2) and usefulness
-  scaled from the trusted model's 0% to the untrusted model's 100%
-  (section 2.3), it reached 83.2% safety at 95% usefulness, against 72.7% for
-  Defer to Trusted (sections 3.1.3 and 3.2; table 1). Those figures assume an
-  audit that stops a caught attack, which this library's flag does not
+  sample is above it (section 3.2) [@bhatt2025ctrlz]. At the same deferral
+  threshold it costs much less usefulness than deferring at once, because a
+  fresh sample of an innocent step may look innocent (section 3.2; figure 3)
+  [@bhatt2025ctrlz]. In Ctrl-Z's BashBench setting, with a 1% audit budget
+  (section 2.2) and usefulness scaled from the trusted model's 0% to the
+  untrusted model's 100% (section 2.3), it reached 83.2% safety at 95%
+  usefulness, against 72.7% for Defer to Trusted (sections 3.1.3 and 3.2;
+  table 1) [@bhatt2025ctrlz]. Those figures assume an audit that stops a
+  caught attack, which this library's flag does not
   ([protocols and outcomes](../explanation/design.md#protocols-and-outcomes)).
   With stronger models, and attacks the untrusted model designs itself,
   Terekhov et al. found that Defer to Resample did about as well as Defer to
@@ -104,18 +105,19 @@ once a subagent was halted, and records a flagged step with no samples; see
   [Defer to Resample's limits](use-defer-to-resample.md#limits). They also
   argue that resampling gives text aimed at the monitor several tries,
   which turns an injection that works only sometimes into a best-of-n attack
-  (sections 4.2 and 6).
+  (sections 4.2 and 6) [@terekhov2025adaptive].
 - **Auto Mode** follows Claude Code's auto mode [@hughes2026automode]. There a
   classifier reviews, before it runs, each action that neither an allowlist of
   safe tools, the user's own narrow allow rules nor the rule for file edits
   inside the project already allows (section "How permission decisions
-  work"). A blocked action goes back to the agent with the reason
-  (figure 4), and a session that reaches three denials in a row or twenty in
-  all is stopped and handed to a person, or, in headless mode, ended
-  (section "Deny-and-continue"). Here the monitor judges every step. The
-  library keeps both limits, counts the total per conversation thread rather
-  than per session, and hands the step to a fallback. The default fallback,
-  `HaltRun`, ends the run, as headless mode does.
+  work") [@hughes2026automode]. A blocked action goes back to the agent with
+  the reason (figure 4), and a session that reaches three denials in a row or
+  twenty in all is stopped and handed to a person, or, in headless mode,
+  ended (section "Deny-and-continue") [@hughes2026automode]. Here the monitor
+  judges every step. The library keeps both limits, counts the total per
+  conversation thread rather than per session, and hands the step to a
+  fallback. The default fallback, `HaltRun`, ends the run, as headless mode
+  does.
 
 ## What every protocol shares
 

@@ -140,6 +140,26 @@ def test_a_citation_inside_an_element_html_reads_as_plain_text_stays_as_written(
     assert rendered == page
 
 
+def test_a_citation_in_code_after_a_stray_end_tag_stays_as_written(
+    hook: ModuleType,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    # Arrange
+    page = "<p><code>x</pre>[@first2026]</code></p>"
+
+    # Act
+    with caplog.at_level(logging.WARNING, logger=HOOK_LOGGER):
+        rendered = hook.render_citations(
+            page,
+            known_keys=KNOWN_KEYS,
+            render_entry=render_test_entry,
+        )
+
+    # Assert
+    assert rendered == page
+    assert caplog.records == []
+
+
 def test_an_end_tag_nothing_opened_leaves_the_text_after_it_cited(hook: ModuleType) -> None:
     # Arrange
     page = "<p>A stray </code> end tag, then [@first2026].</p>"
@@ -260,6 +280,12 @@ def test_a_citation_in_link_text_stays_as_written_and_warns(
         "<p><button>see [@first2026]</button></p>",
         "<p><button>Copy </a>[@first2026]</button></p>",
         '<svg><a href="#x"/></svg><p><a href="#y">see [@first2026]</a></p>',
+        '<svg><foreignObject><a href="#x"/>[@first2026]</a></foreignObject></svg>',
+        # In SVG and MathML the slash closes these three, but the hook keeps them
+        # open: the false warning fails a strict build loudly.
+        '<svg><a href="#x"/></svg><p>[@first2026].</p>',
+        '<math><a href="#x"/></math><p>[@first2026].</p>',
+        "<svg><button/></svg><p>[@first2026].</p>",
     ],
     ids=[
         "inside-an-inline-element",
@@ -273,6 +299,10 @@ def test_a_citation_in_link_text_stays_as_written_and_warns(
         "inside-a-button",
         "inside-a-button-after-a-stray-link-end-tag",
         "inside-a-link-after-a-self-closing-svg-link",
+        "after-a-self-closing-link-in-svg-foreign-object",
+        "after-a-self-closing-link-in-svg",
+        "after-a-self-closing-link-in-mathml",
+        "after-a-self-closing-button-in-svg",
     ],
 )
 def test_a_citation_where_no_link_may_go_stays_as_written_and_warns(
@@ -304,9 +334,7 @@ def test_a_citation_where_no_link_may_go_stays_as_written_and_warns(
         "<p><button>Copy</button> ",
         "<p><br/> ",
         "<p><code/> ",
-        '<svg><a href="#x"/></svg><p>',
-        '<math><a href="#x"/></math><p>',
-        "<svg><button/></svg><p>",
+        "<p><code>x</pre></code> ",
     ],
     ids=[
         "a-link",
@@ -317,9 +345,7 @@ def test_a_citation_where_no_link_may_go_stays_as_written_and_warns(
         "a-button",
         "a-self-closing-void-element",
         "a-self-closing-verbatim-element",
-        "a-self-closing-link-in-svg",
-        "a-self-closing-link-in-mathml",
-        "a-self-closing-button-in-svg",
+        "code-holding-a-stray-end-tag",
     ],
 )
 def test_a_citation_where_a_link_may_go_renders_without_a_warning(

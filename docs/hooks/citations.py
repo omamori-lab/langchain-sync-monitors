@@ -23,14 +23,18 @@ text can run on past the words a citation supports, which would part the
 reference from them, and only the docstring's author knows where it belongs.
 A link here is an ``a`` element, or an ``autoref`` element, the
 cross-reference that mkdocs-autorefs [@mkdocsautorefs2026] turns into an
-``a`` element after this hook runs. An end tag closes only an element of its
-own name that is open, so a stray one leaves another element's text where no
-link may go. A self-closing ``a`` or ``button`` tag still opens its element:
-HTML ignores the slash on an element that is neither void nor SVG or MathML
-(section 13.2.2) [@whatwg2026html]. Inside an ``svg`` or ``math`` element the
-slash closes it at once, as it does any SVG or MathML element. A self-closing
-``autoref`` tag opens its element everywhere, since mkdocs-autorefs reads an
-``autoref`` up to the next end tag [@mkdocsautorefs2026].
+``a`` element after this hook runs. An end tag closes only the most recent
+open element of its own name, and one with no such element open is ignored,
+so a stray end tag ends neither code nor a link's text early. A self-closing
+``a``, ``button`` or ``autoref`` tag opens its element everywhere: HTML ignores
+the slash on an element that is not void (section 13.2.2) [@whatwg2026html],
+and mkdocs-autorefs reads an ``autoref`` up to the next end tag
+[@mkdocsautorefs2026]. Any other self-closing tag closes its element at once.
+Inside SVG or MathML the slash does close an ``a``, but the hook does not track
+where that content starts and ends, since HTML's rules apply again inside an
+SVG ``foreignObject``. Treating every self-closing link as open costs at most
+a false warning there, which fails a strict build loudly, and never a footnote
+reference silently nested in a link.
 """
 
 from __future__ import annotations
@@ -57,8 +61,6 @@ VERBATIM_TAGS = frozenset({"code", "pre", "script", "style", "textarea", "title"
 # Elements whose content may hold no link: links, the cross-references that
 # mkdocs-autorefs turns into links after this hook, and buttons.
 LINK_FREE_TAGS = frozenset({"a", "autoref", "button"})
-# Elements whose content is SVG or MathML, where a self-closing tag closes its element.
-FOREIGN_TAGS = frozenset({"svg", "math"})
 FOOTNOTE_LIST_START = '<div class="footnote">'
 
 
@@ -81,59 +83,43 @@ class TextSpanParser(HTMLParser):
     references reach other handlers, so no recorded span holds any of them.
     The parser ends a run only at a ``<`` or an ``&``, neither of which a
     citation holds, so no citation straddles two runs. It keeps the names of
-    the open elements whose content may hold no link too, inside verbatim ones
-    as well, so each run knows whether it lies where no link may go, and the
-    names of the open SVG and MathML elements, so a self-closing tag closes its
-    element where the slash counts.
+    the open verbatim elements, so it skips the runs inside them, and the names
+    of the open elements whose content may hold no link, inside verbatim ones
+    as well, so each run knows whether it lies where no link may go.
     """
 
     def __init__(self, html: str) -> None:
         super().__init__(convert_charrefs=False)
         self.line_starts = [0, *(match.end() for match in NEWLINE_PATTERN.finditer(html))]
-        self.verbatim_depth = 0
+        self.open_verbatim_tags: list[str] = []
         self.open_link_free_tags: list[str] = []
-        self.open_foreign_tags: list[str] = []
         self.spans: list[TextSpan] = []
 
     @override
     def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
-        """Count one more open verbatim element, or note an open link-free or foreign one."""
+        """Note an open verbatim or link-free element."""
         if tag in VERBATIM_TAGS:
-            self.verbatim_depth += 1
+            self.open_verbatim_tags.append(tag)
         if tag in LINK_FREE_TAGS:
             self.open_link_free_tags.append(tag)
-        if tag in FOREIGN_TAGS:
-            self.open_foreign_tags.append(tag)
 
     @override
     def handle_startendtag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
-        """Open a self-closing element, and close it again unless its slash leaves it open."""
+        """Open a self-closing element, and close it again unless it may hold no link."""
         self.handle_starttag(tag, attrs)
-        if self.is_closed_by_its_slash(tag):
+        if tag not in LINK_FREE_TAGS:
             self.handle_endtag(tag)
 
     @override
     def handle_endtag(self, tag: str) -> None:
         """Close the most recent open element of this name, unless none is open."""
-        if tag in VERBATIM_TAGS and self.verbatim_depth:
-            self.verbatim_depth -= 1
+        remove_most_recent(tag, open_tags=self.open_verbatim_tags)
         remove_most_recent(tag, open_tags=self.open_link_free_tags)
-        remove_most_recent(tag, open_tags=self.open_foreign_tags)
-
-    def is_closed_by_its_slash(self, tag: str) -> bool:
-        """Return whether a self-closing tag closes its element as well as opening it.
-
-        Any tag but a link-free one closes. A link or a button closes only inside
-        SVG or MathML, and a cross-reference never does.
-        """
-        if tag not in LINK_FREE_TAGS:
-            return True
-        return tag != "autoref" and bool(self.open_foreign_tags)
 
     @override
     def handle_data(self, data: str) -> None:
         """Record the span of a run of text, unless it lies inside a verbatim element."""
-        if self.verbatim_depth:
+        if self.open_verbatim_tags:
             return
         line, column = self.getpos()
         start = self.line_starts[line - 1] + column

@@ -251,6 +251,24 @@ def test_a_history_that_holds_every_input_is_returned_unchanged() -> None:
     assert restored == tuple(history)
 
 
+def test_an_input_the_history_holds_with_its_kept_text_keeps_its_image_and_its_name() -> None:
+    # Arrange: the task arrived with a chart and a name, and the request still holds it whole
+    task = HumanMessage(
+        content=[
+            {"type": "text", "text": TASK.text},
+            {"type": "image", "url": "https://example.test/q3-chart.png"},
+        ],
+        id="task",
+        name="analyst",
+    )
+
+    # Act
+    restored = restore([task, REPLY], KEPT_TASK)
+
+    # Assert
+    assert restored == (task, REPLY)
+
+
 def test_inputs_summarised_away_come_back_before_the_summary_in_order() -> None:
     # Arrange: a summary replaced both turns and the messages between them
     history: list[BaseMessage] = [SUMMARY, READ, RESULT]

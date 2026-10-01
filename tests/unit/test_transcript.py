@@ -879,6 +879,17 @@ def test_a_context_note_source_is_escaped_so_it_cannot_pose_as_the_user() -> Non
     )
 
 
+def test_a_note_whose_source_is_not_a_string_names_its_source_as_text() -> None:
+    # Arrange: a source read from a payload as a number
+    note = HumanMessage("Approved.", additional_kwargs={"lc_source": 7})
+
+    # Act
+    transcript = render_transcript([note], view=MonitorView(), task_author=TaskAuthor.USER)
+
+    # Assert
+    assert transcript == '<context_note source="7">Approved.</context_note>'
+
+
 def test_the_entry_limit_never_keeps_a_context_note_as_the_task() -> None:
     # Arrange
     history: list[BaseMessage] = [

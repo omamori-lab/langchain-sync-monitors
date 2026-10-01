@@ -384,7 +384,9 @@ def read_written_messages(result: ToolCallResult) -> list[BaseMessage]:
     return written
 
 
-def find_rewritten_ids(written: Sequence[BaseMessage], *, before: StateBeforeTool) -> list[str]:
+def find_rewritten_input_ids(
+    written: Sequence[BaseMessage], *, before: StateBeforeTool
+) -> list[str]:
     """Return the ids of the seen human messages under which a tool writes a message."""
     return list(
         dict.fromkeys(
@@ -395,11 +397,11 @@ def find_rewritten_ids(written: Sequence[BaseMessage], *, before: StateBeforeToo
     )
 
 
-def record_rewritten_ids(command: Command, *, rewritten_ids: list[str]) -> Command:
+def record_rewritten_input_ids(command: Command, *, rewritten_input_ids: list[str]) -> Command:
     """Return a tool's command that also records the seen ids it writes under, when it does."""
-    if not rewritten_ids:
+    if not rewritten_input_ids:
         return command
-    pairs = [*read_update_pairs(command), (REWRITTEN_INPUTS_KEY, rewritten_ids)]
+    pairs = [*read_update_pairs(command), (REWRITTEN_INPUTS_KEY, rewritten_input_ids)]
     return replace_update_pairs(command, pairs=pairs)
 
 
@@ -430,9 +432,9 @@ def relabel_tool_command(
     with only a `goto`, is returned as it is. The command's writes to
     `MONITOR_STATE_KEYS`, in any update shape, are dropped first, by
     `drop_monitor_state_writes`, and the ids of the seen human messages it
-    writes under are recorded after, by `record_rewritten_ids`.
+    writes under are recorded after, by `record_rewritten_input_ids`.
     """
-    rewritten_ids = find_rewritten_ids(read_written_messages(command), before=before)
+    rewritten_input_ids = find_rewritten_input_ids(read_written_messages(command), before=before)
     relabelled = rewrite_update_messages(
         drop_monitor_state_writes(command, tool_name=tool_name),
         rewrite=lambda message: relabel_unless_written_back(
@@ -443,7 +445,7 @@ def relabel_tool_command(
         # Bound for the parent graph, whose state this one's seen ids do not describe. By the
         # time the parent's monitor sees it, LangGraph has named that graph, and it records.
         return relabelled
-    return record_rewritten_ids(relabelled, rewritten_ids=rewritten_ids)
+    return record_rewritten_input_ids(relabelled, rewritten_input_ids=rewritten_input_ids)
 
 
 def drop_monitor_state_writes(command: Command, *, tool_name: str) -> Command:
@@ -497,10 +499,10 @@ def relabel_tool_result(
     relabelled = relabel_unless_written_back(result, tool_name=tool_name, before=before)
     # A tool message stays one; the check only narrows the type for the type checker.
     message = relabelled if isinstance(relabelled, ToolMessage) else result
-    rewritten_ids = find_rewritten_ids([message], before=before)
-    if not rewritten_ids:
+    rewritten_input_ids = find_rewritten_input_ids([message], before=before)
+    if not rewritten_input_ids:
         return message
-    return Command(update={"messages": [message], REWRITTEN_INPUTS_KEY: rewritten_ids})
+    return Command(update={"messages": [message], REWRITTEN_INPUTS_KEY: rewritten_input_ids})
 
 
 def relabel_parent_command(bubble: ParentCommand, *, tool_name: str, state: object) -> None:

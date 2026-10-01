@@ -495,7 +495,7 @@ def test_an_input_goes_back_before_a_message_a_tool_wrote_under_its_id_later() -
         history,
         run_inputs=[KEPT_TASK, KEPT_NARROWING],
         task_message_ids=TASK_IDS,
-        rewritten_ids=frozenset({"narrowing"}),
+        rewritten_input_ids=frozenset({"narrowing"}),
     )
 
     # Assert
@@ -526,7 +526,7 @@ def test_a_message_a_tool_wrote_under_an_input_s_id_does_not_mark_its_place() ->
         history,
         run_inputs=[KEPT_TASK, KEPT_NARROWING],
         task_message_ids=TASK_IDS,
-        rewritten_ids=frozenset({"narrowing"}),
+        rewritten_input_ids=frozenset({"narrowing"}),
     )
 
     # Assert
@@ -543,7 +543,7 @@ def test_an_input_a_tool_rewrote_in_place_goes_back_by_its_neighbour_to_the_same
         history,
         run_inputs=[KEPT_TASK, KEPT_NARROWING],
         task_message_ids=TASK_IDS,
-        rewritten_ids=frozenset({"narrowing"}),
+        rewritten_input_ids=frozenset({"narrowing"}),
     )
 
     # Assert

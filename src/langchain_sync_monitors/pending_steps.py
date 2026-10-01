@@ -299,7 +299,7 @@ class MonitoredStep(PendingStep):
             marked,
             run_inputs=self.run_inputs,
             task_message_ids=self.task_message_ids,
-            rewritten_ids=self.rewritten_input_ids,
+            rewritten_input_ids=self.rewritten_input_ids,
         )
         return MonitorInput(history=history, proposal=proposal, task_author=self.task_author)
 

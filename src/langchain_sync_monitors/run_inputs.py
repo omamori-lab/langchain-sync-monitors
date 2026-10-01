@@ -250,7 +250,7 @@ def find_input_slot(
     entry: RunInput,
     *,
     index_by_id: Mapping[str, int],
-    rewritten_ids: Collection[str],
+    rewritten_input_ids: Collection[str],
 ) -> int:
     """Return where a missing input goes, as the index of the message it goes before.
 
@@ -261,7 +261,7 @@ def find_input_slot(
     for previous_id in entry["previous_message_ids"]:
         if previous_id in index_by_id:
             return index_by_id[previous_id] + 1
-    return 0 if entry["id"] in rewritten_ids else index_by_id.get(entry["id"], 0)
+    return 0 if entry["id"] in rewritten_input_ids else index_by_id.get(entry["id"], 0)
 
 
 def find_missing_input_slots(
@@ -269,7 +269,7 @@ def find_missing_input_slots(
     *,
     history: Sequence[BaseMessage],
     present_ids: Collection[str],
-    rewritten_ids: Collection[str],
+    rewritten_input_ids: Collection[str],
 ) -> dict[str, int]:
     """Return, for each input the history lacks, the index of the message it goes before.
 
@@ -292,7 +292,9 @@ def find_missing_input_slots(
         ]
         # A message under its id came after it.
         highest = min([*later_present, index_by_id.get(entry["id"], len(history))])
-        candidate = find_input_slot(entry, index_by_id=index_by_id, rewritten_ids=rewritten_ids)
+        candidate = find_input_slot(
+            entry, index_by_id=index_by_id, rewritten_input_ids=rewritten_input_ids
+        )
         slot = max(min(candidate, highest), lowest)
         slots[entry["id"]] = slot
         lowest = slot
@@ -335,7 +337,7 @@ def restore_run_inputs(
     *,
     run_inputs: Sequence[RunInput],
     task_message_ids: Collection[str],
-    rewritten_ids: Collection[str] = frozenset(),
+    rewritten_input_ids: Collection[str] = frozenset(),
 ) -> tuple[BaseMessage, ...]:
     """Return the monitor's copy of a conversation with every kept input in it, verbatim.
 
@@ -350,7 +352,7 @@ def restore_run_inputs(
     replaced = replace_changed_inputs(history, inputs=inputs)
     present_ids = find_present_input_ids(replaced, inputs=inputs)
     slots = find_missing_input_slots(
-        inputs, history=replaced, present_ids=present_ids, rewritten_ids=rewritten_ids
+        inputs, history=replaced, present_ids=present_ids, rewritten_input_ids=rewritten_input_ids
     )
     restored: list[BaseMessage] = []
     for index in range(len(replaced) + 1):

@@ -13,6 +13,16 @@ a tag or one of its attributes, inside code, or inside an element whose content
 HTML reads as plain text stays as it is. A key missing from the bibliography,
 or a page that already has footnotes of its own, is logged as a warning, which
 fails a strict build.
+
+A citation inside a link's text also stays as it is, and is logged as a
+warning, so a strict build fails until the author moves it. Its footnote
+reference is itself a link, and HTML forbids a link inside another (section
+4.5.1) [@whatwg2026html]. The hook does not move the reference to after the
+link instead: a link's text can run on past the words a citation supports,
+which would part the reference from them, and only the docstring's author
+knows where it belongs. A link here is an ``a`` element, or an ``autoref``
+element, the cross-reference that mkdocs-autorefs [@mkdocsautorefs2026]
+turns into an ``a`` element after this hook runs.
 """
 
 from __future__ import annotations
@@ -20,6 +30,7 @@ from __future__ import annotations
 import logging
 import re
 from collections.abc import Callable, Collection
+from dataclasses import dataclass
 from html.parser import HTMLParser
 from typing import override
 
@@ -35,7 +46,18 @@ KEY_PATTERN = re.compile(r"@([\w:.-]+)")
 NEWLINE_PATTERN = re.compile("\n")
 # Code, and the elements whose content HTML reads as plain text rather than markup.
 VERBATIM_TAGS = frozenset({"code", "pre", "script", "style", "textarea", "title"})
+# Links, and the cross-references that mkdocs-autorefs turns into links after this hook.
+LINK_TAGS = frozenset({"a", "autoref"})
 FOOTNOTE_LIST_START = '<div class="footnote">'
+
+
+@dataclass(frozen=True, slots=True)
+class TextSpan:
+    """Where a run of a page's text starts and ends, and whether it is a link's text."""
+
+    start: int
+    end: int
+    is_link_text: bool
 
 
 class TextSpanParser(HTMLParser):
@@ -47,26 +69,33 @@ class TextSpanParser(HTMLParser):
     page from there. Tags with their attributes, comments and character
     references reach other handlers, so no recorded span holds any of them.
     The parser ends a run only at a ``<`` or an ``&``, neither of which a
-    citation holds, so no citation straddles two runs.
+    citation holds, so no citation straddles two runs. It counts the open link
+    elements too, inside verbatim ones as well, so each run knows whether it is
+    a link's text.
     """
 
     def __init__(self, html: str) -> None:
         super().__init__(convert_charrefs=False)
         self.line_starts = [0, *(match.end() for match in NEWLINE_PATTERN.finditer(html))]
         self.verbatim_depth = 0
-        self.spans: list[tuple[int, int]] = []
+        self.link_depth = 0
+        self.spans: list[TextSpan] = []
 
     @override
     def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
-        """Count one more open verbatim element."""
+        """Count one more open verbatim or link element."""
         if tag in VERBATIM_TAGS:
             self.verbatim_depth += 1
+        if tag in LINK_TAGS:
+            self.link_depth += 1
 
     @override
     def handle_endtag(self, tag: str) -> None:
-        """Count one fewer open verbatim element, ignoring an end tag nothing opened."""
+        """Count one fewer open verbatim or link element, ignoring an end tag nothing opened."""
         if tag in VERBATIM_TAGS and self.verbatim_depth:
             self.verbatim_depth -= 1
+        if tag in LINK_TAGS and self.link_depth:
+            self.link_depth -= 1
 
     @override
     def handle_data(self, data: str) -> None:
@@ -75,15 +104,26 @@ class TextSpanParser(HTMLParser):
             return
         line, column = self.getpos()
         start = self.line_starts[line - 1] + column
-        self.spans.append((start, start + len(data)))
+        span = TextSpan(start=start, end=start + len(data), is_link_text=self.link_depth > 0)
+        self.spans.append(span)
 
 
-def find_text_spans(html: str) -> list[tuple[int, int]]:
-    """Return the start and end of each run of the page's text outside the verbatim tags."""
+def find_text_spans(html: str) -> list[TextSpan]:
+    """Return each run of the page's text outside the verbatim tags."""
     parser = TextSpanParser(html)
     parser.feed(html)
     parser.close()
     return parser.spans
+
+
+def keep_citation_in_link_text(match: re.Match[str]) -> str:
+    """Return a citation in a link's text as written, and warn, which fails a strict build."""
+    logger.warning(
+        "A docstring cites %s inside a link's text, where its footnote reference would "
+        "nest one link in another; move the citation out of the link.",
+        match.group(0),
+    )
+    return match.group(0)
 
 
 def build_reference_id(key: str, *, use: int) -> str:
@@ -132,10 +172,11 @@ def render_citations(
 
     pieces = []
     position = 0
-    for start, end in find_text_spans(html):
-        pieces.append(html[position:start])
-        pieces.append(CITATION_PATTERN.sub(render_citation_group, html[start:end]))
-        position = end
+    for span in find_text_spans(html):
+        render = keep_citation_in_link_text if span.is_link_text else render_citation_group
+        pieces.append(html[position : span.start])
+        pieces.append(CITATION_PATTERN.sub(render, html[span.start : span.end]))
+        position = span.end
     pieces.append(html[position:])
     if not uses:
         return html

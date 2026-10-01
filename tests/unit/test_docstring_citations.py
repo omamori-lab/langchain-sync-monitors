@@ -13,6 +13,7 @@ from __future__ import annotations
 import importlib.util
 import logging
 import os
+import sys
 from pathlib import Path
 from types import ModuleType
 
@@ -32,14 +33,15 @@ def render_test_entry(key: str) -> str:
 
 
 @pytest.fixture
-def hook() -> ModuleType:
-    """Load the hook from its file, as MkDocs does."""
+def hook(monkeypatch: pytest.MonkeyPatch) -> ModuleType:
+    """Load the hook from its file, registered as a module while it runs, as MkDocs does."""
     if os.environ.get("REQUIRE_DOCS_GROUP") != "1":
         pytest.importorskip("mkdocs_bibtex")
     specification = importlib.util.spec_from_file_location("citations_hook", HOOK_PATH)
     assert specification is not None
     assert specification.loader is not None
     module = importlib.util.module_from_spec(specification)
+    monkeypatch.setitem(sys.modules, specification.name, module)
     specification.loader.exec_module(module)
     return module
 
@@ -221,6 +223,143 @@ def test_an_unknown_key_stays_literal_and_warns(
     assert rendered == page
     assert [record.name for record in caplog.records] == [HOOK_LOGGER]
     assert "missing2026" in caplog.records[0].getMessage()
+
+
+def test_a_citation_in_link_text_stays_as_written_and_warns(
+    hook: ModuleType,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    # Arrange
+    page = '<a href="#x">see [@first2026]</a>'
+
+    # Act
+    with caplog.at_level(logging.WARNING, logger=HOOK_LOGGER):
+        rendered = hook.render_citations(
+            page,
+            known_keys=KNOWN_KEYS,
+            render_entry=render_test_entry,
+        )
+
+    # Assert
+    assert rendered == page
+    assert [record.name for record in caplog.records] == [HOOK_LOGGER]
+    assert "[@first2026] inside a link's text" in caplog.records[0].getMessage()
+
+
+@pytest.mark.parametrize(
+    "page",
+    [
+        '<p><a href="#x"><em>see [@first2026]</em></a></p>',
+        '<p><a id="x">see [@first2026]</a></p>',
+        '<p><autoref identifier="x" optional hover>see [@first2026]</autoref></p>',
+        '<p><a href="#x">see</p>\n<p>then [@first2026]</p>',
+        '<p>A stray </a> end tag, then <a href="#x">see [@first2026]</a></p>',
+    ],
+    ids=[
+        "inside-an-inline-element",
+        "without-an-href",
+        "cross-reference",
+        "after-an-unclosed-link",
+        "after-a-stray-end-tag",
+    ],
+)
+def test_a_citation_in_any_link_text_stays_as_written_and_warns(
+    hook: ModuleType,
+    caplog: pytest.LogCaptureFixture,
+    page: str,
+) -> None:
+    # Act
+    with caplog.at_level(logging.WARNING, logger=HOOK_LOGGER):
+        rendered = hook.render_citations(
+            page,
+            known_keys=KNOWN_KEYS,
+            render_entry=render_test_entry,
+        )
+
+    # Assert
+    assert rendered == page
+    assert [record.name for record in caplog.records] == [HOOK_LOGGER]
+
+
+@pytest.mark.parametrize(
+    "before",
+    [
+        '<p><a href="#x">see</a> ',
+        '<p><autoref identifier="x" optional hover>see</autoref> ',
+        "<p>A stray </a> end tag, then ",
+        '<p><code><a href="#x">Type</a></code> ',
+    ],
+    ids=["a-link", "a-cross-reference", "a-stray-end-tag", "a-link-inside-code"],
+)
+def test_a_citation_after_a_link_renders_without_a_warning(
+    hook: ModuleType,
+    caplog: pytest.LogCaptureFixture,
+    before: str,
+) -> None:
+    # Arrange
+    page = f"{before}[@first2026].</p>"
+
+    # Act
+    with caplog.at_level(logging.WARNING, logger=HOOK_LOGGER):
+        rendered = hook.render_citations(
+            page,
+            known_keys=KNOWN_KEYS,
+            render_entry=render_test_entry,
+        )
+
+    # Assert
+    assert rendered.startswith(
+        f"{before}"
+        '<sup id="fnref:first2026"><a class="footnote-ref" href="#fn:first2026">1</a></sup>'
+        ".</p>\n",
+    )
+    assert caplog.records == []
+
+
+def test_a_citation_outside_a_link_renders_while_one_inside_stays(
+    hook: ModuleType,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    # Arrange
+    page = '<p><a href="#x">see [@second2026]</a> and [@first2026].</p>'
+
+    # Act
+    with caplog.at_level(logging.WARNING, logger=HOOK_LOGGER):
+        rendered = hook.render_citations(
+            page,
+            known_keys=KNOWN_KEYS,
+            render_entry=render_test_entry,
+        )
+
+    # Assert
+    assert rendered.startswith(
+        '<p><a href="#x">see [@second2026]</a> and '
+        '<sup id="fnref:first2026"><a class="footnote-ref" href="#fn:first2026">1</a></sup>'
+        ".</p>\n",
+    )
+    assert "fn:second2026" not in rendered
+    assert [record.name for record in caplog.records] == [HOOK_LOGGER]
+
+
+def test_an_unknown_key_in_link_text_warns_once_about_the_link(
+    hook: ModuleType,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    # Arrange
+    page = '<p><a href="#x">see [@missing2026]</a></p>'
+
+    # Act
+    with caplog.at_level(logging.WARNING, logger=HOOK_LOGGER):
+        rendered = hook.render_citations(
+            page,
+            known_keys=KNOWN_KEYS,
+            render_entry=render_test_entry,
+        )
+
+    # Assert
+    assert rendered == page
+    assert [record.name for record in caplog.records] == [HOOK_LOGGER]
+    assert "inside a link's text" in caplog.records[0].getMessage()
 
 
 def test_a_page_with_footnotes_of_its_own_warns(

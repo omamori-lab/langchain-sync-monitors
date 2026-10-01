@@ -110,6 +110,12 @@ name `langchain_sync_monitors` exports, grouped by what it is for.
     options:
       members: false
 
+::: langchain_sync_monitors.ThresholdStatistic
+    options:
+      members:
+        - SINGLE_SAMPLE_SCORE
+        - LOWEST_SAMPLE_SCORE
+
 ::: langchain_sync_monitors.resolve_threshold
     options:
       members: false

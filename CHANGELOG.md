@@ -109,7 +109,12 @@ change raises the minor version.
 - `PendingStep.blocks_in_thread` and `PendingStep.new_subagent_blocks`, which
   give a protocol these counts.
 - Default thresholds, 0.6 to defer, block or flag and 0.9 to audit, which raise
-  `UncalibratedThresholdWarning` until you set your own.
+  `UncalibratedThresholdWarning` until you set your own. The warning says how
+  to calibrate each threshold on the score it is compared with: one sample's
+  score, or, for Defer to Resample's `audit_threshold` when `max_resamples` is
+  above 0, the lowest score across a step's samples.
+- `ThresholdStatistic`, which `resolve_threshold` takes as `statistic` to name
+  the score a threshold is compared with.
 - A flag marks a step for audit and never blocks it.
 - `CachedResampleWarning`, raised when a response cache would turn resamples
   into copies of the first sample.

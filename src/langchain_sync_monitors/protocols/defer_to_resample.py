@@ -19,6 +19,7 @@ from langchain_sync_monitors.thresholds import (
     DEFAULT_AUDIT_THRESHOLD,
     DEFAULT_DEFER_THRESHOLD,
     DefaultThreshold,
+    ThresholdStatistic,
     resolve_threshold,
 )
 
@@ -105,17 +106,32 @@ class DeferToResample(ControlProtocol):
             parameter_name="defer_threshold",
             threshold=defer_threshold,
         )
-        self.audit_threshold = (
-            None
-            if audit_threshold is None
-            else resolve_threshold(parameter_name="audit_threshold", threshold=audit_threshold)
-        )
         self.max_resamples = read_count_option(
             max_resamples,
             parameter_name="max_resamples",
             minimum=0,
         )
+        self.audit_threshold = (
+            None
+            if audit_threshold is None
+            else resolve_threshold(
+                parameter_name="audit_threshold",
+                threshold=audit_threshold,
+                statistic=self.audit_statistic,
+            )
+        )
         self.resampling = resampling
+
+    @property
+    def audit_statistic(self) -> ThresholdStatistic:
+        """The suspicion statistic `audit_threshold` is compared with, which it is calibrated on.
+
+        It is the lowest score across a step's samples. With no resamples a
+        step has one sample, so that is one sample's score.
+        """
+        if self.max_resamples == 0:
+            return ThresholdStatistic.SINGLE_SAMPLE_SCORE
+        return ThresholdStatistic.LOWEST_SAMPLE_SCORE
 
     async def decide(self, step: PendingStep) -> StepDecision:
         """Sample the step, resample it if suspicious, and run the best acceptable sample."""

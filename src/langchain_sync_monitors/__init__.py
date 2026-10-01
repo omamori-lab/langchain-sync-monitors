@@ -76,6 +76,7 @@ from langchain_sync_monitors.protocols import (
 )
 from langchain_sync_monitors.thresholds import (
     DefaultThreshold,
+    ThresholdStatistic,
     UncalibratedThresholdWarning,
     resolve_threshold,
 )
@@ -137,6 +138,7 @@ __all__ = [
     "SubagentHalt",
     "SynchronousRunError",
     "TaskAuthor",
+    "ThresholdStatistic",
     "TrustedMonitoring",
     "TypeSafeDecisionModel",
     "UncalibratedThresholdWarning",

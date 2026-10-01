@@ -572,6 +572,12 @@ REFUSAL_RULES: list[tuple[Build, str, list[object], str]] = [
     (check_monitor_placement, "middleware", ["m", b"", True, None, iter([])], "be the list given"),
     (DefaultThreshold, "value", WRONG_THRESHOLDS, BETWEEN_ZERO_AND_ONE),
     (build_resolved_threshold, "parameter_name", WRONG_TEXTS, "be a str, got"),
+    (
+        build_resolved_threshold,
+        "statistic",
+        ["lowest_sample_score", *WRONG_OBJECTS],
+        "be one of ThresholdStatistic.SINGLE_SAMPLE_SCORE",
+    ),
 ]
 
 

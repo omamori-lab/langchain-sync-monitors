@@ -246,7 +246,7 @@ def build_input_message(entry: RunInput) -> HumanMessage:
     return tag_as_context_note(message, source=UNCONFIRMED_INPUT_SOURCE)
 
 
-def find_input_slot(
+def find_input_insertion_point(
     entry: RunInput,
     *,
     index_by_id: Mapping[str, int],
@@ -264,7 +264,7 @@ def find_input_slot(
     return 0 if entry["id"] in rewritten_input_ids else index_by_id.get(entry["id"], 0)
 
 
-def find_missing_input_slots(
+def find_missing_input_insertion_points(
     inputs: Sequence[RunInput],
     *,
     history: Sequence[BaseMessage],
@@ -279,7 +279,7 @@ def find_missing_input_slots(
     keep their order among themselves and with the ones the history holds.
     """
     index_by_id = {message.id: index for index, message in enumerate(history) if message.id}
-    slots: dict[str, int] = {}
+    insertion_points: dict[str, int] = {}
     lowest = 0
     for position, entry in enumerate(inputs):
         if entry["id"] in present_ids:
@@ -292,13 +292,13 @@ def find_missing_input_slots(
         ]
         # A message under its id came after it.
         highest = min([*later_present, index_by_id.get(entry["id"], len(history))])
-        candidate = find_input_slot(
+        candidate = find_input_insertion_point(
             entry, index_by_id=index_by_id, rewritten_input_ids=rewritten_input_ids
         )
-        slot = max(min(candidate, highest), lowest)
-        slots[entry["id"]] = slot
-        lowest = slot
-    return slots
+        insertion_point = max(min(candidate, highest), lowest)
+        insertion_points[entry["id"]] = insertion_point
+        lowest = insertion_point
+    return insertion_points
 
 
 def replace_changed_inputs(
@@ -351,13 +351,15 @@ def restore_run_inputs(
     ]
     replaced = replace_changed_inputs(history, inputs=inputs)
     present_ids = find_present_input_ids(replaced, inputs=inputs)
-    slots = find_missing_input_slots(
+    insertion_points = find_missing_input_insertion_points(
         inputs, history=replaced, present_ids=present_ids, rewritten_input_ids=rewritten_input_ids
     )
     restored: list[BaseMessage] = []
     for index in range(len(replaced) + 1):
         restored.extend(
-            build_input_message(entry) for entry in inputs if slots.get(entry["id"]) == index
+            build_input_message(entry)
+            for entry in inputs
+            if insertion_points.get(entry["id"]) == index
         )
         restored.extend(replaced[index : index + 1])
     return tuple(restored)

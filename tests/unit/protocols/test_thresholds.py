@@ -53,9 +53,12 @@ LOWEST_SAMPLE_SCORE_AUDIT_WARNING = (
     "monitors and agents, so a fixed default may block honest work or miss attacks. "
     "audit_threshold is compared with the lowest suspicion score across a step's samples, "
     "which is never above the first sample's score, so a percentile of single-sample scores "
-    "sets it too high. Run the agent on honest tasks under the protocol and settings you "
-    "will deploy, take each step's lowest score from monitor_log, and set the threshold at "
-    'a high percentile of them (for example the 99th), as the section "Calibrate the audit '
+    "sets it too high. Set defer_threshold first, then run the agent on at least a hundred "
+    "honest steps under the DeferToResample you will deploy, with the same defer_threshold, "
+    "max_resamples and resampling. From each monitor_log record that has samples and whose "
+    "agent and monitor are your MonitorMiddleware's agent_name and label, take the lowest "
+    "score, and set the threshold at a high percentile of those scores, for example the 99th "
+    'by statistics.quantiles with method="inclusive", as the section "Calibrate the audit '
     'threshold" of the guide "Use Defer to Resample" shows. Pass audit_threshold explicitly '
     "to silence this warning."
 )
@@ -436,11 +439,6 @@ def test_the_lowest_score_advice_names_the_defer_to_resample_guide_by_its_title(
     assert guide_lines[0] == f"# {DEFER_TO_RESAMPLE_GUIDE_TITLE}"
 
 
-@pytest.mark.xfail(
-    strict=True,
-    raises=AssertionError,
-    reason="pull request 104 adds this section to the guide; remove this mark once it is on main",
-)
 def test_the_lowest_score_advice_names_a_section_of_the_defer_to_resample_guide(
     defer_to_trusted_model: DeferToTrustedModel,
 ) -> None:
@@ -453,6 +451,67 @@ def test_the_lowest_score_advice_names_a_section_of_the_defer_to_resample_guide(
     # Assert
     assert f'the section "{AUDIT_THRESHOLD_SECTION_TITLE}"' in warning
     assert f"### {AUDIT_THRESHOLD_SECTION_TITLE}" in guide_lines
+
+
+def read_audit_threshold_section() -> str:
+    """Return the guide's audit threshold section, up to its next heading, as one line."""
+    lines = read_defer_to_resample_guide_lines()
+    start = lines.index(f"### {AUDIT_THRESHOLD_SECTION_TITLE}") + 1
+    section: list[str] = []
+    in_code_block = False
+    for line in lines[start:]:
+        if line.startswith("```"):
+            in_code_block = not in_code_block
+        elif not in_code_block and line.startswith("#"):
+            break
+        section.append(line)
+    return " ".join(" ".join(section).split())
+
+
+@pytest.mark.parametrize(
+    ("advice", "recipe"),
+    [
+        ("Set defer_threshold first", "Set `defer_threshold` first"),
+        (
+            "with the same defer_threshold, max_resamples and resampling",
+            "with the same `defer_threshold`, `max_resamples` and `resampling`",
+        ),
+        ("at least a hundred honest steps", "at least a hundred honest steps"),
+        (
+            "whose agent and monitor are your MonitorMiddleware's agent_name and label",
+            'record["agent"] == agent_name and record["monitor"] == label',
+        ),
+        ("record that has samples", 'and record["samples"]'),
+        ("take the lowest score", 'min(sample["suspicion"] for sample in record["samples"])'),
+        (
+            'the 99th by statistics.quantiles with method="inclusive"',
+            'statistics.quantiles(lowest_scores, n=100, method="inclusive")[98]',
+        ),
+    ],
+    ids=[
+        "defer-threshold-first",
+        "same-settings",
+        "hundred-steps",
+        "agent-and-label",
+        "has-samples",
+        "lowest-score",
+        "inclusive-99th",
+    ],
+)
+def test_the_lowest_score_advice_agrees_with_the_section_it_names(
+    defer_to_trusted_model: DeferToTrustedModel,
+    advice: str,
+    recipe: str,
+) -> None:
+    # Arrange
+    warning = read_lowest_score_audit_warning(defer_to_trusted_model)
+
+    # Act
+    section = read_audit_threshold_section()
+
+    # Assert
+    assert advice in warning
+    assert recipe in section
 
 
 @pytest.mark.parametrize("resampling", list(Resampling), ids=[mode.value for mode in Resampling])

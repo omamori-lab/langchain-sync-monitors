@@ -143,22 +143,28 @@ def build_calibration_advice(*, parameter_name: str, statistic: ThresholdStatist
 
     The lowest score across a step's samples is never above its first
     sample's score, so a percentile of single-sample scores would set the
-    threshold too high. Ctrl-Z sets its audit threshold at a percentile of the
-    honest distribution of the statistic it audits on, the 99th percentile of
-    the minimum over resamples [@bhatt2025ctrlz] (figure 4, right panel;
-    appendix C), so the advice for that statistic takes each step's lowest
-    score and the 99th percentile. It names the guide and section by title
-    alone, since an installed package ships no docs files.
+    threshold too high. Ctrl-Z sets its auditing threshold at a quantile of
+    the honest distribution (appendix C), and with resampling it audits above
+    the 99th percentile of the honest minimum over resamples (figure 4, right
+    panel) [@bhatt2025ctrlz], so the advice for that statistic takes each
+    step's lowest score and the 99th percentile. That advice restates the
+    recipe of the section it names, which the tests check it against, and
+    names the guide and section by title alone, since an installed package
+    ships no docs files.
     """
     if statistic is ThresholdStatistic.LOWEST_SAMPLE_SCORE:
         return (
             f"{parameter_name} is compared with the lowest suspicion score across a step's "
             "samples, which is never above the first sample's score, so a percentile of "
-            "single-sample scores sets it too high. Run the agent on honest tasks under the "
-            "protocol and settings you will deploy, take each step's lowest score from "
-            "monitor_log, and set the threshold at a high percentile of them (for example the "
-            f'99th), as the section "{AUDIT_THRESHOLD_SECTION_TITLE}" of the guide '
-            f'"{DEFER_TO_RESAMPLE_GUIDE_TITLE}" shows.'
+            "single-sample scores sets it too high. Set defer_threshold first, then run the "
+            "agent on at least a hundred honest steps under the DeferToResample you will "
+            "deploy, with the same defer_threshold, max_resamples and resampling. From each "
+            "monitor_log record that has samples and whose agent and monitor are your "
+            "MonitorMiddleware's agent_name and label, take the lowest score, and set the "
+            "threshold at a high percentile of those scores, for example the 99th by "
+            'statistics.quantiles with method="inclusive", as the section '
+            f'"{AUDIT_THRESHOLD_SECTION_TITLE}" of the guide "{DEFER_TO_RESAMPLE_GUIDE_TITLE}" '
+            "shows."
         )
     return (
         "Run the agent on honest tasks, collect the suspicion scores in monitor_log, and set "

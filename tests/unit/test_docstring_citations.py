@@ -243,7 +243,7 @@ def test_a_citation_in_link_text_stays_as_written_and_warns(
     # Assert
     assert rendered == page
     assert [record.name for record in caplog.records] == [HOOK_LOGGER]
-    assert "[@first2026] inside a link's text" in caplog.records[0].getMessage()
+    assert "[@first2026] inside a link or a button" in caplog.records[0].getMessage()
 
 
 @pytest.mark.parametrize(
@@ -254,6 +254,9 @@ def test_a_citation_in_link_text_stays_as_written_and_warns(
         '<p><autoref identifier="x" optional hover>see [@first2026]</autoref></p>',
         '<p><a href="#x">see</p>\n<p>then [@first2026]</p>',
         '<p>A stray </a> end tag, then <a href="#x">see [@first2026]</a></p>',
+        '<p><a id="x"/> then [@first2026]</p>',
+        '<p><autoref identifier="x"/> then [@first2026]</p>',
+        "<p><button>see [@first2026]</button></p>",
     ],
     ids=[
         "inside-an-inline-element",
@@ -261,9 +264,12 @@ def test_a_citation_in_link_text_stays_as_written_and_warns(
         "cross-reference",
         "after-an-unclosed-link",
         "after-a-stray-end-tag",
+        "after-a-self-closing-link",
+        "after-a-self-closing-cross-reference",
+        "inside-a-button",
     ],
 )
-def test_a_citation_in_any_link_text_stays_as_written_and_warns(
+def test_a_citation_where_no_link_may_go_stays_as_written_and_warns(
     hook: ModuleType,
     caplog: pytest.LogCaptureFixture,
     page: str,
@@ -288,10 +294,21 @@ def test_a_citation_in_any_link_text_stays_as_written_and_warns(
         '<p><autoref identifier="x" optional hover>see</autoref> ',
         "<p>A stray </a> end tag, then ",
         '<p><code><a href="#x">Type</a></code> ',
+        '<p><a id="x"/> see</a> ',
+        "<p><button>Copy</button> ",
+        "<p><br/> ",
     ],
-    ids=["a-link", "a-cross-reference", "a-stray-end-tag", "a-link-inside-code"],
+    ids=[
+        "a-link",
+        "a-cross-reference",
+        "a-stray-end-tag",
+        "a-link-inside-code",
+        "a-self-closing-link-closed-later",
+        "a-button",
+        "a-self-closing-void-element",
+    ],
 )
-def test_a_citation_after_a_link_renders_without_a_warning(
+def test_a_citation_where_a_link_may_go_renders_without_a_warning(
     hook: ModuleType,
     caplog: pytest.LogCaptureFixture,
     before: str,
@@ -359,7 +376,7 @@ def test_an_unknown_key_in_link_text_warns_once_about_the_link(
     # Assert
     assert rendered == page
     assert [record.name for record in caplog.records] == [HOOK_LOGGER]
-    assert "inside a link's text" in caplog.records[0].getMessage()
+    assert "inside a link or a button" in caplog.records[0].getMessage()
 
 
 def test_a_page_with_footnotes_of_its_own_warns(

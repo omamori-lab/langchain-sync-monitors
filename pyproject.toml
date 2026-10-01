@@ -127,8 +127,9 @@ select = ["E", "W", "F", "I", "UP", "B", "SIM", "C90", "ANN", "PT", "RUF", "COM"
 ignore = ["COM812"]
 
 [tool.ruff.lint.mccabe]
-# The most lanorme's complexity_error allows, so tests and scripts, which lanorme skips, keep
-# to it too.
+# The highest complexity lanorme's complexity_error allows, so tests, which lanorme skips,
+# keep to the same number. Ruff leaves out `with`, `assert` and each extra boolean operand,
+# which lanorme counts, so here the same number is a looser limit.
 max-complexity = 6
 
 [tool.ruff.lint.per-file-ignores]
@@ -160,6 +161,8 @@ addopts = "-m 'not live'"
 # worktree under .claude/worktrees that is the main checkout, whose exclude then drops
 # every file of the worktree. `root = true` makes each checkout its own project, and the
 # main checkout excludes only the worktrees, so the tracked .claude files are checked.
+# lanorme does not read .gitignore, so a local run also checks untracked files that CI
+# never sees, such as notes under .claude or CLAUDE.local.md.
 root = true
 ignore = ["LAYER", "PORT", "TERM"]
 promote = ["NAMING-006", "NAMING-007", "NAMING-008", "NAMING-011", "SIMILAR-001"]

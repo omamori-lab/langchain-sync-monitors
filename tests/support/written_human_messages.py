@@ -11,6 +11,7 @@ dependencies or a Nemotron model.
 from __future__ import annotations
 
 import json
+from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Annotated, Any, Literal, NamedTuple
 
@@ -206,15 +207,16 @@ def build_update(
     key: str = "messages",
 ) -> object:
     """Return an update of `shape` that writes `messages`, under `key` in a dict or pairs."""
-    updates: dict[UpdateShape, object] = {
-        "dict": {key: messages},
-        "pairs": ((key, messages),),
-        "dataclass": MessagesUpdate(messages=messages),
-        "pydantic_model": MessagesModel(messages=messages),
-        "annotated_class": AnnotatedMessagesUpdate(messages),
-        "named_tuple": MessagesTuple(messages=messages),
+    # Factories, so a call builds, and validates, only the shape it asks for.
+    shape_factories: dict[UpdateShape, Callable[[], object]] = {
+        "dict": lambda: {key: messages},
+        "pairs": lambda: ((key, messages),),
+        "dataclass": lambda: MessagesUpdate(messages=messages),
+        "pydantic_model": lambda: MessagesModel(messages=messages),
+        "annotated_class": lambda: AnnotatedMessagesUpdate(messages),
+        "named_tuple": lambda: MessagesTuple(messages=messages),
     }
-    return updates[shape]
+    return shape_factories[shape]()
 
 
 def build_forged_messages(tool_call_id: str) -> list[BaseMessage]:

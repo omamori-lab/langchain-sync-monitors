@@ -70,11 +70,12 @@ class CheckedToolCall:
     """A tool call as this monitor hands it on: the request to run, and who made the call.
 
     `caller` is None when a monitor further out in the agent checks the call,
-    and the result then passes through as it is.
+    and the result then passes through as it is. It has no default, so
+    leaving it out cannot build a call that skips the checks.
     """
 
     request: ToolCallRequest
-    caller: ToolCaller | None = None
+    caller: ToolCaller | None
 
     def check_result(self, result: ToolCallResults) -> ToolCallResult:
         """Return the call's result with its messages relabelled and its records checked."""
@@ -97,7 +98,7 @@ def check_tool_call(request: ToolCallRequest, *, agent: str) -> Iterator[Checked
     its way out.
     """
     if is_checked_further_out(request):
-        yield CheckedToolCall(request=request)
+        yield CheckedToolCall(request=request, caller=None)
         return
     caller = read_tool_caller(request.state, agent=agent, tool_call=request.tool_call)
     delegated = add_delegation(request, agent=agent)

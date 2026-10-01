@@ -283,7 +283,6 @@ def find_reply_label(
     last_line = label_lines.get(len(lines) - 1)
     if last_line is not None:
         return last_line if last_line.is_verdict_line else None
-    # Llama Guard's unsafe reply: the label first, then only category codes.
     return find_first_line_label(
         lines,
         label_lines=label_lines,

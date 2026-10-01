@@ -2,8 +2,12 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 import pytest
-from langchain_core.messages import AIMessage
+from langchain_core.callbacks import AsyncCallbackManagerForLLMRun, CallbackManagerForLLMRun
+from langchain_core.messages import AIMessage, BaseMessage
+from langchain_core.outputs import ChatResult
 from langchain_core.tools import BaseTool
 from langgraph.checkpoint.memory import InMemorySaver
 
@@ -26,6 +30,45 @@ from tests.support.protocols import ResampleThenDefer, SteerWithFeedback
 
 MAIN_ANSWER = "Here is the summary."
 TRUSTED_ANSWER = "I will summarise without sending anything."
+MOST_DRAWS_AT_ONCE = {"invoke": 1, "ainvoke": 2}
+"""Two resamples overlap under `ainvoke()`; `invoke()` draws them one after another."""
+
+
+class OverlapCountingChatModel(ScriptedChatModel):
+    """A scripted model that counts the most calls it was answering at once."""
+
+    answering: int = 0
+    most_at_once: int = 0
+
+    def start_call(self) -> None:
+        self.answering += 1
+        self.most_at_once = max(self.most_at_once, self.answering)
+
+    def _generate(
+        self,
+        messages: list[BaseMessage],
+        stop: list[str] | None = None,
+        run_manager: CallbackManagerForLLMRun | None = None,
+        **kwargs: Any,
+    ) -> ChatResult:
+        self.start_call()
+        try:
+            return super()._generate(messages, stop, run_manager, **kwargs)
+        finally:
+            self.answering -= 1
+
+    async def _agenerate(
+        self,
+        messages: list[BaseMessage],
+        stop: list[str] | None = None,
+        run_manager: AsyncCallbackManagerForLLMRun | None = None,
+        **kwargs: Any,
+    ) -> ChatResult:
+        self.start_call()
+        try:
+            return await super()._agenerate(messages, stop, run_manager, **kwargs)
+        finally:
+            self.answering -= 1
 
 
 @pytest.fixture
@@ -57,9 +100,10 @@ def test_concurrent_resamples_run_through_the_deep_agent_stack(
 ) -> None:
     # Arrange
     responses = [build_exfiltration_step(), AIMessage(MAIN_ANSWER), AIMessage(MAIN_ANSWER)]
+    main_model = OverlapCountingChatModel(responses=responses, delay=0.01)
     protocol = ResampleThenDefer(trusted_model=trusted_model, concurrently=True)
     agent = build_deep_agent(
-        main_model=ScriptedChatModel(responses=responses, delay=0.01),
+        main_model=main_model,
         worker_model=worker_model,
         main_monitor=MonitorMiddleware(monitor=build_keyword_monitor(), protocol=protocol),
         checkpointer=InMemorySaver(),
@@ -76,6 +120,7 @@ def test_concurrent_resamples_run_through_the_deep_agent_stack(
     [record] = result["monitor_log"]
     assert record["outcome"] == "resampled"
     assert sum(sample["executed"] for sample in record["samples"]) == 1
+    assert main_model.most_at_once == MOST_DRAWS_AT_ONCE[run_mode]
     assert agent.get_state(config).values["monitor_log"] == result["monitor_log"]
 
 

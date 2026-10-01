@@ -343,14 +343,21 @@ def build_nested_parent(
     )
 
 
+@pytest.mark.parametrize(
+    ("main_call_id", "middle_call_id"),
+    [("call-main", "call-middle"), ("call_0", "call_0")],
+    ids=["distinct-ids", "reused-id"],
+)
 def test_nested_delegations_warn_of_nothing_and_keep_every_record(
     run_mode: RunMode,
+    main_call_id: str,
+    middle_call_id: str,
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    # Arrange
+    # Arrange: with a reused id, the two subagents still differ by name
     agent = build_nested_parent(
-        main_call_id="call-main",
-        middle_call_id="call-middle",
+        main_call_id=main_call_id,
+        middle_call_id=middle_call_id,
         inner_name="inner",
         inner_model=ScriptedChatModel(responses=[AIMessage("Inner done.")]),
     )
@@ -366,9 +373,9 @@ def test_nested_delegations_warn_of_nothing_and_keep_every_record(
     ]
     assert rows == [
         ("main", 1, None),
-        ("middle", 1, "call-main"),
-        ("inner", 1, "call-middle"),
-        ("middle", 2, "call-main"),
+        ("middle", 1, main_call_id),
+        ("inner", 1, middle_call_id),
+        ("middle", 2, main_call_id),
         ("main", 2, None),
     ]
     assert caplog.records == []
@@ -416,32 +423,6 @@ def test_a_reused_call_id_that_names_a_subagent_after_its_parent_raises(
     # Act / Assert
     with pytest.raises(ConfigurationError, match="cannot tell a subagent's steps"):
         run_agent(agent, mode=run_mode)
-
-
-def test_a_reused_call_id_under_another_name_keeps_every_record(run_mode: RunMode) -> None:
-    # Arrange
-    agent = build_nested_parent(
-        main_call_id="call_0",
-        middle_call_id="call_0",
-        inner_name="inner",
-        inner_model=ScriptedChatModel(responses=[AIMessage("Inner done.")]),
-    )
-
-    # Act
-    result = run_agent(agent, mode=run_mode)
-
-    # Assert
-    rows = [
-        (record["agent"], record["step_number"], record.get("delegation_id"))
-        for record in result["monitor_log"]
-    ]
-    assert rows == [
-        ("main", 1, None),
-        ("middle", 1, "call_0"),
-        ("inner", 1, "call_0"),
-        ("middle", 2, "call_0"),
-        ("main", 2, None),
-    ]
 
 
 @tool
@@ -591,15 +572,23 @@ def test_an_auto_mode_inside_another_monitor_counts_the_blocks_a_subagent_return
     with caplog.at_level(logging.WARNING, logger=PACKAGE_LOGGER):
         result = run_agent(agent, mode=run_mode)
 
-    # Assert: inner's step after the worker goes to its fallback without a sample
-    inner_rows = [
-        (record["agent"], record["outcome"], record["blocked_count"], len(record["samples"]))
+    # Assert: the worker's records reach the log once, under the inner monitor's label, and
+    # inner's step after the worker goes to its fallback without a sample
+    rows = [
+        (
+            record["agent"],
+            record["monitor"],
+            record["outcome"],
+            record["blocked_count"],
+            len(record["samples"]),
+        )
         for record in result["monitor_log"]
-        if record["monitor"] == "monitor"
     ]
-    assert inner_rows == [
-        ("main", "steered", 1, 2),
-        ("worker", "halted", 2, 2),
-        ("main", "halted", 0, 0),
+    assert rows == [
+        ("main", "monitor", "steered", 1, 2),
+        ("main", "outer", "allowed", 0, 1),
+        ("worker", "monitor", "halted", 2, 2),
+        ("main", "monitor", "halted", 0, 0),
+        ("main", "outer", "allowed", 0, 1),
     ]
     assert "wrote the state keys" not in caplog.text

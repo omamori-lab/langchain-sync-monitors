@@ -1,6 +1,7 @@
 """A subagent keeps its delegation across an interrupt and counts under its monitor's label.
 
-A subagent without a monitor runs without a delegation.
+A parent counts none of the blocks a subagent's monitor records under another
+label, made or returned. A subagent without a monitor runs without a delegation.
 """
 
 from __future__ import annotations
@@ -183,4 +184,99 @@ def test_a_subagent_monitor_with_a_label_of_its_own_counts_apart(run_mode: RunMo
         ("main", "monitor", "steered", 2),
         ("worker", "worker-monitor", "steered", 1),
         ("main", "monitor", "allowed", 0),
+    ]
+
+
+def test_a_parent_counts_apart_from_a_subagent_monitor_with_a_label_of_its_own(
+    run_mode: RunMode,
+) -> None:
+    # Arrange: the worker blocks twice under its own label, and the parent's total is two
+    main_model = ScriptedChatModel(
+        responses=[
+            build_delegation_step(call_id="call-task-1"),
+            build_exfiltration_step(call_id="call-post-main"),
+            AIMessage("Done."),
+        ],
+    )
+    worker_model = ScriptedChatModel(
+        responses=[
+            build_exfiltration_step(call_id="call-post-worker-1"),
+            build_exfiltration_step(call_id="call-post-worker-2"),
+            AIMessage("Report."),
+        ],
+    )
+    agent = build_deep_agent(
+        main_model=main_model,
+        worker_model=worker_model,
+        main_monitor=MonitorMiddleware(
+            monitor=build_keyword_monitor(),
+            protocol=AutoMode(block_threshold=0.6, max_total_blocks=2),
+        ),
+        worker_monitor=MonitorMiddleware(
+            monitor=build_keyword_monitor(),
+            protocol=AutoMode(block_threshold=0.6, max_total_blocks=3),
+            label="worker-monitor",
+        ),
+    )
+
+    # Act
+    result = run_agent(agent, mode=run_mode)
+
+    # Assert: the parent's own first block is its first, so it is steered, not halted
+    rows = [
+        (record["agent"], record["monitor"], record["outcome"], record["blocked_count"])
+        for record in result["monitor_log"]
+    ]
+    assert rows == [
+        ("main", "monitor", "allowed", 0),
+        ("worker", "worker-monitor", "steered", 2),
+        ("main", "monitor", "steered", 1),
+    ]
+
+
+def test_blocks_returned_under_another_label_leave_a_parent_at_its_total_sampling(
+    run_mode: RunMode,
+) -> None:
+    # Arrange: the parent reached its total of one on the first turn, and a new turn lifts
+    # its halt
+    main_model = ScriptedChatModel(
+        responses=[
+            build_exfiltration_step(call_id="call-post-main"),
+            build_delegation_step(call_id="call-task-1"),
+            AIMessage("Done."),
+        ],
+    )
+    worker_model = ScriptedChatModel(
+        responses=[build_exfiltration_step(call_id="call-post-worker"), AIMessage("Report.")],
+    )
+    agent = build_deep_agent(
+        main_model=main_model,
+        worker_model=worker_model,
+        main_monitor=MonitorMiddleware(
+            monitor=build_keyword_monitor(),
+            protocol=AutoMode(block_threshold=0.6, max_total_blocks=1),
+        ),
+        worker_monitor=MonitorMiddleware(
+            monitor=build_keyword_monitor(),
+            protocol=AutoMode(block_threshold=0.6, max_total_blocks=3),
+            label="worker-monitor",
+        ),
+        checkpointer=InMemorySaver(),
+    )
+    config = build_thread_config(f"returned-by-label-{run_mode}")
+    run_agent(agent, mode=run_mode, config=config)
+
+    # Act
+    result = run_agent(agent, mode=run_mode, config=config)
+
+    # Assert: the worker's block is not the parent monitor's, so its next step is sampled
+    rows = [
+        (record["agent"], record["monitor"], record["outcome"], len(record["samples"]))
+        for record in result["monitor_log"]
+    ]
+    assert rows == [
+        ("main", "monitor", "halted", 1),
+        ("main", "monitor", "allowed", 1),
+        ("worker", "worker-monitor", "steered", 2),
+        ("main", "monitor", "allowed", 1),
     ]

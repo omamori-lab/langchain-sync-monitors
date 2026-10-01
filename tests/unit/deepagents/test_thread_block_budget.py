@@ -399,45 +399,6 @@ def test_a_subagent_halt_under_the_total_leaves_the_parent_running(run_mode: Run
     assert read_texts(result["messages"])[-1] == MAIN_ANSWER
 
 
-def test_stacked_monitors_hand_a_subagent_the_blocks_once(run_mode: RunMode) -> None:
-    # Arrange
-    main_model = ScriptedChatModel(
-        responses=[
-            build_exfiltration_step(call_id="call-post-main"),
-            build_delegation_step(),
-            AIMessage(MAIN_ANSWER),
-        ],
-    )
-    worker_model = ScriptedChatModel(
-        responses=[
-            build_exfiltration_step(call_id="call-post-1"),
-            build_exfiltration_step(call_id="call-post-2"),
-            AIMessage("Three sources found."),
-        ],
-    )
-    outer_monitor = MonitorMiddleware(
-        monitor=build_keyword_monitor(),
-        protocol=AcceptFirst(),
-        label="outer",
-    )
-    inner_monitor = build_auto_mode_monitor(max_total_blocks=3)
-    agent = create_deep_agent(
-        model=main_model,
-        middleware=[outer_monitor, inner_monitor],
-        subagents=monitor_subagents(
-            middleware=inner_monitor,
-            subagents=[SubAgent(name="worker", description="Finds.", model=worker_model)],
-        ),
-    )
-
-    # Act
-    result = run_agent(agent, mode=run_mode)
-
-    # Assert
-    worker_rows = [row for row in summarise(result["monitor_log"]) if row[0] == "worker"]
-    assert worker_rows == [("worker", "halted", 2)]
-
-
 def test_a_failed_subagent_step_names_its_delegation(run_mode: RunMode) -> None:
     # Arrange
     worker_monitor = MonitorMiddleware(

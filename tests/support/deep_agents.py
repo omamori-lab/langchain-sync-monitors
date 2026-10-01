@@ -29,6 +29,13 @@ def build_delegation_step(
     )
 
 
+def read_monitor(spec: SubAgent) -> MonitorMiddleware:
+    """Return the monitor `monitor_subagents` added to a spec, the last of its middleware."""
+    monitor = spec.get("middleware", [])[-1]
+    assert isinstance(monitor, MonitorMiddleware)
+    return monitor
+
+
 def build_deep_agent(
     *,
     main_model: ScriptedChatModel,

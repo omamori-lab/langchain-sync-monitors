@@ -27,7 +27,7 @@ OPENROUTER_MODEL = "openrouter:vendor/model"
 def middleware() -> MonitorMiddleware:
     return MonitorMiddleware(
         monitor=LLMMonitor(model=FakeListChatModel(responses=["unused"])),
-        protocol=TrustedMonitoring(flag_threshold=0.6),
+        protocol=TrustedMonitoring(audit_threshold=0.6),
     )
 
 
@@ -50,9 +50,15 @@ def test_typesafe_adapter_without_its_extra_names_the_extra(
     # Arrange
     monkeypatch.setitem(sys.modules, "langchain_typesafe", None)
 
-    # Act / Assert
-    with pytest.raises(MissingExtraError, match=r"langchain-sync-monitors\[typesafe\]"):
+    # Act
+    with pytest.raises(MissingExtraError) as refusal:
         TypeSafeDecisionModel(classifier=object())  # ty: ignore[invalid-argument-type]
+
+    # Assert
+    assert str(refusal.value) == (
+        "TypeSafeDecisionModel needs the typesafe extra: "
+        "pip install 'langchain-sync-monitors[typesafe]'"
+    )
 
 
 @pytest.mark.parametrize(

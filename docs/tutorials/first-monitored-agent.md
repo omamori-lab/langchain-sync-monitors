@@ -23,9 +23,9 @@ touches the real world: `read_file` reads from a Python dictionary, and
 A step is one turn of the agent: a tool call or its final answer. The agent
 may make more than one attempt at a step, when an attempt is blocked. The
 monitor judges each attempt before any of the agent's own tools run, and
-records each step in `monitor_log`. Tools that a model provider runs itself,
-inside the model call, such as its web search, are the exception: they have
-run by the time the monitor sees the step. This agent has none.
+records each step in `monitor_log`. Server-side tools, which a model provider
+runs inside the model call, such as its web search, are the exception: they
+have run by the time the monitor sees the step. This agent has none.
 
 ## Before you start
 

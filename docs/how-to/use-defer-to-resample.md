@@ -27,7 +27,7 @@ fallback.
 Every sample is judged, and neither the agent nor the trusted model sees a
 rejected sample. Each sample is a fresh call on the same request, so a model
 that keeps no state between calls cannot tell that it was resampled
-[@bhatt2025ctrlzpost] (note "Note on statelessness"). A provider's built-in
+[@bhatt2025ctrlzpost] (note "Note on statelessness"). A provider's server-side
 tools, such as a web search, run inside every sample's model call. The step is
 flagged for review when even its least suspicious sample reaches
 `audit_threshold`, the statistic Ctrl-Z found to work well [@bhatt2025ctrlz]
@@ -302,10 +302,9 @@ subvert the maximum too (appendix A).
   `init_chat_model("openrouter:deepseek/deepseek-v4.1-flash", cache=False)`.
   A model that always gives the same reply, at temperature 0 for example,
   defeats resampling in the same way.
-- **A provider's built-in tools run once per sample.** A web search in the
-  proposed step runs at the provider for every sample drawn, rejected ones
-  included; see
-  [Tools the provider runs itself](choose-a-protocol.md#tools-the-provider-runs-itself).
+- **Server-side tools run once per sample.** A web search in the proposed
+  step runs at the provider for every sample drawn, rejected ones included;
+  see [Server tools](choose-a-protocol.md#server-tools).
 - **Middleware inside the monitor can go out of step.** If a middleware after
   the monitor in the list returns commands, only those of the last model call
   survive. They match the committed step when sequential resampling accepts a

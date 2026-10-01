@@ -7,9 +7,9 @@ they nest under the model node in LangSmith, and a second handler, such as
 Langfuse's, never receives a step span whose parent it has not seen.
 
 LangSmith builds each `traceable` run opened inside a span from the span's run
-and copies the span's metadata into it, so such runs carry the step's labels
-in LangSmith. The library cannot prevent that without dropping the labels, so
-the tests pin it. LangSmith's client is a mock, so nothing leaves the machine.
+and copies the span's metadata into it, so such runs carry the step's metadata
+in LangSmith. The library cannot prevent that without dropping that metadata,
+so the tests pin it. LangSmith's client is a mock, so nothing leaves the machine.
 """
 
 from __future__ import annotations
@@ -79,7 +79,7 @@ class SentRun:
     name: str
     metadata: dict[str, Any]
 
-    def read_labels(self) -> dict[str, Any]:
+    def read_step_metadata(self) -> dict[str, Any]:
         return {key: value for key, value in self.metadata.items() if key.startswith("monitor_")}
 
 
@@ -130,12 +130,12 @@ def build_stacked_agent() -> Runnable[Any, Any]:
         middleware=[
             MonitorMiddleware(
                 monitor=TracedMonitor(),
-                protocol=TrustedMonitoring(flag_threshold=0.8),
+                protocol=TrustedMonitoring(audit_threshold=0.8),
                 label="outer",
             ),
             MonitorMiddleware(
                 monitor=TracedMonitor(),
-                protocol=TrustedMonitoring(flag_threshold=0.8),
+                protocol=TrustedMonitoring(audit_threshold=0.8),
                 label="inner",
             ),
         ],
@@ -208,7 +208,7 @@ def test_the_spans_nest_the_same_way_in_langsmith(
     assert [find_sent_parent(sent_runs, sample) for sample in samples[:2]] == [steps[0]] * 2
 
 
-def test_langsmith_traceable_runs_inside_a_span_carry_its_labels(
+def test_langsmith_traceable_runs_inside_a_span_carry_its_step_metadata(
     run_mode: RunMode,
     langsmith_client: MagicMock,
 ) -> None:
@@ -222,23 +222,23 @@ def test_langsmith_traceable_runs_inside_a_span_carry_its_labels(
     # Assert
     sent_runs = read_sent_runs(langsmith_client)
     outer_step, inner_step = find_sent_runs(sent_runs, "monitor step")
-    assert (outer_step.metadata["monitor_name"], inner_step.metadata["monitor_name"]) == (
+    assert (outer_step.metadata["monitor_label"], inner_step.metadata["monitor_label"]) == (
         "outer",
         "inner",
     )
     [inner_hook] = find_sent_runs(sent_runs, f"inner[main].{HOOK_NAMES[run_mode]}")
     assert find_sent_parent(sent_runs, inner_hook) == outer_step
-    assert inner_hook.read_labels() == outer_step.read_labels()
+    assert inner_hook.read_step_metadata() == outer_step.read_step_metadata()
     traced_checks = find_sent_runs(sent_runs, TRACED_CHECK_NAME)
     assert len(traced_checks) == 2
     for traced_check in traced_checks:
         judgement = find_sent_parent(sent_runs, traced_check)
         assert judgement.name == "monitor judgement"
-        assert traced_check.read_labels() == judgement.read_labels()
+        assert traced_check.read_step_metadata() == judgement.read_step_metadata()
         assert traced_check.metadata["ls_agent_type"] == "middleware"
     [sample] = find_sent_runs(sent_runs, "ScriptedChatModel")
     assert find_sent_parent(sent_runs, sample) == inner_step
-    assert sample.read_labels() == {}
+    assert sample.read_step_metadata() == {}
     assert "ls_agent_type" not in sample.metadata
 
 

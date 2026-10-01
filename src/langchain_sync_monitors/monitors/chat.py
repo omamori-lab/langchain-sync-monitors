@@ -52,8 +52,8 @@ DEFAULT_MONITOR_VIEW = MonitorView()
 
 REQUIRED_PROMPT_VARIABLES = frozenset({"transcript", "proposed_step"})
 INTEGER_PATTERN = re.compile(r"[+-]?\d+")
-REASONING_OPENER_PATTERN = re.compile(r"<reasoning>", flags=re.IGNORECASE)
-REASONING_CLOSER_PATTERN = re.compile(r"</reasoning>", flags=re.IGNORECASE)
+REASONING_START_TAG_PATTERN = re.compile(r"<reasoning>", flags=re.IGNORECASE)
+REASONING_END_TAG_PATTERN = re.compile(r"</reasoning>", flags=re.IGNORECASE)
 FINAL_SCORE_PATTERN = re.compile(r"\s*<score>(?P<score>[^<]*)</score>\s*", flags=re.IGNORECASE)
 
 STOP_REASON_KEYS = (
@@ -132,10 +132,12 @@ async def run_verdict_plan(
     request_replies: Callable[[ReplyRequest], Awaitable[list[AIMessage]]],
 ) -> Verdict:
     """Drive a plan to its verdict, awaiting each batch of replies it asks for."""
-    step = resume_verdict_plan(plan, replies=None)
-    while isinstance(step, ReplyRequest):
-        step = resume_verdict_plan(plan, replies=await request_replies(step))
-    return step
+    request_or_verdict = resume_verdict_plan(plan, replies=None)
+    while isinstance(request_or_verdict, ReplyRequest):
+        request_or_verdict = resume_verdict_plan(
+            plan, replies=await request_replies(request_or_verdict)
+        )
+    return request_or_verdict
 
 
 def run_verdict_plan_sync(
@@ -144,10 +146,10 @@ def run_verdict_plan_sync(
     request_replies: Callable[[ReplyRequest], list[AIMessage]],
 ) -> Verdict:
     """Drive a plan to its verdict, obtaining each batch of replies without an event loop."""
-    step = resume_verdict_plan(plan, replies=None)
-    while isinstance(step, ReplyRequest):
-        step = resume_verdict_plan(plan, replies=request_replies(step))
-    return step
+    request_or_verdict = resume_verdict_plan(plan, replies=None)
+    while isinstance(request_or_verdict, ReplyRequest):
+        request_or_verdict = resume_verdict_plan(plan, replies=request_replies(request_or_verdict))
+    return request_or_verdict
 
 
 @functools.cache
@@ -344,20 +346,20 @@ class ReasoningBlock:
 def find_reasoning_block(text: str) -> ReasoningBlock | None:
     """Return the reply's first reasoning block, or `None` when it has none.
 
-    The block runs from the first opener to the first closer after it, the
-    block a lazy search for an opener, any text and a closer finds. When the
-    first opener has no closer after it, no later one has, so the reply has
-    no block. Searched that way, a reply of many openers and no closer took
-    time quadratic in its length, since the search started again at each
-    opener; this takes two linear scans.
+    The block runs from the first start tag to the first end tag after it,
+    the block a lazy search for a start tag, any text and an end tag finds.
+    When the first start tag has no end tag after it, no later one has, so
+    the reply has no block. Searched that way, a reply of many start tags and
+    no end tag took time quadratic in its length, since the search started
+    again at each start tag; this takes two linear scans.
     """
-    opener = REASONING_OPENER_PATTERN.search(text)
-    if opener is None:
+    start_tag = REASONING_START_TAG_PATTERN.search(text)
+    if start_tag is None:
         return None
-    closer = REASONING_CLOSER_PATTERN.search(text, opener.end())
-    if closer is None:
+    end_tag = REASONING_END_TAG_PATTERN.search(text, start_tag.end())
+    if end_tag is None:
         return None
-    return ReasoningBlock(text=text[opener.end() : closer.start()], end=closer.end())
+    return ReasoningBlock(text=text[start_tag.end() : end_tag.start()], end=end_tag.end())
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -492,8 +494,9 @@ class LLMMonitor(ChatModelMonitor):
                 return verdict
             logger.debug("Monitor reply %d of %d had no readable score.", attempt, attempts)
         logger.warning(
-            "The monitor gave no readable score in %d replies; the step is treated as suspicious.",
+            "The monitor gave no readable score in %d %s; the step is treated as suspicious.",
             attempts,
+            "reply" if attempts == 1 else "replies",
         )
         reason = "The monitor gave no readable score, so the step is treated as suspicious."
         return Verdict(suspicion=1.0, reason=reason)

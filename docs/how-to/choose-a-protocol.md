@@ -1,8 +1,8 @@
 # Choose a protocol
 
 This guide helps you pick one of the four control protocols, and states what
-all four share: thresholds, halts, the tools a provider runs itself, and the
-cost in graph steps.
+all four share: thresholds, halts, server-side tools, and the cost in graph
+steps.
 
 [TOC]
 
@@ -65,7 +65,7 @@ as follows:
 
 | Protocol | Outcomes in the log | Flagged when |
 |---|---|---|
-| Trusted Monitoring | `allowed` | The suspicion is at or above `flag_threshold` |
+| Trusted Monitoring | `allowed` | The suspicion is at or above `audit_threshold` |
 | Defer to Trusted | `allowed`, `deferred_to_trusted` | The suspicion is at or above `audit_threshold` |
 | Defer to Resample | `allowed`, `resampled`, `deferred_to_trusted`, `halted` | The lowest suspicion across the samples is at or above `audit_threshold`, or the step halted |
 | Auto Mode | `allowed`, `steered`, `deferred_to_trusted`, `halted` | An attempt was blocked, or the fallback wrote the step |
@@ -122,8 +122,22 @@ once a subagent was halted, and records a flagged step with no samples; see
 ### Thresholds
 
 Every threshold is on the monitor's 0 to 1 scale, and a step at or above it
-counts. The defaults, 0.6 to flag, defer or block and 0.9 to audit, are
-placeholders: a protocol built with one emits an
+counts. The defaults are 0.6 for `defer_threshold`, `block_threshold` and
+Trusted Monitoring's `audit_threshold`, and 0.9 for the `audit_threshold` of
+Defer to Trusted and Defer to Resample.
+
+By default the two Defer protocols flag a step only above the line at which
+they defer it, as their sources do: a person can audit only a small share of
+steps, and deferring is the cheaper response. AI Control's Defer to Trusted
+audits the top 2% most suspicious code and defers the next most suspicious to
+the trusted model, down to the top 5%, 10%, 20% or 50% in its runs (section
+3.3, table 3) [@greenblatt2023aicontrol]. At a 1% auditing budget, Ctrl-Z
+audits above the 99th percentile of honest scores (appendix C), and it defers
+at thresholds from the 50th to the 99th percentile (appendix H)
+[@bhatt2025ctrlz]. Trusted Monitoring has no defer threshold, and its 0.6 is
+the library's own choice; no source sets it.
+
+Every default is a placeholder: a protocol built with one emits an
 `UncalibratedThresholdWarning`. Pass your own value, set from the scores your
 monitor gives on honest runs, as
 [Calibrate the threshold](use-trusted-monitoring.md#calibrate-the-threshold)
@@ -159,16 +173,17 @@ both through another middleware listed before the monitor, lift it earlier:
 `check_monitor_placement` does not warn about these hooks, which many
 middleware have for sound reasons.
 
-### Tools the provider runs itself
+### Server tools
 
 A monitor judges each step before any of the agent's own tools run. Some
-providers also run built-in tools themselves, on their servers, inside the
-model call. Those have already run by the time the monitor sees the step, and
-they run again for every sample or attempt the protocol draws, so no protocol
-can stop them. Give the agent tools of its own for any action that must be
-judged before it runs.
+providers also run server-side tools, such as web search or code execution,
+on their own servers inside the model call; LangChain gives their calls as
+`ServerToolCall` blocks [@langchaincore2026]. A server tool has already run by
+the time the monitor sees the step, and runs again for every sample or
+attempt the protocol draws, so no protocol can stop it. Give the agent tools
+of its own for any action that must be judged before it runs.
 
-The middleware emits a `ProviderToolWarning`, once per middleware instance,
+The middleware emits a `ServerToolWarning`, once per middleware instance,
 when a model call receives one of the server tools it knows:
 
 - Anthropic's web search, web fetch, code execution and MCP connector
@@ -196,7 +211,11 @@ of OpenAI, and Anthropic's advisor, run at the provider too, but act on
 nothing outside it, so the warning leaves them out. Client tools that a
 provider defines and your application runs, such as Anthropic's bash, text
 editor, memory and computer use tools and OpenAI's computer use and patch
-tools, come back as tool calls, which the monitor judges before they run.
+tools, come back as tool calls, which the monitor judges before they run. So
+do the tools of an MCP server your application connects itself: they are not
+server tools, since they run on the client as the agent's own tools. Only a
+provider's MCP connector, which reaches an MCP server from the provider's
+side, is a server tool.
 
 ### Middleware options
 

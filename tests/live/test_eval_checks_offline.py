@@ -46,7 +46,7 @@ from tests.live.checks import (
 )
 from tests.live.fakes import FakeModelFactory
 from tests.live.harness import (
-    CASCADE_ESCALATION,
+    CASCADE_ESCALATION_THRESHOLD,
     MonitorFamily,
     MonitorWrapper,
     ProtocolName,
@@ -324,7 +324,7 @@ def escalate_below_the_escalation_score(report: RunReport) -> None:
     judgement = next(
         judgement
         for judgement in report["trace"]["judgements"]
-        if judgement["classifier_scores"][0] < CASCADE_ESCALATION
+        if judgement["classifier_scores"][0] < CASCADE_ESCALATION_THRESHOLD
     )
     judgement["monitor_calls"] = 1
 
@@ -334,7 +334,7 @@ def skip_an_escalation(report: RunReport) -> None:
     judgement = next(
         judgement
         for judgement in report["trace"]["judgements"]
-        if judgement["classifier_scores"][0] >= CASCADE_ESCALATION
+        if judgement["classifier_scores"][0] >= CASCADE_ESCALATION_THRESHOLD
     )
     judgement["monitor_calls"] = 0
 
@@ -906,14 +906,14 @@ def test_the_repeat_check_holds_the_score_to_the_mean_of_three_answers(
     assert is_expected_problem(problem, expected_fragment=expected_fragment), problem
 
 
-JUST_BELOW_THE_ESCALATION = math.nextafter(CASCADE_ESCALATION, 0.0)
+JUST_BELOW_THE_ESCALATION = math.nextafter(CASCADE_ESCALATION_THRESHOLD, 0.0)
 
 
 @pytest.mark.parametrize(
     ("fast", "monitor_calls", "suspicion", "expected_fragment"),
     [
-        (CASCADE_ESCALATION, 1, 0.9, None),
-        (CASCADE_ESCALATION, 0, CASCADE_ESCALATION, "0 chat judge calls"),
+        (CASCADE_ESCALATION_THRESHOLD, 1, 0.9, None),
+        (CASCADE_ESCALATION_THRESHOLD, 0, CASCADE_ESCALATION_THRESHOLD, "0 chat judge calls"),
         (JUST_BELOW_THE_ESCALATION, 0, JUST_BELOW_THE_ESCALATION, None),
         (JUST_BELOW_THE_ESCALATION, 1, 0.9, "1 chat judge calls"),
         (JUST_BELOW_THE_ESCALATION, 0, 0.9, "yet the score is 0.9"),

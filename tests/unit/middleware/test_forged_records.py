@@ -140,7 +140,7 @@ def build_tidying_agent(
     )
     monitor = MonitorMiddleware(
         monitor=build_keyword_monitor(),
-        protocol=TrustedMonitoring(flag_threshold=0.6),
+        protocol=TrustedMonitoring(audit_threshold=0.6),
         when_subagent_halts=when_subagent_halts,
     )
     agent = create_agent(
@@ -304,12 +304,12 @@ def test_an_unreadable_record_halts_an_inner_monitor_behind_a_middleware_that_co
     )
     outer = MonitorMiddleware(
         monitor=build_keyword_monitor(),
-        protocol=TrustedMonitoring(flag_threshold=0.6),
+        protocol=TrustedMonitoring(audit_threshold=0.6),
         label="outer",
     )
     inner = MonitorMiddleware(
         monitor=build_keyword_monitor(),
-        protocol=TrustedMonitoring(flag_threshold=0.6),
+        protocol=TrustedMonitoring(audit_threshold=0.6),
         when_subagent_halts=SubagentHalt.STOP_WHOLE_RUN,
     )
     copier = CopyingToolCallMiddleware(copied=copied)

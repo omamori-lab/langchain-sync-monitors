@@ -20,9 +20,8 @@ flag on the step's record, read after the step.
 [![The agent's model proposes one step, and the monitor, drawn as an omamori charm, reads it through its view and scores it from 0 to 1. Below defer_threshold, the proposal runs and the outcome is allowed. At or above defer_threshold, the trusted model writes the step instead, from the same request, and the outcome is deferred_to_trusted; the proposal's tool calls never run. Either way one record joins monitor_log, flagged for review when the score is at or above audit_threshold.](../assets/diagrams/protocol-defer-to-trusted-dark.svg#only-dark)](../assets/diagrams/protocol-defer-to-trusted-dark.svg "Open the diagram at full size")
 
 A rejected proposal's tool calls never run, and neither the agent nor the
-trusted model sees it. A provider's built-in tools in it, such as a web fetch,
-already ran inside the model call that drew it. The record keeps it as
-evidence.
+trusted model sees it. Server-side tools in it, such as a web fetch, already
+ran inside the model call that drew it. The record keeps it as evidence.
 
 ## A complete example
 
@@ -144,10 +143,9 @@ for record in result["monitor_log"]:
   about a list that does not. A second monitor inside this one loses its
   judgement of every step that is deferred; see
   [Two monitors in one agent](../explanation/design.md#two-monitors-in-one-agent).
-- **A provider's built-in tools run before the judgement.** A rejected
-  proposal's web search or code execution has already run at the provider;
-  see
-  [Tools the provider runs itself](choose-a-protocol.md#tools-the-provider-runs-itself).
+- **Server tools run before the judgement.** A rejected proposal's web
+  search or code execution has already run at the provider; see
+  [Server tools](choose-a-protocol.md#server-tools).
 - **The graph takes more steps.** The monitor adds two graph steps per agent
   step, however many model calls the step makes, and two per run;
   [Allow for the graph steps](read-the-monitor-log.md#allow-for-the-graph-steps)

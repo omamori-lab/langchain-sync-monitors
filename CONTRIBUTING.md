@@ -19,11 +19,22 @@ change must pass, how to send a pull request and how to cut a release.
 
 ## Principles
 
+- **Simple to use, open to configure.** A monitored agent takes one line;
+  every behaviour is an option, with a default where one is safe; anything
+  beyond the options is your own implementation of a contract in
+  `contracts.py`. `AGENTS.md` ("How the code is designed") lists the design
+  patterns the code keeps to.
 - **Every model is a parameter.** The library never picks a model for you.
 - **Core dependencies stay small.** Providers sit behind extras.
 - **Types say what the data is.** No `Any` where the shape is known.
 - **Canonical libraries over hand-rolled logic.** Retries, validation and HTTP
   use stamina, pydantic and httpx.
+- **Standard words.** Names use the terms software engineering, machine
+  learning, technical AI safety and AI control already have, in full words.
+  A new term is coined only when none exists.
+- **Protocols rest on the literature.** A protocol follows AI control or
+  technical AI safety research, or a published control evaluation or
+  benchmark. A behaviour no source supports says so.
 - **Credit the source.** Code and docs cite the papers and codebases they draw
   on, and the bibliography is checked by the tests.
 
@@ -69,7 +80,10 @@ before you push.
 
 lanorme needs Python 3.13, so the script runs it with `uvx --python 3.13`; it
 only parses the code, so it checks 3.12 source correctly. To see why a rule
-fired, run `uvx --python 3.13 lanorme==0.21.0 rule CODE`.
+fired, run `uvx --python 3.13 lanorme==0.21.0 rule CODE`. Its limits in
+`pyproject.toml` are a ratchet: meet them by naming steps or sharing a helper,
+not by raising a limit, and keep inline ignores within the `max_total` budget
+there.
 
 ## Adding a monitor or a protocol
 
@@ -86,18 +100,35 @@ fired, run `uvx --python 3.13 lanorme==0.21.0 rule CODE`.
   implements `Fallback.take_over`, under the same rule as `decide`.
 - Keep no run state on the instance: one copy serves parallel subagent runs.
 - Keep every model a constructor parameter.
-- Cite the paper or codebase the idea comes from, and add a changelog entry.
+- Cite the research, evaluation or codebase it rests on (see "Citing
+  sources"), and add a changelog entry.
 
 ## Citing sources
 
-Cite at the point of use with `[@key]`, in a docstring or on a docs page:
+Cite at the point of use in pandoc's citation syntax, `[@key]` or
+`[@first; @second]`, straight after the claim, in the docstring of the code
+that applies the source or in the docs text:
 
 ```python
 class DeferToResample(ControlProtocol):
-    """Defer to Resample, the basic protocol of Ctrl-Z [@bhatt2025ctrlz]."""
+    """Replace a suspicious step with a fresh sample of it, or hand it to a fallback.
+
+    This is the basic Defer to Resample protocol of Ctrl-Z [@bhatt2025ctrlz].
+    """
 ```
 
-Add the entry to `docs/references.bib` in the same change. Papers use `@misc`,
+When a claim takes a specific number, result or definition from a source,
+give a locator (a section, appendix, table, figure, equation or footnote) in
+the prose, in full lowercase words, as in `(section 3.2, footnote 6)
+[@bhatt2025ctrlz]`. Never write `§`, `Sec.`, `App.`, `Eq.` or `Tab.`, and
+never put the locator inside the brackets. On a docs page the strict build
+fails on one there; in a docstring nothing checks it, so reviewers do.
+
+Add the entry to `docs/references.bib` in the same change, under the `%`
+heading for its topic. A key is the first author's surname or the
+organisation, the year and a short title stem (`bhatt2025ctrlz`). A codebase
+is keyed by its name and year (`langgraph2026`), or by author, year and name
+when it is better known that way (`schlawack2026stamina`). Papers use `@misc`,
 `@inproceedings` or `@article`, reports `@techreport`, books `@book`, posts
 `@online`, and codebases and libraries `@software` with the version you
 learned from. `tests/unit/test_references.py`

@@ -39,7 +39,7 @@ async def test_repeated_monitor_averages_its_calls(
     call_path: CallPath,
 ) -> None:
     # Arrange: that the async path's calls overlap is checked in test_calibration.py.
-    repeated = RepeatedMonitor(monitor=three_calls, repeats=3)
+    repeated = RepeatedMonitor(monitor=three_calls, ensemble_size=3)
 
     # Act
     verdict = await evaluate_on_path(repeated, monitor_input, call_path=call_path)
@@ -53,8 +53,8 @@ def test_equal_means_compare_equal_after_rounding(
     monitor_input: MonitorInput,
 ) -> None:
     # Arrange: both steps average to 0.1, but their float sums differ in the last bits.
-    first = RepeatedMonitor(monitor=ScriptedMonitor(suspicions=[0.1, 0.0, 0.2]), repeats=3)
-    second = RepeatedMonitor(monitor=ScriptedMonitor(suspicions=[0.0, 0.0, 0.3]), repeats=3)
+    first = RepeatedMonitor(monitor=ScriptedMonitor(suspicions=[0.1, 0.0, 0.2]), ensemble_size=3)
+    second = RepeatedMonitor(monitor=ScriptedMonitor(suspicions=[0.0, 0.0, 0.3]), ensemble_size=3)
 
     # Act
     first_mean = first.evaluate_sync(monitor_input).suspicion
@@ -64,12 +64,29 @@ def test_equal_means_compare_equal_after_rounding(
     assert first_mean == second_mean
 
 
+async def test_a_mean_keeps_the_resolution_that_averaging_adds(
+    monitor_input: MonitorInput,
+    call_path: CallPath,
+) -> None:
+    # Arrange: the two means differ in the fifth decimal place only
+    lower = RepeatedMonitor(monitor=ScriptedMonitor(suspicions=[0.1, 0.2]), ensemble_size=2)
+    higher = RepeatedMonitor(monitor=ScriptedMonitor(suspicions=[0.1, 0.2001]), ensemble_size=2)
+
+    # Act
+    lower_verdict = await evaluate_on_path(lower, monitor_input, call_path=call_path)
+    higher_verdict = await evaluate_on_path(higher, monitor_input, call_path=call_path)
+
+    # Assert
+    assert lower_verdict.suspicion == pytest.approx(0.15)
+    assert higher_verdict.suspicion == pytest.approx(0.15005)
+
+
 def test_repeated_monitor_keeps_the_most_suspicious_reason(
     three_calls: ScriptedMonitor,
     monitor_input: MonitorInput,
 ) -> None:
     # Arrange
-    repeated = RepeatedMonitor(monitor=three_calls, repeats=3)
+    repeated = RepeatedMonitor(monitor=three_calls, ensemble_size=3)
 
     # Act
     verdict = repeated.evaluate_sync(monitor_input)
@@ -78,9 +95,9 @@ def test_repeated_monitor_keeps_the_most_suspicious_reason(
     assert verdict.reason == "call 2 scored 0.7"
 
 
-def test_one_repeat_returns_the_single_score(monitor_input: MonitorInput) -> None:
+def test_an_ensemble_of_one_returns_the_single_score(monitor_input: MonitorInput) -> None:
     # Arrange
-    repeated = RepeatedMonitor(monitor=ScriptedMonitor(suspicions=[1.0]), repeats=1)
+    repeated = RepeatedMonitor(monitor=ScriptedMonitor(suspicions=[1.0]), ensemble_size=1)
 
     # Act
     verdict = repeated.evaluate_sync(monitor_input)
@@ -89,16 +106,17 @@ def test_one_repeat_returns_the_single_score(monitor_input: MonitorInput) -> Non
     assert verdict.suspicion == 1.0
 
 
-def test_zero_repeats_is_rejected() -> None:
+def test_an_ensemble_size_of_zero_is_rejected() -> None:
     # Act and Assert
-    with pytest.raises(ConfigurationError, match="repeats"):
-        RepeatedMonitor(monitor=ScriptedMonitor(suspicions=[0.0]), repeats=0)
+    with pytest.raises(ConfigurationError, match="ensemble_size"):
+        RepeatedMonitor(monitor=ScriptedMonitor(suspicions=[0.0]), ensemble_size=0)
 
 
 @pytest.mark.parametrize("random_seed", [None, 7], ids=["unseeded", "seeded"])
-def test_tied_scores_spread_at_random_over_the_slots_of_the_tie(
+async def test_tied_scores_spread_at_random_over_the_slots_of_the_tie(
     honest_scores: list[float],
     monitor_input: MonitorInput,
+    call_path: CallPath,
     random_seed: int | None,
 ) -> None:
     # Arrange
@@ -110,11 +128,15 @@ def test_tied_scores_spread_at_random_over_the_slots_of_the_tie(
     steps = [build_step_with_text(monitor_input, text=f"step {index}") for index in range(50)]
 
     # Act
-    percentiles = [calibrated.evaluate_sync(step).suspicion for step in steps]
+    verdicts = [await evaluate_on_path(calibrated, step, call_path=call_path) for step in steps]
+    percentiles = [verdict.suspicion for verdict in verdicts]
 
-    # Assert: one honest score below, two tied, so slots 1 to 3 of 5
+    # Assert: one honest score below, two tied, so slots 1 to 3 of 5, the first and last of
+    # which 50 uniform draws each miss with a chance of (2/3)^50, about 2e-9
     assert all(1 / 5 <= percentile < 4 / 5 for percentile in percentiles)
     assert len(set(percentiles)) > 1
+    assert min(percentiles) < 2 / 5
+    assert max(percentiles) >= 3 / 5
 
 
 def test_different_seeds_break_the_same_ties_differently(
@@ -206,7 +228,7 @@ async def test_a_calm_fast_verdict_is_kept(monitor_input: MonitorInput) -> None:
     cascade = CascadeMonitor(
         fast=ScriptedMonitor(suspicions=[0.29]),
         careful=careful,
-        escalate_at=0.3,
+        escalation_threshold=0.3,
     )
 
     # Act
@@ -223,7 +245,7 @@ async def test_a_fast_verdict_at_the_threshold_escalates(monitor_input: MonitorI
     cascade = CascadeMonitor(
         fast=ScriptedMonitor(suspicions=[0.3]),
         careful=careful,
-        escalate_at=0.3,
+        escalation_threshold=0.3,
     )
 
     # Act
@@ -239,7 +261,7 @@ def test_the_sync_cascade_escalates_the_same_way(monitor_input: MonitorInput) ->
     # Arrange
     fast = ScriptedMonitor(suspicions=[0.8, 0.1])
     careful = ScriptedMonitor(suspicions=[0.95])
-    cascade = CascadeMonitor(fast=fast, careful=careful, escalate_at=0.5)
+    cascade = CascadeMonitor(fast=fast, careful=careful, escalation_threshold=0.5)
 
     # Act
     escalated = cascade.evaluate_sync(monitor_input)
@@ -255,5 +277,5 @@ def test_an_escalation_threshold_outside_zero_to_one_is_rejected() -> None:
     monitor = ScriptedMonitor(suspicions=[0.0])
 
     # Act and Assert
-    with pytest.raises(ConfigurationError, match="escalate_at"):
-        CascadeMonitor(fast=monitor, careful=monitor, escalate_at=1.2)
+    with pytest.raises(ConfigurationError, match="escalation_threshold"):
+        CascadeMonitor(fast=monitor, careful=monitor, escalation_threshold=1.2)

@@ -105,7 +105,7 @@ def test_a_tool_s_own_step_record_cannot_hide_a_parallel_subagent_s_halt(
         worker_model=ScriptedChatModel(responses=[build_exfiltration_step(call_id="call-post")]),
         main_monitor=MonitorMiddleware(
             monitor=build_keyword_monitor(),
-            protocol=TrustedMonitoring(flag_threshold=0.6),
+            protocol=TrustedMonitoring(audit_threshold=0.6),
             when_subagent_halts=SubagentHalt.STOP_WHOLE_RUN,
         ),
         worker_monitor=build_halting_worker_monitor(),

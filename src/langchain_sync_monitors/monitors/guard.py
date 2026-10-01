@@ -57,22 +57,24 @@ UNREADABLE_LABEL_REASON = (
 )
 UNCERTAIN_LABEL_REASON = "The guard model was uncertain whether the step breaks the policy."
 
-SUSPICIOUS_SHARE = 0.5
-"""From this suspicious share on, a log-probability reason says the step breaks the policy.
+SUSPICIOUS_PROBABILITY = 0.5
+"""From this probability on, a log-probability reason says the step breaks the policy.
 
-At one half or more, a suspicious label is the guard's likelier finding. The
-library's default thresholds are 0.6 and above, so every step a raw guard
-score blocks at a default threshold reads as breaking the policy; a blocked
-step reads as uncertain only under calibration or a threshold below one half.
+The probability is that of a suspicious label, and from one half on, a
+suspicious label is the guard's likelier finding. The library's default
+thresholds are 0.6 and above, so every step a raw guard score blocks at a
+default threshold reads as breaking the policy; a blocked step reads as
+uncertain only under calibration or a threshold below one half.
 """
-CONFIDENTLY_SAFE_SHARE = 0.001
-"""Below this suspicious share, a log-probability reason says the step follows the policy.
+CONFIDENTLY_SAFE_PROBABILITY = 0.001
+"""Below this probability, a log-probability reason says the step follows the policy.
 
-A guard that commits to a label leaves the other kind a tiny share: the real
-DeepSeek reply the tests use left its safe alternatives about one in ten
-million. A share of 0.1% or more is doubt. The edge is small because under
-`CalibratedMonitor` a threshold can block a step whose raw share is below it,
-and that step's reason would still say it follows the policy.
+The probability is that of a suspicious label. A guard that commits to a
+label leaves the other kind a tiny probability: the real DeepSeek reply the
+tests use left its safe alternatives about one in ten million. A probability
+of 0.1% or more is doubt. The edge is small because under `CalibratedMonitor`
+a threshold can block a step whose raw probability is below it, and that
+step's reason would still say it follows the policy.
 """
 
 type LabelKind = Literal["suspicious", "safe"]
@@ -177,30 +179,35 @@ def collect_alternatives(position: TokenLogProbability) -> dict[str, float]:
 
 
 def validate_labels(*, suspicious_labels: AbstractSet[str], safe_labels: AbstractSet[str]) -> None:
-    """Reject label sets that are not sets of strings, or are empty, overlapping or unreadable.
-
-    A label the reply parser could never read, such as `not safe` or
-    `violation_`, would make every reply unreadable, so it is refused here.
-    """
-    check_string_set_option(
+    """Reject label sets that are not sets of strings, or are empty, overlapping or unreadable."""
+    validate_label_set(
         suspicious_labels,
         parameter_name="suspicious_labels",
         example="{'violation'}",
     )
-    check_string_set_option(safe_labels, parameter_name="safe_labels", example="{'no_violation'}")
-    if not suspicious_labels or not safe_labels:
-        message = "suspicious_labels and safe_labels must each hold at least one label"
+    validate_label_set(safe_labels, parameter_name="safe_labels", example="{'no_violation'}")
+    shared = sorted(set(map(str.lower, suspicious_labels)) & set(map(str.lower, safe_labels)))
+    if shared:
+        message = f"a label cannot be in both suspicious_labels and safe_labels, got {shared}"
         raise ConfigurationError(message)
-    multi_word = sorted(filterfalse(is_one_word, suspicious_labels | safe_labels))
+
+
+def validate_label_set(labels: AbstractSet[str], *, parameter_name: str, example: str) -> None:
+    """Reject one label set that is not a set of strings, is empty, or holds an unreadable label.
+
+    A label the reply parser could never read, such as `not safe` or
+    `violation_`, would make every reply unreadable, so it is refused here.
+    """
+    check_string_set_option(labels, parameter_name=parameter_name, example=example)
+    if not labels:
+        message = f"{parameter_name} must hold at least one label"
+        raise ConfigurationError(message)
+    multi_word = sorted(filterfalse(is_one_word, labels))
     if multi_word:
         message = (
-            "labels must be single words of letters, digits, _ or -, beginning and ending "
-            f"with a letter or digit, got {multi_word}"
+            f"{parameter_name} must hold only single words of letters, digits, _ or -, each "
+            f"beginning and ending with a letter or digit, got {multi_word}"
         )
-        raise ConfigurationError(message)
-    shared = set(map(str.lower, suspicious_labels)) & set(map(str.lower, safe_labels))
-    if shared:
-        message = f"labels cannot be both suspicious and safe: {sorted(shared)}"
         raise ConfigurationError(message)
 
 
@@ -247,10 +254,10 @@ class GuardModelMonitor(ChatModelMonitor):
 
     The verdict's reason states the guard's finding, with no probability or
     count: the most severe label among sampled replies, or, from
-    log-probabilities, one of three bands of the suspicious share (it breaks
-    the policy, the guard was uncertain, or it follows the policy). Auto Mode
-    shows the reason to the agent, and those numbers would tell it how close
-    its step came to passing. They stay in the suspicion.
+    log-probabilities, one of three bands of the probability of a suspicious
+    label (it breaks the policy, the guard was uncertain, or it follows the
+    policy). Auto Mode shows the reason to the agent, and those numbers would
+    tell it how close its step came to passing. They stay in the suspicion.
     """
 
     call_source: ClassVar[str] = "guard_model_monitor"
@@ -321,7 +328,7 @@ class GuardModelMonitor(ChatModelMonitor):
         if verdict is not None:
             return verdict
         if self.scoring is GuardScoring.LOG_PROBABILITIES:
-            return build_unlocated_label_verdict()
+            return build_unscored_label_verdict()
         # The first reply counts as a sample, so with `samples=1` no more are drawn.
         remaining = self.samples - 1
         more_replies = yield ReplyRequest(model=self.model, messages=messages, count=remaining)
@@ -353,23 +360,25 @@ class GuardModelMonitor(ChatModelMonitor):
         if match is None or index is None:
             return None
         position = tokens[index]
-        share = self.compute_suspicious_share(position, label_kind=self.classify_label(match.label))
-        if share is None:
+        probability = self.compute_suspicious_probability(
+            position, label_kind=self.classify_label(match.label)
+        )
+        if probability is None:
             return None
         reason = self.build_log_probability_reason(
             position,
             written_label=match.label,
-            share=share,
+            probability=probability,
         )
-        return Verdict(suspicion=share, reason=reason)
+        return Verdict(suspicion=probability, reason=reason)
 
-    def compute_suspicious_share(
+    def compute_suspicious_probability(
         self,
         position: TokenLogProbability,
         *,
         label_kind: LabelKind,
     ) -> float | None:
-        """Share of the label probability at the label's first token that is suspicious.
+        """Probability of a suspicious label at the label's first token, among the labels.
 
         Every alternative that begins a label counts, so variants such as
         `violation`, ` violation` and `Violation` add up, and dividing by the mass
@@ -378,11 +387,11 @@ class GuardModelMonitor(ChatModelMonitor):
         over exactly `Yes` and `No` [@zeng2024shieldgemma]; Llama Guard reads its
         first token's probability as it is [@inan2023llamaguard].
 
-        The share is `None` unless the provider gave alternatives at the position
-        and the guard's own token there begins a label of `label_kind`, the kind
-        the reply's text names. Otherwise the alternatives would be weighed at a
-        token that is not the label, where a label the guard all but ruled out
-        could decide the score.
+        The probability is `None` unless the provider gave alternatives at the
+        position and the guard's own token there begins a label of `label_kind`,
+        the kind the reply's text names. Otherwise the alternatives would be
+        weighed at a token that is not the label, where a label the guard all
+        but ruled out could decide the score.
         """
         if not position.top_logprobs or self.classify_token(position.token) != label_kind:
             return None
@@ -399,18 +408,18 @@ class GuardModelMonitor(ChatModelMonitor):
         position: TokenLogProbability,
         *,
         written_label: str,
-        share: float,
+        probability: float,
     ) -> str:
-        """State the guard's finding in one of three bands of the suspicious share, with no number.
+        """State the guard's finding in one of three bands of the probability, with no number.
 
-        From `SUSPICIOUS_SHARE` on, the guard found that the step breaks the
-        policy; below `CONFIDENTLY_SAFE_SHARE`, that it follows it; in
+        From `SUSPICIOUS_PROBABILITY` on, the guard found that the step breaks the
+        policy; below `CONFIDENTLY_SAFE_PROBABILITY`, that it follows it; in
         between, the guard was uncertain, and the reason names no label. The
         edges are explained where they are defined.
         """
-        if CONFIDENTLY_SAFE_SHARE <= share < SUSPICIOUS_SHARE:
+        if CONFIDENTLY_SAFE_PROBABILITY <= probability < SUSPICIOUS_PROBABILITY:
             return UNCERTAIN_LABEL_REASON
-        kind: LabelKind = "suspicious" if share >= SUSPICIOUS_SHARE else "safe"
+        kind: LabelKind = "suspicious" if probability >= SUSPICIOUS_PROBABILITY else "safe"
         label = self.name_label_of_kind(position, written_label=written_label, kind=kind)
         return self.build_label_reason(label)
 
@@ -430,8 +439,8 @@ class GuardModelMonitor(ChatModelMonitor):
         """
         if self.classify_label(written_label) == kind:
             return written_label
-        # Neither search below comes up empty: `kind` is asked for only when the share gives it
-        # some probability, which a token beginning a label of that kind carries.
+        # Neither search below comes up empty: `kind` is asked for only when its labels have some
+        # probability, which a token beginning a label of that kind carries.
         alternatives = collect_alternatives(position)
         likeliest_token = max(
             (token for token in alternatives if self.classify_token(token) == kind),
@@ -540,13 +549,13 @@ def is_rejected_keyword(error: TypeError, *, keyword: str) -> bool:
     return "unexpected keyword argument" in text and keyword in text
 
 
-def build_unlocated_label_verdict() -> Verdict:
+def build_unscored_label_verdict() -> Verdict:
     """Fail closed when log-probabilities came back but no label could be scored from them."""
     logger.warning(
         "No guard label could be scored from the log-probabilities; the step is suspicious."
     )
     reason = (
-        "The guard model's reply had log-probabilities but no readable label, "
-        "so the step is treated as suspicious."
+        "The guard model's reply had log-probabilities, but no label could be scored "
+        "from them, so the step is treated as suspicious."
     )
     return Verdict(suspicion=1.0, reason=reason)

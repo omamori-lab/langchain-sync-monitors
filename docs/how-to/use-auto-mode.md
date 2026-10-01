@@ -29,9 +29,9 @@ step, flagged: `HaltRun`, the default, ends the run as `halted`;
 A step goes to the fallback before any attempt only when blocks inside
 subagents since this agent's last step leave the thread at or over the total.
 
-The tool calls of a blocked attempt never run. A provider's built-in tools in
-it, such as a web fetch, already ran inside the model call that drew it, once
-per attempt. The next attempt is drawn with the blocked proposal and its
+The tool calls of a blocked attempt never run. Server-side tools in it, such
+as a web fetch, already ran inside the model call that drew it, once per
+attempt. The next attempt is drawn with the blocked proposal and its
 feedback in view, so the agent knows what was refused and why. The attempt
 that reaches a limit is blocked like the others: it gets feedback, and it
 counts in `blocked_count`.
@@ -223,8 +223,8 @@ The default feedback, `DEFAULT_FEEDBACK_TEMPLATE`, has three lines:
 It follows Claude Code's auto mode, whose denial reaches the agent as a tool
 result that asks it to find a safer path rather than work around the block
 [@hughes2026automode] (section "Deny-and-continue"). "None of your tools ran
-it" stays true when a provider's built-in tool in the step already ran inside
-the model call.
+it" stays true when a server tool in the step already ran inside the model
+call.
 
 To write your own, pass `FeedbackTemplate(text=...)`:
 
@@ -336,9 +336,9 @@ blocks_in_thread = sum(record["blocked_count"] for record in records)
   is a `HaltRun` (not a subclass), so that a step draws at most one sample;
   see [Two monitors in one agent](../explanation/design.md#two-monitors-in-one-agent).
   `check_monitor_placement(middleware=[...])` warns about such a list.
-- **A provider's built-in tools run once per attempt.** A blocked attempt's
-  web search or code execution has already run at the provider; see
-  [Tools the provider runs itself](choose-a-protocol.md#tools-the-provider-runs-itself).
+- **Server tools run once per attempt.** A blocked attempt's web search or
+  code execution has already run at the provider; see
+  [Server tools](choose-a-protocol.md#server-tools).
 - **The graph takes more steps.** The monitor adds two graph steps per agent
   step, however many model calls the step makes, and two per run;
   [Allow for the graph steps](read-the-monitor-log.md#allow-for-the-graph-steps)

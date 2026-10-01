@@ -264,9 +264,14 @@ def test_a_response_without_an_ai_message_raises(monitor: KeywordMonitor) -> Non
         task_author=TaskAuthor.USER,
     )
 
-    # Act / Assert
-    with pytest.raises(MonitorError, match="no AI message"):
+    # Act
+    with pytest.raises(MonitorError) as raised:
         run_synchronously(step.sample(count=1))
+
+    # Assert
+    assert str(raised.value) == (
+        "The model call returned no AI message, so the monitor has no step to judge."
+    )
 
 
 async def test_a_failed_concurrent_draw_cancels_the_others_and_raises_its_own_error(

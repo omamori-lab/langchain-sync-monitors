@@ -770,7 +770,7 @@ REASONING_IN_PARTS: dict[str, Callable[[], AIMessage]] = {
 
 
 @pytest.mark.parametrize("build_reply", REASONING_IN_PARTS.values(), ids=REASONING_IN_PARTS.keys())
-def test_reasoning_is_read_from_each_part_that_holds_text_one_part_per_line(
+def test_each_reasoning_part_with_text_is_one_line_and_parts_without_text_ahead_add_nothing(
     build_reply: Callable[[], AIMessage],
 ) -> None:
     # Arrange

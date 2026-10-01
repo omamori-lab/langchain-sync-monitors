@@ -11,6 +11,7 @@ from __future__ import annotations
 import asyncio
 import warnings
 from collections.abc import Callable, Iterator
+from pathlib import Path
 from typing import Any, cast
 
 import pytest
@@ -23,6 +24,7 @@ from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import AIMessage, HumanMessage
 from langchain_core.runnables import Runnable
 
+import langchain_sync_monitors
 from langchain_sync_monitors.contracts import ControlProtocol, TaskAuthor
 from langchain_sync_monitors.middleware import MonitorMiddleware
 from langchain_sync_monitors.model_calls import CachedResampleWarning, is_response_cache_active
@@ -33,7 +35,6 @@ from langchain_sync_monitors.pending_steps import (
     warn_about_cached_resamples,
 )
 from langchain_sync_monitors.protocols import AutoMode, DeferToResample, HaltRun
-from langchain_sync_monitors.thresholds import LIBRARY_DIRECTORY
 from tests.support.agents import (
     RunMode,
     Workspace,
@@ -43,6 +44,9 @@ from tests.support.agents import (
     run_agent,
 )
 from tests.support.chat_models import ScriptedChatModel
+
+LIBRARY_PATH = Path(langchain_sync_monitors.__file__).resolve().parent
+"""The package's directory, worked out here rather than read from the library under test."""
 
 
 @pytest.fixture(autouse=True)
@@ -223,7 +227,7 @@ def test_the_warning_points_at_a_frame_outside_the_library(run_mode: RunMode) ->
     [warning] = draw_first_samples(model, count=2, mode=run_mode)
 
     # Assert
-    assert not warning.filename.startswith(LIBRARY_DIRECTORY)
+    assert not Path(warning.filename).resolve().is_relative_to(LIBRARY_PATH)
 
 
 class RunPickedModel(AgentMiddleware[Any, Any, Any]):

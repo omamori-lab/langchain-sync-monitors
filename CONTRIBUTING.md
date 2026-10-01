@@ -28,6 +28,12 @@ change must pass, how to send a pull request and how to cut a release.
 - **Types say what the data is.** No `Any` where the shape is known.
 - **Canonical libraries over hand-rolled logic.** Retries, validation and HTTP
   use stamina, pydantic and httpx.
+- **Standard words.** Names use the terms software engineering, machine
+  learning, technical AI safety and AI control already have, in full words.
+  A new term is coined only when none exists.
+- **Protocols rest on the literature.** A protocol changes only on the evidence
+  of AI control or AI safety research, or a published control evaluation or
+  benchmark.
 - **Credit the source.** Code and docs cite the papers and codebases they draw
   on, and the bibliography is checked by the tests.
 
@@ -90,18 +96,30 @@ fired, run `uvx --python 3.13 lanorme==0.21.0 rule CODE`.
   implements `Fallback.take_over`, under the same rule as `decide`.
 - Keep no run state on the instance: one copy serves parallel subagent runs.
 - Keep every model a constructor parameter.
-- Cite the paper or codebase the idea comes from, and add a changelog entry.
+- Base a protocol on AI control or AI safety research, or on a published
+  control evaluation or benchmark, and cite it. Cite the paper or codebase
+  any idea comes from, and add a changelog entry.
 
 ## Citing sources
 
-Cite at the point of use with `[@key]`, in a docstring or on a docs page:
+Cite at the point of use in pandoc's citation syntax, `[@key]` or
+`[@first; @second]`, straight after the claim, in the docstring of the code
+that applies the source or in the docs text:
 
 ```python
 class DeferToResample(ControlProtocol):
     """Defer to Resample, the basic protocol of Ctrl-Z [@bhatt2025ctrlz]."""
 ```
 
-Add the entry to `docs/references.bib` in the same change. Papers use `@misc`,
+Put a section, table or equation in the prose, as in "the audit statistic
+Ctrl-Z found to work well (section 3.2, footnote 6) [@bhatt2025ctrlz]", not
+inside the brackets: the docs build reads only the key and fails on a
+locator.
+
+Add the entry to `docs/references.bib` in the same change, under the `%`
+heading for its topic. A key is the first author's surname or the
+organisation, the year and a word from the title (`bhatt2025ctrlz`); a
+codebase's key is its package name and year (`langgraph2026`). Papers use `@misc`,
 `@inproceedings` or `@article`, reports `@techreport`, books `@book`, posts
 `@online`, and codebases and libraries `@software` with the version you
 learned from. `tests/unit/test_references.py`

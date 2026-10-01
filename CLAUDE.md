@@ -88,6 +88,11 @@ Keep to these patterns; reviewers check them.
   abbreviations beyond standard ones such as `id` or `url`.
   LangChain's fixed hook names, such as `wrap_model_call`, `awrap_tool_call`
   and `aafter_model`, are the only exception.
+- **Canonical terms, not coined ones.** Name a thing with the term software
+  engineering, machine learning, technical AI safety or AI control already
+  uses for it: trusted and untrusted model, suspicion score, audit, defer to
+  trusted, resample, false positive rate. Coin a term only when none exists,
+  and then define it once, on the page that owns it.
 - **Keyword-only parameters** for every public constructor and function after
   the first positional one, except LangChain hooks marked with `@override`.
 - **Intentional types.** No `Any` and no `dict[str, Any]` for data whose shape
@@ -99,10 +104,19 @@ Keep to these patterns; reviewers check them.
   retry network and server errors on their own (`max_retries`), so do not wrap
   them in stamina. HTTP 429 is the exception: `ChatOpenRouter` does not retry
   it, so a chat monitor retries its own calls on one (`monitors/chat.py`).
+- **Protocols rest on the literature.** A new protocol, or a change to how one
+  decides, defers, resamples, halts or blocks, follows AI control or technical
+  AI safety research, or a published control evaluation or benchmark such as
+  Ctrl-Z, BashArena or LinuxArena. A behaviour no source supports says so; it
+  never borrows a citation that does not cover it.
 - **Cite sources at the point of use.** When code or a docs page takes an idea,
   a protocol, a number or a code pattern from a paper, a post or another
-  codebase, cite it with `[@key]` in the docstring or text and add the entry to
-  `docs/references.bib`. Cite code bases as `@software`. The unit tests fail on
+  codebase, cite it in pandoc's citation syntax, `[@key]` or
+  `[@first; @second]`, straight after the claim, in the docstring of the code
+  that applies it or in the docs text. Give a section, table or equation in
+  the prose, not inside the brackets, where the docs build fails on it. Add
+  the entry to `docs/references.bib` in the same change; `CONTRIBUTING.md`
+  ("Citing sources") gives the key and entry formats. The unit tests fail on
   a cited key that is missing from the bibliography and on an entry nothing
   cites.
 - **State records hold plain values**: `str`, `int`, `float`, `bool`, `None`,

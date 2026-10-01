@@ -14,6 +14,9 @@ from langchain_sync_monitors.contracts import Monitor, MonitorInput, Verdict
 
 type CallPath = Literal["async", "sync"]
 
+PLANTED_SECRET = "planted-secret-9f3c1e"
+"""A credential the transcript holds, in the user's words and in a tool call's argument."""
+
 
 class ScriptedChatModel(BaseChatModel):
     """Replies with the scripted messages in turn and records every call it receives."""

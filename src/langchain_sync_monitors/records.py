@@ -19,7 +19,7 @@ elsewhere, such as `update_state` or an older checkpoint, and raises
 from __future__ import annotations
 
 from collections import Counter
-from collections.abc import Iterable, Mapping
+from collections.abc import Iterable, Mapping, Sized
 
 from pydantic import TypeAdapter, ValidationError
 
@@ -33,13 +33,20 @@ from langchain_sync_monitors.contracts import (
     StepRecord,
 )
 from langchain_sync_monitors.errors import MonitorError
+from langchain_sync_monitors.options import name_type
 from langchain_sync_monitors.transcript import render_proposal_for_audit
 
 STEP_RECORD_ADAPTER = TypeAdapter(StepRecord)
 """Checks the shape of a record read from the state or returned by a tool."""
 
-RENDERED_VALUE_LIMIT = 300
-"""How many characters of a value an error or a warning about it quotes."""
+RECORD_NAME_FIELDS: dict[str, tuple[str, type[str] | type[int]]] = {
+    "agent": ("agent", str),
+    "monitor": ("monitor", str),
+    "step_number": ("step number", int),
+    "outcome": ("outcome", str),
+    "delegation_id": ("delegation id", str),
+}
+"""The fields that name a record, each with the words that render it and the type it holds."""
 
 OUTCOME_NAMES: dict[Outcome, OutcomeName] = {
     Outcome.ALLOWED: "allowed",
@@ -143,11 +150,64 @@ def validate_step_record(value: object) -> StepRecord:
 
 
 def render_value(value: object) -> str:
-    """Return a short rendering of a value for an error or a warning that names it."""
-    rendered = repr(value)
-    if len(rendered) <= RENDERED_VALUE_LIMIT:
-        return rendered
-    return f"{rendered[:RENDERED_VALUE_LIMIT]}..."
+    """Name a value for an error or a warning without quoting any text it holds.
+
+    A record holds the transcript, in each sample's proposal and reason, and
+    no log line or error message may. So a mapping is named as a record, by
+    the fields that name one, its agent, monitor, step number, outcome and
+    delegation id, and by its number of samples. A field is quoted only when
+    it holds the type a record gives it, and is otherwise named by its type.
+    A mapping with none of those fields, and any other value, is named by its
+    type, and by its length where it has one.
+    """
+    if isinstance(value, Mapping):
+        fields = render_record_fields(value)
+        if fields:
+            return f"{name_value_type(value)} with {', '.join(fields)}"
+    return describe_type(value)
+
+
+def render_record_fields(record: Mapping[object, object]) -> list[str]:
+    """Return the fields that name a record, rendered, then its number of samples."""
+    fields = [
+        render_record_field(record[key], words=words, field_type=field_type)
+        for key, (words, field_type) in RECORD_NAME_FIELDS.items()
+        if key in record
+    ]
+    if "samples" in record:
+        fields.append(render_sample_count(record["samples"]))
+    return fields
+
+
+def render_record_field(value: object, *, words: str, field_type: type) -> str:
+    """Quote a field that holds the type a record gives it, and name any other by its type."""
+    # Python counts a bool as an int, but no record holds one as its step number.
+    if isinstance(value, field_type) and not isinstance(value, bool):
+        return f"{words} {value!r}"
+    return f"{words} that is {describe_type(value)}"
+
+
+def render_sample_count(samples: object) -> str:
+    """Count a record's samples, or name its samples by their type when they are no list."""
+    if isinstance(samples, list):
+        return f"{len(samples)} sample(s)"
+    return f"samples that are {describe_type(samples)}"
+
+
+def describe_type(value: object) -> str:
+    """Name a value by its type, and its length where it has one, as in `a str of length 12`."""
+    if value is None:
+        return "None"
+    if isinstance(value, Sized):
+        return f"{name_value_type(value)} of length {len(value)}"
+    return name_value_type(value)
+
+
+def name_value_type(value: object) -> str:
+    """Name a value's type with its article, as in `a dict` or `an int`."""
+    type_name = name_type(type(value))
+    article = "an" if type_name[0].lower() in "aeiou" else "a"
+    return f"{article} {type_name}"
 
 
 def read_step_records(state: object) -> list[StepRecord]:
@@ -155,7 +215,7 @@ def read_step_records(state: object) -> list[StepRecord]:
 
     A record that is not a whole `StepRecord` is never skipped: skipping a
     halt, or a block that Auto Mode counts, would fail open. The error names
-    the record and its position.
+    the record, as `render_value` does, and its position.
     """
     value = state.get(MONITOR_LOG_KEY) if isinstance(state, Mapping) else None
     if value is None:
@@ -167,7 +227,12 @@ def read_step_records(state: object) -> list[StepRecord]:
 
 
 def read_stored_record(item: object, *, position: int) -> StepRecord:
-    """Return one record of the state's log, raising `MonitorError` that names it if malformed."""
+    """Return one record of the state's log, raising `MonitorError` that names it if malformed.
+
+    The error is raised from None: pydantic's own error quotes the input, a
+    sample's proposal included, and a traceback would print it. The message
+    names the fields at fault instead.
+    """
     try:
         return validate_step_record(item)
     except ValueError as error:
@@ -176,7 +241,7 @@ def read_stored_record(item: object, *, position: int) -> StepRecord:
             f"({describe_record_error(error)}): {render_value(item)}. The monitor skips no "
             "record, since that could hide a halt; repair or remove it, with update_state."
         )
-        raise MonitorError(message) from error
+        raise MonitorError(message) from None
 
 
 def count_blocks(records: Iterable[StepRecord], *, monitor: str) -> int:

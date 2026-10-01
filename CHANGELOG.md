@@ -36,7 +36,7 @@ change raises the minor version.
   feedback and the monitor's own model calls never stream.
 - A step that fails after samples were judged writes a
   `MonitorStepFailedEvent` with those samples to `stream_mode="custom"`, logs
-  them as a warning and re-raises the error.
+  their suspicions as a warning and re-raises the error.
 - A halted step ends the run, including in agents with structured output and
   no tools.
 - A halt stands until the thread records another run input: when a hook such
@@ -381,5 +381,51 @@ change raises the minor version.
 - The guides state how a wrapped or sampled monitor counts an unreadable reply,
   and the decision model's retry budget, its handling of HTTP 408, the
   lifetime of its client and when `timeout_seconds` applies.
+- A retried Decisions API request no longer puts its body in the logs: stamina
+  logged the retried method's arguments, the rendered transcript and proposed
+  step among them, on every retry. A retry now logs its error and wait alone.
+- No log line or error of the library's own quotes the transcript: a failed
+  step's warning gives each sample's suspicion and the error's type, not the
+  reasons, proposals or error message, and a malformed or forged record is
+  named by its agent, monitor, step number, outcome, delegation id and number
+  of samples, never quoted.
+- A chat judge's or guard's call that the provider answers with HTTP 429 is
+  made again, up to four attempts, so one rate limit no longer fails the step:
+  `ChatOpenRouter`'s `max_retries` retries network errors and HTTP 5xx only.
+  The guides no longer say that a chat model's `max_retries` covers rate
+  limits.
+- In a Deep Agent, a run's input given as a string or a `(role, text)` tuple
+  speaks as the user: Deep Agents kept it without an id, so the monitor never
+  recorded it, read the task as a note, and a halt on the thread never lifted
+  while new input came that way. The monitor now gives such a message an id
+  at the start of a run, and one a hook writes during a run an id and a note
+  tag at its end.
+- A protocol that resamples a step no longer fails it when the agent's model
+  is a runtime-configurable `init_chat_model(...)`, whose `cache` raises when
+  read; such a model counts as uncached, and no `CachedResampleWarning` is
+  shown for it.
+- A response cache on a monitor's model emits a `CachedResampleWarning`, once
+  per process, when a guard samples several replies to one prompt or a chat
+  judge asks again after an unreadable reply: the cache answered each with
+  the first reply, so a guard's score became one label and a judge's retries
+  failed closed, with no warning.
+- Under `ainvoke()`, a pending step refuses the model and the monitor once
+  its step is over, as it does under `invoke()`: a task a protocol started and
+  did not await raises `MonitorError`, where it used to call the model after
+  the step was committed.
+- A custom protocol's decision whose `response` is not a `ModelResponse`
+  holding a list of messages, such as a bare `AIMessage`, fails the step with
+  `MonitorError` naming the protocol, reported as a `MonitorStepFailedEvent`
+  with its judged samples. It used to stream a `monitor_step` record and then
+  raise `AttributeError`, with no samples reported; a commit now streams its
+  record last.
+- A chat judge's reply of many `<reasoning>` openers and no closer is read in
+  linear time; the search for its reasoning block took time quadratic in its
+  length, over two seconds at 100,000 characters, on the event loop under
+  `ainvoke()`.
+- An option refused with a number Python will not write out, such as
+  `10**5000`, raises `ConfigurationError` naming the number by its kind,
+  instead of `ValueError`. `LLMMonitor` refuses such a scale end when it is
+  built, where it used to fail at its first step.
 
 [Unreleased]: https://github.com/omamori-lab/langchain-sync-monitors/commits/main

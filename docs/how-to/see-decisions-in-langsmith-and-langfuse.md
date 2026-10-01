@@ -33,7 +33,10 @@ model
   once, when the protocol has decided.
 - **Judgements.** The chat judges, the guards and `TypeSafeDecisionModel` make
   model calls, each named `monitor call`, which nest in the judgement. The
-  model still shows as the call's model and in `ls_model_name`.
+  model still shows as the call's model and in `ls_model_name`. A call the
+  monitor makes again after HTTP 429 adds one more `monitor call`, and the
+  one before it ends with the rate-limit error, inside a judgement that
+  succeeds.
   `OpenRouterDecisionModel` sends its request without LangChain, so its
   judgement holds a `monitor classifier` span instead.
 - **Errors.** A halt is a decision like any other, so it never marks a span as

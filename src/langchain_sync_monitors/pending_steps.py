@@ -16,10 +16,8 @@ import threading
 import warnings
 from collections.abc import Coroutine, Iterator, Sequence
 from dataclasses import dataclass, field
-from typing import TypedDict, override
+from typing import ClassVar, TypedDict, override
 
-from langchain_core.caches import BaseCache
-from langchain_core.globals import get_llm_cache
 from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import AIMessage, BaseMessage
 
@@ -46,6 +44,7 @@ from langchain_sync_monitors.contracts import (
 )
 from langchain_sync_monitors.errors import MonitorError, SynchronousRunError
 from langchain_sync_monitors.feedback import build_feedback_messages
+from langchain_sync_monitors.model_calls import CachedResampleWarning, is_response_cache_active
 from langchain_sync_monitors.run_inputs import RunInput, restore_run_inputs
 from langchain_sync_monitors.spans import (
     StepIdentity,
@@ -70,18 +69,14 @@ MISSING_EVENT_LOOP_MESSAGES = ("no running event loop", "no current event loop")
 
 CLOSED_STEP_MESSAGE = (
     "A pending step was used after its synchronous invoke() step was over, from a task a "
-    "control protocol scheduled on an event loop. Run the agent with ainvoke() to use asyncio."
+    "control protocol scheduled on an event loop. Under invoke() a protocol may await only "
+    "the pending step's own methods, and must await each one before it decides."
 )
-
-
-class CachedResampleWarning(UserWarning):
-    """A step is sampled more than once on the same request while a response cache is active.
-
-    LangChain answers an identical request from its cache [@langchaincore2026],
-    so every resample is a copy of the first sample and resampling can never
-    find a safer one: resampling helps less the more deterministic the model
-    is [@bhatt2025ctrlzpost], and a cached model is fully deterministic.
-    """
+CLOSED_ASYNC_STEP_MESSAGE = (
+    "A pending step was used after its step was over, from a task a control protocol started "
+    "and did not await. A protocol must await every call it makes on the pending step before "
+    "it returns its decision, since nothing can use a sample drawn after it."
+)
 
 
 def read_running_loop() -> asyncio.AbstractEventLoop | None:
@@ -125,7 +120,7 @@ def run_synchronously[ResultT](coroutine: Coroutine[object, object, ResultT]) ->
     monitor's `evaluate_sync`. Inside a running loop, as in a notebook, a call
     that ends in `SynchronousRunError` cancels every task the protocol
     scheduled before it starts. A call that returns, or raises another error,
-    leaves such a task scheduled: `SyncPendingStep.close()`, which the
+    leaves such a task scheduled: `MonitoredStep.close()`, which the
     middleware calls once the step is over, keeps it from reaching the model.
     """
     loop = read_running_loop()
@@ -179,17 +174,6 @@ def build_sampling_conversation(
         for message in build_feedback_messages(attempt=attempt)
     ]
     return (*messages, *feedback)
-
-
-def is_response_cache_active(model: BaseChatModel) -> bool:
-    """Tell whether LangChain answers this model's calls from a response cache.
-
-    A model's own `cache` wins: an instance is used, `False` turns caching
-    off, and `True` or `None` use the global cache when one is set.
-    """
-    if isinstance(model.cache, BaseCache):
-        return True
-    return model.cache is not False and get_llm_cache() is not None
 
 
 @functools.cache
@@ -260,7 +244,16 @@ class MonitoredStep(PendingStep):
     step fails before it is committed. `sample_numbers` numbers the samples
     in the order their draws start, for the judgement spans. A pending step
     lives for one step only, so this is not state shared between runs.
+
+    Once the middleware has finished the step, under either entry point, it
+    calls `close`, and from then on the step refuses to call a model or the
+    monitor: a task a protocol started and left running cannot reach the
+    model after the step was committed. The refusal raises `closed_step_error`
+    with `closed_step_message`.
     """
+
+    closed_step_error: ClassVar[type[MonitorError]] = MonitorError
+    closed_step_message: ClassVar[str] = CLOSED_ASYNC_STEP_MESSAGE
 
     request: AgentModelRequest
     monitor: Monitor
@@ -275,6 +268,16 @@ class MonitoredStep(PendingStep):
     # The blocked attempts each draw of this step was shown, so a repeated request is spotted.
     sampled_attempts: list[tuple[BlockedAttempt, ...]] = field(default_factory=list)
     sample_numbers: Iterator[int] = field(default_factory=lambda: itertools.count(1))
+    closed: threading.Event = field(default_factory=threading.Event)
+
+    def close(self) -> None:
+        """Refuse every later call to the model or the monitor through this step."""
+        self.closed.set()
+
+    def check_open(self) -> None:
+        """Raise `closed_step_error` when the step is already over."""
+        if self.closed.is_set():
+            raise self.closed_step_error(self.closed_step_message)
 
     def build_conversation(
         self,
@@ -358,6 +361,7 @@ class AsyncPendingStep(MonitoredStep):
         With `concurrently`, the samples are drawn at once in a task group, so
         one failed draw cancels the others.
         """
+        self.check_open()
         self.warn_when_resamples_are_cached(count=count, blocked_attempts=blocked_attempts)
         conversation = self.build_conversation(blocked_attempts)
         if concurrently:
@@ -369,10 +373,14 @@ class AsyncPendingStep(MonitoredStep):
         """Call the untrusted model once on the conversation and judge its proposal.
 
         The sample's number is taken before the first await, so samples drawn
-        at once are numbered in the order their draws were started.
+        at once are numbered in the order their draws were started. The step
+        is checked open before the model call and again before the monitor's,
+        since either await can outlast the step.
         """
         sample_number = next(self.sample_numbers)
+        self.check_open()
         response = await self.handler(self.build_sample_request(conversation))
+        self.check_open()
         proposal = find_proposal(response)
         monitor_input = self.build_monitor_input(conversation=conversation, proposal=proposal)
         judgement_span = build_judgement_span(sample_number=sample_number, monitor=self.monitor)
@@ -386,6 +394,7 @@ class AsyncPendingStep(MonitoredStep):
     @override
     async def request_trusted_step(self, *, trusted_model: BaseChatModel) -> AgentModelResponse:
         """Have the trusted model write the step through the rest of the stack."""
+        self.check_open()
         return await self.handler(self.build_trusted_request(trusted_model))
 
 
@@ -395,23 +404,14 @@ class SyncPendingStep(MonitoredStep):
 
     Its methods call the synchronous `handler` and `Monitor.evaluate_sync`
     directly, so `run_synchronously` can drive any protocol written against
-    `PendingStep`. Once the middleware has finished the step it calls
-    `close`, and from then on the step refuses to call a model: a task that a
-    protocol scheduled on an event loop, and that runs after the step, cannot
-    reach the model.
+    `PendingStep`. A closed step raises `SynchronousRunError`: only a task a
+    protocol scheduled on an event loop, as in a notebook, can run after it.
     """
 
+    closed_step_error: ClassVar[type[MonitorError]] = SynchronousRunError
+    closed_step_message: ClassVar[str] = CLOSED_STEP_MESSAGE
+
     handler: ModelCallHandler
-    closed: threading.Event = field(default_factory=threading.Event)
-
-    def close(self) -> None:
-        """Refuse every later call to the model through this step."""
-        self.closed.set()
-
-    def check_open(self) -> None:
-        """Raise `SynchronousRunError` when the step is already over."""
-        if self.closed.is_set():
-            raise SynchronousRunError(CLOSED_STEP_MESSAGE)
 
     @override
     async def sample(

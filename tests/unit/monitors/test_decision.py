@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import math
 import re
 import sys
@@ -16,6 +17,7 @@ import httpx
 import pytest
 import stamina
 from pydantic import SecretStr
+from stamina.instrumentation import RetryDetails
 
 from langchain_sync_monitors.contracts import Channel, MonitorInput, MonitorView
 from langchain_sync_monitors.errors import ConfigurationError, MonitorError
@@ -35,7 +37,7 @@ from langchain_sync_monitors.monitors.openrouter_decisions import (
     read_decisions_probabilities,
 )
 
-from .doubles import CallPath, evaluate_on_path
+from .doubles import PLANTED_SECRET, CallPath, evaluate_on_path
 
 if TYPE_CHECKING:
     import httpx2
@@ -238,6 +240,40 @@ async def test_transient_failures_are_retried(
     # Assert
     assert probabilities == {"leaks": 0.1}
     assert len(server.requests) == 2
+
+
+PLANTED_KEY = "sk-planted-key-4d2a"
+
+
+@pytest.mark.usefixtures("three_attempts")
+async def test_a_retried_request_logs_no_part_of_the_transcript_or_the_key(
+    call_path: CallPath,
+    input_holding_a_secret: MonitorInput,
+    retry_details: list[RetryDetails],
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    # Arrange: the first request fails with a server error, so the second is a retry
+    caplog.set_level(logging.DEBUG)
+    server = DecisionsServer(responders=[fail_with(503), answer_with({"suspicious_step": 0.1})])
+    monitor = DecisionModelMonitor(
+        decision_model=server.build_model(api_key=SecretStr(PLANTED_KEY)),
+    )
+
+    # Act
+    verdict = await evaluate_on_path(monitor, input_holding_a_secret, call_path=call_path)
+
+    # Assert: the retry happened and was logged, and neither the log nor the error's repr
+    # holds the request
+    assert verdict.suspicion == 0.1
+    assert len(server.requests) == 2
+    assert PLANTED_SECRET in server.requests[0].content.decode()
+    (details,) = retry_details
+    assert (details.name, details.args, details.kwargs) == ("<context block>", (), {})
+    assert "stamina.retry_scheduled" in [record.getMessage() for record in caplog.records]
+    logged = [repr(details.caused_by), *(repr(vars(record)) for record in caplog.records)]
+    for text in logged:
+        assert PLANTED_SECRET not in text
+        assert PLANTED_KEY not in text
 
 
 @pytest.mark.usefixtures("three_attempts")

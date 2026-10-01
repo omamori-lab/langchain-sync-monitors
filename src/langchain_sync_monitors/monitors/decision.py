@@ -202,7 +202,7 @@ class Aggregation(StrEnum):
     fits questions that must all hold. `MEAN` dilutes one strong hit: 0.95
     with three 0.05s averages 0.275.
 
-    The library takes the maximum of raw probabilities. Control evaluations
+    `MAX` takes the maximum of raw probabilities. Control evaluations
     aggregate on the honest scale instead: LinuxArena turns each monitor's
     score into a percentile rank against its honest distribution and then
     takes the maximum (appendix C), and AI Control maps each score through the

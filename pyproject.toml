@@ -127,7 +127,9 @@ select = ["E", "W", "F", "I", "UP", "B", "SIM", "C90", "ANN", "PT", "RUF", "COM"
 ignore = ["COM812"]
 
 [tool.ruff.lint.mccabe]
-max-complexity = 10
+# The most lanorme's complexity_error allows, so tests and scripts, which lanorme skips, keep
+# to it too.
+max-complexity = 6
 
 [tool.ruff.lint.per-file-ignores]
 "tests/**" = ["ANN401"]
@@ -151,14 +153,16 @@ asyncio_default_fixture_loop_scope = "function"
 markers = ["live: calls real model providers; needs OPENROUTER_API_KEY and spends credits"]
 addopts = "-m 'not live'"
 
+# The limits below are a ratchet: lower them as the code allows, and raise one only in a
+# reviewed change that says why.
 [tool.lanorme]
 # lanorme takes the outermost directory with a config as the project root. In an agent
 # worktree under .claude/worktrees that is the main checkout, whose exclude then drops
 # every file of the worktree. `root = true` makes each checkout its own project, and the
-# main checkout leaves the worktrees, not the tracked .claude files, to their own runs.
+# main checkout excludes only the worktrees, so the tracked .claude files are checked.
 root = true
 ignore = ["LAYER", "PORT", "TERM"]
-promote = ["NAMING-006", "NAMING-007", "NAMING-008", "NAMING-011"]
+promote = ["NAMING-006", "NAMING-007", "NAMING-008", "NAMING-011", "SIMILAR-001"]
 exclude = [
     ".venv/*",
     ".claude/worktrees",
@@ -172,7 +176,8 @@ exclude = [
 func_warn_lines = 40
 func_error_lines = 60
 complexity_warn = 6
-complexity_error = 10
+# One above the most complex function today.
+complexity_error = 7
 param_warn = 5
 param_error = 8
 
@@ -197,6 +202,14 @@ enabled = true
 
 [tool.lanorme.similarity]
 enabled = true
+
+# Each inline ignore of a lanorme rule counts, as `# lanorme: ignore[...]` or `# noqa`.
+[tool.lanorme.suppressions]
+enabled = true
+max_total = 20
+
+# The restating check (CMT-005) stays off: it reads each test's required `# Assert` marker
+# as a comment that restates the `assert` below it.
 
 [tool.lanorme.docs]
 enabled = true

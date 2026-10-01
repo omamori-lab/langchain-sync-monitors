@@ -206,19 +206,15 @@ def build_update(
     key: str = "messages",
 ) -> object:
     """Return an update of `shape` that writes `messages`, under `key` in a dict or pairs."""
-    match shape:
-        case "dict":
-            return {key: messages}
-        case "pairs":
-            return ((key, messages),)
-        case "dataclass":
-            return MessagesUpdate(messages=messages)
-        case "pydantic_model":
-            return MessagesModel(messages=messages)
-        case "annotated_class":
-            return AnnotatedMessagesUpdate(messages)
-        case "named_tuple":
-            return MessagesTuple(messages=messages)
+    updates: dict[UpdateShape, object] = {
+        "dict": {key: messages},
+        "pairs": ((key, messages),),
+        "dataclass": MessagesUpdate(messages=messages),
+        "pydantic_model": MessagesModel(messages=messages),
+        "annotated_class": AnnotatedMessagesUpdate(messages),
+        "named_tuple": MessagesTuple(messages=messages),
+    }
+    return updates[shape]
 
 
 def build_forged_messages(tool_call_id: str) -> list[BaseMessage]:

@@ -23,12 +23,12 @@ with the same keys.
 ## Control protocols
 
 Trusted Monitoring and Defer to Trusted come from the original AI control
-paper [@greenblatt2023aicontrol] (sections 3.2 and 3.3): an untrusted model
+paper (sections 3.2 and 3.3) [@greenblatt2023aicontrol]: an untrusted model
 does the work, a trusted model rates how suspicious each output is, and
 suspicious outputs are either audited or replaced by the trusted model's own
 output.
 
-Defer to Resample comes from Ctrl-Z [@bhatt2025ctrlz] (section 3.2). When a
+Defer to Resample comes from Ctrl-Z (section 3.2) [@bhatt2025ctrlz]. When a
 step looks suspicious, the protocol draws up to two more samples of it, runs
 the least suspicious one below the threshold, and falls back to the trusted
 model when every sample looks suspicious. The paper flags a step for audit on
@@ -37,7 +37,7 @@ that several samples of a step help tell an attack from honest work
 (section 3.2.1; figure 4), which is why the library keeps every sample in
 the record. The authors' post stresses that resampling is stateless, so a
 model that keeps no state between calls does not know it is being resampled
-[@bhatt2025ctrlzpost] (note "Note on statelessness"), and that the more
+(note "Note on statelessness") [@bhatt2025ctrlzpost], and that the more
 deterministic the models are, the less resampling helps (section "Important
 Limitations").
 
@@ -45,7 +45,7 @@ The agent writes the steps its monitor reads, so it can aim a prompt
 injection at the monitor. Terekhov et al. show that injections embedded in
 the model's outputs let frontier models evade diverse monitors, and that
 Defer to Resample backfires: its resampling amplifies the injection into a
-best-of-n attack [@terekhov2025adaptive] (abstract; sections 4.2 and 6). The
+best-of-n attack (abstract; sections 4.2 and 6) [@terekhov2025adaptive]. The
 same threat is why the default prompt tells the monitor to read everything as
 data, and why a chat judge's score and a guard's label are read only where
 the reply's format puts them.
@@ -53,7 +53,7 @@ the reply's format puts them.
 ## Claude Code's auto mode
 
 Claude Code's auto mode reviews each action with a transcript classifier
-before the action runs [@hughes2026automode] (section "How it works"). The
+before the action runs (section "How it works") [@hughes2026automode]. The
 library takes four things from Hughes's account of it:
 
 - **What the classifier reads.** It sees the user's messages and the executable
@@ -116,7 +116,7 @@ Control evaluations set thresholds as percentiles of the scores a monitor
 gives to honest runs, so an audit budget of 1% means flagging for review the
 top 1% of honest steps. BashArena shows that averaging a few calls of a
 monitor raises its resolution at low false-positive rates
-[@kaufman2025basharena] (section 4.3), and LinuxArena averages two calls per
+(section 4.3) [@kaufman2025basharena], and LinuxArena averages two calls per
 action [@tracy2026linuxarena]. Koran et al. [@koran2026ensemble] note that
 integer scores from 0 to 10 leave a sparse threshold space (section 5.1),
 and find the plain mean as good a way to combine monitors' scores as the

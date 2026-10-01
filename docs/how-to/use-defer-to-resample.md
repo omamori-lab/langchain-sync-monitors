@@ -8,7 +8,7 @@ a suspicious step and runs the least suspicious acceptable one.
 Use it when you want to keep most of the untrusted model's work and gather
 evidence from repeated samples. Only when every sample looks suspicious does a
 fallback write the step: a trusted model, or a halt. The protocol comes from
-Ctrl-Z [@bhatt2025ctrlz] (section 3.2). At the same deferral threshold it
+Ctrl-Z (section 3.2) [@bhatt2025ctrlz]. At the same deferral threshold it
 costs much less usefulness than deferring to a trusted model at once, since a
 fresh sample of an innocent step may look innocent (section 3.2; figure 3),
 and the extra samples are evidence for an audit (section 3.2.1).
@@ -27,11 +27,11 @@ fallback.
 Every sample is judged, and neither the agent nor the trusted model sees a
 rejected sample. Each sample is a fresh call on the same request, so a model
 that keeps no state between calls cannot tell that it was resampled
-[@bhatt2025ctrlzpost] (note "Note on statelessness"). A provider's server-side
-tools, such as a web search, run inside every sample's model call. The step is
-flagged for review when even its least suspicious sample reaches
-`audit_threshold`, the statistic Ctrl-Z found to work well [@bhatt2025ctrlz]
-(section 3.2, footnote 6).
+(note "Note on statelessness") [@bhatt2025ctrlzpost]. A provider's
+server-side tools, such as a web search, run inside every sample's model
+call. The step is flagged for review when even its least suspicious sample
+reaches `audit_threshold`, the statistic Ctrl-Z found to work well
+(section 3.2, footnote 6) [@bhatt2025ctrlz].
 
 ## A complete example
 
@@ -97,7 +97,7 @@ built.
 | `fallback` | Required | What writes the step when no sample is acceptable. A protocol here, such as `DeferToTrusted` in place of `DeferToTrustedModel`, raises `ConfigurationError`. |
 | `defer_threshold` | 0.6, with a warning | A sample whose suspicion is at or above this value is not acceptable. |
 | `audit_threshold` | 0.9, with a warning | A step is flagged when the lowest suspicion across its samples is at or above this value. `None` turns flagging off. |
-| `max_resamples` | 2 | How many more samples to draw after a suspicious first one, a whole number of at least 0. Two, three samples in all, is what Ctrl-Z's basic Defer to Resample draws [@bhatt2025ctrlz] (section 3.2). With 0 and the `DeferToTrustedModel` fallback, the protocol is Defer to Trusted. |
+| `max_resamples` | 2 | How many more samples to draw after a suspicious first one, a whole number of at least 0. Two, three samples in all, is what Ctrl-Z's basic Defer to Resample draws (section 3.2) [@bhatt2025ctrlz]. With 0 and the `DeferToTrustedModel` fallback, the protocol is Defer to Trusted. |
 | `resampling` | `Resampling.SEQUENTIAL` | `SEQUENTIAL` or `PARALLEL`, as below. A plain string raises `ConfigurationError`. |
 
 Each threshold is a number from 0 to 1; see
@@ -118,21 +118,25 @@ statistic. Set `defer_threshold` first: how often a step is resampled, and so
 its lowest score, depends on it. Then run the agent on honest tasks under the
 `DeferToResample` you will deploy, with the same `defer_threshold`,
 `max_resamples` and `resampling`, and take a high percentile of each step's
-lowest score:
+lowest score. Collect at least a hundred honest steps: with fewer, the 99th
+percentile cannot single out 1% of them.
 
 ```python
 import statistics
 
 # honest_results holds the results of honest runs under the DeferToResample you deploy.
+# Your MonitorMiddleware's agent_name and label; these are the defaults.
+agent_name, label = "main", "monitor"
 lowest_scores = [
     min(sample["suspicion"] for sample in record["samples"])
     for result in honest_results
     for record in result["monitor_log"]
     # Keep this agent's records under this monitor; a halt that stood has no samples.
-    if record["agent"] == "main" and record["monitor"] == "monitor" and record["samples"]
+    if record["agent"] == agent_name and record["monitor"] == label and record["samples"]
 ]
 # The 99th percentile flags about 1% of honest steps, if the scores do not tie.
-audit_threshold = statistics.quantiles(lowest_scores, n=100)[98]
+# The inclusive method keeps the threshold within the scores you collected.
+audit_threshold = statistics.quantiles(lowest_scores, n=100, method="inclusive")[98]
 ```
 
 Ctrl-Z sets its audit threshold the same way, at a percentile of the honest
@@ -181,8 +185,8 @@ model node.
 
 A round is one call of the agent's model followed by one call of the monitor.
 Ctrl-Z's authors describe the protocol as asking again after each suspicious
-sample [@bhatt2025ctrlzpost] (section "Resampling"), and so does the paper's
-restatement of it [@bhatt2025ctrlz] (appendix J). The paper's main statement
+sample (section "Resampling") [@bhatt2025ctrlzpost], and so does the paper's
+restatement of it (appendix J) [@bhatt2025ctrlz]. The paper's main statement
 (section 3.2), which draws up to two new samples and runs the least
 suspicious acceptable one, fits either way of drawing them.
 
@@ -199,8 +203,8 @@ Every step adds one record, which keeps every sample the monitor judged.
 | `"halted"` | A halt stood, or a subagent was halted under `SubagentHalt.STOP_WHOLE_RUN`. | 0 | None |
 
 An auditor should read the most suspicious sample first, since it is the
-most likely to give condemning evidence [@bhatt2025ctrlz] (section 3.2,
-footnote 6):
+most likely to give condemning evidence (section 3.2,
+footnote 6) [@bhatt2025ctrlz]:
 
 ```python
 for record in result["monitor_log"]:
@@ -216,10 +220,9 @@ for record in result["monitor_log"]:
 
 ### Find the rejected samples a flag misses
 
-A step is flagged on its lowest suspicion, as in Ctrl-Z [@bhatt2025ctrlz]
-(section 3.2), so a step whose rejected sample scored high, but whose
-resample ran below
-`audit_threshold`, carries no flag. In the
+A step is flagged on its lowest suspicion, as in Ctrl-Z (section 3.2)
+[@bhatt2025ctrlz], so a step whose rejected sample scored high, but whose
+resample ran below `audit_threshold`, carries no flag. In the
 [live runs](../explanation/live-runs.md), a sample that posted the key scored
 1.00 and was rejected, a resample at 0.40 ran, and the step was not flagged.
 This query finds every step in which a sample at or above the audit threshold
@@ -269,11 +272,11 @@ subvert the maximum too (appendix A).
 - **Resampling helps an injection that sometimes works.** The protocol runs
   the least suspicious acceptable sample, so an agent that plants text aimed
   at the monitor gets several tries at fooling it, a best-of-n attack
-  [@terekhov2025adaptive] (sections 4.2 and 6). An injection that passes one
+  (sections 4.2 and 6) [@terekhov2025adaptive]. An injection that passes one
   sample in five gets through about half the time across three samples.
   Whatever the view, the monitor reads every argument of the judged step's
   tool calls, and that is where Terekhov et al. put their injection, as a
-  comment in the submitted code [@terekhov2025adaptive] (section 3.4). Text
+  comment in the submitted code (section 3.4) [@terekhov2025adaptive]. Text
   the agent read can reach the monitor too, through what the view shows of
   the history; see
   [Start from the default](choose-what-the-monitor-reads.md#start-from-the-default).
@@ -282,9 +285,9 @@ subvert the maximum too (appendix A).
 - **The lowest score says less as samples grow.** Ctrl-Z's authors find that
   the 25th percentile and the mean work about as well as the minimum, and
   that under enough resamples the minimum drifts towards zero whatever the
-  model does [@bhatt2025ctrlzpost] (note "Notes on aggregating monitor
-  scores"). A much larger `max_resamples` therefore makes the flag less
-  informative.
+  model does (note "Notes on aggregating monitor scores")
+  [@bhatt2025ctrlzpost]. A much larger `max_resamples` therefore makes the
+  flag less informative.
 - **The lowest score can be the weaker audit signal.** Terekhov et al.
   [@terekhov2025adaptive] find on APPS, with three samples per step
   (appendix D.1), that the minimum tells attacks from honest work less well

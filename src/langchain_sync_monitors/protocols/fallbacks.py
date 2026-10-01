@@ -60,11 +60,10 @@ def check_fallback_option(value: object, *, parameter_name: str) -> None:
 class DeferToTrustedModel(Fallback):
     """The trusted model writes the step, with the same conversation and tools.
 
-    This is the fallback of Defer to Trusted [@greenblatt2023aicontrol]
-    (section 3.3) and of Ctrl-Z's Defer to Resample [@bhatt2025ctrlz]
-    (section 3.2). The trusted model never sees
-    the rejected samples. A model string is resolved once, when the fallback is
-    built.
+    This is the fallback of Defer to Trusted (section 3.3)
+    [@greenblatt2023aicontrol] and of Ctrl-Z's Defer to Resample (section 3.2)
+    [@bhatt2025ctrlz]. The trusted model never sees the rejected samples. A
+    model string is resolved once, when the fallback is built.
     """
 
     def __init__(self, *, trusted_model: str | BaseChatModel) -> None:

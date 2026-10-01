@@ -105,11 +105,11 @@ DEFAULT_WHEN_LIMIT_REACHED: Final = HaltRun()
 class AutoMode(ControlProtocol):
     """Block a suspicious step, tell the agent why, and let it try again.
 
-    This follows Claude Code's auto mode [@hughes2026automode] (section
-    "Deny-and-continue"). A sample whose suspicion is at or above
-    `block_threshold` is blocked. The next sample of
-    the step is drawn with each blocked proposal and its feedback in view, so
-    the agent can change course. The first acceptable sample runs: the outcome
+    This follows Claude Code's auto mode (section "Deny-and-continue")
+    [@hughes2026automode]. A sample whose suspicion is at or above
+    `block_threshold` is blocked. The next sample of the step is drawn with
+    each blocked proposal and its feedback in view, so the agent can change
+    course. The first acceptable sample runs: the outcome
     is ALLOWED when nothing was blocked, and STEERED, flagged for review,
     otherwise.
 
@@ -117,7 +117,7 @@ class AutoMode(ControlProtocol):
     blocks across the conversation thread, `when_limit_reached` writes the step
     instead, and the step is flagged. The defaults, three in a row and twenty
     in all, are the limits at which Claude Code stops and escalates within a
-    session [@hughes2026automode] (section "Deny-and-continue").
+    session (section "Deny-and-continue") [@hughes2026automode].
 
     The total counts this monitor's blocks in the thread's `monitor_log`: this
     agent's earlier steps, which a checkpointed thread keeps across its turns,

@@ -222,7 +222,7 @@ The default feedback, `DEFAULT_FEEDBACK_TEMPLATE`, has three lines:
 
 It follows Claude Code's auto mode, whose denial reaches the agent as a tool
 result that asks it to find a safer path rather than work around the block
-[@hughes2026automode] (section "Deny-and-continue"). "None of your tools ran
+(section "Deny-and-continue") [@hughes2026automode]. "None of your tools ran
 it" stays true when a server tool in the step already ran inside the model
 call.
 
@@ -259,7 +259,7 @@ A blocked attempt is answered in a way every provider accepts:
   alone, and `monitor_log` keeps the blocked attempts.
 - With `IN_TRANSCRIPT`, the blocked attempts and their feedback are committed
   before the accepted step. In Claude Code a denial comes back to the agent as
-  a tool result [@hughes2026automode] (section "Deny-and-continue"). The
+  a tool result (section "Deny-and-continue") [@hughes2026automode]. The
   agent remembers the blocked attempts on later steps, and so does the
   monitor, which reads earlier feedback as `<monitor_feedback>`. Keep
   `HIDDEN` for an Auto Mode monitor that sits inside another monitor: a

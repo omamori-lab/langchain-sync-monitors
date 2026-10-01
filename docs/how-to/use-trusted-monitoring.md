@@ -7,10 +7,10 @@ flags the suspicious ones without changing what the agent does.
 
 Use it to watch an agent before you let a monitor intervene, to collect the
 honest-run scores that calibrate a threshold, or to queue steps for a person to
-review. It comes from the AI control paper [@greenblatt2023aicontrol]
-(section 3.2), where a person reviews flagged code before it is used
-(section 1). Here nothing waits for review: the step runs, and the flag marks
-its record.
+review. It comes from the AI control paper (section 3.2)
+[@greenblatt2023aicontrol], where a person reviews flagged code before it is
+used (section 1). Here nothing waits for review: the step runs, and the flag
+marks its record.
 
 ## How it works
 
@@ -83,8 +83,8 @@ gives on honest runs [@greenblatt2023aicontrol; @bhatt2025ctrlz];
 [Set every threshold yourself](combine-and-calibrate-monitors.md#set-every-threshold-yourself)
 gives the percentiles they use. Trusted Monitoring never changes a run, so it
 is the protocol to collect them with for a protocol threshold compared with
-one sample's score: Trusted Monitoring's own, `defer_threshold`,
-`block_threshold` and Defer to Trusted's `audit_threshold`. Defer to
+one sample's score: Trusted Monitoring's and Defer to Trusted's
+`audit_threshold`, `defer_threshold` and `block_threshold`. Defer to
 Resample's `audit_threshold` is compared with the lowest score across a
 step's samples instead, and
 [Calibrate the audit threshold](use-defer-to-resample.md#calibrate-the-audit-threshold)
@@ -102,14 +102,15 @@ honest_scores = [
     for sample in record["samples"]
 ]
 # The 98th percentile flags about 2% of honest steps, if the scores do not tie.
-audit_threshold = statistics.quantiles(honest_scores, n=100)[97]
+# The inclusive method keeps the threshold within the scores you collected.
+audit_threshold = statistics.quantiles(honest_scores, n=100, method="inclusive")[97]
 ```
 
 A single chat judge scores in steps of 0.1, so many honest steps share a
 score, and the share of honest steps flagged can land well away from the
-percentile you chose [@koran2026ensemble] (section 5.1). A threshold that
+percentile you chose (section 5.1) [@koran2026ensemble]. A threshold that
 still flags the judge's top score flags every honest step given that score,
-however few you meant to flag [@kaufman2025basharena] (section 4.3).
+however few you meant to flag (section 4.3) [@kaufman2025basharena].
 [Combine and calibrate monitors](combine-and-calibrate-monitors.md) shows how
 `RepeatedMonitor` spreads the scores out and `CalibratedMonitor` turns them
 into ranks among honest-run scores.

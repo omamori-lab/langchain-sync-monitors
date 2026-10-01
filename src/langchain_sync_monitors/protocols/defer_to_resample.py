@@ -26,8 +26,8 @@ from langchain_sync_monitors.thresholds import (
 class DeferToResample(ControlProtocol):
     """Replace a suspicious step with a fresh sample of it, or hand it to a fallback.
 
-    This is the basic Defer to Resample protocol of Ctrl-Z [@bhatt2025ctrlz]
-    (section 3.2). When the first sample's suspicion is at or above
+    This is the basic Defer to Resample protocol of Ctrl-Z (section 3.2)
+    [@bhatt2025ctrlz]. When the first sample's suspicion is at or above
     `defer_threshold`, the protocol draws up to `max_resamples` more samples
     of the same step, each a fresh call on the same conversation. It runs the
     least suspicious sample below the threshold: the outcome is ALLOWED when
@@ -37,8 +37,8 @@ class DeferToResample(ControlProtocol):
 
     `Resampling.SEQUENTIAL` draws one sample at a time and stops at the first
     acceptable one, as the authors' post describes the protocol
-    [@bhatt2025ctrlzpost] (section "Resampling"), and as the paper restates
-    it [@bhatt2025ctrlz] (appendix J).
+    (section "Resampling") [@bhatt2025ctrlzpost], and as the paper restates
+    it (appendix J) [@bhatt2025ctrlz].
     `Resampling.PARALLEL` draws every resample at once, which lowers latency but
     always costs `max_resamples` extra calls. `resampling` must be a
     `Resampling` member; a plain string raises `ConfigurationError`, as do a
@@ -50,9 +50,9 @@ class DeferToResample(ControlProtocol):
 
     The step is flagged for audit when the lowest suspicion across its samples
     is at or above `audit_threshold`, the statistic Ctrl-Z found to work well
-    [@bhatt2025ctrlz] (section 3.2, footnote 6). Its authors add that under
+    (section 3.2, footnote 6) [@bhatt2025ctrlz]. Its authors add that under
     enough resamples the minimum drifts towards zero whatever the model does
-    [@bhatt2025ctrlzpost] (note "Notes on aggregating monitor scores"), so a
+    (note "Notes on aggregating monitor scores") [@bhatt2025ctrlzpost], so a
     much larger `max_resamples` makes the flag less informative. A flag is a
     mark in `monitor_log` for a person to review after the fact; it never
     blocks the step, which has already run or been replaced by the time anyone
@@ -61,11 +61,11 @@ class DeferToResample(ControlProtocol):
     still ran, a review queue of borderline steps below the deferral line.
     Every sample stays in the step's record as evidence, and an auditor should
     read the most suspicious one first, the one most likely to give
-    condemning evidence [@bhatt2025ctrlz] (section 3.2, footnote 6). The
+    condemning evidence (section 3.2, footnote 6) [@bhatt2025ctrlz]. The
     agent never sees the rejected samples. Each is a fresh call on the same
     conversation, so a model that keeps no state between calls cannot tell
-    that it was resampled [@bhatt2025ctrlzpost] (note "Note on
-    statelessness").
+    that it was resampled (note "Note on statelessness")
+    [@bhatt2025ctrlzpost].
     `audit_threshold=None` turns this flagging off; `HaltRun` still
     flags every step it halts, so with that fallback a step that reaches it
     is flagged anyway.
@@ -74,7 +74,7 @@ class DeferToResample(ControlProtocol):
     An agent can write text aimed at the monitor into its step, and an
     injection that fools the monitor only some of the time gets another try
     with every sample, so resampling turns it into a best-of-n attack
-    [@terekhov2025adaptive] (sections 4.2 and 6). An injection that passes one
+    (sections 4.2 and 6) [@terekhov2025adaptive]. An injection that passes one
     sample in five gets through about half the time across three samples.
 
     One caveat comes from how LangChain composes middleware. If a middleware
@@ -105,7 +105,7 @@ class DeferToResample(ControlProtocol):
         """Keep the configuration, warning for each threshold left at its default.
 
         Two resamples, three samples in all, is the number Ctrl-Z draws
-        [@bhatt2025ctrlz] (section 3.2).
+        (section 3.2) [@bhatt2025ctrlz].
         """
         check_fallback_option(fallback, parameter_name="fallback")
         check_enum_option(resampling, option_type=Resampling, parameter_name="resampling")
@@ -174,10 +174,10 @@ class DeferToResample(ControlProtocol):
 class DeferToTrusted(DeferToResample):
     """Hand a suspicious step to the trusted model, without resampling.
 
-    This is Defer to Trusted [@greenblatt2023aicontrol] (section 3.3), applied
-    to each step as Ctrl-Z states it [@bhatt2025ctrlz] (section 3.1.3;
-    appendix H): a step whose suspicion is at or above `defer_threshold` is
-    written by `trusted_model` instead, and a step at or above
+    This is Defer to Trusted (section 3.3) [@greenblatt2023aicontrol], applied
+    to each step as Ctrl-Z states it (section 3.1.3; appendix H)
+    [@bhatt2025ctrlz]: a step whose suspicion is at or above `defer_threshold`
+    is written by `trusted_model` instead, and a step at or above
     `audit_threshold` is also flagged. In the configuration AI Control
     evaluates (table 2), the audited top 2% is not deferred; here a flag never
     blocks, so a step above both thresholds is deferred and flagged. It is

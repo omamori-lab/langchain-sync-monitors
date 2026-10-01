@@ -24,7 +24,7 @@ Ctrl-Z [@bhatt2025ctrlz] and Claude Code's auto mode
 [@hughes2026automode], to `create_agent` and `create_deep_agent` as one
 middleware. "Sync" means synchronous in the control sense: the monitor runs
 after the model proposes an action and before the action executes
-[@lucassen2026synchronous] (the opening). A step waits for its verdict, so a
+(the opening) [@lucassen2026synchronous]. A step waits for its verdict, so a
 protocol can also make the monitor blocking, with the authority to stop a
 suspicious step before any of the agent's own tools run it (section
 "Blocking with synchronous monitors").

@@ -8,11 +8,11 @@ to a trusted model.
 Use it when a capable trusted model exists and you want the simplest
 intervention. The agent's own model proposes each step. When the monitor finds the proposal
 suspicious, a model you trust writes the step instead, from the same request.
-The protocol comes from the AI control paper [@greenblatt2023aicontrol]
-(section 3.3), where the trusted model is weaker than the untrusted one but
-trusted not to work against you (section 2), and a person also reviews the
-most suspicious code before it is used (section 1). Here that review is a
-flag on the step's record, read after the step.
+The protocol comes from the AI control paper (section 3.3)
+[@greenblatt2023aicontrol], where the trusted model is weaker than the
+untrusted one but trusted not to work against you (section 2), and a person
+also reviews the most suspicious code before it is used (section 1). Here
+that review is a flag on the step's record, read after the step.
 
 ## How it works
 
@@ -134,8 +134,8 @@ for record in result["monitor_log"]:
   messages as if it were its own. A step the agent would not have written can
   tell it that a proposal was replaced. Ctrl-Z describes an attacker that
   stops its attack on seeing that, and finds it useful only at high defer
-  thresholds [@bhatt2025ctrlz] (appendix H, "Red Team Response: Stop after
-  deferral").
+  thresholds (appendix H, "Red Team Response: Stop after deferral")
+  [@bhatt2025ctrlz].
 - **A flag never blocks.** Deferral is what stops a step. The flag only marks
   the record for a person to read afterwards.
 - **Put the monitor last** in the `create_agent` middleware list, so no other

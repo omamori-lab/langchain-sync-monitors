@@ -21,11 +21,11 @@ can change one without touching the other.
    use Trusted Monitoring.
 2. **Tell the agent or not.** Auto Mode tells the agent why a step was
    blocked. That helps an honest agent that overreached find a safer route,
-   the case Claude Code's auto mode is tuned for [@hughes2026automode]
-   (sections "Threat model" and "Deny-and-continue"). It also tells an
+   the case Claude Code's auto mode is tuned for (sections "Threat model"
+   and "Deny-and-continue") [@hughes2026automode]. It also tells an
    attacking agent what the monitor catches, which is why Ctrl-Z's authors
-   keep resampling hidden from the model [@bhatt2025ctrlzpost]
-   (section "Resampling"). The Defer protocols replace a suspicious step
+   keep resampling hidden from the model (section "Resampling")
+   [@bhatt2025ctrlzpost]. The Defer protocols replace a suspicious step
    without telling the agent.
 3. **Resample or defer at once.** Defer to Resample asks the agent's model
    again before giving up on the step, so an honest step that looked odd once
@@ -78,7 +78,7 @@ once a subagent was halted, and records a flagged step with no samples; see
 ## Where each protocol comes from
 
 - **Trusted Monitoring** and **Defer to Trusted** come from the AI control
-  paper [@greenblatt2023aicontrol] (sections 3.2 and 3.3). There an untrusted
+  paper (sections 3.2 and 3.3) [@greenblatt2023aicontrol]. There an untrusted
   model writes code, a weaker trusted model rates how suspicious it looks, and
   the most suspicious 2% is shown to a person before it is used. Defer to
   Trusted also submits code the trusted model writes when the untrusted
@@ -100,7 +100,7 @@ once a subagent was halted, and records a flagged step with no samples; see
   With stronger models, and attacks the untrusted model designs itself,
   Terekhov et al. found that Defer to Resample did about as well as Defer to
   Trusted on BashBench even without prompt injection
-  [@terekhov2025adaptive] (section 4.3); their result on APPS is among
+  (section 4.3) [@terekhov2025adaptive]; their result on APPS is among
   [Defer to Resample's limits](use-defer-to-resample.md#limits). They also
   argue that resampling gives text aimed at the monitor several tries,
   which turns an injection that works only sometimes into a best-of-n attack

@@ -1,13 +1,11 @@
 """A monitor that scores with numpy's numbers still leaves records of plain values.
 
-numpy is not a dependency, so small stand-ins play its scalars, as elsewhere
-in the suite: `float64` is a `float` whose comparisons give numpy's `bool`,
-which is not Python's, and `float32` is a real number that is not a `float`.
+numpy is not a dependency, so the stand-ins in `tests.support.array_scalars`
+play its scalars.
 """
 
 from __future__ import annotations
 
-import numbers
 from typing import Any, cast
 
 import pytest
@@ -19,63 +17,10 @@ from langchain_sync_monitors.contracts import ControlProtocol, Monitor, MonitorI
 from langchain_sync_monitors.middleware import MonitorMiddleware
 from langchain_sync_monitors.protocols import AutoMode, TrustedMonitoring
 from tests.support.agents import RunMode, Workspace, build_read_step, build_thread_config, run_agent
+from tests.support.array_scalars import ArrayFloat32, ArrayFloat64
 from tests.support.chat_models import ScriptedChatModel
 
 SCORE = 0.2
-
-
-class ArrayBool:
-    """Stands in for numpy's `bool`: it has a truth value, but is not Python's `bool`."""
-
-    def __init__(self, value: bool) -> None:
-        self.value = value
-
-    def __bool__(self) -> bool:
-        return self.value
-
-
-class ArrayFloat64(float):
-    """Stands in for numpy's `float64`: a `float` whose comparisons give numpy's `bool`."""
-
-    def __ge__(self, other: object) -> Any:
-        return ArrayBool(float(self) >= cast("float", other))
-
-    def __gt__(self, other: object) -> Any:
-        return ArrayBool(float(self) > cast("float", other))
-
-    def __le__(self, other: object) -> Any:
-        return ArrayBool(float(self) <= cast("float", other))
-
-    def __lt__(self, other: object) -> Any:
-        return ArrayBool(float(self) < cast("float", other))
-
-
-class ArrayFloat32:
-    """Stands in for numpy's `float32`: a real number that is not a `float`."""
-
-    def __init__(self, value: float) -> None:
-        self.value = value
-
-    def __float__(self) -> float:
-        return self.value
-
-    def __format__(self, spec: str) -> str:
-        return format(self.value, spec)
-
-    def __ge__(self, other: object) -> ArrayBool:
-        return ArrayBool(self.value >= cast("float", other))
-
-    def __gt__(self, other: object) -> ArrayBool:
-        return ArrayBool(self.value > cast("float", other))
-
-    def __le__(self, other: object) -> ArrayBool:
-        return ArrayBool(self.value <= cast("float", other))
-
-    def __lt__(self, other: object) -> ArrayBool:
-        return ArrayBool(self.value < cast("float", other))
-
-
-numbers.Real.register(ArrayFloat32)
 
 
 class ArrayScoreMonitor(Monitor):

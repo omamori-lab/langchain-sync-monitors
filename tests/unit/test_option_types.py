@@ -805,3 +805,54 @@ def test_a_refusal_ends_with_a_full_stop_only_after_a_hint(
     # Act / Assert
     with pytest.raises(ConfigurationError, match=message):
         build_llm_monitor(**options)
+
+
+HUGE = 10**5000
+"""An integer of 5,001 digits: by default Python refuses to write out one of over 4,300."""
+HUGE_OPTIONS = {
+    "flag-threshold": lambda: TrustedMonitoring(flag_threshold=HUGE),
+    "threshold-fraction": lambda: TrustedMonitoring(
+        flag_threshold=Fraction(HUGE, 3)  # ty: ignore[invalid-argument-type]
+    ),
+    "consecutive-blocks": lambda: AutoMode(block_threshold=0.6, max_consecutive_blocks=-HUGE),
+    "total-blocks": lambda: AutoMode(block_threshold=0.6, max_total_blocks=-HUGE),
+    "resamples": lambda: DeferToResample(
+        fallback=HaltRun(), defer_threshold=0.6, audit_threshold=None, max_resamples=-HUGE
+    ),
+    "most-recent-entries": lambda: MonitorView(most_recent_entries=-HUGE),
+    "timeout": lambda: OpenRouterDecisionModel(model="typesafe/jev-1.13", timeout_seconds=HUGE),
+    "enum": lambda: MonitorMiddleware(
+        monitor=KeywordMonitor(),
+        protocol=AcceptFirst(),
+        task_author=HUGE,  # ty: ignore[invalid-argument-type]
+    ),
+    "highest-score": lambda: LLMMonitor(
+        model=FakeListChatModel(responses=["ok"]), highest_score=HUGE
+    ),
+    "lowest-score-above-highest": lambda: LLMMonitor(
+        model=FakeListChatModel(responses=["ok"]), lowest_score=HUGE, highest_score=0
+    ),
+    "overrides-key": lambda: build_monitored_subagents(overrides={HUGE: build_middleware()}),
+}
+"""Options each refusal of which once wrote the value out, and raised `ValueError` doing so;
+the scale's ends were written into the prompt only at the first step."""
+
+
+@pytest.mark.parametrize("build", HUGE_OPTIONS.values(), ids=HUGE_OPTIONS.keys())
+def test_an_option_too_long_to_write_out_is_refused_by_its_kind(
+    build: Callable[[], object],
+) -> None:
+    # Act / Assert
+    with pytest.raises(ConfigurationError, match="too long to write out"):
+        build()
+
+
+def test_a_number_too_long_to_write_out_is_named_by_its_kind() -> None:
+    # Act
+    described = [describe_option_value(HUGE), describe_option_value(Fraction(HUGE, 3))]
+
+    # Assert
+    assert described == [
+        "an integer too long to write out",
+        "a fractions.Fraction too long to write out",
+    ]

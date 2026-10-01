@@ -13,7 +13,7 @@ from langchain_sync_monitors.errors import ConfigurationError
 from langchain_sync_monitors.middleware import MonitorMiddleware
 from tests.support.agents import RunMode, run_agent
 from tests.support.chat_models import ScriptedChatModel
-from tests.support.deep_agents import build_delegation_step
+from tests.support.deep_agents import build_delegation_step, read_monitor
 from tests.support.monitors import KeywordMonitor
 from tests.support.protocols import AcceptFirst, HaltAfterOneSample
 
@@ -50,15 +50,37 @@ def test_a_compiled_fork_is_refused_as_a_fork(middleware: MonitorMiddleware) -> 
         monitor_subagents(middleware=middleware, subagents=[fork])
 
 
-def test_an_isolated_subagent_is_still_monitored(middleware: MonitorMiddleware) -> None:
+def test_an_isolated_subagent_is_still_monitored(
+    run_mode: RunMode,
+    middleware: MonitorMiddleware,
+) -> None:
     # Arrange
-    isolated = SubAgent(name="helper", description="Helps.", system_prompt="Help.", mode="isolated")
+    isolated = SubAgent(
+        name="helper",
+        description="Helps.",
+        system_prompt="Help.",
+        model=ScriptedChatModel(responses=[AIMessage("Helped.")]),
+        mode="isolated",
+    )
+    main_model = ScriptedChatModel(
+        responses=[build_delegation_step(subagent_type="helper"), AIMessage("Done.")],
+    )
 
     # Act
     specs = monitor_subagents(middleware=middleware, subagents=[isolated])
+    agent = create_deep_agent(model=main_model, middleware=[middleware], subagents=specs)
+    result = run_agent(agent, mode=run_mode)
 
     # Assert
-    assert [spec["name"] for spec in specs] == ["helper", "general-purpose"]
+    assert [read_monitor(spec).name for spec in specs] == [
+        "monitor[helper]",
+        "monitor[general-purpose]",
+    ]
+    assert [(record["agent"], record.get("delegation_id")) for record in result["monitor_log"]] == [
+        ("main", None),
+        ("helper", "call-task"),
+        ("main", None),
+    ]
 
 
 def test_the_compiled_subagent_advice_names_the_agent_and_its_task_author(

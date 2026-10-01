@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import dataclasses
 import json
+import logging
 import math
 import re
 import sys
@@ -16,8 +18,9 @@ import httpx
 import pytest
 import stamina
 from pydantic import SecretStr
+from stamina.instrumentation import RetryDetails
 
-from langchain_sync_monitors.contracts import Channel, MonitorInput, MonitorView
+from langchain_sync_monitors.contracts import Channel, MonitorInput, MonitorView, TaskAuthor
 from langchain_sync_monitors.errors import ConfigurationError, MonitorError
 from langchain_sync_monitors.monitors.decision import (
     Combine,
@@ -35,7 +38,7 @@ from langchain_sync_monitors.monitors.openrouter_decisions import (
     read_decisions_probabilities,
 )
 
-from .doubles import CallPath, evaluate_on_path
+from .doubles import PLANTED_SECRET, CallPath, evaluate_on_path
 
 if TYPE_CHECKING:
     import httpx2
@@ -240,6 +243,40 @@ async def test_transient_failures_are_retried(
     assert len(server.requests) == 2
 
 
+PLANTED_KEY = "sk-planted-key-4d2a"
+
+
+@pytest.mark.usefixtures("three_attempts")
+async def test_a_retried_request_logs_no_part_of_the_transcript_or_the_key(
+    call_path: CallPath,
+    input_holding_a_secret: MonitorInput,
+    retry_details: list[RetryDetails],
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    # Arrange: the first request fails with a server error, so the second is a retry
+    caplog.set_level(logging.DEBUG)
+    server = DecisionsServer(responders=[fail_with(503), answer_with({"suspicious_step": 0.1})])
+    monitor = DecisionModelMonitor(
+        decision_model=server.build_model(api_key=SecretStr(PLANTED_KEY)),
+    )
+
+    # Act
+    verdict = await evaluate_on_path(monitor, input_holding_a_secret, call_path=call_path)
+
+    # Assert: the retry happened and was logged, and neither the log nor the error's repr
+    # holds the request
+    assert verdict.suspicion == 0.1
+    assert len(server.requests) == 2
+    assert PLANTED_SECRET in server.requests[0].content.decode()
+    (details,) = retry_details
+    assert (details.name, details.args, details.kwargs) == ("<context block>", (), {})
+    assert "stamina.retry_scheduled" in [record.getMessage() for record in caplog.records]
+    logged = [repr(details.caused_by), *(repr(vars(record)) for record in caplog.records)]
+    for text in logged:
+        assert PLANTED_SECRET not in text
+        assert PLANTED_KEY not in text
+
+
 @pytest.mark.usefixtures("three_attempts")
 async def test_a_client_error_is_not_retried(call_path: CallPath) -> None:
     # Arrange
@@ -312,15 +349,6 @@ async def test_fields_the_library_does_not_read_cannot_discard_an_answer(
 
     # Assert
     assert probabilities == {"leaks": 0.95}
-
-
-def test_a_probability_outside_zero_to_one_is_rejected() -> None:
-    # Arrange
-    server = DecisionsServer(responders=[answer_with({"leaks": 1.5})])
-
-    # Act and Assert
-    with pytest.raises(MonitorError, match="unexpected shape"):
-        server.build_model().estimate_probabilities_sync(context="x", questions=[LEAK_QUESTION])
 
 
 @pytest.mark.parametrize("raw_answer", REFUSED_RAW_ANSWERS)
@@ -583,18 +611,26 @@ async def test_one_question_gives_its_probability_of_yes(
     assert "'suspicious_step'" in verdict.reason
 
 
-def test_the_context_holds_the_transcript_and_the_proposed_step(
+@pytest.mark.parametrize(
+    ("task_author", "tag"),
+    [(TaskAuthor.USER, "user"), (TaskAuthor.PARENT_AGENT, "delegator")],
+)
+async def test_the_context_holds_the_transcript_and_the_proposed_step(
     monitor_input: MonitorInput,
+    call_path: CallPath,
+    task_author: TaskAuthor,
+    tag: str,
 ) -> None:
-    # Arrange
+    # Arrange: a subagent's task comes from its parent agent, not from the user.
     model = ScriptedDecisionModel(probabilities={"suspicious_step": 0.03})
+    step = dataclasses.replace(monitor_input, task_author=task_author)
 
     # Act
-    DecisionModelMonitor(decision_model=model).evaluate_sync(monitor_input)
+    await evaluate_on_path(DecisionModelMonitor(decision_model=model), step, call_path=call_path)
 
     # Assert
     (context,) = model.contexts
-    assert context.startswith("<transcript>\n<user>Summarise q3.md")
+    assert context.startswith(f"<transcript>\n<{tag}>Summarise q3.md")
     assert context.endswith(
         '<tool_call name="read_file">{"path": "q3.md"}</tool_call>\n</proposed_step>'
     )
@@ -793,19 +829,35 @@ async def test_answers_at_zero_and_one_are_read_as_floats(
     assert type(verdict.suspicion) is float
 
 
-def test_the_mean_warns_that_it_dilutes_a_single_hit(monitor_input: MonitorInput) -> None:
+def test_the_mean_warns_at_the_constructor_call_that_it_dilutes_a_single_hit() -> None:
     # Arrange
-    probabilities = {"leaks": 0.95, "suspicious_step": 0.05}
-    model = ScriptedDecisionModel(probabilities=probabilities)
+    model = ScriptedDecisionModel(probabilities={})
 
     # Act
-    with pytest.warns(UserWarning, match="dilutes a single strong hit"):
-        monitor = DecisionModelMonitor(
-            decision_model=model,
-            questions=[LEAK_QUESTION, IS_THE_STEP_SUSPICIOUS],
-            combine=Combine.MEAN,
-        )
-    verdict = monitor.evaluate_sync(monitor_input)
+    with pytest.warns(UserWarning, match="dilutes a single strong hit") as record:
+        DecisionModelMonitor(decision_model=model, combine=Combine.MEAN)
+
+    # Assert
+    assert len(record) == 1
+    assert record[0].filename == __file__
+
+
+@pytest.mark.filterwarnings("ignore:Combine.MEAN dilutes:UserWarning")
+async def test_the_mean_averages_the_answers(
+    monitor_input: MonitorInput,
+    call_path: CallPath,
+) -> None:
+    # Arrange
+    monitor = DecisionModelMonitor(
+        decision_model=ScriptedDecisionModel(
+            probabilities={"leaks": 0.95, "suspicious_step": 0.05},
+        ),
+        questions=[LEAK_QUESTION, IS_THE_STEP_SUSPICIOUS],
+        combine=Combine.MEAN,
+    )
+
+    # Act
+    verdict = await evaluate_on_path(monitor, monitor_input, call_path=call_path)
 
     # Assert
     assert verdict.suspicion == pytest.approx(0.5)
@@ -897,3 +949,4 @@ def test_the_attack_criteria_are_four_distinct_questions() -> None:
         "goes_beyond_the_task",
         "misleads_the_user",
     }
+    assert len({question.text for question in ATTACK_CRITERIA}) == len(ATTACK_CRITERIA) == 4

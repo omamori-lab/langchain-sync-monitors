@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import time
 from collections.abc import Callable
 
 import pytest
@@ -11,7 +12,7 @@ from langchain_core.prompts import ChatPromptTemplate
 
 from langchain_sync_monitors.contracts import Channel, Monitor, MonitorInput, MonitorView
 from langchain_sync_monitors.errors import ConfigurationError
-from langchain_sync_monitors.monitors.chat import LLMMonitor
+from langchain_sync_monitors.monitors.chat import LLMMonitor, find_reasoning_block
 from langchain_sync_monitors.monitors.composition import (
     CalibratedMonitor,
     CascadeMonitor,
@@ -73,7 +74,9 @@ def test_the_ends_of_the_scale_map_to_zero_and_one(
     assert verdict.suspicion == suspicion
 
 
-def test_a_custom_scale_maps_onto_zero_to_one(monitor_input: MonitorInput) -> None:
+def test_a_custom_scale_reaches_the_prompt_and_maps_onto_zero_to_one(
+    monitor_input: MonitorInput,
+) -> None:
     # Arrange
     model = ScriptedChatModel(replies=["<reasoning>r</reasoning><score>3</score>"])
     judge = LLMMonitor(model=model, lowest_score=1, highest_score=5)
@@ -83,6 +86,7 @@ def test_a_custom_scale_maps_onto_zero_to_one(monitor_input: MonitorInput) -> No
 
     # Assert
     assert verdict.suspicion == 0.5
+    assert "integer from 1 to 5" in model.received_messages[0][0].text
 
 
 @pytest.mark.parametrize(
@@ -297,6 +301,54 @@ async def test_wrappers_inherit_the_strict_reading_of_the_score(
     assert verdict.suspicion >= lowest_expected_suspicion
 
 
+@pytest.mark.parametrize(
+    ("reply", "expected"),
+    [
+        ("<reasoning>a</reasoning>", ("a", 24)),
+        ("x<REASONING>a</Reasoning><reasoning>b</reasoning>", ("a", 25)),
+        ("<reasoning><reasoning>a</reasoning>", ("<reasoning>a", 35)),
+        ("<reasoning>a<reasoning>b</reasoning>", ("a<reasoning>b", 36)),
+        ("</reasoning><reasoning>a", None),
+        ("<reasoning>a", None),
+        ("no reasoning", None),
+    ],
+    ids=[
+        "one",
+        "case-and-a-second",
+        "opener-twice",
+        "opener-inside",
+        "closer-first",
+        "open",
+        "none",
+    ],
+)
+def test_the_reasoning_block_runs_from_the_first_opener_to_the_next_closer(
+    reply: str,
+    expected: tuple[str, int] | None,
+) -> None:
+    # Act
+    block = find_reasoning_block(reply)
+
+    # Assert
+    assert (block and (block.text, block.end)) == expected
+
+
+async def test_a_reply_of_many_openers_is_read_in_linear_time(
+    monitor_input: MonitorInput,
+    call_path: CallPath,
+) -> None:
+    # Arrange: about 100,000 characters of openers and no closer; a lazy search took seconds
+    judge, _ = build_judge("<reasoning>" * 9_000, max_parse_retries=0)
+    started = time.perf_counter()
+
+    # Act
+    verdict = await evaluate_on_path(judge, monitor_input, call_path=call_path)
+
+    # Assert
+    assert time.perf_counter() - started < 0.5
+    assert verdict.suspicion == 1.0
+
+
 async def test_an_unreadable_reply_is_asked_for_again(
     monitor_input: MonitorInput,
     call_path: CallPath,
@@ -351,13 +403,14 @@ async def test_a_score_too_long_to_convert_is_unreadable(
     assert len(model.received_messages) == 3
 
 
-async def test_no_readable_score_fails_closed_and_warns(
+async def test_no_readable_score_in_the_default_three_replies_fails_closed_and_warns(
     monitor_input: MonitorInput,
     call_path: CallPath,
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    # Arrange
-    judge, model = build_judge(UNREADABLE_REPLY, max_parse_retries=2)
+    # Arrange: built without max_parse_retries, the judge asks twice more by default.
+    model = ScriptedChatModel(replies=[UNREADABLE_REPLY])
+    judge = LLMMonitor(model=model)
 
     # Act
     with caplog.at_level(logging.WARNING):

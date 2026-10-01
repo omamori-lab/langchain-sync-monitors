@@ -73,7 +73,7 @@ places: pass a provider string, or a chat model object you built.
 
 | Option | Default | What it does |
 |---|---|---|
-| `trusted_model` | Required | The model that writes a deferred step: a chat model, or a provider string resolved once, when the protocol is built. A model wrapped in a Runnable, such as one from `with_retry()`, raises `ConfigurationError`. |
+| `trusted_model` | Required | The model that writes a deferred step: a chat model, or a provider string resolved once, when the protocol is built. A model wrapped in a Runnable, such as one from `with_retry()`, raises `ConfigurationError`. Its call is the agent's, so the monitor does not retry it after a rate limit ([known limits](../explanation/design.md#protocols-and-configuration)). |
 | `defer_threshold` | 0.6, with a warning | A proposal whose suspicion is at or above this value is replaced by the trusted model's step. |
 | `audit_threshold` | 0.9, with a warning | A step whose suspicion is at or above this value is flagged for review. `None` turns flagging off. |
 
@@ -145,9 +145,11 @@ for record in result["monitor_log"]:
   see
   [Tools the provider runs itself](choose-a-protocol.md#tools-the-provider-runs-itself).
 - **The graph takes more steps.** The monitor adds two graph steps per agent
-  step, however many samples it draws, and two per run; see
-  [Graph steps, streams and failures](choose-a-protocol.md#graph-steps-streams-and-failures),
-  which also covers a step that fails.
+  step, however many model calls the step makes, and two per run;
+  [Allow for the graph steps](read-the-monitor-log.md#allow-for-the-graph-steps)
+  gives the `recursion_limit` a run needs, and
+  [Graph steps, streams and failures](choose-a-protocol.md#graph-steps-streams-and-failures)
+  covers a step that fails.
 
 ## Related guides
 

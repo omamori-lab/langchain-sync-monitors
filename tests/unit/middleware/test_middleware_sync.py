@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, Literal
 
 import pytest
 from langchain.agents import create_agent
@@ -17,13 +17,18 @@ from langchain_sync_monitors.contracts import (
     MonitorInput,
     Outcome,
     PendingStep,
-    Sample,
     StepDecision,
     Verdict,
 )
 from langchain_sync_monitors.errors import SynchronousRunError
 from langchain_sync_monitors.middleware import MonitorMiddleware
-from tests.support.agents import build_keyword_monitor, build_task_input, read_texts, run_agent
+from tests.support.agents import (
+    RunMode,
+    build_keyword_monitor,
+    build_task_input,
+    read_texts,
+    run_agent,
+)
 from tests.support.chat_models import ScriptedChatModel
 from tests.support.protocols import AcceptFirst, AwaitsEventLoop
 
@@ -97,7 +102,27 @@ async def test_invoke_inside_a_running_loop_still_rejects_real_async_work(
         agent.invoke(build_task_input())
 
 
+def decide_outside_a_graph(
+    middleware: MonitorMiddleware,
+    request: ModelRequest[Any],
+    *,
+    mode: RunMode,
+) -> ExtendedModelResponse[Any]:
+    """Run the hook `mode` calls on a request built by hand, as no graph is running."""
+    if mode == "invoke":
+        return middleware.wrap_model_call(
+            request,
+            lambda inner: ModelResponse(result=[inner.model.invoke(inner.messages)]),
+        )
+
+    async def handle(inner: ModelRequest[Any]) -> ModelResponse[Any]:
+        return ModelResponse(result=[await inner.model.ainvoke(inner.messages)])
+
+    return asyncio.run(middleware.awrap_model_call(request, handle))
+
+
 def test_a_request_outside_a_graph_commits_without_a_stream_writer(
+    run_mode: RunMode,
     answering_model: ScriptedChatModel,
 ) -> None:
     # Arrange
@@ -108,10 +133,7 @@ def test_a_request_outside_a_graph_commits_without_a_stream_writer(
     )
 
     # Act
-    result = middleware.wrap_model_call(
-        request,
-        lambda inner: ModelResponse(result=[inner.model.invoke(inner.messages)]),
-    )
+    result = decide_outside_a_graph(middleware, request, mode=run_mode)
 
     # Assert
     assert isinstance(result, ExtendedModelResponse)
@@ -122,15 +144,29 @@ def test_a_request_outside_a_graph_commits_without_a_stream_writer(
     assert record["step_number"] == 1
 
 
-@dataclass(kw_only=True)
-class LeavesADrawBehind(ControlProtocol):
-    """Runs its first sample and schedules a second draw it never awaits, as a buggy one might."""
+type LeftBehindCall = Literal["sample", "trusted_step"]
 
-    left_behind: list[asyncio.Future[tuple[Sample, ...]]] = field(default_factory=list)
+
+@dataclass(kw_only=True)
+class LeavesAModelCallBehind(ControlProtocol):
+    """Runs its first sample and schedules a model call it never awaits, as a buggy one might.
+
+    The call left behind is a second draw or a trusted step, as `call` says.
+    """
+
+    call: LeftBehindCall
+    trusted_model: ScriptedChatModel
+    left_behind: list[asyncio.Future[None]] = field(default_factory=list)
+
+    async def call_a_model(self, step: PendingStep) -> None:
+        if self.call == "sample":
+            await step.sample(count=1)
+        else:
+            await step.request_trusted_step(trusted_model=self.trusted_model)
 
     async def decide(self, step: PendingStep) -> StepDecision:
         [sample] = await step.sample(count=1)
-        self.left_behind.append(asyncio.ensure_future(step.sample(count=1)))
+        self.left_behind.append(asyncio.ensure_future(self.call_a_model(step)))
         return StepDecision(
             outcome=Outcome.ALLOWED,
             response=sample.response,
@@ -140,20 +176,24 @@ class LeavesADrawBehind(ControlProtocol):
         )
 
 
-async def test_a_draw_left_behind_by_invoke_never_reaches_the_model(
+@pytest.mark.parametrize("call", ["sample", "trusted_step"])
+async def test_a_model_call_left_behind_by_invoke_never_reaches_a_model(
     answering_model: ScriptedChatModel,
+    call: LeftBehindCall,
 ) -> None:
     # Arrange
-    protocol = LeavesADrawBehind()
+    trusted_model = ScriptedChatModel(responses=[AIMessage("I will summarise.")])
+    protocol = LeavesAModelCallBehind(call=call, trusted_model=trusted_model)
     middleware = MonitorMiddleware(monitor=build_keyword_monitor(), protocol=protocol)
     agent = create_agent(answering_model, middleware=[middleware])
 
-    # Act: the step is committed, then the loop runs the draw it left behind
+    # Act: the step is committed, then the loop runs the call it left behind
     agent.invoke(build_task_input())
     await asyncio.sleep(0.05)
 
     # Assert
     assert len(answering_model.calls) == 1
+    assert trusted_model.calls == []
     [left_behind] = protocol.left_behind
     assert isinstance(left_behind.exception(), SynchronousRunError)
 

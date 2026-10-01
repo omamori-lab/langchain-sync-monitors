@@ -208,33 +208,26 @@ tools, come back as tool calls, which the monitor judges before they run.
 
 `MonitorMiddleware` takes the `monitor` and the `protocol`, and these options:
 
-- `label`, `"monitor"` by default, and `agent_name`, `"main"` by default,
-  name the monitor `label[agent_name]`, `monitor[main]` by default, and its
-  records. Each must be a non-blank string without `:` or `|`, which
-  LangGraph refuses in a node name. Stacked monitors need distinct labels, a
-  subclass that names itself otherwise raises `ConfigurationError`, and Auto
-  Mode counts its thread total per label. A stacked monitor's records stay
-  sound only inside an outer protocol that calls the model at most once per
-  step;
-  see [Two monitors in one agent](../explanation/design.md#two-monitors-in-one-agent).
-- `task_author`, `TaskAuthor.USER` by default, says who wrote the task the
-  monitor reads; it is `TaskAuthor.PARENT_AGENT` inside a subagent.
-- `feedback_visibility`, `FeedbackVisibility.HIDDEN` by default, decides
-  whether Auto Mode's blocked attempts and their feedback stay in the agent's
-  messages.
-- `when_subagent_halts`, `SubagentHalt.STOP_SUBAGENT_ONLY` by default, decides
-  what a subagent's halt does to this agent's run.
+| Option | Default | What it does |
+|---|---|---|
+| `label` | `"monitor"` | Names the monitor `label[agent_name]`, `monitor[main]` by default, and its records. Stacked monitors need distinct labels, and Auto Mode counts its thread total per label. |
+| `agent_name` | `"main"` | The agent the records belong to. |
+| `task_author` | `TaskAuthor.USER` | Who wrote the task the monitor reads; `TaskAuthor.PARENT_AGENT` inside a subagent. |
+| `feedback_visibility` | `FeedbackVisibility.HIDDEN` | Whether Auto Mode's blocked attempts and their feedback stay in the agent's messages. |
+| `when_subagent_halts` | `SubagentHalt.STOP_SUBAGENT_ONLY` | What a subagent's halt does to this agent's run. |
 
-Each enum option must be a member of its enum; a plain string raises
+`label` and `agent_name` must be non-blank strings without `:` or `|`, for
+the reason [Names and labels](../explanation/design.md#names-and-labels)
+gives, and each enum option a member of its enum; anything else raises
 `ConfigurationError`.
 
 ### Graph steps, streams and failures
 
 | Topic | What happens |
 |---|---|
-| Graph steps | The middleware's hooks add two graph steps per agent step, `before_model` and `after_model`, however many samples or model calls the step draws, and two per run, `before_agent` and `after_agent`. `create_agent` and `create_deep_agent` set a `recursion_limit` of 9,999. If you pass a limit of your own, an agent that takes N steps needs 2N without a monitor and 4N + 2 with one: three steps need 6 and 14. Each further monitor adds another 2N + 2. |
+| Graph steps | The middleware's hooks add two graph steps per agent step, however many model calls the step makes, and two per run; [Allow for the graph steps](read-the-monitor-log.md#allow-for-the-graph-steps) gives the `recursion_limit` a run needs. |
 | Streams | `stream_mode="messages"` shows only committed steps, each whole once the protocol has decided. Rejected samples and the built-in monitors' calls never stream, though a custom monitor's call made with its own `tags` does; Auto Mode with `FeedbackVisibility.IN_TRANSCRIPT` commits its blocked attempts with the step, so those do. [Read the monitor log](read-the-monitor-log.md) covers the other stream modes. |
-| A failed step | If a sample, a monitor call or the fallback raises, nothing is committed and the error propagates. The step is written to `stream_mode="custom"` as a `monitor_step_failed` event with the samples judged so far, and logged as a warning when there were any. A middleware outside the monitor that retries failed model calls, such as `ModelRetryMiddleware`, runs the whole step again with fresh samples. |
+| A failed step | If a sample, a monitor call or the fallback raises, nothing is committed and the error propagates. The step is written to `stream_mode="custom"` as a `monitor_step_failed` event with the samples judged so far, and logged as a warning that gives their suspicions when there were any. A middleware outside the monitor that retries failed model calls, such as `ModelRetryMiddleware`, runs the whole step again with fresh samples. |
 | Placement | The monitor goes last in the `create_agent` middleware list. `check_monitor_placement(middleware=[...])` warns about middleware placed where it undermines the monitor, a second monitor included: of the library's protocols, only Trusted Monitoring, and Defer to Resample or Auto Mode set to draw at most one sample per step and then halt, keep the records of a monitor inside them sound, as [Two monitors in one agent](../explanation/design.md#two-monitors-in-one-agent) explains. |
 
 ## Related guides

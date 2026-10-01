@@ -29,17 +29,9 @@ tools run it.
 Tools that the model provider runs itself are the exception. Anthropic's web
 search, OpenAI's code interpreter and Gemini's Google Search run inside the
 model call, so they have run by the time the monitor sees the step, and they
-run again for every sample a protocol draws. The middleware warns with a
-`ProviderToolWarning`, once per middleware, about the known ones for
-Anthropic, OpenAI and Gemini when it can see them. It cannot see four kinds:
-
-- a server-side feature switched on in the model's own settings, such as
-  OpenRouter's web plugin or an `:online` model;
-- a tool an integration has already turned into an object of its provider's
-  SDK;
-- tools bound inside a wrapper such as `with_fallbacks(...)`;
-- tools queued with `bind_tools` on a model built with
-  `init_chat_model(..., configurable_fields=...)`.
+run again for every sample a protocol draws.
+[Tools the provider runs itself](how-to/choose-a-protocol.md#tools-the-provider-runs-itself)
+lists the ones `ProviderToolWarning` warns about and the ones it cannot see.
 
 ## Install
 
@@ -119,15 +111,12 @@ explains its fields. The tutorial,
 [Monitor your first agent](tutorials/first-monitored-agent.md), builds a
 monitored agent step by step.
 
-A monitored step costs time and graph steps:
-
-- Each step waits for its verdict, so `stream_mode="messages"` shows it
-  whole once the protocol has committed it, not token by token.
-- The monitor's hooks add two graph steps per agent step, however many
-  samples or model calls the step draws, and two per run. An agent that
-  takes N steps needs a `recursion_limit` of 2N without the monitor and
-  4N + 2 with it, and each further monitor adds another 2N + 2, so raise a
-  limit you set for the agent without one.
+A monitored step costs time and graph steps. Each step waits for its
+verdict, so `stream_mode="messages"` shows it whole once the protocol has
+committed it, not token by token. Each monitor also adds two graph steps per
+agent step and two per run, which count towards a `recursion_limit` you set;
+[Allow for the graph steps](how-to/read-the-monitor-log.md#allow-for-the-graph-steps)
+gives the limit a run needs.
 
 ## Pick a protocol
 

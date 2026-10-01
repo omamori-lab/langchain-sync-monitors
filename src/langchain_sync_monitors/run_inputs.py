@@ -55,6 +55,11 @@ from typing import TypedDict
 from langchain_core.messages import BaseMessage, HumanMessage
 
 from langchain_sync_monitors._langchain import AgentStateUpdate
+from langchain_sync_monitors.message_ids import (
+    build_identified_messages_update,
+    identify_human_messages,
+    replace_state_messages,
+)
 from langchain_sync_monitors.state_keys import RUN_INPUTS_KEY
 from langchain_sync_monitors.task_authorship import (
     UNCONFIRMED_INPUT_SOURCE,
@@ -209,8 +214,13 @@ def build_run_start_update(state: object) -> AgentStateUpdate:
     """Return the update a run starts with: its input recorded, and the text of each input kept.
 
     After a run that stopped early, the new input is kept unconfirmed, to go
-    back as a note.
+    back as a note. Input that reached the state without an id, as a string
+    or a `(role, text)` tuple does in a Deep Agent, is first given one, and
+    the history is written back with it, as `identify_human_messages` says.
     """
+    identified = identify_human_messages(state, as_notes=False)
+    if identified is not None:
+        state = replace_state_messages(state, messages=identified)
     update = build_run_input_update(state)
     new_inputs = build_kept_inputs(
         read_state_messages(state),
@@ -218,7 +228,10 @@ def build_run_start_update(state: object) -> AgentStateUpdate:
         confirmed=not is_run_open(state),
     )
     kept = [*find_changed_inputs(state), *new_inputs]
-    return {**update, RUN_INPUTS_KEY: kept} if kept else update
+    update = {**update, RUN_INPUTS_KEY: kept} if kept else update
+    if identified is None:
+        return update
+    return build_identified_messages_update(identified, update=update)
 
 
 def build_input_message(entry: RunInput) -> HumanMessage:

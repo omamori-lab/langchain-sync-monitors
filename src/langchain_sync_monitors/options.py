@@ -34,7 +34,7 @@ def check_enum_option(value: object, *, option_type: type[Enum], parameter_name:
     type_name = option_type.__name__
     accepted = ", ".join(f"{type_name}.{member.name}" for member in option_type)
     message = (
-        f"{parameter_name} must be one of {accepted}, got {value!r}. "
+        f"{parameter_name} must be one of {accepted}, got {describe_option_value(value)}. "
         f"Convert a string with {type_name}(value)."
     )
     raise ConfigurationError(message)
@@ -46,10 +46,17 @@ def describe_option_value(value: object) -> str:
     A class given where an instance belongs is named as the class, not as an
     instance of its metaclass. A type from outside Python's builtins and this
     library is named with its module, so numpy's `bool` does not read as
-    Python's.
+    Python's. Python refuses to write an integer of more than 4,300 digits
+    by default, so a number it cannot write, such as `10**5000` or a
+    `Fraction` built on one, is named by its type and said to be too long.
     """
     if value is None or isinstance(value, str | numbers.Number):
-        return repr(value)
+        try:
+            return repr(value)
+        except ValueError:
+            is_integer = isinstance(value, numbers.Integral)
+            kind = "an integer" if is_integer else f"a {name_type(type(value))}"
+            return f"{kind} too long to write out"
     if isinstance(value, type):
         return f"the class {name_type(value)}; pass an instance"
     return f"an instance of {name_type(type(value))}"
@@ -178,7 +185,7 @@ def read_count_option(value: object, *, parameter_name: str, minimum: int) -> in
         raise ConfigurationError(message)
     count = operator.index(value)
     if count < minimum:
-        message = f"{parameter_name} must be at least {minimum}, got {count}"
+        message = f"{parameter_name} must be at least {minimum}, got {describe_option_value(count)}"
         raise ConfigurationError(message)
     return count
 
@@ -221,7 +228,10 @@ def read_optional_count_option(
         raise ConfigurationError(message)
     count = operator.index(value)
     if count < minimum:
-        message = f"{parameter_name} must be at least {minimum}, or None {none_means}, got {count}"
+        message = (
+            f"{parameter_name} must be at least {minimum}, or None {none_means}, "
+            f"got {describe_option_value(count)}"
+        )
         raise ConfigurationError(message)
     return count
 
@@ -242,6 +252,21 @@ def read_positive_number_option(value: object, *, parameter_name: str) -> float:
         # A huge int raises `OverflowError`, and a signalling Decimal NaN `ValueError`.
         number = math.nan
     if not 0.0 < number < math.inf:
-        message = f"{parameter_name} must be a positive, finite number, got {value!r}"
+        described = describe_option_value(value)
+        message = f"{parameter_name} must be a positive, finite number, got {described}"
         raise ConfigurationError(message)
     return number
+
+
+def write_integer_option(value: int, *, parameter_name: str) -> str:
+    """Write an integer option out, as a prompt shows it, or raise `ConfigurationError`.
+
+    Python refuses to write an integer of more than 4,300 digits by default,
+    so such an option is refused when it is given, not at the first step.
+    """
+    try:
+        return str(value)
+    except ValueError as error:
+        described = describe_option_value(value)
+        message = f"{parameter_name} must be an integer Python can write out, got {described}"
+        raise ConfigurationError(message) from error

@@ -146,10 +146,10 @@ A monitor in every Deep Agents subagent: [Monitor Deep Agents subagents](docs/ho
   every one of them at its next step. A subagent whose run raises returns no
   records unless the run is resumed.
 - **Time and graph steps.** Each step waits for its verdict and streams whole
-  once committed, not token by token. The monitor adds two graph steps per
-  agent step, however many samples or model calls it draws, and two per run:
-  N steps need a `recursion_limit` of 4N + 2, not 2N, and each further
-  monitor adds another 2N + 2.
+  once committed, not token by token. Each monitor adds two graph steps per
+  agent step and two per run, which count towards a `recursion_limit` you
+  set; see
+  [Allow for the graph steps](docs/how-to/read-the-monitor-log.md#allow-for-the-graph-steps).
 
 [Known limits and open paths](docs/explanation/design.md#known-limits-and-open-paths)
 explains each of these.

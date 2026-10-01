@@ -173,6 +173,10 @@ def test_a_guard_s_calls_are_named_monitor_call_on_both_its_paths(run_mode: RunM
         assert call.metadata["lc_source"] == "guard_model_monitor"
     for judgement in tracer.find_runs(JUDGEMENT):
         assert judgement.read_child_names() == [MONITOR_CALL, MONITOR_CALL]
+        asked_for_log_probabilities = [
+            child.invocation_params.get("logprobs") for child in judgement.children
+        ]
+        assert asked_for_log_probabilities == [True, None]
 
 
 @pytest.mark.filterwarnings(IGNORE_TYPESAFE_BETA)

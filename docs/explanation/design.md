@@ -673,8 +673,8 @@ returned, noted when the call returned, not from where the record sits in
 `monitor_log`, so no record a tool writes can hide it. A subagent that shares
 the parent's name, such as a fork or a compiled subagent whose monitor keeps
 `agent_name="main"`, records its own delegation, so its halt is answered the
-same way. That halt is the parent's own, so it stands as above. A delegation
-tool built with `return_direct=True` leaves the halt to the next run
+same way. That halt is the parent's own, so it stands as above. A step whose
+tools end the run leaves the halt to the next run
 ([subagents and the thread total](#subagents-and-the-thread-total)).
 
 [![A subagent's monitor halts it, and the halt record reaches the parent agent's monitor_log when the task returns. What happens next depends on when_subagent_halts, an option of the parent's monitor that every copy of that monitor inherits. With SubagentHalt.STOP_SUBAGENT_ONLY, the default, the parent reads the halt message as the task's result and goes on under its own monitor. With SubagentHalt.STOP_WHOLE_RUN, the parent's monitor reads the halt the task call returned and halts the parent at its next model call, without drawing a sample; that halt is flagged, and it stands as the parent's own.](../assets/diagrams/subagent-halts-light.svg#only-light)](../assets/diagrams/subagent-halts-light.svg "Open the diagram at full size")
@@ -1142,8 +1142,9 @@ limit is linked from where it arises above.
   it raises `SynchronousRunError`, and inside one it never fires, because the
   synchronous call blocks the loop. Use `ainvoke()` for protocols that need
   asyncio.
-- **More graph steps.** The monitor's hooks count towards an explicit
-  `recursion_limit` ([graph steps](#graph-steps)).
+- **More graph steps.** Each monitor adds two graph steps per agent step and
+  two per run, which count towards an explicit `recursion_limit`
+  ([graph steps](#graph-steps)).
 
 ### Subagents and the thread total
 
@@ -1180,10 +1181,12 @@ limit is linked from where it arises above.
   with a warning and counts a halt among them, but their blocks miss Auto
   Mode's total. Give that monitor its own `agent_name`, or pass the state as
   Deep Agents' `task` tool does.
-- **A subagent halt after a `return_direct` tool.** A delegation tool built
-  with `return_direct=True`, which Deep Agents' `task` is not, ends the run
-  without another model call, so under `SubagentHalt.STOP_WHOLE_RUN` no step
-  of that run answers the subagent's halt. On a checkpointed thread, the next
+- **A subagent halt in a step that ends the run.** Under
+  `SubagentHalt.STOP_WHOLE_RUN`, a subagent's halt waits for this agent's
+  next model call, and a step whose tools end the run leaves it to the next
+  run: one whose tool calls are all `return_direct`, or one that runs a
+  delegation, Deep Agents' `task` included, beside a `ToolStrategy`
+  structured-output call [@langchain2026]. On a checkpointed thread, the next
   run's first step halts in its place, and the halt stands for that run's
   input: the user's next message is spent on it, and only the run after that
   is answered.

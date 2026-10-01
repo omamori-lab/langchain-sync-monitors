@@ -153,9 +153,10 @@ for record in result["monitor_log"]:
   Anthropic's web fetch run inside the model call, so the step has used them
   before the monitor scores it; see
   [Tools the provider runs itself](choose-a-protocol.md#tools-the-provider-runs-itself).
-- **The graph takes more steps.** The monitor's hooks count towards a
-  `recursion_limit` you pass; see
-  [Allow for the graph steps](read-the-monitor-log.md#allow-for-the-graph-steps).
+- **The graph takes more steps.** The monitor adds two graph steps per agent
+  step, however many model calls the step makes, and two per run;
+  [Allow for the graph steps](read-the-monitor-log.md#allow-for-the-graph-steps)
+  gives the `recursion_limit` a run needs.
 
 ## Related guides
 

@@ -113,8 +113,8 @@ monitored agent step by step.
 
 A monitored step costs time and graph steps. Each step waits for its
 verdict, so `stream_mode="messages"` shows it whole once the protocol has
-committed it, not token by token. The monitor's hooks also count towards a
-`recursion_limit` you set;
+committed it, not token by token. Each monitor also adds two graph steps per
+agent step and two per run, which count towards a `recursion_limit` you set;
 [Allow for the graph steps](how-to/read-the-monitor-log.md#allow-for-the-graph-steps)
 gives the limit a run needs.
 

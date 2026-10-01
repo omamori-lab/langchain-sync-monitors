@@ -164,9 +164,9 @@ class MonitorMiddleware(AgentMiddleware[MonitorState, AgentContext, StructuredOu
     agent to its end, since the halt message alone does not end an agent that
     loops until it has a structured response. On a halted step it skips the
     `after_model` hooks that would run after it. The hooks add two graph steps
-    per agent step, however many samples or model calls it draws, and two per
-    run, which count towards an explicit `recursion_limit`: N agent steps need
-    4N + 2 rather than 2N, and each further monitor adds another 2N + 2.
+    per agent step, however many model calls the step makes, and two per run,
+    which count towards an explicit `recursion_limit`; the how-to Read the
+    monitor log gives the limit a run needs.
 
     A halt stands until a later run brings new input. An `after_agent` hook
     can send a finished run back to the model, as Deep Agents'
@@ -193,9 +193,11 @@ class MonitorMiddleware(AgentMiddleware[MonitorState, AgentContext, StructuredOu
     In LangChain tracers such as LangSmith and Langfuse, each step is a
     `monitor step` span, with the spans that `spans` describes nested in it.
 
-    The instance holds configuration only, so it can be copied and pickled.
-    Deep Agents runs parallel subagents through shared middleware instances,
-    so every piece of run state lives in the graph state.
+    The instance keeps no run state of its own: Deep Agents runs parallel
+    subagents through shared middleware instances, so every piece of run state
+    lives in the graph state, and one instance serves parallel runs. It can be
+    copied or pickled only when its monitor, protocol and models can; OpenRouter
+    chat models and `OpenRouterDecisionModel` hold HTTP clients that cannot.
     """
 
     monitor: Monitor

@@ -71,9 +71,9 @@ warned_middleware_ids: Final[set[int]] = set()
 """The ids of the middleware instances that have shown their `ProviderToolWarning` already.
 
 It holds ids, so it never hashes a middleware, which a subclass may make
-unhashable, and it lives outside the middleware, which stays configuration
-only and can be copied and pickled. A finaliser removes each id when its
-instance is collected, so a later instance at the same address still warns.
+unhashable, and it lives outside the middleware, which keeps no mutable state
+of its own. A finaliser removes each id when its instance is collected, so a
+later instance at the same address still warns.
 """
 
 

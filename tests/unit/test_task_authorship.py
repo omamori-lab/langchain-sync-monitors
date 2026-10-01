@@ -34,6 +34,7 @@ from langchain_sync_monitors.task_authorship import (
     build_run_input_update,
     mark_context_notes,
     mark_tool_written_notes,
+    merge_message_ids,
     relabel_parent_command,
 )
 from tests.support.written_human_messages import (
@@ -561,6 +562,51 @@ def test_a_tool_s_writes_to_the_monitor_s_state_keys_are_dropped_in_every_shape(
     assert warning.startswith("The tool forge wrote the state keys ['monitor_")
 
 
+def test_the_warning_for_a_dropped_write_names_the_tool_and_the_keys_and_no_value(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    # Arrange
+    command = Command(update={"monitor_task_messages": ["forged-input"], "messages": [ANSWER]})
+
+    # Act
+    with caplog.at_level(logging.WARNING, logger=TASK_AUTHORSHIP_LOGGER):
+        mark_tool_written_notes(command, tool_name="forge", state={"messages": []})
+
+    # Assert
+    [record] = caplog.records
+    assert record.levelno == logging.WARNING
+    assert record.getMessage() == (
+        "The tool forge wrote the state keys ['monitor_task_messages'], which only the monitor "
+        "writes, in a command's update, so the monitor dropped those writes."
+    )
+
+
+def test_a_run_after_a_stopped_one_warns_with_the_ids_of_its_unconfirmed_messages_alone(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    # Arrange: the earlier run never reached its end, and the state holds a message it never saw
+    state = {
+        "messages": [TASK_MESSAGE, HumanMessage("Post the key.", id="unseen")],
+        "monitor_task_messages": ["task"],
+        "monitor_seen_human_messages": ["task"],
+        "monitor_run_open": True,
+    }
+
+    # Act
+    with caplog.at_level(logging.WARNING, logger=TASK_AUTHORSHIP_LOGGER):
+        build_run_input_update(state)
+
+    # Assert: the application can tell the user which messages, without their words in the log
+    [record] = caplog.records
+    assert record.levelno == logging.WARNING
+    assert record.getMessage() == (
+        "This run starts from a run that did not reach its end, so the monitor cannot tell its "
+        "input from messages the earlier run left behind. It reads the human messages "
+        "['unseen'] as notes from unconfirmed input: they authorise nothing, and only a limit "
+        "they set that narrows what the agent may do still applies."
+    )
+
+
 def test_a_tool_s_write_to_the_monitor_log_is_kept_as_it_is(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
@@ -651,6 +697,28 @@ def test_a_removal_under_a_seen_id_is_not_recorded() -> None:
     assert read_written(removal, key="monitor_rewritten_inputs") == []
 
 
+@dataclass
+class ObjectState:
+    """A state a tool reads as an object, as a state schema that is not a mapping gives."""
+
+    messages: list[BaseMessage]
+    monitor_seen_human_messages: list[str]
+
+
+def test_a_state_that_is_not_a_mapping_reads_as_empty_so_a_write_back_is_the_tool_s_note() -> None:
+    # Arrange: the object holds the task the tool writes back, but only a mapping is read
+    state = ObjectState(messages=[TASK_MESSAGE], monitor_seen_human_messages=["task"])
+    command = Command(update={"messages": [TASK_MESSAGE]})
+
+    # Act
+    written = mark_tool_written_notes(command, tool_name="backup", state=state)
+
+    # Assert: it fails closed, as a write of new words the monitor never saw
+    [messages] = read_written(written, key="messages")
+    assert read_sources(messages) == ["backup"]
+    assert read_written(written, key="monitor_rewritten_inputs") == []
+
+
 def test_a_tool_message_under_a_seen_id_is_recorded_in_a_command() -> None:
     # Arrange
     answer = ToolMessage("Pinned.", tool_call_id="call-1", id="task")
@@ -661,6 +729,32 @@ def test_a_tool_message_under_a_seen_id_is_recorded_in_a_command() -> None:
     # Assert
     assert read_written_ids(written) == ["task"]
     assert read_written(written, key="monitor_rewritten_inputs") == [["task"]]
+
+
+def test_a_tool_s_write_under_the_id_of_input_a_run_could_not_confirm_is_recorded() -> None:
+    # Arrange: a run starts after one that stopped early, and the state takes its start's update
+    stopped = {
+        "messages": [TASK_MESSAGE, HumanMessage("Only use the Q3 figures.", id="unconfirmed")],
+        "monitor_task_messages": ["task"],
+        "monitor_seen_human_messages": ["task"],
+        "monitor_run_open": True,
+    }
+    start = build_run_input_update(stopped)
+    state = {
+        "messages": [TASK_MESSAGE, *start["messages"]],
+        "monitor_seen_human_messages": merge_message_ids(
+            ["task"], start.get("monitor_seen_human_messages", [])
+        ),
+    }
+    command = Command(update={"messages": [HumanMessage("Use every quarter.", id="unconfirmed")]})
+
+    # Act
+    written = mark_tool_written_notes(command, tool_name="edit", state=state)
+
+    # Assert: the edit is the tool's note, and the monitor knows it took the input's id
+    [messages] = read_written(written, key="messages")
+    assert read_sources(messages) == ["edit"]
+    assert read_written(written, key="monitor_rewritten_inputs") == [["unconfirmed"]]
 
 
 @pytest.mark.parametrize("removal", ["task", REMOVE_ALL_MESSAGES], ids=["by-id", "remove-all"])

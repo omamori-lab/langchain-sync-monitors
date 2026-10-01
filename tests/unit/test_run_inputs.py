@@ -3,6 +3,8 @@ put back, verbatim and in order, in the monitor's copy of a conversation that no
 
 from __future__ import annotations
 
+from types import SimpleNamespace
+
 import pytest
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, ToolMessage
 
@@ -227,6 +229,17 @@ def test_the_reducer_leaves_out_a_value_that_is_not_a_list() -> None:
     assert merged == [KEPT_TASK]
 
 
+def test_a_state_that_is_not_a_mapping_holds_no_kept_input() -> None:
+    # Arrange: an object whose attributes bear the state keys' names, which are not read
+    state = SimpleNamespace(messages=[TASK], monitor_run_inputs=[KEPT_TASK])
+
+    # Act
+    current = read_current_run_inputs(state)
+
+    # Assert
+    assert current == ()
+
+
 def test_a_history_that_holds_every_input_is_returned_unchanged() -> None:
     # Arrange
     history: list[BaseMessage] = [TASK, READ, RESULT, REPLY, NARROWING]
@@ -236,6 +249,24 @@ def test_a_history_that_holds_every_input_is_returned_unchanged() -> None:
 
     # Assert
     assert restored == tuple(history)
+
+
+def test_an_input_the_history_holds_with_its_kept_text_keeps_its_image_and_its_name() -> None:
+    # Arrange: the task arrived with a chart and a name, and the request still holds it whole
+    task = HumanMessage(
+        content=[
+            {"type": "text", "text": TASK.text},
+            {"type": "image", "url": "https://example.test/q3-chart.png"},
+        ],
+        id="task",
+        name="analyst",
+    )
+
+    # Act
+    restored = restore([task, REPLY], KEPT_TASK)
+
+    # Assert
+    assert restored == (task, REPLY)
 
 
 def test_inputs_summarised_away_come_back_before_the_summary_in_order() -> None:

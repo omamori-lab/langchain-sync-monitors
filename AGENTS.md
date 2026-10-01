@@ -25,7 +25,9 @@ ruff, ty, lanorme and the offline suite, plus a gitleaks secrets scan and file
 checks, so they do not replace the script. Do not finish with a red gate.
 `uv run --group dev ruff check --fix . && uv run --group dev ruff format .`
 fixes what ruff reports; `uvx --python 3.13 lanorme==0.21.0 rule CODE` explains
-a lanorme finding.
+a lanorme finding. lanorme's limits in `pyproject.toml` are a ratchet: meet them
+by naming steps or sharing a helper, not by raising a limit, and keep inline
+ignores within the `max_total` budget there.
 
 ## Project facts
 

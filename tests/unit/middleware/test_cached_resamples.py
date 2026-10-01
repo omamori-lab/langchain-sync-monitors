@@ -11,6 +11,7 @@ from __future__ import annotations
 import asyncio
 import warnings
 from collections.abc import Callable, Iterator
+from pathlib import Path
 from typing import Any, cast
 
 import pytest
@@ -23,6 +24,7 @@ from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import AIMessage, HumanMessage
 from langchain_core.runnables import Runnable
 
+import langchain_sync_monitors
 from langchain_sync_monitors.contracts import ControlProtocol, TaskAuthor
 from langchain_sync_monitors.middleware import MonitorMiddleware
 from langchain_sync_monitors.model_calls import CachedResampleWarning, is_response_cache_active
@@ -42,6 +44,9 @@ from tests.support.agents import (
     run_agent,
 )
 from tests.support.chat_models import ScriptedChatModel
+
+LIBRARY_PATH = Path(langchain_sync_monitors.__file__).resolve().parent
+"""The package's directory, worked out here rather than read from the library under test."""
 
 
 @pytest.fixture(autouse=True)
@@ -168,7 +173,12 @@ async def call_model_async(request: ModelRequest[Any]) -> ModelResponse[Any]:
     return ModelResponse(result=[await request.model.ainvoke(request.messages)])
 
 
-def draw_first_samples(model: ScriptedChatModel, *, count: int, mode: RunMode) -> list[str]:
+def draw_first_samples(
+    model: ScriptedChatModel,
+    *,
+    count: int,
+    mode: RunMode,
+) -> list[warnings.WarningMessage]:
     """Draw a step's first `count` samples at once, and return the cache warnings raised."""
     task = HumanMessage("Summarise the report.")
     request = ModelRequest(model=model, messages=[task], state={"messages": [task]})
@@ -188,7 +198,7 @@ def draw_first_samples(model: ScriptedChatModel, *, count: int, mode: RunMode) -
                 task_author=TaskAuthor.USER,
             )
             asyncio.run(async_step.sample(count=count, concurrently=True))
-    return [str(warning.message) for warning in caught if warning.category is CachedResampleWarning]
+    return [warning for warning in caught if warning.category is CachedResampleWarning]
 
 
 @pytest.mark.usefixtures("global_cache")
@@ -206,6 +216,18 @@ def test_a_first_draw_of_two_samples_under_a_cache_warns_and_of_one_does_not(
 
     # Assert
     assert len(caught) == expected_warnings
+
+
+@pytest.mark.usefixtures("global_cache")
+def test_the_warning_points_at_a_frame_outside_the_library(run_mode: RunMode) -> None:
+    # Arrange
+    model = ScriptedChatModel(responses=[build_read_step(), build_read_step()])
+
+    # Act
+    [warning] = draw_first_samples(model, count=2, mode=run_mode)
+
+    # Assert
+    assert not Path(warning.filename).resolve().is_relative_to(LIBRARY_PATH)
 
 
 class RunPickedModel(AgentMiddleware[Any, Any, Any]):

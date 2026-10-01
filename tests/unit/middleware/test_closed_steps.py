@@ -31,9 +31,19 @@ from tests.support.monitors import KeywordMonitor
 
 type LateCall = Callable[[PendingStep], Awaitable[object]]
 
+CLOSED_STEP_REFUSALS: dict[RunMode, tuple[type[MonitorError], str]] = {
+    "invoke": (SynchronousRunError, "after its synchronous invoke() step was over"),
+    "ainvoke": (MonitorError, "after its step was over, from a task a control protocol started"),
+}
+"""The error a closed step raises in each run mode, and the reason its message gives."""
+
 
 async def draw_another_sample(step: PendingStep) -> object:
     return await step.sample(count=1)
+
+
+async def draw_no_sample(step: PendingStep) -> object:
+    return await step.sample(count=0)
 
 
 async def request_a_trusted_step(step: PendingStep) -> object:
@@ -64,7 +74,7 @@ class LeaveATaskBehind(ControlProtocol):
         )
 
 
-@pytest.mark.parametrize("late_call", [draw_another_sample, request_a_trusted_step])
+@pytest.mark.parametrize("late_call", [draw_another_sample, draw_no_sample, request_a_trusted_step])
 def test_a_task_left_running_after_the_step_is_refused_the_model(
     run_mode: RunMode,
     late_call: LateCall,
@@ -97,6 +107,6 @@ def test_a_task_left_running_after_the_step_is_refused_the_model(
     assert len(result["monitor_log"]) == 1
     assert len(model.calls) == calls_at_return == 1
     assert len(monitor.inputs) == 1
-    expected = SynchronousRunError if run_mode == "invoke" else MonitorError
-    assert type(late_error) is expected
-    assert "after its" in str(late_error)
+    expected_error, expected_reason = CLOSED_STEP_REFUSALS[run_mode]
+    assert type(late_error) is expected_error
+    assert expected_reason in str(late_error)

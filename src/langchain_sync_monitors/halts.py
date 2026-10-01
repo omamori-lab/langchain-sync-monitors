@@ -41,13 +41,12 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from typing import TypedDict
 
-from langchain.agents.middleware.types import ModelResponse
 from langchain_core.messages import AIMessage
 
 from langchain_sync_monitors._langchain import AgentStateUpdate
-from langchain_sync_monitors.contracts import Outcome, StepDecision, StepRecord, SubagentHalt
+from langchain_sync_monitors.contracts import StepDecision, StepRecord, SubagentHalt
 from langchain_sync_monitors.delegation import build_subagent_halt_decision, read_delegation_id
-from langchain_sync_monitors.feedback import build_monitor_message_id
+from langchain_sync_monitors.feedback import build_halt_decision
 from langchain_sync_monitors.records import find_monitor_records, read_step_records
 from langchain_sync_monitors.state_keys import INPUTS_AT_HALT_KEY, TASK_MESSAGES_KEY
 from langchain_sync_monitors.subagent_returns import SubagentReturn, find_halted_subagents
@@ -176,14 +175,7 @@ def build_standing_halt_decision() -> StepDecision:
     It is flagged, as every halt is: a hook tried to send a halted run back
     to the model, which a person should see.
     """
-    message = AIMessage(content=STANDING_HALT_MESSAGE, id=build_monitor_message_id())
-    return StepDecision(
-        outcome=Outcome.HALTED,
-        response=ModelResponse(result=[message]),
-        samples=(),
-        executed_sample=None,
-        flagged=True,
-    )
+    return build_halt_decision(STANDING_HALT_MESSAGE)
 
 
 def find_halt_decision(

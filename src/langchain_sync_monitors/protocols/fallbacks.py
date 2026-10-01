@@ -19,9 +19,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Final
 
-from langchain.agents.middleware.types import ModelResponse
 from langchain_core.language_models import BaseChatModel
-from langchain_core.messages import AIMessage
 
 from langchain_sync_monitors.contracts import (
     BlockedAttempt,
@@ -32,7 +30,7 @@ from langchain_sync_monitors.contracts import (
     Sample,
     StepDecision,
 )
-from langchain_sync_monitors.feedback import build_monitor_message_id
+from langchain_sync_monitors.feedback import build_halt_decision
 from langchain_sync_monitors.model_calls import resolve_chat_model
 from langchain_sync_monitors.options import check_instance_option
 
@@ -127,12 +125,4 @@ class HaltRun(Fallback):
         The message gets a fresh id on every call, because LangGraph's message
         reducer replaces messages that share an id.
         """
-        halt_message = AIMessage(content=self.message, id=build_monitor_message_id())
-        return StepDecision(
-            outcome=Outcome.HALTED,
-            response=ModelResponse(result=[halt_message]),
-            samples=samples,
-            executed_sample=None,
-            flagged=True,
-            blocked_attempts=blocked_attempts,
-        )
+        return build_halt_decision(self.message, samples=samples, blocked_attempts=blocked_attempts)

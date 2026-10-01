@@ -9,9 +9,11 @@ logger the docs give for committed and failed steps.
 """
 
 import logging
-from collections.abc import Sequence
+from collections.abc import Iterator, Sequence
+from contextlib import contextmanager
 
 from langchain.agents.middleware.types import ExtendedModelResponse, ModelResponse
+from langgraph.errors import GraphBubbleUp
 from langgraph.types import Command
 
 from langchain_sync_monitors._langchain import (
@@ -50,46 +52,53 @@ def render_judged_samples(samples: Sequence[SampleRecord]) -> str:
     )
 
 
+@contextmanager
 def report_failed_step(
     step: MonitoredStep,
     *,
     identity: StepIdentity,
-    error: BaseException,
     traced_step: TracedRun,
     middleware_name: str,
-) -> None:
-    """Report the samples judged in a step that raised, before the error propagates.
+) -> Iterator[None]:
+    """Report the samples judged in a step whose block raises, before the error propagates.
 
     The step is never committed, so this is the only trace of its samples:
     a `MonitorStepFailedEvent` on `stream_mode="custom"`, the step span's
     inputs, which name the first sample judged, and, when the monitor had
     judged anything, a warning that lists each sample. `identity` names the
-    step as its span does.
+    step as its span does. LangGraph's own control flow, such as an
+    interrupt, is not a failed step, and passes through unreported.
     """
-    step_number = identity.step_number
-    samples = [build_sample_record(sample, executed=False) for sample in step.judged_samples]
-    traced_step.inputs_at_end = build_step_span_inputs(step_number=step_number, samples=samples)
-    event = MonitorStepFailedEvent(
-        type="monitor_step_failed",
-        agent=identity.agent,
-        monitor=identity.monitor,
-        step_number=step_number,
-        error=f"{type(error).__name__}: {error}",
-        samples=samples,
-    )
-    if identity.delegation_id is not None:
-        event["delegation_id"] = identity.delegation_id
-    write_stream_event(step.request, event=event)
-    if samples:
-        logger.warning(
-            "%s: step %d failed with %s before it was committed, so the %d sample(s) the "
-            "monitor judged are not in monitor_log:\n%s",
-            middleware_name,
-            step_number,
-            event["error"],
-            len(samples),
-            render_judged_samples(samples),
+    try:
+        yield
+    except GraphBubbleUp:
+        raise
+    except BaseException as error:
+        step_number = identity.step_number
+        samples = [build_sample_record(sample, executed=False) for sample in step.judged_samples]
+        traced_step.inputs_at_end = build_step_span_inputs(step_number=step_number, samples=samples)
+        event = MonitorStepFailedEvent(
+            type="monitor_step_failed",
+            agent=identity.agent,
+            monitor=identity.monitor,
+            step_number=step_number,
+            error=f"{type(error).__name__}: {error}",
+            samples=samples,
         )
+        if identity.delegation_id is not None:
+            event["delegation_id"] = identity.delegation_id
+        write_stream_event(step.request, event=event)
+        if samples:
+            logger.warning(
+                "%s: step %d failed with %s before it was committed, so the %d sample(s) the "
+                "monitor judged are not in monitor_log:\n%s",
+                middleware_name,
+                step_number,
+                event["error"],
+                len(samples),
+                render_judged_samples(samples),
+            )
+        raise
 
 
 def commit_step(

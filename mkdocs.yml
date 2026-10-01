@@ -69,10 +69,18 @@ plugins:
       handlers:
         python:
           paths: [src]
+          # docs/reference/api.md names each public object, with explicit members, so
+          # the page shows the API and its extension points, not internal helpers or
+          # LangChain hook overrides.
           options:
             show_source: false
             docstring_style: null
             members_order: source
+            show_root_heading: true
+            show_root_full_path: false
+            heading_level: 3
+            merge_init_into_class: true
+            filters: ["!^_"]
 
 markdown_extensions:
   - admonition

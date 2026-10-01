@@ -220,11 +220,10 @@ The default feedback, `DEFAULT_FEEDBACK_TEMPLATE`, has three lines:
 > and do not try to get the same effect another way. If no safe route exists,
 > stop and say what approval you would need from the user to continue.
 
-It follows Claude Code's auto mode, whose denial reaches the agent as a tool
-result that asks it to find a safer path rather than work around the block
-(section "Deny-and-continue") [@hughes2026automode]. "None of your tools ran
-it" stays true when a server tool in the step already ran inside the model
-call.
+It follows how Claude Code's auto mode answers a denial, as
+[Auto Mode](../explanation/design.md#auto-mode) explains. "None of your tools
+ran it" stays true when a server tool in the step already ran inside the
+model call.
 
 To write your own, pass `FeedbackTemplate(text=...)`:
 
@@ -258,8 +257,8 @@ A blocked attempt is answered in a way every provider accepts:
   attempts and their feedback. The agent's messages show the accepted step
   alone, and `monitor_log` keeps the blocked attempts.
 - With `IN_TRANSCRIPT`, the blocked attempts and their feedback are committed
-  before the accepted step. In Claude Code a denial comes back to the agent as
-  a tool result (section "Deny-and-continue") [@hughes2026automode]. The
+  before the accepted step, as in Claude Code
+  ([Auto Mode](../explanation/design.md#auto-mode)). The
   agent remembers the blocked attempts on later steps, and so does the
   monitor, which reads earlier feedback as `<monitor_feedback>`. Keep
   `HIDDEN` for an Auto Mode monitor that sits inside another monitor: a

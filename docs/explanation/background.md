@@ -124,8 +124,10 @@ and find the plain mean as good a way to combine monitors' scores as the
 other aggregators they tried (section 3.2) [@koran2026ensemble].
 
 `CalibratedMonitor` reports a step's smoothed conformal rank among honest
-scores [@vovk2005algorithmic], and breaks the remaining ties at random, as
-Makins et al. and LinuxArena do [@makins2026multiagent; @tracy2026linuxarena].
+scores, defined in
+[What a calibrated threshold means](../how-to/combine-and-calibrate-monitors.md#what-a-calibrated-threshold-means),
+and breaks the remaining ties at random, as Makins et al. and LinuxArena do
+[@makins2026multiagent; @tracy2026linuxarena].
 Hua et al. combine monitors under a cost budget, and their best two-monitor
 protocol calls the expensive monitor only when the cheap score falls in an
 uncertain band [@hua2025combining]. `CascadeMonitor` uses a simpler rule, one

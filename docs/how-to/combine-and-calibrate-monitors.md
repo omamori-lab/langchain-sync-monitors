@@ -20,7 +20,7 @@ UncalibratedThresholdWarning: block_threshold uses the uncalibrated default 0.6.
 Treat the defaults as placeholders. Each monitor spreads its scores
 differently, and an agent's honest work looks more or less unusual depending
 on its task and tools. Control evaluations set thresholds from the scores the
-monitor gives to honest runs. The audit threshold spends a known audit
+monitor gives to honest runs, and the audit threshold spends a known audit
 budget: 2% of honest solutions in AI Control (section 3.2)
 [@greenblatt2023aicontrol], and 1% of honest actions in Ctrl-Z (section 2.2;
 appendix C) [@bhatt2025ctrlz]. A defer threshold is a percentile of the same
@@ -253,7 +253,7 @@ float, so pass Python floats or numpy `float64`s: a `float32` 0.1 becomes
 ## What a calibrated threshold means
 
 `CalibratedMonitor` replaces the wrapped monitor's score with its smoothed
-conformal rank among the `n` honest scores [@vovk2005algorithmic]:
+conformal rank among the `n` honest scores:
 
 ```text
 calibrated suspicion = (below + U * (tied + 1)) / (n + 1)
@@ -265,6 +265,13 @@ counts those equal to it. `U` is a random number from 0 up to 1, which spreads
 the step evenly over its own place and the places of the honest scores it ties
 with. Breaking ties at random follows Makins et al. and LinuxArena
 [@makins2026multiagent; @tracy2026linuxarena].
+
+This is the smoothed conformal p-value of Vovk et al., with the step's raw
+score in the place of their conformity score and `U` as their uniform random
+number; their count of ties includes the step itself, which gives `tied + 1`
+(section 2, equation 2) [@vovk2016criteria]. They credit the uniform
+distribution of such p-values to Vovk, Gammerman and Shafer's book
+[@vovk2005algorithmic].
 
 The guarantee holds when the step's raw score is exchangeable with the honest
 scores: the step comes from the same kind of honest run, scored by the same

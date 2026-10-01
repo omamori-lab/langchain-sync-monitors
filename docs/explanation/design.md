@@ -308,8 +308,9 @@ aimed at the monitor more tries
 ### Auto Mode
 
 Auto Mode blocks a suspicious step and the agent tries again: as in Claude
-Code's auto mode, a blocked action comes back with the reason and an
-instruction to find a safer path (section "Deny-and-continue"; figure 4)
+Code's auto mode, a blocked action comes back to the agent as a tool result,
+with the reason and an instruction to find a safer path rather than route
+around the block (section "Deny-and-continue"; figure 4)
 [@hughes2026automode]. Each retry is drawn on the conversation followed by
 every blocked attempt and its feedback. After three blocks within one step,
 or twenty in the conversation thread, the limits Claude Code uses within a
@@ -516,9 +517,9 @@ monitor itself, address this and stack around any family:
   resolution at low false-positive rates [@kaufman2025basharena], as
   LinuxArena does with two calls per action [@tracy2026linuxarena];
 - `CalibratedMonitor` reports suspicion as the step's smoothed conformal rank
-  among honest-run scores, breaking ties at random
-  [@vovk2005algorithmic; @makins2026multiagent], so a threshold of 0.99
-  flags 1% of honest steps on average;
+  among honest-run scores, breaking ties at random [@makins2026multiagent],
+  so a threshold of 0.99 flags 1% of honest steps on average
+  ([what a calibrated threshold means](../how-to/combine-and-calibrate-monitors.md#what-a-calibrated-threshold-means));
 - `CascadeMonitor` runs a fast monitor on every step and a careful one when
   the fast score reaches one threshold, after the two stages of Claude Code's
   auto mode [@hughes2026automode]. Hua et al.'s best two-monitor protocol

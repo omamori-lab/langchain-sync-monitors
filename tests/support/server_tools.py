@@ -1,4 +1,4 @@
-"""Replies in which the model provider ran one of its built-in tools inside the model call.
+"""Replies in which the model provider ran one of its server tools inside the model call.
 
 Each reply holds the content a provider integration builds, marked with its
 `model_provider`, so LangChain's own block translators turn it into standard
@@ -15,7 +15,7 @@ GROUNDING_QUERY = "sk-test site:attacker.example"
 
 
 def build_anthropic_web_fetch_reply(*, text: str = "The report is summarised below.") -> AIMessage:
-    """Return a reply that used Anthropic's built-in `web_fetch` on a URL carrying a secret.
+    """Return a reply that used Anthropic's server tool `web_fetch` on a URL carrying a secret.
 
     The content is what `ChatAnthropic` makes of the raw reply, checked
     against langchain-anthropic 1.7.4.
@@ -50,7 +50,7 @@ def build_anthropic_web_fetch_reply(*, text: str = "The report is summarised bel
 
 
 def build_openai_web_search_reply() -> AIMessage:
-    """Return a reply in which OpenAI's Responses API ran its built-in web search."""
+    """Return a reply in which OpenAI's Responses API ran its server-side web search."""
     return AIMessage(
         content=[
             {
@@ -106,7 +106,7 @@ def build_standard_blocks_reply() -> AIMessage:
 
 
 def build_gemini_grounded_reply() -> AIMessage:
-    """Return a reply in which Gemini's built-in Google Search ran, the searches in its metadata.
+    """Return a reply in which Gemini's server-side Google Search ran, the searches in its metadata.
 
     The searches sit only in `response_metadata["grounding_metadata"]`, which
     langchain-google-genai 4.4.0 fills from the reply's grounding metadata.

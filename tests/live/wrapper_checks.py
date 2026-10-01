@@ -11,7 +11,7 @@ import statistics
 from collections.abc import Callable, Iterator
 from typing import Final
 
-from tests.live.harness import CASCADE_ESCALATION, REPEATS, MonitorWrapper
+from tests.live.harness import CASCADE_ESCALATION_THRESHOLD, ENSEMBLE_SIZE, MonitorWrapper
 from tests.live.honest_scores import HONEST_DECISION_MODEL_SCORES
 from tests.live.reports import RunReport
 from tests.live.traces import JudgementReport
@@ -34,8 +34,8 @@ def pair_samples_with_judgements(report: RunReport) -> Iterator[tuple[float, Jud
 def find_repeat_problem(suspicion: float, judgement: JudgementReport) -> str | None:
     """Describe how a repeated judgement breaks its promise: the wrong count, or not the mean."""
     answers = judgement["classifier_scores"]
-    if len(answers) != REPEATS:
-        return f"{len(answers)} Jev answers, not {REPEATS}"
+    if len(answers) != ENSEMBLE_SIZE:
+        return f"{len(answers)} Jev answers, not {ENSEMBLE_SIZE}"
     if abs(statistics.fmean(answers) - suspicion) > SCORE_TOLERANCE:
         return f"score {suspicion} is not the mean of {answers}"
     return None
@@ -45,7 +45,7 @@ def find_cascade_problem(suspicion: float, judgement: JudgementReport) -> str | 
     """Describe how a cascade judgement breaks its promise: escalating wrongly, or a lost score."""
     [fast] = judgement["classifier_scores"]
     escalated = judgement["monitor_calls"] == 1
-    if escalated != (fast >= CASCADE_ESCALATION) or judgement["monitor_calls"] > 1:
+    if escalated != (fast >= CASCADE_ESCALATION_THRESHOLD) or judgement["monitor_calls"] > 1:
         return f"Jev at {fast}, {judgement['monitor_calls']} chat judge calls"
     if not escalated and abs(fast - suspicion) > SCORE_TOLERANCE:
         return f"Jev at {fast} below the escalation, yet the score is {suspicion}"

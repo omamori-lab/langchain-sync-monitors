@@ -73,8 +73,13 @@ count too.
 """
 
 
-RESAMPLING_PROTOCOLS = frozenset({DeferToResample, DeferToTrusted})
-"""The protocol classes that reject a sample without telling the agent why."""
+DEFER_TO_TRUSTED_OR_RESAMPLE_CLASSES = frozenset({DeferToResample, DeferToTrusted})
+"""The exact classes of Defer to Trusted and Defer to Resample, not their subclasses.
+
+Defer to Trusted [@greenblatt2023aicontrol] and Defer to Resample
+[@bhatt2025ctrlz] reject a sample without telling the agent why. A subclass
+may block, so it does not count.
+"""
 
 LIBRARY_FALLBACKS = frozenset({DeferToTrustedModel, HaltRun})
 """The library's own fallbacks, which never add a blocked attempt to the step."""
@@ -218,7 +223,9 @@ def is_never_blocking_protocol(protocol: ControlProtocol) -> bool:
     if type(protocol) is TrustedMonitoring:
         return True
     # The class is read first, so a subclass that never set a fallback cannot raise here.
-    if type(protocol) in RESAMPLING_PROTOCOLS and isinstance(protocol, DeferToResample):
+    if type(protocol) in DEFER_TO_TRUSTED_OR_RESAMPLE_CLASSES and isinstance(
+        protocol, DeferToResample
+    ):
         return type(protocol.fallback) in LIBRARY_FALLBACKS
     return False
 

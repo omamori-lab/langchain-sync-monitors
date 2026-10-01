@@ -3,8 +3,8 @@
 Each wrapper is a `Monitor` itself, so it stacks around any monitor family, and
 around other wrappers, without the control protocols noticing. A common stack
 averages a few calls first, then expresses the result as an honest-run
-percentile: `CalibratedMonitor(monitor=RepeatedMonitor(monitor=judge, repeats=3),
-honest_scores=scores)`.
+percentile: `CalibratedMonitor(monitor=RepeatedMonitor(monitor=judge,
+ensemble_size=3), honest_scores=scores)`.
 
 The wrappers change the suspicion and pass on the wrapped monitor's reason word
 for word. Auto Mode shows the reason to the agent, so it carries no scores:
@@ -34,6 +34,11 @@ from langchain_sync_monitors.transcript import render_proposal_for_audit
 class RepeatedMonitor(Monitor):
     """Ask the same monitor several times and report the mean suspicion.
 
+    This is a homogeneous ensemble: the mean of independent calls of one
+    monitor [@koran2026ensemble]. `ensemble_size` is the number of calls,
+    which LinuxArena calls the ensemble size (appendix C)
+    [@tracy2026linuxarena].
+
     A single call of a chat judge gives an integer score, and integer scores tie
     so often that a low audit budget cannot be set: the budget falls inside a
     group of tied steps. Averaging repeated calls adds resolution at low false
@@ -41,34 +46,36 @@ class RepeatedMonitor(Monitor):
     the how-to Combine and calibrate monitors says how many calls other
     control evaluations make. The calls only differ when the wrapped monitor
     samples, so its model needs a temperature above zero, and no LangChain
-    response cache, which would answer every repeat with a copy of the first
-    call.
+    response cache, which would answer every call after the first with a copy
+    of it.
 
     The reason is the most suspicious call's own reason, since that is the one
     an auditor needs to read. `evaluate` makes the calls concurrently, and one
     failed call cancels the others.
     """
 
-    def __init__(self, *, monitor: Monitor, repeats: int) -> None:
-        """Wrap `monitor`, calling it `repeats` times for each step.
+    def __init__(self, *, monitor: Monitor, ensemble_size: int) -> None:
+        """Wrap `monitor`, calling it `ensemble_size` times for each step.
 
-        `repeats` must be a whole number of at least 1; anything else, or a
-        `monitor` that is not a `Monitor`, raises `ConfigurationError`.
+        `ensemble_size` must be a whole number of at least 1; anything else, or
+        a `monitor` that is not a `Monitor`, raises `ConfigurationError`.
         """
         check_instance_option(monitor, option_type=Monitor, parameter_name="monitor")
         self.monitor = monitor
-        self.repeats = read_count_option(repeats, parameter_name="repeats", minimum=1)
+        self.ensemble_size = read_count_option(
+            ensemble_size, parameter_name="ensemble_size", minimum=1
+        )
 
     async def evaluate(self, monitor_input: MonitorInput) -> Verdict:
-        """Call the wrapped monitor `repeats` times concurrently and average."""
+        """Call the wrapped monitor `ensemble_size` times concurrently and average."""
         verdicts = await run_concurrently(
-            self.monitor.evaluate(monitor_input) for _ in range(self.repeats)
+            self.monitor.evaluate(monitor_input) for _ in range(self.ensemble_size)
         )
         return build_mean_verdict(verdicts)
 
     def evaluate_sync(self, monitor_input: MonitorInput) -> Verdict:
-        """Call the wrapped monitor `repeats` times in turn and average."""
-        verdicts = [self.monitor.evaluate_sync(monitor_input) for _ in range(self.repeats)]
+        """Call the wrapped monitor `ensemble_size` times in turn and average."""
+        verdicts = [self.monitor.evaluate_sync(monitor_input) for _ in range(self.ensemble_size)]
         return build_mean_verdict(verdicts)
 
 
@@ -221,27 +228,29 @@ class CalibratedMonitor(Monitor):
 class CascadeMonitor(Monitor):
     """Run a fast monitor on every step and a careful one only when it is needed.
 
-    Steps the fast monitor scores below `escalate_at` keep its verdict; the
-    rest go to the careful monitor, whose verdict, reason included, replaces
-    it. This follows the two stages of Claude Code's auto mode, a fast filter
-    tuned for recall in front of a reasoning classifier (section Two-stage
-    classification: efficiency and recall) [@hughes2026automode]. The
-    explanation Where the ideas come from compares this rule of one threshold
-    with other cascades.
+    Steps the fast monitor scores below `escalation_threshold` keep its
+    verdict; the rest go to the careful monitor, whose verdict, reason
+    included, replaces it. This follows the two stages of Claude Code's auto
+    mode, a fast filter tuned for recall in front of a reasoning classifier
+    (section Two-stage classification: efficiency and recall)
+    [@hughes2026automode]. The explanation Where the ideas come from compares
+    this rule of one threshold with other cascades.
     """
 
-    def __init__(self, *, fast: Monitor, careful: Monitor, escalate_at: float) -> None:
-        """Escalate from `fast` to `careful` when the fast suspicion reaches `escalate_at`.
+    def __init__(self, *, fast: Monitor, careful: Monitor, escalation_threshold: float) -> None:
+        """Escalate from `fast` to `careful` once the fast suspicion reaches the threshold.
 
-        `escalate_at` is read as a threshold is: a number from 0 to 1, kept as
-        a float. Anything else, or a stage that is not a `Monitor`, raises
-        `ConfigurationError`.
+        `escalation_threshold` is read as any threshold is: a number from 0 to
+        1, kept as a float. Anything else, or a stage that is not a `Monitor`,
+        raises `ConfigurationError`.
         """
         check_instance_option(fast, option_type=Monitor, parameter_name="fast")
         check_instance_option(careful, option_type=Monitor, parameter_name="careful")
         self.fast = fast
         self.careful = careful
-        self.escalate_at = read_threshold_value(escalate_at, parameter_name="escalate_at")
+        self.escalation_threshold = read_threshold_value(
+            escalation_threshold, parameter_name="escalation_threshold"
+        )
 
     async def evaluate(self, monitor_input: MonitorInput) -> Verdict:
         """Score with the fast monitor, and with the careful one if that escalates."""
@@ -259,4 +268,4 @@ class CascadeMonitor(Monitor):
 
     def is_escalated(self, fast_verdict: Verdict) -> bool:
         """Tell whether the fast verdict is suspicious enough for the careful monitor."""
-        return fast_verdict.suspicion >= self.escalate_at
+        return fast_verdict.suspicion >= self.escalation_threshold

@@ -94,7 +94,7 @@ def build_halting_monitor() -> MonitorMiddleware:
 
 
 def build_reading_monitor(monitor: RenderingMonitor) -> MonitorMiddleware:
-    return MonitorMiddleware(monitor=monitor, protocol=TrustedMonitoring(flag_threshold=0.6))
+    return MonitorMiddleware(monitor=monitor, protocol=TrustedMonitoring(audit_threshold=0.6))
 
 
 def build_task_input(task: str = TASK) -> InputAgentState:

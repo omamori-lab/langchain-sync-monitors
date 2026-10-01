@@ -25,9 +25,9 @@ final answer; [the monitored step](../explanation/design.md#the-monitored-step)
 defines it in full. The agent
 may make more than one attempt at a step, when an attempt is blocked. The
 monitor judges each attempt before any of the agent's own tools run, and
-records each step in `monitor_log`. Tools that a model provider runs itself,
-inside the model call, such as its web search, are the exception: they have
-run by the time the monitor sees the step. This agent has none.
+records each step in `monitor_log`. Server-side tools, which a model provider
+runs inside the model call, such as its web search, are the exception: they
+have run by the time the monitor sees the step. This agent has none.
 
 ## Before you start
 

@@ -121,6 +121,14 @@ def read_skills_option(skills: Iterable[SkillSource] | None) -> list[SkillSource
     """
     if skills is None:
         return None
+    check_skills_iterable(skills)
+    sources = list(skills)
+    check_skill_sources(sources)
+    return sources
+
+
+def check_skills_iterable(skills: object) -> None:
+    """Raise `ConfigurationError` unless `skills` is an iterable other than a string or bytes."""
     if isinstance(skills, str):
         error_message = (
             f"skills must be a list of skill source paths, not the string {skills!r}. "
@@ -132,7 +140,10 @@ def read_skills_option(skills: Iterable[SkillSource] | None) -> list[SkillSource
             f"skills must be a list of skill source paths, got {describe_option_value(skills)}"
         )
         raise ConfigurationError(error_message)
-    sources = list(skills)
+
+
+def check_skill_sources(sources: Sequence[object]) -> None:
+    """Raise `ConfigurationError` naming the first source that is not a skill source."""
     for position, source in enumerate(sources):
         if not is_skill_source(source):
             error_message = (
@@ -140,7 +151,6 @@ def read_skills_option(skills: Iterable[SkillSource] | None) -> list[SkillSource
                 f"strings, got {describe_option_value(source)}"
             )
             raise ConfigurationError(error_message)
-    return sources
 
 
 def read_subagent_specs(subagents: Iterable[SubagentSpec]) -> list[SubagentSpec]:

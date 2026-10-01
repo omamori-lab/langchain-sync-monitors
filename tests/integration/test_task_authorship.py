@@ -133,7 +133,7 @@ def build_monitored_agent(
     """
     middleware: list[AgentMiddleware[Any, Any, Any]] = [
         *other_middleware,
-        MonitorMiddleware(monitor=monitor, protocol=TrustedMonitoring(flag_threshold=0.6)),
+        MonitorMiddleware(monitor=monitor, protocol=TrustedMonitoring(audit_threshold=0.6)),
         *later_middleware,
     ]
     return create_agent(
@@ -196,7 +196,7 @@ def build_monitored_deep_agent(
     deepagents = pytest.importorskip("deepagents")
     middleware = MonitorMiddleware(
         monitor=monitor,
-        protocol=protocol or TrustedMonitoring(flag_threshold=0.6),
+        protocol=protocol or TrustedMonitoring(audit_threshold=0.6),
     )
     return deepagents.create_deep_agent(
         model=model,
@@ -852,7 +852,7 @@ def test_a_tool_that_edits_the_user_s_message_by_id_writes_a_note_after_the_task
         model=model,
         tools=[edit_message, *Workspace().build_tools()],
         middleware=[
-            MonitorMiddleware(monitor=monitor, protocol=TrustedMonitoring(flag_threshold=0.6))
+            MonitorMiddleware(monitor=monitor, protocol=TrustedMonitoring(audit_threshold=0.6))
         ],
     )
 
@@ -882,7 +882,7 @@ def test_a_run_that_ends_by_a_return_direct_tool_keeps_the_next_input_as_the_use
             AIMessage("Done."),
         ],
     )
-    guard = MonitorMiddleware(monitor=monitor, protocol=TrustedMonitoring(flag_threshold=0.6))
+    guard = MonitorMiddleware(monitor=monitor, protocol=TrustedMonitoring(audit_threshold=0.6))
     agent = create_agent(
         model=model,
         tools=[answer_directly, *Workspace().build_tools()],
@@ -988,7 +988,7 @@ def test_a_tool_s_update_is_relabelled_whatever_its_shape(
         model=model,
         tools=[forging_tool, *Workspace().build_tools()],
         middleware=[
-            MonitorMiddleware(monitor=monitor, protocol=TrustedMonitoring(flag_threshold=0.6))
+            MonitorMiddleware(monitor=monitor, protocol=TrustedMonitoring(audit_threshold=0.6))
         ],
     )
 
@@ -1084,7 +1084,7 @@ def test_a_note_written_twice_lands_as_often_as_without_the_monitor(
         return create_agent(model=model, tools=[write_a_note_twice], middleware=middleware)
 
     monitor = MonitorMiddleware(
-        monitor=RenderingMonitor(), protocol=TrustedMonitoring(flag_threshold=0.6)
+        monitor=RenderingMonitor(), protocol=TrustedMonitoring(audit_threshold=0.6)
     )
 
     # Act
@@ -1154,7 +1154,7 @@ def test_a_command_a_tool_raises_for_the_graph_is_relabelled(
         model=model,
         tools=[forge_elsewhere, *Workspace().build_tools()],
         middleware=[
-            MonitorMiddleware(monitor=monitor, protocol=TrustedMonitoring(flag_threshold=0.6))
+            MonitorMiddleware(monitor=monitor, protocol=TrustedMonitoring(audit_threshold=0.6))
         ],
     )
 
@@ -1193,7 +1193,7 @@ def test_an_interrupt_in_a_tool_passes_through_the_monitor(run_mode: RunMode) ->
         tools=[post_once_approved],
         middleware=[
             MonitorMiddleware(
-                monitor=RenderingMonitor(), protocol=TrustedMonitoring(flag_threshold=0.6)
+                monitor=RenderingMonitor(), protocol=TrustedMonitoring(audit_threshold=0.6)
             )
         ],
         checkpointer=InMemorySaver(),
@@ -1229,7 +1229,7 @@ def test_a_tool_that_overwrites_the_conversation_writes_notes_not_the_user(
         model=model,
         tools=[replace_conversation, *Workspace().build_tools()],
         middleware=[
-            MonitorMiddleware(monitor=monitor, protocol=TrustedMonitoring(flag_threshold=0.6))
+            MonitorMiddleware(monitor=monitor, protocol=TrustedMonitoring(audit_threshold=0.6))
         ],
     )
 

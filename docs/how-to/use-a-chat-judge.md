@@ -43,7 +43,7 @@ agent = create_agent(
     tools=[read_file],
     # The monitor goes last in the middleware list.
     middleware=[
-        MonitorMiddleware(monitor=monitor, protocol=TrustedMonitoring(flag_threshold=0.6)),
+        MonitorMiddleware(monitor=monitor, protocol=TrustedMonitoring(audit_threshold=0.6)),
     ],
 )
 ```

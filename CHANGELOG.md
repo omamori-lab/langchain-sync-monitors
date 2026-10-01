@@ -20,8 +20,9 @@ change raises the minor version.
 
 - `MonitorMiddleware`, which judges every step a LangChain agent or Deep Agent
   proposes before any of its own tools run, under `invoke()` and `ainvoke()`.
-- Control protocols `TrustedMonitoring`, `DeferToTrusted`, `DeferToResample`
-  and `AutoMode`, with the `DeferToTrustedModel` and `HaltRun` fallbacks.
+- Control protocols `TrustedMonitoring`, `DeferToTrusted`, `DeferToResample`,
+  with sequential or parallel resampling (`Resampling`), and `AutoMode`, with
+  the `DeferToTrustedModel` and `HaltRun` fallbacks.
 - `AutoMode` blocks a suspicious step and tells the agent why. After three
   blocks in one step, or twenty in the thread, its fallback halts the run by
   default.
@@ -33,9 +34,10 @@ change raises the minor version.
   `SampleDrawing` to draw a step's samples one after another or at once, and
   `resolve_threshold` and `ThresholdStatistic` to warn about a default
   threshold and name the score it is calibrated on.
-- Monitors for three model families: `LLMMonitor` for chat judges,
-  `GuardModelMonitor` for guard models and `DecisionModelMonitor` for decision
-  models.
+- Monitors for three model families: `LLMMonitor` for chat judges;
+  `GuardModelMonitor` for guard models; and `DecisionModelMonitor` for
+  decision models, through `OpenRouterDecisionModel` or
+  `TypeSafeDecisionModel`.
 - The `RepeatedMonitor`, `CalibratedMonitor` and `CascadeMonitor` wrappers.
 - `MonitorView` and `Channel`, which choose what the monitor reads; the default
   follows Claude Code's auto mode classifier.
@@ -43,8 +45,8 @@ change raises the minor version.
   sample judged.
 - `MonitorStepEvent` and `MonitorStepFailedEvent` on `stream_mode="custom"`.
   Only committed steps reach `stream_mode="messages"`.
-- A halted step ends the run, and the halt stands until a new run brings new
-  input.
+- A halted step ends the run, and the halt stands until a later run brings
+  new input the monitor can confirm.
 - Each run's input stays available to the judge whole and in order, even
   after summarisation. Every other human message is a note that authorises
   nothing.
@@ -66,6 +68,8 @@ change raises the minor version.
 - The library's own log lines and errors never quote the transcript.
 - A judge's or guard's reply that cannot be read fails closed, and a decision
   model's invalid answer raises `MonitorError`.
+- A chat judge's or guard's call that the provider answers with HTTP 429 is
+  made again, up to four attempts in all.
 - Protocols, fallbacks, monitors and the middleware raise `ConfigurationError`
   for an option of the wrong type.
 - `MonitorError` and its subclasses `ConfigurationError`, `MissingExtraError`,
@@ -93,6 +97,8 @@ change raises the minor version.
   as a number, because `langchain-typesafe` parses answers leniently.
 - A human message that a middleware listed before the monitor writes at a
   run's start or end can count as the user's input and lift a halt.
+- Forked subagents (`mode="fork"`) are not supported yet:
+  `monitor_subagents` refuses them with `ConfigurationError`.
 - The full list is in
   [Known limits and open paths](https://omamori-lab.github.io/langchain-sync-monitors/explanation/design/#known-limits-and-open-paths).
 

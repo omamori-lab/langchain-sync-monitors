@@ -21,7 +21,9 @@ sort and chart these, which they do not with metadata [@langsmith2026dashboards;
   the environment's keys, and scores only steps it finds in that project by
   their `monitor_step_id`; a handler built with other keys traces to a
   project whose steps it never finds, so it writes nothing there, and warns
-  once. A run traced to neither tool sends nothing, and says nothing.
+  once. A run traced to neither tool sends nothing, and says nothing, nor
+  does a run with LangSmith tracing turned off or Langfuse's tracing off; a
+  LangSmith client in OpenTelemetry mode sends nothing, with one warning.
 - **A step with no sample writes no score**, such as a step that halts
   because an earlier step was halted.
 - **The agent never waits.** The score goes on the queue of one worker
@@ -48,6 +50,7 @@ from uuid import UUID
 
 from langchain_core.callbacks import BaseCallbackHandler
 from langchain_core.tracers.langchain import LangChainTracer
+from langsmith.run_helpers import get_tracing_context
 
 from langchain_sync_monitors._langchain import TracedRun
 from langchain_sync_monitors.contracts import StepRecord
@@ -76,6 +79,32 @@ SCORE_NAME_SUFFIX = "_suspicion"
 
 LANGFUSE_PACKAGE = "langfuse"
 """The top-level package of Langfuse's SDK, whose LangChain handler traces a run to Langfuse."""
+
+OTEL_MODE_NOTICE = (
+    "score export: LangSmith's tracer sends this run through OpenTelemetry, whose run ids are "
+    "not the steps' ids, so no LangSmith score is sent in this process while it does"
+)
+"""Said once per process when a LangSmith client runs in OpenTelemetry mode."""
+
+
+@dataclass(slots=True, kw_only=True)
+class ProcessNotices:
+    """The warnings this process says once, such as that LangSmith's OTel mode gets no score."""
+
+    said: set[str] = field(default_factory=set)
+    lock: threading.Lock = field(default_factory=threading.Lock)
+
+    def warn_once(self, message: str) -> None:
+        """Log the warning the first time it comes up in this process."""
+        with self.lock:
+            if message in self.said:
+                return
+            self.said.add(message)
+        logger.warning(message)
+
+
+PROCESS_NOTICES = ProcessNotices()
+"""The warnings this process has said."""
 
 
 def build_score_name(label: str) -> str:
@@ -143,6 +172,38 @@ class ScoreDestination:
     connection: LangSmithCredentials | None = None
 
 
+def is_langfuse_tracing_off() -> bool:
+    """Tell whether Langfuse's SDK traces nothing, as `LANGFUSE_TRACING_ENABLED=false` asks.
+
+    The test is the SDK's own: the variable, lowercased, is `false` [@langfuse2026].
+    """
+    return os.environ.get("LANGFUSE_TRACING_ENABLED", "true").lower() == "false"
+
+
+def read_langsmith_destination(tracer: LangChainTracer) -> ScoreDestination | None:
+    """Return where a LangSmith tracer sends the run, or None when no score can go there.
+
+    None, quietly, when tracing is off for the run, as `tracing_context(enabled=False)`
+    turns it off, which the tracer itself checks [@langchaincore2026]. None,
+    warned once, when the client runs in OpenTelemetry mode, whose run ids are
+    derived from span ids, so that no feedback could find its step
+    [@langsmithsdk2026]. None, with a warning, when neither the client nor the
+    environment has a key.
+    """
+    if get_tracing_context().get("enabled") is False:
+        return None
+    if getattr(tracer.client, "tracing_mode", None) == "otel":
+        PROCESS_NOTICES.warn_once(OTEL_MODE_NOTICE)
+        return None
+    connection = read_client_connection(tracer.client)
+    if connection is None:
+        logger.warning("score export: the LangSmith tracer has no API key, so no score is sent")
+        return None
+    return ScoreDestination(
+        tracer=Tracer.LANGSMITH, project=tracer.project_name, connection=connection
+    )
+
+
 def read_destination(
     handler: BaseCallbackHandler,
     *,
@@ -150,19 +211,12 @@ def read_destination(
 ) -> ScoreDestination | None:
     """Return where the handler traces to, if it is the tracer of a tool among `tracers`.
 
-    A LangSmith tracer whose client has no key, where the environment has
-    none either, gives no destination, with a warning.
+    Langfuse's handler gives no destination when Langfuse's tracing is off.
     """
     if Tracer.LANGSMITH in tracers and isinstance(handler, LangChainTracer):
-        connection = read_client_connection(handler.client)
-        if connection is None:
-            logger.warning("score export: the LangSmith tracer has no API key, so no score is sent")
-            return None
-        return ScoreDestination(
-            tracer=Tracer.LANGSMITH, project=handler.project_name, connection=connection
-        )
+        return read_langsmith_destination(handler)
     if Tracer.LANGFUSE in tracers and is_langfuse_handler(handler):
-        return ScoreDestination(tracer=Tracer.LANGFUSE)
+        return None if is_langfuse_tracing_off() else ScoreDestination(tracer=Tracer.LANGFUSE)
     return None
 
 
@@ -194,9 +248,12 @@ def build_score_worker() -> ScoreWorker:
 class ProcessScoreWorker:
     """The one score worker of this process, started with the first score queued.
 
-    Its thread drains at exit through `atexit`. A process forked after the
-    worker started starts a worker of its own, since threads do not survive
-    a fork.
+    Its thread drains at exit through `atexit`. The lock is taken only to
+    start the worker, never to queue a score. A child forked from this
+    process forgets the parent's worker and lock, whose thread and holder did
+    not come with it, and starts a worker of its own; the parent drains what
+    it queued. A `multiprocessing` child started by fork leaves through
+    `os._exit`, so its waiting scores are dropped.
     """
 
     build_worker: Callable[[], ScoreWorker] = build_score_worker
@@ -206,6 +263,9 @@ class ProcessScoreWorker:
 
     def read_worker(self) -> ScoreWorker:
         """Return the process's worker, starting it and its exit drain the first time."""
+        worker = self.worker
+        if worker is not None and self.process_id == os.getpid():
+            return worker
         with self.lock:
             if self.worker is None or self.process_id != os.getpid():
                 if self.worker is not None:
@@ -213,13 +273,31 @@ class ProcessScoreWorker:
                 worker = self.build_worker()
                 worker.start()
                 atexit.register(worker.stop)
-                self.worker = worker
                 self.process_id = os.getpid()
+                self.worker = worker
             return self.worker
+
+    def forget_after_fork(self) -> None:
+        """In a forked child, drop the parent's worker, its exit drain and its lock."""
+        if self.worker is not None:
+            atexit.unregister(self.worker.stop)
+        self.lock = threading.Lock()
+        self.worker = None
+        self.process_id = None
 
 
 PROCESS_SCORE_WORKER = ProcessScoreWorker()
 """The score worker of this process."""
+
+
+def forget_process_state_after_fork() -> None:
+    """In a forked child, start afresh: no inherited worker, and no lock another thread held."""
+    PROCESS_SCORE_WORKER.forget_after_fork()
+    PROCESS_NOTICES.lock = threading.Lock()
+
+
+if hasattr(os, "register_at_fork"):
+    os.register_at_fork(after_in_child=forget_process_state_after_fork)
 
 
 class ScoreSettings(Protocol):

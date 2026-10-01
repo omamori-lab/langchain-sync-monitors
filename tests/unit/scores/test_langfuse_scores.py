@@ -9,15 +9,18 @@ from __future__ import annotations
 import json
 import logging
 from datetime import UTC, datetime, timedelta
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import httpx
 import pytest
+from langchain_core.utils.uuid import uuid7
 
 from langchain_sync_monitors.errors import ConfigurationError
 from langchain_sync_monitors.langfuse_scores import (
     LANGFUSE_BASE_URL,
     MAX_OBSERVATION_PAGES,
+    STALE_AFTER_SECONDS,
+    STALE_LOOKUP_SECONDS,
     START_TIME_MARGIN,
     UNKNOWN_START_REACH,
     IngestionAnswer,
@@ -37,19 +40,38 @@ from tests.support.score_services import FakeLangfuse, build_step_id, read_reque
 SENDER_LOGGER = "langchain_sync_monitors.langfuse_scores"
 
 
-def build_score(*, value: float = 0.9, name: str = "monitor_suspicion") -> PendingScore:
+def build_score(
+    *,
+    value: float = 0.9,
+    name: str = "monitor_suspicion",
+    step_id: UUID | None = None,
+    queued_at: float = 0.0,
+) -> PendingScore:
     return PendingScore(
-        step_id=build_step_id(),
+        step_id=step_id or build_step_id(),
         name=name,
         value=value,
         tracer=Tracer.LANGFUSE,
         project=None,
-        queued_at=0.0,
+        queued_at=queued_at,
     )
 
 
+def build_clocked_case() -> tuple[FakeLangfuse, list[float], LangfuseScoreSender]:
+    """Return a fake Langfuse, a clock at 1000 s that a test moves, and a sender on both."""
+    service = FakeLangfuse()
+    now = [1000.0]
+    sender = LangfuseScoreSender(http_client=service.build_client(), clock=lambda: now[0])
+    return service, now, sender
+
+
+def build_step_id_seconds_ago(seconds: float) -> UUID:
+    """Return the id of a step made `seconds` ago, as the monitor makes ids."""
+    return uuid7(nanoseconds=int((datetime.now(UTC).timestamp() - seconds) * 1e9))
+
+
 def build_sender(service: FakeLangfuse) -> LangfuseScoreSender:
-    return LangfuseScoreSender(http_client=service.build_client())
+    return LangfuseScoreSender(http_client=service.build_client(), clock=lambda: 0.0)
 
 
 def read_lookup_filter(request: httpx.Request) -> list[dict[str, str]]:
@@ -203,10 +225,10 @@ def test_the_lookup_follows_the_cursor_until_every_waiting_step_is_found() -> No
     assert report.written == [score]
 
 
-def test_the_lookup_reads_at_most_the_page_limit_in_one_window() -> None:
-    # Arrange
+def test_the_lookup_reads_at_most_three_pages_in_one_window() -> None:
+    # Arrange: three pages a lookup is what the documented budget of 21 requests a minute rests on
     service = FakeLangfuse(page_size=1)
-    for _ in range(MAX_OBSERVATION_PAGES + 3):
+    for _ in range(10):
         service.add_step(str(build_step_id()))
     score = build_score()
 
@@ -214,7 +236,8 @@ def test_the_lookup_reads_at_most_the_page_limit_in_one_window() -> None:
     report = build_sender(service).send([score])
 
     # Assert
-    assert len(service.find_requests("GET", "/api/public/v2/observations")) == MAX_OBSERVATION_PAGES
+    assert MAX_OBSERVATION_PAGES == 3
+    assert len(service.find_requests("GET", "/api/public/v2/observations")) == 3
     assert report.waiting == [score]
 
 
@@ -524,3 +547,71 @@ def test_a_secret_key_no_header_may_carry_is_refused(monkeypatch: pytest.MonkeyP
     # Act, Assert
     with pytest.raises(ConfigurationError, match="LANGFUSE_SECRET_KEY"):
         read_langfuse_credentials()
+
+
+def test_one_lookup_finds_steps_made_at_different_times_whose_spans_started_later() -> None:
+    # Arrange: two steps half a minute apart; each span started half a second after its id
+    service = FakeLangfuse()
+    earlier = build_score(step_id=build_step_id_seconds_ago(30.0))
+    later = build_score(step_id=build_step_id_seconds_ago(0.0))
+    for score in (earlier, later):
+        service.add_step(str(score.step_id))
+
+    # Act
+    report = build_sender(service).send([later, earlier])
+
+    # Assert
+    assert report.written == [later, earlier]
+    assert len(service.find_requests("GET", "/api/public/v2/observations")) == 1
+
+
+def test_a_step_waiting_a_minute_is_stale_and_looked_up_at_most_once_a_minute() -> None:
+    # Arrange: a step never ingested, whose score has waited exactly the stale limit
+    service, now, sender = build_clocked_case()
+    stale = build_score(
+        step_id=build_step_id_seconds_ago(290.0), queued_at=1000.0 - STALE_AFTER_SECONDS
+    )
+
+    # Act: windows at 0, 10 and 20 seconds, and one a minute after the first
+    reports = []
+    for offset in (0.0, 10.0, 20.0, STALE_LOOKUP_SECONDS):
+        now[0] = 1000.0 + offset
+        reports.append(sender.send([stale]))
+
+    # Assert: asked for in the first window and a minute later only
+    assert len(service.find_requests("GET", "/api/public/v2/observations")) == 2
+    assert all(report.waiting == [stale] for report in reports)
+
+
+def test_a_step_just_under_a_minute_is_looked_up_every_window() -> None:
+    # Arrange
+    service, _, sender = build_clocked_case()
+    fresh = build_score(queued_at=1000.0 - STALE_AFTER_SECONDS + 0.001)
+
+    # Act
+    sender.send([fresh])
+    sender.send([fresh])
+
+    # Assert
+    assert len(service.find_requests("GET", "/api/public/v2/observations")) == 2
+
+
+def test_a_fresh_lookup_reaches_back_only_as_far_as_the_fresh_steps() -> None:
+    # Arrange: a stale step made 290 s ago, and a fresh one made now
+    service, _, sender = build_clocked_case()
+    stale = build_score(step_id=build_step_id_seconds_ago(290.0), queued_at=0.0)
+    fresh = build_score(queued_at=1000.0)
+    service.add_step(str(fresh.step_id))
+    sender.last_stale_lookup = 1000.0 - 1.0
+
+    # Act
+    report = sender.send([stale, fresh])
+
+    # Assert: one lookup, for the fresh step alone, so its window is seconds wide
+    [lookup] = service.find_requests("GET", "/api/public/v2/observations")
+    window = read_lookup_filter(lookup)
+    earliest = datetime.fromisoformat(window[1]["value"])
+    latest = datetime.fromisoformat(window[2]["value"])
+    assert latest - earliest == 2 * START_TIME_MARGIN
+    assert report.written == [fresh]
+    assert report.waiting == [stale]

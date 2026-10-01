@@ -3,19 +3,26 @@
 A monitor puts each score on the worker's queue and carries on; putting never
 blocks and never raises. The worker's thread wakes once a window, takes what
 was queued, and hands each tool all of its waiting scores at once, so a
-window costs a tool one lookup however many steps wait. A score the tool
-cannot take yet, such as a step it has not ingested, waits for the next
-window, and is dropped, with a warning, once it has waited
-`give_up_seconds`. A tool that answers `429` gets no call until the pause
-it asked for is over.
+window costs a tool one lookup however many steps wait. Langfuse goes first,
+so its writes never sit behind a LangSmith backlog, and each tool is sent in
+a `try` of its own, so one tool's failure, even a sender that cannot be
+built, never stops the other. A score the tool cannot take yet, such as a
+step it has not ingested, waits for the next window, and is dropped, with a
+warning, once it has waited `give_up_seconds`. A tool that answers `429` gets
+no call until the pause it asked for is over, at most `give_up_seconds`.
 
 At exit, the worker sends what still waits, once every `drain_window_seconds`,
 a shorter window that finds a step Langfuse has just ingested sooner, until
-nothing waits or `drain_seconds` have passed, and logs what it drops. The
-thread is a daemon, so a drain that overruns never keeps the process alive.
-Failures, a sender's exceptions included, are logged and never reach a run.
-The first time a tool's scores are dropped because their steps were never
-found, the worker also says, once, what usually causes it.
+nothing waits or `drain_seconds` have passed, and logs what it drops. A tool
+paused past the drain's end has its scores dropped at once. The thread is a
+daemon, so a drain that overruns never keeps the process alive. Failures,
+a sender's exceptions included, are logged and never reach a run. The first
+time a tool's scores are dropped because their steps were never found, the
+worker also says, once, what can cause it.
+
+Waiting scores are lost when the process ends without running `atexit`: on
+`os._exit`, which a `multiprocessing` child started by fork calls, on SIGKILL,
+on SIGTERM without a handler, and when a Jupyter kernel is killed.
 """
 
 from __future__ import annotations
@@ -29,7 +36,6 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Final
 
-from langchain_sync_monitors.errors import ConfigurationError
 from langchain_sync_monitors.scores import DeliveryReport, PendingScore, ScoreSender, Tracer
 
 logger = logging.getLogger(__name__)
@@ -52,17 +58,23 @@ MAX_WAITING_SCORES: Final = 10_000
 JOIN_GRACE_SECONDS: Final = 1.0
 """How long the exit hook waits for the thread past the drain's limit before it gives up."""
 
+SEND_ORDER: Final = (Tracer.LANGFUSE, Tracer.LANGSMITH)
+"""The order of the tools in a window: Langfuse's lookups first, then LangSmith's posts."""
+
 type SenderFactory = Callable[[Tracer], ScoreSender | None]
 """Builds the sender of one tool, or returns None when its credentials are missing."""
 
 UNFOUND_STEP_HINTS: Final = {
     Tracer.LANGFUSE: (
         "score export: Langfuse scores go only on steps found in the project that "
-        "LANGFUSE_PUBLIC_KEY and LANGFUSE_SECRET_KEY reach. A Langfuse handler built with "
-        "other keys, or another host, traces to a project whose steps are never scored"
+        "LANGFUSE_PUBLIC_KEY and LANGFUSE_SECRET_KEY reach. A step is never found there when "
+        "its Langfuse handler was built with other keys or another host, when Langfuse "
+        "sampled its trace out (LANGFUSE_SAMPLE_RATE), when its spans never reached "
+        "Langfuse, as after a DNS or network failure, or when Langfuse ingested it later "
+        "than the wait"
     ),
 }
-"""What usually leaves a tool's steps unfound, said once per process when its scores are dropped."""
+"""What can leave a tool's steps unfound, said once per process when its scores are dropped."""
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -133,11 +145,12 @@ class WaitingScores:
             self.by_tracer[tracer] = kept
         return gave_up
 
-    def drop(self, tracer: Tracer, *, reason: str) -> int:
-        """Drop the tool's waiting scores, with a warning that gives the reason; return how many."""
+    def drop(self, tracer: Tracer, *, reason: str, level: int = logging.WARNING) -> int:
+        """Drop the tool's waiting scores, logged at `level` with the reason; return how many."""
         scores = self.by_tracer.pop(tracer, [])
         if scores:
-            logger.warning("score export: %d %s score(s) dropped: %s", len(scores), tracer, reason)
+            message = "score export: %d %s score(s) dropped: %s"
+            logger.log(level, message, len(scores), tracer, reason)
         return len(scores)
 
     def count(self) -> int:
@@ -198,7 +211,8 @@ class ScoreWorker:
         """Drain at exit, within `drain_seconds`, and log what could not be sent.
 
         The thread drains while this waits for it. A worker whose thread
-        never started drains here.
+        never started drains here. A thread still sending at the limit holds
+        the window lock, so the count is taken only if the lock comes free.
         """
         self.drain_deadline = self.clock() + self.timings.drain_seconds
         self.stopping.set()
@@ -206,11 +220,16 @@ class ScoreWorker:
             self.drain()
             return
         self.thread.join(timeout=self.timings.drain_seconds + JOIN_GRACE_SECONDS)
-        if self.thread.is_alive():
-            logger.warning(
-                "score export: the exit drain ran out of time; %d score(s) are dropped",
-                self.waiting.count(),
-            )
+        if not self.thread.is_alive():
+            return
+        if self.window_lock.acquire(timeout=JOIN_GRACE_SECONDS):
+            try:
+                left = f"{self.waiting.count()} score(s) are"
+            finally:
+                self.window_lock.release()
+        else:
+            left = "the scores still being sent are"
+        logger.warning("score export: the exit drain ran out of time; %s dropped", left)
 
     def drain(self) -> None:
         """Send once a window until nothing waits or the deadline passes; drop what is left."""
@@ -219,6 +238,7 @@ class ScoreWorker:
             deadline = self.clock() + self.timings.drain_seconds
         while True:
             self.send_window()
+            self.drop_paused_past(deadline)
             if self.waiting.count() == 0:
                 break
             remaining = deadline - self.clock()
@@ -233,14 +253,21 @@ class ScoreWorker:
         with self.window_lock:
             try:
                 self.waiting.take_incoming()
-                for tracer in list(self.waiting.by_tracer):
-                    self.send_waiting(tracer)
+                for tracer in sorted(self.waiting.by_tracer, key=SEND_ORDER.index):
+                    self.send_waiting_safely(tracer)
                 gave_up = self.waiting.give_up_on_old(
                     now=self.clock(), limit_seconds=self.timings.give_up_seconds
                 )
                 self.explain_unfound_steps(gave_up)
             except Exception:
                 logger.warning("score export: a send window failed", exc_info=True)
+
+    def send_waiting_safely(self, tracer: Tracer) -> None:
+        """Send one tool's waiting scores, so that its failure never stops the other tool."""
+        try:
+            self.send_waiting(tracer)
+        except Exception:
+            logger.warning("score export: sending to %s failed", tracer, exc_info=True)
 
     def send_waiting(self, tracer: Tracer) -> None:
         """Hand the tool all its waiting scores at once, unless it asked for a pause."""
@@ -249,17 +276,20 @@ class ScoreWorker:
             return
         sender = self.read_sender(tracer)
         if sender is None:
-            self.waiting.drop(tracer, reason="its credentials are missing")
+            self.waiting.drop(
+                tracer,
+                reason="it cannot be reached with the settings given",
+                level=logging.DEBUG,
+            )
             return
-        try:
-            report = sender.send(scores)
-        except Exception:
-            logger.warning("score export: sending to %s failed", tracer, exc_info=True)
-            return
-        self.apply_report(tracer, report=report)
+        self.apply_report(tracer, report=sender.send(scores))
 
     def apply_report(self, tracer: Tracer, *, report: DeliveryReport) -> None:
-        """Keep the scores that must wait, log the refused ones, and pause the tool if asked."""
+        """Keep the scores that must wait, log the refused ones, and pause the tool if asked.
+
+        A pause lasts at most `give_up_seconds`, past which every waiting
+        score would be given up anyway.
+        """
         self.waiting.by_tracer[tracer] = report.waiting
         if report.refused:
             logger.warning(
@@ -271,17 +301,37 @@ class ScoreWorker:
         if report.written:
             logger.debug("score export: %d score(s) written to %s", len(report.written), tracer)
         if report.pause_seconds is not None:
-            self.paused_until[tracer] = self.clock() + report.pause_seconds
+            pause = min(report.pause_seconds, self.timings.give_up_seconds)
+            self.paused_until[tracer] = self.clock() + pause
 
     def read_sender(self, tracer: Tracer) -> ScoreSender | None:
-        """Return the tool's sender, built the first time; None when it cannot be built."""
+        """Return the tool's sender, built the first time; None, warned once, when it cannot be.
+
+        Any failure to build counts, such as a malformed URL in the
+        environment, so that it never reaches the window.
+        """
         if tracer not in self.senders:
             try:
                 self.senders[tracer] = self.build_sender(tracer)
-            except ConfigurationError as error:
-                logger.warning("score export: cannot write to %s: %s", tracer, error)
+            except Exception as error:
                 self.senders[tracer] = None
+                logger.warning("score export: cannot write to %s: %s", tracer, error)
+            if self.senders[tracer] is None:
+                logger.warning(
+                    "score export: %s scores are dropped in this process: it cannot be reached "
+                    "with the settings given",
+                    tracer,
+                )
         return self.senders[tracer]
+
+    def drop_paused_past(self, deadline: float) -> None:
+        """Drop at once the scores of each tool that asked for a pause outlasting the drain."""
+        with self.window_lock:
+            for tracer in list(self.waiting.by_tracer):
+                if self.paused_until.get(tracer, -math.inf) >= deadline:
+                    self.waiting.drop(
+                        tracer, reason="it asked for a pause that outlasts the exit drain"
+                    )
 
     def drop_every_score(self, *, reason: str) -> None:
         """Drop every waiting score, queued ones included, with a warning per tool."""
@@ -295,7 +345,7 @@ class ScoreWorker:
             self.explain_unfound_steps(dropped)
 
     def explain_unfound_steps(self, tracers: list[Tracer]) -> None:
-        """Say, once per tool and process, what usually leaves its steps unfound."""
+        """Say, once per tool and process, what can leave its steps unfound."""
         for tracer in tracers:
             hint = UNFOUND_STEP_HINTS.get(tracer)
             if hint is not None and tracer not in self.explained:

@@ -4,7 +4,8 @@ from __future__ import annotations
 
 import json
 import logging
-from collections.abc import Sequence
+import time
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Final, Literal, TypedDict
@@ -34,8 +35,14 @@ STEP_SPAN_NAME: Final = "monitor step"
 OBSERVATION_PAGE_SIZE: Final = 1000
 """The most observations one page of Langfuse's observations API holds [@langfuse2026api]."""
 
-MAX_OBSERVATION_PAGES: Final = 5
-"""The most pages one window reads, each one request against the rate limit."""
+MAX_OBSERVATION_PAGES: Final = 3
+"""The most pages one lookup reads, each one request against the rate limit."""
+
+STALE_AFTER_SECONDS: Final = 60.0
+"""How long a score waits before its step counts as stale, and is looked up less often."""
+
+STALE_LOOKUP_SECONDS: Final = 60.0
+"""How often the stale steps are looked up, together."""
 
 START_TIME_MARGIN: Final = timedelta(seconds=5)
 """How far before the earliest and after the latest waiting step's start the lookup reaches."""
@@ -293,11 +300,22 @@ class LangfuseScoreSender:
     Langfuse gives observations random ids [@langfuse2026traceids], so each
     step is found by the `monitor_step_id` its `monitor step` observation
     carries, through `GET /api/public/v2/observations`, the only real-time
-    read path [@langfuse2026api]. One query serves every waiting step: the
+    read path [@langfuse2026api]. One query serves many waiting steps: the
     observations named `monitor step` that started between the earliest and
-    the latest waiting step's start, matched here by id, since the API
-    filters metadata on one value only. Pages follow the cursor, up to
-    `MAX_OBSERVATION_PAGES`.
+    the latest of their starts, matched here by id, since the API filters
+    metadata on one value only. Pages come newest first, and follow the
+    cursor up to `MAX_OBSERVATION_PAGES`.
+
+    A step Langfuse never ingests, such as one traced to another project,
+    would keep that window wide for the whole wait, and its pages many. So the
+    steps whose scores have waited `STALE_AFTER_SECONDS` on `clock`, the
+    worker's clock, are looked up apart, together, at most once every
+    `STALE_LOOKUP_SECONDS`; the fresh ones every window. One process so asks
+    the general rate limit, which every project and key of the organisation
+    shares, for at most `MAX_OBSERVATION_PAGES` pages per lookup: 6 fresh
+    lookups and 1 stale one a minute, 21 requests at most and 7 when each
+    lookup fits a page, and twice the fresh ones during the exit drain
+    [@langfuse2026apilimits]. The writes go to the ingestion bucket.
 
     The scores found go in one `POST /api/public/ingestion`, as
     `score-create` events, which is how Langfuse's own SDK sends scores
@@ -311,13 +329,25 @@ class LangfuseScoreSender:
     the judge's reason included, leaves the process.
     """
 
-    def __init__(self, *, http_client: httpx.Client) -> None:
+    def __init__(
+        self,
+        *,
+        http_client: httpx.Client,
+        clock: Callable[[], float] = time.monotonic,
+    ) -> None:
         self.http_client = http_client
+        self.clock = clock
+        self.last_stale_lookup: float | None = None
 
     def send(self, scores: Sequence[PendingScore]) -> DeliveryReport:
-        """Find the waiting steps in one query, and write the scores found in one request."""
+        """Look up the steps due, fresh and stale apart, and write the scores found at once."""
         report = DeliveryReport()
-        observations, report.pause_seconds = self.find_observations(scores)
+        observations: dict[str, LangfuseObservation] = {}
+        for group in self.choose_lookups(scores):
+            found, report.pause_seconds = self.find_observations(group)
+            observations.update(found)
+            if report.pause_seconds is not None:
+                break
         ready = [score for score in scores if str(score.step_id) in observations]
         report.waiting.extend(score for score in scores if str(score.step_id) not in observations)
         if report.pause_seconds is not None:
@@ -325,6 +355,18 @@ class LangfuseScoreSender:
         elif ready:
             self.write_scores(ready, observations=observations, report=report)
         return report
+
+    def choose_lookups(self, scores: Sequence[PendingScore]) -> list[list[PendingScore]]:
+        """Return the groups to look up now: the fresh steps, and the stale ones when due."""
+        now = self.clock()
+        fresh = [score for score in scores if now - score.queued_at < STALE_AFTER_SECONDS]
+        stale = [score for score in scores if now - score.queued_at >= STALE_AFTER_SECONDS]
+        lookups = [fresh] if fresh else []
+        due = self.last_stale_lookup is None or now - self.last_stale_lookup >= STALE_LOOKUP_SECONDS
+        if stale and due:
+            self.last_stale_lookup = now
+            lookups.append(stale)
+        return lookups
 
     def find_observations(
         self,

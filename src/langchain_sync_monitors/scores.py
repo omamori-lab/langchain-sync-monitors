@@ -21,10 +21,43 @@ SCORE_ID_NAMESPACE = uuid5(NAMESPACE_URL, "https://github.com/omamori-lab/langch
 
 
 class Tracer(StrEnum):
-    """A tracing tool that `export_scores` can send each step's suspicion to.
+    """A tracing tool that `MonitorMiddleware(export_scores=...)` sends each step's suspicion to.
 
     `LANGSMITH` writes feedback on the step's run, and `LANGFUSE` a numeric
-    score on the step's observation.
+    score on the step's observation. The score is named `<label>_suspicion`
+    and holds the step's highest suspicion; a step with no sample gets none.
+
+    - **Where it goes.** Only a run traced to the tool sends to it. LangSmith
+      feedback goes to the tracer's project, through its client's endpoint,
+      key and workspace. Langfuse scores use `LANGFUSE_PUBLIC_KEY`,
+      `LANGFUSE_SECRET_KEY` and `LANGFUSE_BASE_URL`, and go only on steps
+      found in that project, so a handler built with other keys or another
+      host gets none. Building the monitor needs `LANGSMITH_API_KEY` for
+      LangSmith, and the Langfuse keys and the `langfuse` package for
+      Langfuse.
+    - **What sends nothing.** A run with LangSmith tracing turned off by
+      `tracing_context(enabled=False)`, a LangSmith client in OpenTelemetry
+      mode, whose run ids are not the steps' ids and which is warned once
+      [@langsmithsdk2026], and `LANGFUSE_TRACING_ENABLED=false`.
+    - **What cannot be seen.** LangSmith accepts feedback on a run it never
+      ingested, such as one its sampling rate dropped, so such a score is
+      lost without a sign. A Langfuse step never found, for the same reasons
+      or others, is given up after five minutes with a warning.
+    - **When.** A background thread sends the scores, so the agent never
+      waits: LangSmith's within about ten seconds, Langfuse's once Langfuse
+      has ingested the step, ten to twenty-five seconds later in our checks.
+      At exit it keeps sending for up to thirty seconds, every five, then
+      logs what it drops; a process that exits right after its last step may
+      drop Langfuse scores still waiting.
+    - **When scores are lost.** When the process ends without running
+      `atexit`: on `os._exit`, which a `multiprocessing` child started by fork
+      calls, on SIGKILL, on SIGTERM without a handler, and when a Jupyter
+      kernel is killed.
+    - **Cost and privacy.** Only numbers and ids leave the process, never the
+      judge's reason. LangSmith feedback is sent with
+      `extend_trace_retention` false, which by LangSmith's retention docs
+      leaves the trace's retention, and so the bill, unchanged
+      [@langsmith2026retention].
     """
 
     LANGSMITH = "langsmith"

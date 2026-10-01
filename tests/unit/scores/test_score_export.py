@@ -10,12 +10,14 @@ from __future__ import annotations
 
 import logging
 import pickle
+import threading
 from dataclasses import dataclass
 from typing import Any
 from unittest.mock import MagicMock
 
 import pytest
 from langchain_core.callbacks import BaseCallbackHandler
+from langsmith import tracing_context
 from pydantic import SecretStr
 
 from langchain_sync_monitors import score_export
@@ -27,6 +29,7 @@ from langchain_sync_monitors.langsmith_scores import LangSmithFeedbackSender
 from langchain_sync_monitors.middleware import MonitorMiddleware
 from langchain_sync_monitors.protocols import TrustedMonitoring
 from langchain_sync_monitors.score_export import (
+    OTEL_MODE_NOTICE,
     PROCESS_SCORE_WORKER,
     ProcessScoreWorker,
     ScoreDestination,
@@ -462,3 +465,148 @@ def test_the_langfuse_sender_needs_the_environment_and_the_langsmith_one_does_no
     assert isinstance(without_keys[0], LangSmithFeedbackSender)
     assert without_keys[1] is None
     langfuse.close()
+    without_keys[0].close()
+
+
+def queue_one_score(traced_step: TracedRun, *, tracers: frozenset[Tracer]) -> None:
+    """Queue the score of a step judged 0.6, from a monitor that exports to `tracers`."""
+    queue_step_score(
+        traced_step, record=build_record(0.6), monitor=MonitorSettings(export_scores=tracers)
+    )
+
+
+def test_a_langsmith_client_in_otel_mode_gets_no_score_and_one_warning(
+    score_services: ScoreServices,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    # Arrange: OTel mode derives run ids from span ids, so no feedback could find its step
+    client = build_own_client()
+    client.tracing_mode = "otel"
+    traced_step = build_traced_step(build_langsmith_tracer(client))
+
+    # Act
+    with caplog.at_level(logging.WARNING, logger="langchain_sync_monitors.score_export"):
+        queue_one_score(traced_step, tracers=frozenset({Tracer.LANGSMITH}))
+        queue_one_score(traced_step, tracers=frozenset({Tracer.LANGSMITH}))
+
+    # Assert
+    assert score_services.worker.waiting.count() == 0
+    assert [record.getMessage() for record in caplog.records] == [OTEL_MODE_NOTICE]
+
+
+@pytest.mark.parametrize("mode", ["langsmith", "hybrid"])
+def test_a_langsmith_client_that_sends_run_ids_still_gets_its_score(
+    score_services: ScoreServices,
+    mode: str,
+) -> None:
+    # Arrange: hybrid mode also sends the runs to LangSmith with their own ids
+    client = build_own_client()
+    client.tracing_mode = mode
+    traced_step = build_traced_step(build_langsmith_tracer(client))
+
+    # Act
+    queue_one_score(traced_step, tracers=frozenset({Tracer.LANGSMITH}))
+
+    # Assert
+    assert score_services.worker.waiting.count() == 1
+
+
+def test_a_run_with_langsmith_tracing_turned_off_gets_no_langsmith_score(
+    score_services: ScoreServices,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    # Arrange
+    traced_step = build_traced_step(build_langsmith_tracer(MagicMock()), LangfuseHandler())
+
+    # Act
+    with (
+        caplog.at_level(logging.WARNING, logger="langchain_sync_monitors.score_export"),
+        tracing_context(enabled=False),
+    ):
+        queue_one_score(traced_step, tracers=BOTH_TOOLS)
+    score_services.worker.waiting.take_incoming()
+
+    # Assert: quietly, and Langfuse still gets its score
+    assert list(score_services.worker.waiting.by_tracer) == [Tracer.LANGFUSE]
+    assert caplog.records == []
+
+
+@pytest.mark.parametrize(("value", "queued"), [("false", 0), ("FALSE", 0), ("true", 1), ("0", 1)])
+def test_langfuse_tracing_turned_off_by_its_variable_gets_no_langfuse_score(
+    score_services: ScoreServices,
+    monkeypatch: pytest.MonkeyPatch,
+    value: str,
+    queued: int,
+) -> None:
+    # Arrange: the SDK turns tracing off only when the variable, lowercased, is false
+    monkeypatch.setenv("LANGFUSE_TRACING_ENABLED", value)
+    traced_step = build_traced_step(LangfuseHandler())
+
+    # Act
+    queue_one_score(traced_step, tracers=frozenset({Tracer.LANGFUSE}))
+
+    # Assert
+    assert score_services.worker.waiting.count() == queued
+
+
+def test_a_forked_child_forgets_a_lock_another_thread_held_and_the_parent_worker(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Arrange: another thread holds the lock, as at the moment of a fork
+    built: list[ScoreWorker] = []
+    unregistered: list[object] = []
+
+    def build_worker() -> ScoreWorker:
+        worker = ScoreWorker(build_sender=lambda tracer: None)
+        monkeypatch.setattr(worker, "start", lambda: None)
+        built.append(worker)
+        return worker
+
+    monkeypatch.setattr(score_export.atexit, "register", lambda hook: None)
+    monkeypatch.setattr(score_export.atexit, "unregister", unregistered.append)
+    process = ProcessScoreWorker(build_worker=build_worker)
+    parent = process.read_worker()
+    held, release = threading.Event(), threading.Event()
+
+    def hold() -> None:
+        with process.lock:
+            held.set()
+            release.wait(timeout=5.0)
+
+    holder = threading.Thread(target=hold, daemon=True)
+    holder.start()
+    held.wait(timeout=5.0)
+
+    # Act
+    process.forget_after_fork()
+    child = process.read_worker()
+    release.set()
+    holder.join(timeout=5.0)
+
+    # Assert: the child started its own worker without waiting, and dropped the parent's drain
+    assert child is not parent
+    assert built == [parent, child]
+    assert unregistered == [parent.stop]
+
+
+def test_queueing_a_score_never_takes_the_lock_once_the_worker_runs(
+    score_services: ScoreServices,
+) -> None:
+    # Arrange: the lock is held, as if a fork had copied it held
+    traced_step = build_traced_step(LangfuseHandler())
+
+    # Act: on a thread, so that a queue that waited for the lock fails the test, not hangs it
+    queuer = threading.Thread(
+        target=queue_one_score,
+        args=(traced_step,),
+        kwargs={"tracers": frozenset({Tracer.LANGFUSE})},
+        daemon=True,
+    )
+    with PROCESS_SCORE_WORKER.lock:
+        queuer.start()
+        queuer.join(timeout=5.0)
+        still_waiting = queuer.is_alive()
+
+    # Assert
+    assert not still_waiting
+    assert score_services.worker.waiting.count() == 1

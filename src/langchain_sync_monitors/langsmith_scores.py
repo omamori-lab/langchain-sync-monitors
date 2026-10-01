@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import logging
+import time
+from collections import OrderedDict
 from collections.abc import Callable, Sequence
 from typing import Final, Literal, TypedDict
 
@@ -10,6 +12,7 @@ import httpx
 from pydantic import BaseModel, SecretStr, TypeAdapter, ValidationError
 
 from langchain_sync_monitors.monitors.openrouter_decisions import check_key_characters
+from langchain_sync_monitors.request_pool import RequestPool
 from langchain_sync_monitors.score_requests import (
     REQUEST_TIMEOUT_SECONDS,
     is_rate_limited,
@@ -24,8 +27,20 @@ logger = logging.getLogger(__name__)
 LANGSMITH_ENDPOINT: Final = "https://api.smith.langchain.com"
 """LangSmith's default endpoint, as its SDK has it when `LANGSMITH_ENDPOINT` is unset."""
 
+POSTS_IN_FLIGHT: Final = 6
+"""How many feedback posts the sender keeps in flight at once."""
+
+SEND_BUDGET_SECONDS: Final = 5.0
+"""How long one send may keep starting posts; the scores left wait for the next window."""
+
+MAX_CLIENTS: Final = 8
+"""The most connections the sender keeps a client for; the least recently used is closed."""
+
 type ClientFactory = Callable[[LangSmithCredentials], httpx.Client]
 """Builds the HTTP client that reaches LangSmith through one connection."""
+
+type FeedbackPost = tuple[PendingScore, str]
+"""A score and the id of the project its feedback goes to."""
 
 
 def read_langsmith_credentials() -> LangSmithCredentials | None:
@@ -183,16 +198,46 @@ def group_by_connection(
     return groups
 
 
+def is_stopping_answer(response: httpx.Response | None) -> bool:
+    """Tell whether an answer stops the send: a failed request, or a `429`."""
+    return response is None or is_rate_limited(response)
+
+
+def record_batch_answers(
+    report: DeliveryReport,
+    *,
+    batch: Sequence[FeedbackPost],
+    responses: Sequence[httpx.Response | None],
+) -> bool:
+    """Record each post of a batch by its answer; return whether one asks the send to stop.
+
+    A failed post and a `429` leave their score waiting, and the longest
+    pause the batch's `429`s ask for becomes the report's.
+    """
+    stopping = False
+    for (score, _), response in zip(batch, responses, strict=True):
+        if response is None or is_rate_limited(response):
+            stopping = True
+            report.waiting.append(score)
+            if response is not None:
+                pause = read_pause_seconds(response)
+                report.pause_seconds = max(report.pause_seconds or 0.0, pause)
+        else:
+            record_feedback_answer(report, score=score, response=response)
+    return stopping
+
+
 class LangSmithFeedbackSender:
-    """Writes each score as feedback on its step's run, one request per score.
+    """Writes each score as feedback on its step's run, up to `posts_in_flight` at a time.
 
     Each score goes through its own connection: the endpoint, key and
     workspace of the LangSmith client its tracer sends the run through, so
     the feedback lands where the trace does. The sender keeps one HTTP client
-    per connection, built by `build_client`. The step's run id is the
-    library's own, so no lookup finds it. Each score is one
-    `POST {endpoint}/feedback`, the path LangSmith's SDK posts to, relative
-    to the endpoint [@langsmithsdk2026; @langsmith2026api], with:
+    per connection, built by `build_client`, for the last `MAX_CLIENTS`
+    connections. The step's run id is the library's own, so no lookup finds
+    it. Each score is one `POST {endpoint}/feedback`, the path LangSmith's SDK
+    posts to, relative to the endpoint [@langsmithsdk2026; @langsmith2026api],
+    with:
 
     - `id`, the score's fixed id, so a retry never adds a second feedback;
     - `run_id`, `key` and `score`: the step, `<label>_suspicion` and the value;
@@ -206,27 +251,44 @@ class LangSmithFeedbackSender:
       which costs more, and the endpoint's default is true
       [@langsmith2026retention].
 
-    With the extension off, LangSmith's SDK also sends one request per
-    feedback [@langsmithsdk2026]. No text, the judge's reason included,
-    leaves the process.
+    LangSmith has no batch endpoint for such feedback: its multipart
+    ingestion takes feedback only with the trace's id, which the library does
+    not know [@langsmith2026api]. With the extension off, LangSmith's SDK
+    also sends one request per feedback [@langsmithsdk2026]. So the posts go
+    out in batches of up to `posts_in_flight` at once, on a `RequestPool`, and
+    a send starts no batch once `send_budget_seconds` have passed on `clock`,
+    so that a backlog never holds the worker's window for long. A failed post
+    or a `429` stops the send after its batch. No text, the judge's reason
+    included, leaves the process.
     """
 
-    def __init__(self, *, build_client: ClientFactory = build_langsmith_client) -> None:
+    def __init__(
+        self,
+        *,
+        build_client: ClientFactory = build_langsmith_client,
+        posts_in_flight: int = POSTS_IN_FLIGHT,
+        send_budget_seconds: float = SEND_BUDGET_SECONDS,
+        clock: Callable[[], float] = time.monotonic,
+    ) -> None:
         self.build_client = build_client
-        self.clients: dict[LangSmithCredentials, httpx.Client] = {}
+        self.pool = RequestPool(size=posts_in_flight)
+        self.send_budget_seconds = send_budget_seconds
+        self.clock = clock
+        self.clients: OrderedDict[LangSmithCredentials, httpx.Client] = OrderedDict()
         self.project_ids: dict[tuple[LangSmithCredentials, str], str] = {}
 
     def send(self, scores: Sequence[PendingScore]) -> DeliveryReport:
-        """Write the scores, connection by connection, until one asks for a pause."""
+        """Write the scores, connection by connection, until one asks for a pause or time is up."""
         report = DeliveryReport()
+        deadline = self.clock() + self.send_budget_seconds
         for connection, group in group_by_connection(scores).items():
             if connection is None:
                 report.refused.extend(group)
                 report.refusal = "the score names no LangSmith connection"
-            elif report.pause_seconds is not None:
+            elif report.pause_seconds is not None or self.clock() >= deadline:
                 report.waiting.extend(group)
             else:
-                self.send_through(connection, scores=group, report=report)
+                self.send_through(connection, scores=group, report=report, deadline=deadline)
         return report
 
     def send_through(
@@ -235,53 +297,71 @@ class LangSmithFeedbackSender:
         *,
         scores: Sequence[PendingScore],
         report: DeliveryReport,
+        deadline: float,
     ) -> None:
-        """Write each score whose project is known; stop at a failed request or a `429`."""
+        """Write each score whose project is known, a batch at a time, until a batch stops it."""
+        client = self.read_client(connection)
         report.pause_seconds = self.find_project_ids(
-            connection, projects={score.project or "" for score in scores}
+            connection, client=client, projects={score.project or "" for score in scores}
         )
         if report.pause_seconds is not None:
             report.waiting.extend(scores)
             return
-        for position, score in enumerate(scores):
+        posts: list[FeedbackPost] = []
+        for score in scores:
             project_id = self.project_ids.get((connection, score.project or ""))
             if project_id is None:
                 report.waiting.append(score)
-                continue
-            response = self.post_feedback(score, connection=connection, project_id=project_id)
-            if response is None or is_rate_limited(response):
-                # The rest wait too: the service is unreachable, or asks for a pause.
-                report.waiting.extend(scores[position:])
-                report.pause_seconds = None if response is None else read_pause_seconds(response)
+            else:
+                posts.append((score, project_id))
+        width = self.pool.width
+        for start in range(0, len(posts), width):
+            if self.clock() >= deadline:
+                report.waiting.extend(score for score, _ in posts[start:])
                 return
-            record_feedback_answer(report, score=score, response=response)
+            if self.post_batch(client, batch=posts[start : start + width], report=report):
+                report.waiting.extend(score for score, _ in posts[start + width :])
+                return
+
+    def post_batch(
+        self,
+        client: httpx.Client,
+        *,
+        batch: Sequence[FeedbackPost],
+        report: DeliveryReport,
+    ) -> bool:
+        """Post a batch side by side, record each answer; return whether the send must stop."""
+
+        def post(item: FeedbackPost) -> httpx.Response | None:
+            score, project_id = item
+            body = build_feedback(score, project_id=project_id)
+            request = client.build_request("POST", "/feedback", json=body)
+            return send_request(client, request=request)
+
+        responses = self.pool.run_all(post, items=batch)
+        return record_batch_answers(report, batch=batch, responses=responses)
 
     def read_client(self, connection: LangSmithCredentials) -> httpx.Client:
-        """Return the connection's HTTP client, built the first time it is needed."""
-        if connection not in self.clients:
-            self.clients[connection] = self.build_client(connection)
+        """Return the connection's HTTP client, built the first time; close the least used one."""
+        if connection in self.clients:
+            self.clients.move_to_end(connection)
+            return self.clients[connection]
+        self.clients[connection] = self.build_client(connection)
+        while len(self.clients) > MAX_CLIENTS:
+            evicted, client = self.clients.popitem(last=False)
+            client.close()
+            for key in [key for key in self.project_ids if key[0] == evicted]:
+                del self.project_ids[key]
         return self.clients[connection]
-
-    def post_feedback(
-        self,
-        score: PendingScore,
-        *,
-        connection: LangSmithCredentials,
-        project_id: str,
-    ) -> httpx.Response | None:
-        """Post the score's feedback, retried on transient failures; None when it still failed."""
-        client = self.read_client(connection)
-        body = build_feedback(score, project_id=project_id)
-        return send_request(client, request=client.build_request("POST", "/feedback", json=body))
 
     def find_project_ids(
         self,
         connection: LangSmithCredentials,
         *,
+        client: httpx.Client,
         projects: set[str],
     ) -> float | None:
         """Look up the id of each project not yet known; return the pause a `429` asks for."""
-        client = self.read_client(connection)
         for project in sorted(projects):
             if (connection, project) in self.project_ids:
                 continue
@@ -297,6 +377,7 @@ class LangSmithFeedbackSender:
         return None
 
     def close(self) -> None:
-        """Close every HTTP client the sender built."""
+        """Stop the request threads and close every HTTP client the sender built."""
+        self.pool.close()
         for client in self.clients.values():
             client.close()

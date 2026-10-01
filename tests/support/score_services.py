@@ -10,8 +10,11 @@ from __future__ import annotations
 
 import json
 import os
+import threading
+import time
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass, field
+from datetime import datetime, timedelta
 from typing import Any
 from uuid import UUID, uuid4
 
@@ -22,12 +25,12 @@ from langchain_core.utils.uuid import uuid7
 from pydantic import SecretStr
 
 from langchain_sync_monitors import score_export
-from langchain_sync_monitors.langfuse_scores import LangfuseScoreSender
+from langchain_sync_monitors.langfuse_scores import LangfuseScoreSender, read_step_start
 from langchain_sync_monitors.langsmith_scores import (
     LangSmithFeedbackSender,
     build_langsmith_headers,
 )
-from langchain_sync_monitors.score_export import PROCESS_SCORE_WORKER
+from langchain_sync_monitors.score_export import PROCESS_NOTICES, PROCESS_SCORE_WORKER
 from langchain_sync_monitors.score_worker import ScoreWorker, WorkerTimings
 from langchain_sync_monitors.scores import LangSmithCredentials, ScoreSender, Tracer
 from tests.support.tracing import RecordingTracer
@@ -37,6 +40,8 @@ LANGFUSE_BASE_URL = "https://langfuse.test"
 PROJECT_NAME = "monitor-scores"
 PROJECT_ID = "5b1f7c1e-3e59-4f05-9a3c-0d7b8a0f1c42"
 STEP_SPAN_NAME = "monitor step"
+SPAN_START_DELAY = timedelta(milliseconds=500)
+"""How long after its id is made a step's span starts, in the fake Langfuse."""
 LANGSMITH_KEY = "test-langsmith-key"
 CONNECTION = LangSmithCredentials(
     api_key=SecretStr(LANGSMITH_KEY), endpoint=LANGSMITH_ENDPOINT, workspace_id=None
@@ -64,11 +69,30 @@ class FakeLangSmith:
     requests: list[httpx.Request] = field(default_factory=list)
     feedback: dict[str, dict[str, Any]] = field(default_factory=dict)
     connections: list[LangSmithCredentials] = field(default_factory=list)
+    clients: list[httpx.Client] = field(default_factory=list)
+    post_seconds: float = 0.0
+    on_post: Callable[[], None] | None = None
+    in_flight: int = 0
+    most_in_flight: int = 0
+    lock: threading.Lock = field(default_factory=threading.Lock)
 
     def build_reply(self, request: httpx.Request) -> httpx.Response:
-        self.requests.append(request)
-        if self.queued_answers:
-            return self.queued_answers.pop(0)
+        """Answer as LangSmith would, after `post_seconds`, counting the requests in flight."""
+        with self.lock:
+            self.requests.append(request)
+            self.in_flight += 1
+            self.most_in_flight = max(self.most_in_flight, self.in_flight)
+            answer = self.queued_answers.pop(0) if self.queued_answers else None
+        try:
+            time.sleep(self.post_seconds)
+            if self.on_post is not None and request.method == "POST":
+                self.on_post()
+            return answer or self.build_answer(request)
+        finally:
+            with self.lock:
+                self.in_flight -= 1
+
+    def build_answer(self, request: httpx.Request) -> httpx.Response:
         path = request.url.path.removeprefix("/api/v1")
         if request.method == "GET" and path == "/sessions":
             name = request.url.params["name"]
@@ -86,11 +110,13 @@ class FakeLangSmith:
 
     def build_client(self, connection: LangSmithCredentials = CONNECTION) -> httpx.Client:
         self.connections.append(connection)
-        return httpx.Client(
+        client = httpx.Client(
             base_url=connection.endpoint,
             headers=build_langsmith_headers(connection),
             transport=httpx.MockTransport(self.build_reply),
         )
+        self.clients.append(client)
+        return client
 
     def find_requests(self, method: str, path: str) -> list[httpx.Request]:
         return [
@@ -98,6 +124,21 @@ class FakeLangSmith:
             for request in self.requests
             if request.method == method and request.url.path == f"/api/v1{path}"
         ]
+
+
+def is_matching(observation: dict[str, Any], conditions: list[dict[str, str]]) -> bool:
+    """Tell whether an observation meets every name and start-time condition of a lookup."""
+    for condition in conditions:
+        if condition["column"] == "name" and observation["name"] != condition["value"]:
+            return False
+        if condition["column"] == "startTime":
+            started = datetime.fromisoformat(observation["startTime"])
+            bound = datetime.fromisoformat(condition["value"])
+            if condition["operator"] == ">=" and started < bound:
+                return False
+            if condition["operator"] == "<=" and started > bound:
+                return False
+    return True
 
 
 @dataclass
@@ -128,8 +169,7 @@ class FakeLangfuse:
 
     def build_lookup_reply(self, request: httpx.Request) -> httpx.Response:
         conditions = json.loads(request.url.params["filter"])
-        name = next(item["value"] for item in conditions if item["column"] == "name")
-        matching = [item for item in self.observations if item["name"] == name]
+        matching = [item for item in self.observations if is_matching(item, conditions)]
         start = int(request.url.params.get("cursor", "0"))
         size = self.page_size or len(matching) or 1
         page = matching[start : start + size]
@@ -149,10 +189,13 @@ class FakeLangfuse:
         return httpx.Response(207, json={"successes": successes, "errors": errors})
 
     def add_step(self, step_id: str, *, environment: str = "default") -> dict[str, Any]:
+        """Ingest a step whose span started half a second after its id was made, as spans do."""
+        started = read_step_start(UUID(step_id)) + SPAN_START_DELAY
         observation = {
             "id": uuid4().hex[:16],
             "traceId": uuid4().hex,
             "name": STEP_SPAN_NAME,
+            "startTime": started.isoformat(),
             "environment": environment,
             "metadata": {"monitor_step_id": step_id, "monitor_name": "monitor"},
         }
@@ -228,10 +271,14 @@ def build_fake_sender(
     *,
     langsmith: FakeLangSmith,
     langfuse: FakeLangfuse,
+    clock: FakeClock,
 ) -> ScoreSender:
+    """Return a sender on the fake service, posting one at a time, on the worker's clock."""
     if tracer is Tracer.LANGSMITH:
-        return LangSmithFeedbackSender(build_client=langsmith.build_client)
-    return LangfuseScoreSender(http_client=langfuse.build_client())
+        return LangSmithFeedbackSender(
+            build_client=langsmith.build_client, posts_in_flight=1, clock=clock.read
+        )
+    return LangfuseScoreSender(http_client=langfuse.build_client(), clock=clock.read)
 
 
 def set_score_credentials(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -247,6 +294,7 @@ def set_score_credentials(monkeypatch: pytest.MonkeyPatch) -> None:
         "LANGCHAIN_TRACING",
         "LANGSMITH_WORKSPACE_ID",
         "LANGCHAIN_WORKSPACE_ID",
+        "LANGFUSE_TRACING_ENABLED",
     ):
         monkeypatch.delenv(name, raising=False)
     installed = score_export.is_package_installed
@@ -269,7 +317,11 @@ def install_score_worker(
     clock = FakeClock()
     worker = ScoreWorker(
         build_sender=build_sender
-        or (lambda tracer: build_fake_sender(tracer, langsmith=langsmith, langfuse=langfuse)),
+        or (
+            lambda tracer: build_fake_sender(
+                tracer, langsmith=langsmith, langfuse=langfuse, clock=clock
+            )
+        ),
         timings=timings,
         clock=clock.read,
         sleep=clock.sleep,
@@ -281,8 +333,9 @@ def install_score_worker(
 
 @pytest.fixture
 def score_services(monkeypatch: pytest.MonkeyPatch) -> Iterator[ScoreServices]:
-    """Credentials for both tools, and a process score worker on the fake services."""
+    """Credentials for both tools, a process score worker on the fake services, no notices said."""
     set_score_credentials(monkeypatch)
+    monkeypatch.setattr(PROCESS_NOTICES, "said", set())
     services = install_score_worker(monkeypatch)
     yield services
     services.worker.close_senders()

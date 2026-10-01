@@ -1,8 +1,8 @@
 """How the score senders reach LangSmith and Langfuse: credentials, retries and rate limits.
 
 Both senders send with httpx [@httpx2024] and retry a transport failure or a
-server error with stamina [@schlawack2026stamina], a few times within a short
-time budget, so that a window never outlasts the exit drain by much. A `429`
+server error with stamina [@schlawack2026stamina], once, within a short time
+budget, so that a window never outlasts the exit drain by much. A `429`
 answer is not retried here: the sender reports the pause its `Retry-After`
 header asks for, and the worker holds every call to that tool until then,
 since both tools count requests per organisation or per key, not per call
@@ -33,13 +33,16 @@ REQUEST_TIMEOUT_SECONDS: Final = 5.0
 """How long one request may take, connecting and reading included."""
 
 RETRY_ATTEMPTS: Final = 2
-"""How many times a request is sent before a transport failure or server error leaves it waiting."""
+"""How many times a request is sent, so one retry, before a failure leaves its score waiting."""
 
 RETRY_BUDGET_SECONDS: Final = 10.0
 """How long stamina keeps retrying one request."""
 
 DEFAULT_PAUSE_SECONDS: Final = 30.0
 """The pause after a `429` whose `Retry-After` is missing or unreadable."""
+
+MAX_PAUSE_SECONDS: Final = 3600.0
+"""The longest pause a `Retry-After` may ask for: an hour, as LangSmith's hourly limit lasts."""
 
 
 def read_environment_value(*names: str) -> str | None:
@@ -105,7 +108,8 @@ def read_pause_seconds(response: httpx.Response) -> float:
     """Return the pause a `429` answer asks for: its `Retry-After`, in seconds or as a date.
 
     A missing, unreadable or infinite value gives `DEFAULT_PAUSE_SECONDS`,
-    and a date in the past no pause.
+    a date in the past no pause, and anything longer than an hour an hour
+    [@langsmith2026retention].
     """
     header = response.headers.get("retry-after", "").strip()
     try:
@@ -114,7 +118,7 @@ def read_pause_seconds(response: httpx.Response) -> float:
         seconds = read_seconds_until(header)
     if not math.isfinite(seconds):
         return DEFAULT_PAUSE_SECONDS
-    return max(seconds, 0.0)
+    return min(max(seconds, 0.0), MAX_PAUSE_SECONDS)
 
 
 def read_seconds_until(http_date: str) -> float:

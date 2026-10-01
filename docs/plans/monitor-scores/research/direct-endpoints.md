@@ -14,6 +14,7 @@ Contents:
 - [Where the scores go](#where-the-scores-go)
 - [The worker](#the-worker)
 - [The live check](#the-live-check)
+- [The adversarial review](#the-adversarial-review)
 - [Corrections to the plan](#corrections-to-the-plan)
 - [Not yet checked](#not-yet-checked)
 
@@ -145,12 +146,39 @@ another project or host.
   LangSmith, as the section above says. A handler whose class comes from the
   `langfuse` package sends to Langfuse. The library never imports `langfuse`.
 - **Windows.** The worker wakes every 10 seconds and hands each tool all its
-  waiting scores at once.
+  waiting scores at once, Langfuse first, each tool in a `try` of its own.
   - A score that cannot be written yet waits for the next window.
   - It is dropped, with a warning, after 300 seconds.
-  - A `429` holds every call to that tool until its `Retry-After`.
-  - A request is retried twice at most, within 10 seconds, on a transport
-    failure or a `5xx`.
+  - A `429` holds every call to that tool until its `Retry-After`, read up to
+    an hour and held at most 300 seconds.
+  - A request is sent at most twice, so retried once, within 10 seconds, on a
+    transport failure or a `5xx`.
+  - A sender that cannot be built, for any reason, drops its tool's scores,
+    with one warning, and the other tool and the give-up go on.
+- **LangSmith posts.** Up to 6 posts are in flight at once, on daemon threads
+  started with the sender, and one send starts no new batch after 5 seconds.
+  - LangSmith has no batch endpoint for this feedback: `POST /runs/multipart`
+    takes feedback parts only with the trace's id, which the library does not
+    know.
+  - `concurrent.futures` does not fit: its threads are not daemons, and its
+    exit hook runs before `atexit` and refuses work after it. No thread can
+    start during interpreter shutdown, so a sender first built during the
+    exit drain posts one at a time.
+  - The sender keeps a client for at most 8 connections, the least recently
+    used closed first.
+- **Langfuse lookups.** Pages come newest first, at most 3 per lookup.
+  - Steps whose scores have waited under 60 seconds are looked up every
+    window, over their own window. Older ones are looked up apart, together,
+    at most once a minute, so that one step Langfuse never ingests cannot
+    keep every window five minutes wide.
+  - One process asks the general rate limit, which the whole organisation
+    shares, for at most 21 lookups a minute, 7 when each fits a page, and
+    twice the fresh ones during the drain. The writes go to the ingestion
+    bucket.
+- **Forks.** A child forked from the process forgets the parent's worker,
+  its exit hook and its lock, and starts its own. Queuing a score takes no
+  lock once the worker runs. A `multiprocessing` child started by fork
+  leaves through `os._exit`, so its waiting scores are dropped.
 - **At exit.** The `atexit` hook drains for up to 30 seconds, one window
   every 5 seconds, then logs and drops what is left. The thread is a daemon,
   so a drain that overruns never keeps the process alive.
@@ -159,6 +187,10 @@ another project or host.
     and kept the 30-second limit on 1 October 2026.
   - A process that exits right after its last step may still drop Langfuse
     scores that wait.
+  - A tool paused past the drain's end has its scores dropped at once.
+- **When waiting scores are lost.** When the process ends without running
+  `atexit`: `os._exit`, a `multiprocessing` fork child, SIGKILL, SIGTERM
+  without a handler, and a killed Jupyter kernel.
 
 ## The live check
 
@@ -203,12 +235,35 @@ another project or host.
 - **A project lookup.** LangSmith now requires `session_id`, so the writer
   looks up each project's id once.
 
+## The adversarial review
+
+An independent review of the pull request, on 1 October 2026, confirmed the
+core contract live: every step had exactly one score, with the right value,
+in both tools, and the request bodies carried no text. It also found:
+
+- **LangSmith's OpenTelemetry mode loses every score.** There the run id is
+  derived from the span id, so it never equals `monitor_step_id`, yet
+  LangSmith answers `200` and the worker logged the score as written. The
+  writer now skips a client whose public `tracing_mode` is `otel`, with one
+  warning. `hybrid` still sends runs with their own ids.
+- **LangSmith accepts feedback on a run it never ingested,** with `200`, so a
+  run its sampling rate dropped, or one traced with tracing turned off, loses
+  its score without a sign. The writer skips a run whose
+  `tracing_context(enabled=False)` turns tracing off; sampling cannot be seen.
+- **`LANGFUSE_TRACING_ENABLED=false`** made every exit wait the full drain.
+  The writer now reads it as the SDK does.
+- **A sender that failed to build**, as with a malformed `LANGFUSE_HOST`,
+  stopped every window; a fork while another thread held the start lock
+  deadlocked the child's step; one LangSmith request per round trip capped
+  the posts at about 250 a minute; one never-ingested Langfuse step kept the
+  lookup window five minutes wide; and a long `Retry-After` held the drain
+  to its end. Each is fixed as the sections above describe.
+
 ## Not yet checked
 
 - A LangSmith `404` for a run not ingested yet: the cloud accepted every
-  feedback at once.
-- LangSmith's OpenTelemetry mode (`LANGSMITH_OTEL_ENABLED`), self-hosted
-  LangSmith and Langfuse, and Langfuse's EU region.
+  feedback at once, even on run ids it never ingested.
+- Self-hosted LangSmith and Langfuse, and Langfuse's EU region.
 - Feedback through a LangSmith client other than the environment's, against
   the live service: the tests check the routing with a stand-in client.
 - What each tool's interface shows for the scores: the checks read them back

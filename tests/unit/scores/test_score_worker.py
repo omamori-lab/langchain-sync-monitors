@@ -153,8 +153,8 @@ def test_one_window_hands_each_tool_all_its_waiting_scores_in_one_call(
     assert case.senders[Tracer.LANGFUSE].calls == [langfuse_scores]
     assert case.worker.waiting.count() == 0
     assert read_messages(caplog) == [
-        "score export: 50 score(s) written to langsmith",
         "score export: 3 score(s) written to langfuse",
+        "score export: 50 score(s) written to langsmith",
     ]
 
 
@@ -320,11 +320,14 @@ def test_a_tool_without_credentials_has_its_scores_dropped(
     # Act
     with caplog.at_level(logging.WARNING, logger=WORKER_LOGGER):
         case.worker.send_window()
+        case.put()
+        case.worker.send_window()
 
-    # Assert
+    # Assert: said once, and the later drops only at debug level
     assert case.worker.waiting.count() == 0
     assert read_messages(caplog) == [
-        "score export: 2 langsmith score(s) dropped: its credentials are missing"
+        "score export: langsmith scores are dropped in this process: it cannot be reached "
+        "with the settings given"
     ]
 
 
@@ -568,7 +571,7 @@ def test_stop_never_waits_past_the_drain_limit_for_a_stuck_thread(
     # Assert
     assert 0.45 <= waited < 3.0
     assert read_messages(caplog) == [
-        "score export: the exit drain ran out of time; 1 score(s) are dropped"
+        "score export: the exit drain ran out of time; the scores still being sent are dropped"
     ]
 
 
@@ -595,3 +598,119 @@ def test_a_window_that_fails_is_logged_and_never_raises(
     exception = record.exc_info
     assert exception
     assert exception[0] is RuntimeError
+
+
+def test_a_sender_that_fails_to_build_in_any_way_stops_neither_the_other_tool_nor_give_up(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    # Arrange: building Langfuse's sender fails as a malformed LANGFUSE_HOST makes it fail
+    case = build_worker_case(langsmith=[keep_waiting])
+    langsmith = case.senders[Tracer.LANGSMITH]
+
+    def build_sender(tracer: Tracer) -> ScoreSender | None:
+        if tracer is Tracer.LANGFUSE:
+            message = "Invalid port: 'abc'"
+            raise ValueError(message)
+        return langsmith
+
+    case.worker.build_sender = build_sender
+    case.put(tracer=Tracer.LANGFUSE)
+    case.put()
+
+    # Act
+    with caplog.at_level(logging.WARNING, logger=WORKER_LOGGER):
+        for _ in range(31):
+            case.worker.send_window()
+            case.clock.now += 10.0
+
+    # Assert: LangSmith was asked every window, the one at 300 s too, before give-up dropped it
+    assert len(langsmith.calls) == 31
+    assert case.worker.waiting.count() == 0
+    messages = read_messages(caplog)
+    assert messages[:2] == [
+        "score export: cannot write to langfuse: Invalid port: 'abc'",
+        "score export: langfuse scores are dropped in this process: it cannot be reached "
+        "with the settings given",
+    ]
+    assert any("gave up on 1 langsmith score(s)" in message for message in messages)
+
+
+def test_langfuse_is_sent_before_langsmith_in_every_window() -> None:
+    # Arrange
+    order: list[Tracer] = []
+
+    def record(tracer: Tracer) -> Answer:
+        def answer(scores: Sequence[PendingScore]) -> DeliveryReport:
+            order.append(tracer)
+            return DeliveryReport(written=list(scores))
+
+        return answer
+
+    case = build_worker_case(
+        langsmith=[record(Tracer.LANGSMITH)], langfuse=[record(Tracer.LANGFUSE)]
+    )
+    case.put()
+    case.put(tracer=Tracer.LANGFUSE)
+
+    # Act
+    case.worker.send_window()
+
+    # Assert
+    assert order == [Tracer.LANGFUSE, Tracer.LANGSMITH]
+
+
+def test_a_pause_lasts_at_most_the_give_up_limit() -> None:
+    # Arrange: a pause of a day
+    case = build_worker_case(langsmith=[pause_for(86_400.0), write_all])
+    [first] = case.put()
+    started = case.clock.now
+    case.worker.send_window()
+
+    # Act
+    case.clock.now = started + 299.0
+    [later] = case.put()
+    case.worker.send_window()
+    calls_before_the_limit = len(case.senders[Tracer.LANGSMITH].calls)
+    case.clock.now = started + 300.0
+    case.worker.send_window()
+
+    # Assert
+    assert calls_before_the_limit == 1
+    assert case.senders[Tracer.LANGSMITH].calls == [[first], [first, later]]
+
+
+def test_the_drain_drops_at_once_a_tool_paused_past_its_end(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    # Arrange: the service asks for a minute, and the drain has 30 seconds
+    case = build_worker_case(langfuse=[pause_for(60.0)], timings=WorkerTimings(drain_seconds=30.0))
+    case.put(tracer=Tracer.LANGFUSE)
+
+    # Act
+    with caplog.at_level(logging.WARNING, logger=WORKER_LOGGER):
+        case.worker.stop()
+
+    # Assert: one send, no sleeping through the pause, and the scores dropped
+    assert len(case.senders[Tracer.LANGFUSE].calls) == 1
+    assert case.clock.sleeps == []
+    assert case.worker.waiting.count() == 0
+    assert read_messages(caplog) == [
+        "score export: 1 langfuse score(s) dropped: it asked for a pause that outlasts the "
+        "exit drain"
+    ]
+
+
+def test_the_drain_waits_out_a_pause_that_ends_before_it_does() -> None:
+    # Arrange
+    case = build_worker_case(
+        langfuse=[pause_for(12.0), write_all], timings=WorkerTimings(drain_seconds=30.0)
+    )
+    case.put(tracer=Tracer.LANGFUSE)
+
+    # Act
+    case.worker.stop()
+
+    # Assert: windows at 0, 5 and 10 s find the tool paused; the one at 15 s writes
+    assert case.clock.sleeps == [5.0, 5.0, 5.0]
+    assert len(case.senders[Tracer.LANGFUSE].calls) == 2
+    assert case.worker.waiting.count() == 0

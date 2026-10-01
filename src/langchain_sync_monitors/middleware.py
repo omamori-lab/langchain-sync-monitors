@@ -195,7 +195,7 @@ class MonitorMiddleware(AgentMiddleware[MonitorState, AgentContext, StructuredOu
     In LangChain tracers such as LangSmith and Langfuse, each step is a
     `monitor step` span, with the spans that `spans` describes nested in it.
     `export_scores`, empty by default, names the tools that also get each
-    step's highest suspicion as a score; `score_export` has the rules.
+    step's highest suspicion as a score; `Tracer` has the rules.
 
     The instance holds configuration only, so it can be copied and pickled.
     Deep Agents runs parallel subagents through shared middleware instances,

@@ -74,11 +74,13 @@ class OwnTagsJudgeMonitor(KeywordMonitor):
         )
 
     async def evaluate(self, monitor_input: MonitorInput) -> Verdict:
-        await build_judge().ainvoke("Judge this step.", config=self.build_judge_config())
+        if self.judge_model is not None:
+            await self.judge_model.ainvoke("Judge this step.", config=self.build_judge_config())
         return self.score(monitor_input)
 
     def evaluate_sync(self, monitor_input: MonitorInput) -> Verdict:
-        build_judge().invoke("Judge this step.", config=self.build_judge_config())
+        if self.judge_model is not None:
+            self.judge_model.invoke("Judge this step.", config=self.build_judge_config())
         return self.score(monitor_input)
 
 

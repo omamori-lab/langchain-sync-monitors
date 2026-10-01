@@ -1,5 +1,5 @@
-"""Default thresholds warn at the user's constructor call, and each protocol's guide states
-them; chosen thresholds stay quiet."""
+"""Default thresholds warn at the user's constructor call, and the docs state them in each
+protocol's guide and on the pages that sum them up; chosen thresholds stay quiet."""
 
 from __future__ import annotations
 
@@ -28,7 +28,8 @@ from langchain_sync_monitors.thresholds import (
     resolve_threshold,
 )
 
-HOW_TO_GUIDES = Path(__file__).resolve().parents[3] / "docs" / "how-to"
+DOCS = Path(__file__).resolve().parents[3] / "docs"
+HOW_TO_GUIDES = DOCS / "how-to"
 
 
 @pytest.mark.parametrize("value", [0.0, 0.42, 1.0])
@@ -103,6 +104,31 @@ def test_each_protocol_guide_documents_the_default_threshold(
 
     # Assert
     assert f"| `{parameter_name}` | {default.value}, with a warning |" in guide
+
+
+@pytest.mark.parametrize(
+    ("page", "actions"),
+    [
+        ("explanation/design.md", "defer, block or flag"),
+        ("how-to/choose-a-protocol.md", "flag, defer or block"),
+        ("how-to/combine-and-calibrate-monitors.md", "defer, block or flag"),
+    ],
+    ids=["design", "choose-a-protocol", "combine-and-calibrate-monitors"],
+)
+def test_each_page_that_sums_up_the_defaults_states_every_default_threshold(
+    page: str,
+    actions: str,
+) -> None:
+    # Arrange: each page gives defer, block and flag one shared value.
+    shared_default = DEFAULT_DEFER_THRESHOLD.value
+    summary = f"{shared_default} to {actions} and {DEFAULT_AUDIT_THRESHOLD.value} to audit"
+
+    # Act
+    prose = " ".join((DOCS / page).read_text(encoding="utf-8").split())
+
+    # Assert
+    assert DEFAULT_BLOCK_THRESHOLD.value == DEFAULT_FLAG_THRESHOLD.value == shared_default
+    assert summary in prose
 
 
 def test_trusted_monitoring_warns_once_at_the_constructor_call() -> None:

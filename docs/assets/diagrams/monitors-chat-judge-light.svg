@@ -40,7 +40,7 @@
   <rect class="box" x="588.0" y="104.0" width="380.0" height="102.0" rx="6"/>
   <text x="778.0" y="135.0" text-anchor="middle" class="title">The error is raised</text>
   <text x="778.0" y="157.0" text-anchor="middle"><tspan class="small">after the chat model&#x27;s own </tspan><tspan class="mono">max_retries</tspan><tspan class="small">:</tspan></text>
-  <text x="778.0" y="178.0" text-anchor="middle" class="small">the step fails, and nothing runs</text>
+  <text x="778.0" y="178.0" text-anchor="middle" class="small">the step fails, and nothing it proposed runs</text>
   <path class="edge" d="M432.0,139.0 L586.0,139.0" marker-end="url(#arrow)"/>
   <text x="510.0" y="129.0" text-anchor="middle" class="small">the call fails</text>
   <path class="box" d="M50.0,258.0 H414.0 L432.0,298.5 L414.0,339.0 H50.0 L32.0,298.5 Z"/>

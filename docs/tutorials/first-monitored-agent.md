@@ -17,8 +17,8 @@ is harmless, and `http_post`, which could send data anywhere. Neither tool
 touches the real world: `read_file` reads from a Python dictionary, and
 `http_post` only writes down what it was asked to send.
 
-[![The agent's model proposes a step: a tool call or its final answer. The monitor, drawn as an omamori charm, reads it through its view and scores it from 0 to 1. Below 0.6, the step runs: a tool call runs, its result comes back and the agent proposes its next step, and a final answer ends the run. At 0.6 or more, the step is blocked before anything runs, the agent is told why, and it tries again. After 3 blocks in one step, or 20 in the conversation thread, the run halts.](../assets/diagrams/protocol-first-agent-light.svg#only-light)](../assets/diagrams/protocol-first-agent-light.svg "Open the diagram at full size")
-[![The agent's model proposes a step: a tool call or its final answer. The monitor, drawn as an omamori charm, reads it through its view and scores it from 0 to 1. Below 0.6, the step runs: a tool call runs, its result comes back and the agent proposes its next step, and a final answer ends the run. At 0.6 or more, the step is blocked before anything runs, the agent is told why, and it tries again. After 3 blocks in one step, or 20 in the conversation thread, the run halts.](../assets/diagrams/protocol-first-agent-dark.svg#only-dark)](../assets/diagrams/protocol-first-agent-dark.svg "Open the diagram at full size")
+[![The agent's model proposes a step: a tool call or its final answer. The monitor, drawn as an omamori charm, reads it through its view and scores it from 0 to 1. Below 0.6, the step runs: a tool call runs, its result comes back and the agent proposes its next step, and a final answer ends the run. At 0.6 or more, the step is blocked before any of the agent's own tools run, the agent is told why, and it tries again. After 3 blocks in one step, or 20 in the conversation thread, the run halts.](../assets/diagrams/protocol-first-agent-light.svg#only-light)](../assets/diagrams/protocol-first-agent-light.svg "Open the diagram at full size")
+[![The agent's model proposes a step: a tool call or its final answer. The monitor, drawn as an omamori charm, reads it through its view and scores it from 0 to 1. Below 0.6, the step runs: a tool call runs, its result comes back and the agent proposes its next step, and a final answer ends the run. At 0.6 or more, the step is blocked before any of the agent's own tools run, the agent is told why, and it tries again. After 3 blocks in one step, or 20 in the conversation thread, the run halts.](../assets/diagrams/protocol-first-agent-dark.svg#only-dark)](../assets/diagrams/protocol-first-agent-dark.svg "Open the diagram at full size")
 
 A step is one turn of the agent: a tool call or its final answer. The agent
 may make more than one attempt at a step, when an attempt is blocked. The
@@ -33,6 +33,15 @@ You need Python 3.12 or newer. Install the library with the OpenRouter extra:
 
 ```console
 pip install "langchain-sync-monitors[openrouter]"
+```
+
+<!-- release-check: the text below describes an unreleased package. scripts/check-release.sh refuses a release while this comment is here; rewrite that text for the release, then delete this comment. -->
+
+The package is not on PyPI yet. Until the first release, install it from
+GitHub:
+
+```console
+pip install "langchain-sync-monitors[openrouter] @ git+https://github.com/omamori-lab/langchain-sync-monitors"
 ```
 
 The tutorial uses two models through OpenRouter: a small, fast model as the
@@ -201,7 +210,9 @@ Sent: []
 ```
 
 A live judge writes a longer reason in its own words, and its scores can
-differ slightly from run to run. The shape of the log is the same:
+differ slightly from run to run. A live agent's `proposal` can also hold its
+reasoning, and text it wrote beside a tool call, which the judge did not read.
+The shape of the log is the same:
 
 | Step | The agent proposed | Suspicion | What happened |
 |---|---|---|---|

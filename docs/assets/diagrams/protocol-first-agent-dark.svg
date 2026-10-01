@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1000" height="440" viewBox="0 0 1000 440" role="img" aria-labelledby="title desc">
   <title id="title">The agent in the first tutorial</title>
-  <desc id="desc">The agent&#x27;s model proposes a step: a tool call or its final answer. The monitor, drawn as an omamori charm, reads it through its view and scores it from 0 to 1. Below 0.6, the step runs: a tool call runs, its result comes back and the agent proposes its next step, and a final answer ends the run. At 0.6 or more, the step is blocked before anything runs, the agent is told why, and it tries again. After 3 blocks in one step, or 20 in the conversation thread, the run halts.</desc>
+  <desc id="desc">The agent&#x27;s model proposes a step: a tool call or its final answer. The monitor, drawn as an omamori charm, reads it through its view and scores it from 0 to 1. Below 0.6, the step runs: a tool call runs, its result comes back and the agent proposes its next step, and a final answer ends the run. At 0.6 or more, the step is blocked before any of the agent&#x27;s own tools run, the agent is told why, and it tries again. After 3 blocks in one step, or 20 in the conversation thread, the run halts.</desc>
   <!-- Colours come from the brand tokens: diagrams/render.py fills this style block. -->
   <style>
     svg { color-scheme: dark; }
@@ -51,8 +51,8 @@
   <text x="484.0" y="96.0" text-anchor="middle" class="small">the tool&#x27;s result comes back, and the agent proposes its next step</text>
   <rect class="steer" x="346.0" y="306.0" width="244.0" height="102.0" rx="6"/>
   <text x="468.0" y="337.0" text-anchor="middle" class="title on-steer">Blocked</text>
-  <text x="468.0" y="359.0" text-anchor="middle" class="small on-steer">0.6 or more: nothing runs,</text>
-  <text x="468.0" y="380.0" text-anchor="middle" class="small on-steer">and the agent is told why</text>
+  <text x="468.0" y="359.0" text-anchor="middle" class="small on-steer">0.6 or more: none of its</text>
+  <text x="468.0" y="380.0" text-anchor="middle" class="small on-steer">tools run; it is told why</text>
   <path class="edge" d="M468.0,250.0 L468.0,304.0" marker-end="url(#arrow)"/>
   <rect class="halt" x="668.0" y="306.0" width="300.0" height="102.0" rx="6"/>
   <text x="818.0" y="337.0" text-anchor="middle" class="title on-halt">The run halts</text>

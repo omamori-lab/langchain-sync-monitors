@@ -24,10 +24,10 @@ stops at the first that passes; `Resampling.PARALLEL` draws all
 With `max_resamples=0`, a suspicious first sample goes straight to the
 fallback.
 
-Every sample is a fresh call on the same request, and each is judged. Neither
-the agent nor the trusted model sees a rejected sample, so the agent cannot
-tell that it was resampled [@bhatt2025ctrlzpost]. A provider's built-in tools,
-such as a web search, run inside every sample's model call. The step is
+Every sample is judged, and neither the agent nor the trusted model sees a
+rejected sample. Each sample is a fresh call on the same request, so the agent
+cannot tell that it was resampled [@bhatt2025ctrlzpost]. A provider's built-in
+tools, such as a web search, run inside every sample's model call. The step is
 flagged for review when even its least suspicious sample reaches
 `audit_threshold`, the statistic Ctrl-Z found to work well [@bhatt2025ctrlz].
 

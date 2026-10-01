@@ -51,15 +51,15 @@ Claude Code's auto mode reviews each action with a transcript classifier
 before the action runs [@hughes2026automode]. The library takes four things
 from Hughes's account of it:
 
-- **What the classifier reads.** It sees the user's messages and the
-  executable payload of the agent's tool calls. The agent's own messages,
-  tool-call descriptions and all tool outputs are stripped, which makes it
+- **What the classifier reads.** It sees the user's messages and the executable
+  payload of the agent's tool calls. The agent's own messages, tool-call
+  descriptions and all tool outputs are stripped, which makes it
   reasoning-blind by design. `Channel.ACTIONS`, the library's default view,
-  follows it, with differences: it shows a call's name and all its
-  arguments, and it also reads `<tool_error>` entries, subagent reports and
-  the text of a final answer. The post reviews a subagent's results with a
-  separate classifier at return, which only adds a warning; the library
-  shows the report to the parent's monitor as a `<subagent_report>`.
+  follows it, with differences: it shows a call's name and all its arguments,
+  and it also reads `<tool_error>` entries, subagent reports and the text of a
+  final answer. When a subagent returns, the post's classifier reviews its
+  whole action history, and a flag only adds a warning; the library shows the
+  report to the parent's monitor as a `<subagent_report>`.
 - **Deny and continue.** A denied action comes back to the agent with the
   reason and an instruction to find a safer path rather than route around
   the block. `AutoMode` does the same with its `FeedbackTemplate`.
@@ -82,9 +82,8 @@ states it.
 The default view leaves the chain of thought out, as auto mode does, and one
 setting adds it. Studies of reading the chain of thought found this:
 
-- Baker et al. find that a monitor reading the chain of thought detects
-  reward hacking far more accurately than one reading actions alone
-  [@baker2025monitoring].
+- Baker et al. find that a monitor reading the chain of thought catches far
+  more reward hacking than one reading actions alone [@baker2025monitoring].
 - Arnav et al. find that reading the chain of thought helps most on subtle
   sabotage, that its rationalisations can mislead the monitor on obvious
   sabotage, and that a hybrid scoring the chain of thought and the actions
@@ -103,14 +102,13 @@ ranking [@apollo2026monitoringprompt].
 
 ### Thresholds and scores
 
-Control settings set thresholds as percentiles of the scores a monitor gives
-to honest runs, so a 1% audit budget means flagging the top 1% of honest
-steps. BashArena shows that averaging a few calls of a monitor that scores
-from 0 to 10 raises its resolution at low false-positive rates
-[@kaufman2025basharena], and LinuxArena averages two calls per action
-[@tracy2026linuxarena]. Koran et al. note that integer scores from 0 to 10
-leave a sparse threshold space, and find the plain mean as good a way to
-combine monitors' scores as the other aggregators they tried
+Control settings set thresholds as percentiles of the scores a monitor gives to
+honest runs, so a 1% audit budget means flagging the top 1% of honest steps.
+BashArena shows that averaging a few calls of a monitor raises its resolution
+at low false-positive rates [@kaufman2025basharena], and LinuxArena averages
+two calls per action [@tracy2026linuxarena]. Koran et al. note that integer
+scores from 0 to 10 leave a sparse threshold space, and find the plain mean as
+good a way to combine monitors' scores as the other aggregators they tried
 [@koran2026ensemble].
 
 `CalibratedMonitor` reports a step's smoothed conformal rank among honest
@@ -130,8 +128,9 @@ the same argument favours the continuous probabilities of decision models.
 
 Guard models such as Llama Guard [@inan2023llamaguard], ShieldGemma
 [@zeng2024shieldgemma] and Granite Guardian [@padhi2024graniteguardian] score
-with the probability of their "unsafe" label, and Llama Guard 3's model card
-takes the probability of the first generated token as the unsafe class's
+with the probability of the label that marks content unsafe, `unsafe` for Llama
+Guard and `Yes` for the other two, and Llama Guard 3's model card takes the
+probability of the first generated token as the unsafe class's
 [@meta2024llamaguard3]. Guard models are overconfident, and markedly
 miscalibrated under jailbreak prompts [@liu2025guardcalibration].
 
@@ -142,11 +141,12 @@ guards: Xiong et al. see its gains converge as samples grow, and Lyu et al.
 see them saturate after 15 to 20 samples
 [@xiong2024uncertainty; @lyu2025sampleconsistency].
 
-Llama Guard 3 writes its label on the first line and, for unsafe content,
-the codes of the violated categories on the next [@meta2024llamaguard3format].
+Llama Guard 3 writes its label on the first line and, for unsafe content, the
+codes of the violated categories on the next [@meta2024llamaguard3format].
 Llama Guard 4 also lists the violated categories after an unsafe label
-[@meta2025llamaguard4]. `GuardModelMonitor` reads a label on the first line,
-or on the reply's last line, and nowhere else.
+[@meta2025llamaguard4]. `GuardModelMonitor` reads a label on the reply's last
+line, or on its first line when that is a suspicious label followed only by
+category codes, and nowhere else.
 
 ## Decision models
 

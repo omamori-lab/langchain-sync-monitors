@@ -142,7 +142,8 @@ message renders as a note:
   input. One its `after_agent` hook writes, without sending the run back to
   the model, counts as the next run's input. [Who speaks as the
   user](../explanation/design.md#who-speaks-as-the-user) explains why no rule
-  closes them.
+  closes them, and covers two more cases: histories the monitor never saw, and
+  messages added to a resumed run.
 - **A tool's `Send` payload** (issue #76). A tool that returns
   `Command(goto=Send("model", {...}))` hands the model node messages of its
   own, which the monitor reads without relabelling them, so one the tool tags
@@ -212,17 +213,21 @@ standard blocks. A search that leaves no block stays invisible, such as
 Gemini's URL context or the annotations of OpenAI's Chat Completions.
 
 Every sample's record keeps each provider tool result in full, so a large page
-or code output is copied into `monitor_log`, the checkpoint and the step span
-once per sample drawn. If that grows too large, drop the built-in tools that
-return large outputs, or keep the records out of long-lived storage.
+or code output is copied into `monitor_log` and the checkpoint once per sample
+drawn. In a trace, each sample's model call carries its own output, and the
+step span the first sample's. If that grows too large, drop the built-in tools
+that return large outputs, or keep the records out of long-lived storage.
 
 ## Keep only recent entries
 
 On a long run, `most_recent_entries` keeps only the latest entries the view
-shows, which bounds the length and cost of each monitor call. Every message
-from the task author is kept anyway, in order, since the first states the task
-and a later one can narrow or revoke it. Context notes and the monitor's
-feedback are not kept in their place.
+shows, which bounds the length and cost of the rest of each monitor call. Every
+message from the task author is kept anyway, in order, since the first states
+the task and a later one can narrow or revoke it. Context notes and the
+monitor's feedback are not kept in their place. The user's turns are read
+whole, even one of over 50,000 tokens that Deep Agents by default shows the
+agent only as a preview, so a long turn costs tokens on every step; see
+[Keeping the user's turns](../explanation/design.md#keeping-the-users-turns).
 
 ```python
 from langchain_sync_monitors import MonitorView
@@ -231,13 +236,14 @@ from langchain_sync_monitors import MonitorView
 view = MonitorView(most_recent_entries=1)
 ```
 
-After summarisation, or after a tool removes a message by id, the monitor
-still reads every one of the user's turns, verbatim, put back in order before
-the summary, which stays a context note. Input after a run that stopped early
-comes back as a note from `unconfirmed_input`. A tool that reorders turns the
-state still holds reorders them for the judge as for the agent. The monitor
-keeps the text in its private state, so the state grows by the size of the
-user's turns.
+After summarisation, or after a tool removes a message by id, the monitor still
+reads every one of the user's turns, verbatim, though a turn put back holds no
+image. Each goes back just after a message that stood before it and is still
+there, or else at the start, before the summary, which stays a context note;
+the turns put back keep their order. Input after a run that stopped early comes
+back as a note from `unconfirmed_input`. A tool that reorders turns the state
+still holds reorders them for the judge as for the agent. The monitor keeps the
+text in its private state, so the state grows by the size of the user's turns.
 
 ## Name your delegation tools
 

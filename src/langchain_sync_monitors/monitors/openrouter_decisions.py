@@ -150,8 +150,9 @@ class OpenRouterDecisionModel(DecisionModel):
     since it holds the proposed step.
 
     Jev returns probabilities rounded to two decimals, so scores tie at a
-    resolution of 0.01; averaging with `RepeatedMonitor` or combining several
-    questions restores some resolution.
+    resolution of 0.01; averaging with `RepeatedMonitor`, or combining several
+    questions with `Combine.MEAN`, restores some resolution. `Combine.MAX` and
+    `Combine.MIN` return one question's answer, at its resolution.
 
     The key comes from `OPENROUTER_API_KEY` unless `api_key` is given, and a
     blank `api_key` raises `ConfigurationError`. Pass your own `http_client`

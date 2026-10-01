@@ -235,12 +235,12 @@ model's score rests on all of its concerns together: 'sends_data_out': ...;
 
 ## Mind the resolution
 
-In the library's live runs, Jev's probabilities came back with two decimals,
-so its scores tie at a resolution of 0.01. Combining several questions, or
-averaging calls with `RepeatedMonitor`, restores some resolution. A decision
-model also makes a good fast first stage in front of a chat judge; [Combine
-and calibrate monitors](combine-and-calibrate-monitors.md) shows
-`CascadeMonitor`.
+In the library's live runs, Jev's probabilities came back with two decimals, so
+its scores tie at a resolution of 0.01. Averaging calls with `RepeatedMonitor`,
+or combining several questions with `Combine.MEAN`, restores some resolution;
+`MAX` and `MIN` return one question's answer, at its resolution. A decision
+model also makes a good fast first stage in front of a chat judge; [Combine and
+calibrate monitors](combine-and-calibrate-monitors.md) shows `CascadeMonitor`.
 
 ## Related guides
 

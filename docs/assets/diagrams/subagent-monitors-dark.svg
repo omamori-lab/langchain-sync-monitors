@@ -61,7 +61,7 @@
   <text x="514.0" y="172.0" text-anchor="start"><tspan class="small">each </tspan><tspan class="mono">task</tspan><tspan class="small"> call starts a subagent</tspan></text>
   <rect class="box" x="290.0" y="448.0" width="420.0" height="102.0" rx="6"/>
   <text x="500.0" y="479.0" text-anchor="middle"><tspan class="title">The main agent&#x27;s </tspan><tspan class="mono">monitor_log</tspan></text>
-  <text x="500.0" y="501.0" text-anchor="middle" class="small">its own records, then each subagent&#x27;s</text>
+  <text x="500.0" y="501.0" text-anchor="middle" class="small">its own records, and each subagent&#x27;s</text>
   <text x="500.0" y="522.0" text-anchor="middle" class="small">records, halts included</text>
   <path class="edge" d="M178.0,340.0 L178.0,392.0"/>
   <path class="edge" d="M500.0,340.0 L500.0,392.0"/>

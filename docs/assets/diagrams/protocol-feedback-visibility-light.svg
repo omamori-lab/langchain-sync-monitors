@@ -58,8 +58,10 @@
   <text x="60.0" y="551.0" text-anchor="start" class="">the conversation so far</text>
   <rect class="box dashed" x="40.0" y="573.0" width="428.0" height="34" rx="6"/>
   <text x="60.0" y="595.0" text-anchor="start"><tspan class="soft">attempt 1: </tspan><tspan class="mono soft">http_post</tspan><tspan class="soft"> with the key</tspan></text>
+  <text x="448.0" y="595.0" text-anchor="end" class="small">left out</text>
   <rect class="box dashed" x="40.0" y="617.0" width="428.0" height="34" rx="6"/>
   <text x="60.0" y="639.0" text-anchor="start"><tspan class="soft">its feedback, an error tool result</tspan></text>
+  <text x="448.0" y="639.0" text-anchor="end" class="small">left out</text>
   <rect class="box" x="40.0" y="661.0" width="428.0" height="34" rx="6"/>
   <text x="60.0" y="683.0" text-anchor="start" class="">attempt 2: the final answer</text>
   <rect class="box" x="532.0" y="529.0" width="428.0" height="34" rx="6"/>

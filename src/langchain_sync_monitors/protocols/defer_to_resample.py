@@ -35,7 +35,8 @@ class DeferToResample(ControlProtocol):
     writes the step; Ctrl-Z uses the trusted model, `DeferToTrustedModel`.
 
     `Resampling.SEQUENTIAL` draws one sample at a time and stops at the first
-    acceptable one, as Ctrl-Z's appendix J words the protocol.
+    acceptable one, as the authors' post describes the protocol
+    [@bhatt2025ctrlzpost].
     `Resampling.PARALLEL` draws every resample at once, which lowers latency but
     always costs `max_resamples` extra calls. `resampling` must be a
     `Resampling` member; a plain string raises `ConfigurationError`, as do a

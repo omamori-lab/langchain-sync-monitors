@@ -78,33 +78,35 @@ once a subagent was halted, and records a flagged step with no samples; see
   weaker trusted model rates how suspicious it looks, and the most suspicious
   2% is shown to a person before it is used; a backdoor the person finds shuts
   the untrusted model down. Defer to Trusted also submits code the trusted
-  model writes whenever the untrusted model's code scores above a deferral
-  threshold. Here nothing waits for a person: a flag marks the step's record,
-  and the step has already run.
+  model writes when the untrusted model's code scores above a deferral
+  threshold but outside the audited 2%. Here nothing waits for a person: a flag
+  marks the step's record, and the step has already run.
 - **Defer to Resample** comes from Ctrl-Z [@bhatt2025ctrlz]. When a step looks
   suspicious, it draws up to two new samples, runs the least suspicious one
-  below the deferral threshold, and defers to the trusted model only when
-  every sample is above it. At the same deferral threshold it costs much less
-  usefulness than deferring at once, because a fresh sample of an innocent
-  step may look innocent. In Ctrl-Z's BashBench setting it reached 83.2%
-  safety at 95% usefulness, against 72.7% for Defer to Trusted. Those figures
-  come from protocols in which a person audits the most suspicious actions,
-  and a caught attack ends the episode; this library's flag stops nothing. With stronger models, and attacks the
-  untrusted model designs itself, Terekhov et al. found that Defer to Resample
-  performs similarly to Defer to Trusted even without prompt injection, and
-  that resampling gives text aimed at the monitor several tries, which turns
-  an injection that works only sometimes into a best-of-n attack
+  below the deferral threshold, and defers to the trusted model only when every
+  sample is above it. At the same deferral threshold it costs much less
+  usefulness than deferring at once, because a fresh sample of an innocent step
+  may look innocent. In Ctrl-Z's BashBench setting, with a 1% audit budget and
+  usefulness scaled from the trusted model's 0% to the untrusted model's 100%,
+  it reached 83.2% safety at 95% usefulness, against 72.7% for Defer to
+  Trusted. Those figures come from protocols in which a person audits the most
+  suspicious actions, and a caught attack ends the episode; this library's flag
+  stops nothing. With stronger models, and attacks the untrusted model designs
+  itself, Terekhov et al. found that, on BashBench, Defer to Resample performs
+  similarly to Defer to Trusted even without prompt injection, and that
+  resampling gives text aimed at the monitor several tries, which turns an
+  injection that works only sometimes into a best-of-n attack
   [@terekhov2025adaptive].
-- **Auto Mode** follows Claude Code's auto mode [@hughes2026automode]. There
-  a classifier reviews, before it runs, each action that neither an allowlist
-  of safe tools, the user's own allow rules nor the rule for file edits inside
-  the project already allows.
-  A blocked action goes back to the agent with the reason, and a session that
-  reaches three denials in a row or twenty in all is stopped and handed to a
-  person, or, in headless mode, ended. Here the monitor judges every step. The
-  library keeps both limits, counts the total per conversation thread rather
-  than per session, and hands the step to a fallback. The default fallback,
-  `HaltRun`, ends the run, as headless mode does.
+- **Auto Mode** follows Claude Code's auto mode [@hughes2026automode]. There a
+  classifier reviews, before it runs, each action that neither an allowlist of
+  safe tools, the user's own narrow allow rules nor the rule for file edits
+  inside the project already allows. A blocked action goes back to the agent
+  with the reason, and a session that reaches three denials in a row or twenty
+  in all is stopped and handed to a person, or, in headless mode, ended. Here
+  the monitor judges every step. The library keeps both limits, counts the
+  total per conversation thread rather than per session, and hands the step to
+  a fallback. The default fallback, `HaltRun`, ends the run, as headless mode
+  does.
 
 ## What every protocol shares
 
@@ -135,21 +137,20 @@ A halt ends the run with a final message and no tool calls. It comes from the
 routes the agent to its end, even an agent that would otherwise loop until it
 has a structured response.
 
-The halt then stands until a later run brings a message the monitor records
-as new input from the user: the count of the thread's recorded run inputs
-must grow. Until then, if a hook sends the run back to the model, as Deep
-Agents' `RubricMiddleware` does when it grades the task unmet
-[@deepagents2026], each further step halts again without a sample. The
-agent's model is not called, the record is `halted`, flagged, with no
-samples, and the final message is `STANDING_HALT_MESSAGE`, whatever message
-your `HaltRun` has:
+The halt then stands until a later run brings a message the monitor records as
+new input from the user: the count of the thread's recorded run inputs must
+grow. Until then, if a hook sends the run back to the model, as Deep Agents'
+`RubricMiddleware` does when it grades the task unmet [@deepagents2026], each
+further step halts again without a sample. The agent's model is not called, the
+record is `halted`, flagged, with no samples, and the final message is
+`STANDING_HALT_MESSAGE`, from `halts.py`, whatever message your `HaltRun` has:
 
 > [Safety monitor] This run is stopped: the safety monitor halted an earlier
 > step, and that halt stands until a later run brings new input the monitor
 > can confirm. The rejected steps are recorded in monitor_log for review.
 
-[![Before the protocol runs, the monitor checks two halts, and either one decides the step without a sample. A new step can follow a halt, because an after_agent hook can send a halted run back to the model. First, if this monitor's last step halted and the thread has recorded no run input since, the step halts again with STANDING_HALT_MESSAGE. If not, and the monitor has SubagentHalt.STOP_WHOLE_RUN, and a subagent halted since this agent's last step, the step halts, and that halt stands as this agent's own. Otherwise the protocol decides the step as usual. Either halt draws no sample: its record is halted and flagged, and holds no samples.](../assets/diagrams/halt-stands-light.svg#only-light)](../assets/diagrams/halt-stands-light.svg "Open the diagram at full size")
-[![Before the protocol runs, the monitor checks two halts, and either one decides the step without a sample. A new step can follow a halt, because an after_agent hook can send a halted run back to the model. First, if this monitor's last step halted and the thread has recorded no run input since, the step halts again with STANDING_HALT_MESSAGE. If not, and the monitor has SubagentHalt.STOP_WHOLE_RUN, and a subagent halted since this agent's last step, the step halts, and that halt stands as this agent's own. Otherwise the protocol decides the step as usual. Either halt draws no sample: its record is halted and flagged, and holds no samples.](../assets/diagrams/halt-stands-dark.svg#only-dark)](../assets/diagrams/halt-stands-dark.svg "Open the diagram at full size")
+[![Before the protocol runs, the monitor checks two halts, and either one decides the step without a sample. A new step can follow a halt, because an after_agent hook can send a halted run back to the model. First, if this monitor's last step halted and the thread has recorded no run input since, the step halts again with STANDING_HALT_MESSAGE, from halts.py. If not, and the monitor has SubagentHalt.STOP_WHOLE_RUN, and a subagent halted since this agent's last step, the step halts, and that halt stands as this agent's own. Otherwise the protocol decides the step as usual. Either halt draws no sample: its record is halted and flagged, and holds no samples.](../assets/diagrams/halt-stands-light.svg#only-light)](../assets/diagrams/halt-stands-light.svg "Open the diagram at full size")
+[![Before the protocol runs, the monitor checks two halts, and either one decides the step without a sample. A new step can follow a halt, because an after_agent hook can send a halted run back to the model. First, if this monitor's last step halted and the thread has recorded no run input since, the step halts again with STANDING_HALT_MESSAGE, from halts.py. If not, and the monitor has SubagentHalt.STOP_WHOLE_RUN, and a subagent halted since this agent's last step, the step halts, and that halt stands as this agent's own. Otherwise the protocol decides the step as usual. Either halt draws no sample: its record is halted and flagged, and holds no samples.](../assets/diagrams/halt-stands-dark.svg#only-dark)](../assets/diagrams/halt-stands-dark.svg "Open the diagram at full size")
 
 Nothing written during a run lifts the halt: not a hook sending the run back
 to the model, not a harness nudge, not a note from `unconfirmed_input`. A new

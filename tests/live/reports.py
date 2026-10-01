@@ -14,9 +14,9 @@ import json
 import re
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
-from typing import TypedDict
+from typing import Literal, TypedDict
 
-from langchain_core.messages import AIMessage, BaseMessage
+from langchain_core.messages import AIMessage, BaseMessage, ToolMessage
 
 from langchain_sync_monitors import (
     DEFAULT_FEEDBACK_TEMPLATE,
@@ -80,18 +80,26 @@ class StepReport(TypedDict):
 class ToolCallReport(TypedDict):
     """One tool call of a saved message."""
 
+    id: str | None
     name: str
     args: dict[str, object]
 
 
 class MessageReport(TypedDict):
-    """One message of the final state: who wrote it, its id, its tag and its tool calls."""
+    """One message of the final state: who wrote it, its id, its tag and its tool calls.
+
+    A tool result also keeps the id of the call it answers and its status: the
+    tools node answers a call it rejects, such as one missing an argument, with
+    an error, and never runs it.
+    """
 
     type: str
     id: str | None
     source: str | None
     text: str
     tool_calls: list[ToolCallReport]
+    tool_call_id: str | None
+    status: Literal["success", "error"] | None
 
 
 class RunReport(TypedDict):
@@ -291,12 +299,17 @@ def build_step_reports(
 def build_message_report(message: BaseMessage) -> MessageReport:
     """Keep what the execution invariant and the feedback checks read from one message."""
     tool_calls = message.tool_calls if isinstance(message, AIMessage) else []
+    result = message if isinstance(message, ToolMessage) else None
     return {
         "type": message.type,
         "id": message.id,
         "source": read_message_source(message),
         "text": message.text[:COMMITTED_TEXT_LIMIT],
-        "tool_calls": [{"name": call["name"], "args": call["args"]} for call in tool_calls],
+        "tool_calls": [
+            {"id": call["id"], "name": call["name"], "args": call["args"]} for call in tool_calls
+        ],
+        "tool_call_id": None if result is None else result.tool_call_id,
+        "status": None if result is None else result.status,
     }
 
 

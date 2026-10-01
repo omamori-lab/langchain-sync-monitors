@@ -9,7 +9,8 @@ two, removes the first request from the state; the test asserts that it did,
 so the check is not empty. Every judgement must then hold every request of the
 thread so far, verbatim and untagged, and the summary must come through tagged
 `lc_source="summarization"`, so the judge can tell it from the user's words.
-The run must also end without an error and keep the span promises.
+The run must also end without an error and keep the span promises. A run a
+provider rate-limited is skipped.
 
 Each turn builds the agent afresh on the same checkpointer and thread, so
 each judgement knows its turn from the monitor that recorded it. Each run
@@ -41,7 +42,7 @@ from langchain_sync_monitors import (
     Verdict,
 )
 from langchain_sync_monitors.transcript import read_message_source
-from tests.live.checks import LIVE_MARKS, save_report
+from tests.live.checks import LIVE_MARKS, list_errors, save_report, skip_if_rate_limited
 from tests.live.costs import CostLedger, CostRole
 from tests.live.harness import (
     SUSPICION_THRESHOLD,
@@ -239,6 +240,12 @@ def test_every_judgement_keeps_every_request_after_summarisation(
     }
     save_report(report, name=f"kept-run-inputs-{mode}", directory=report_directory)
     logger.info("kept run inputs, %s: cost %s", mode, report["cost"])
+    errors = [
+        error
+        for outcome in thread.outcomes
+        for error in list_errors(outcome.error, failed_steps=outcome.failed_steps)
+    ]
+    skip_if_rate_limited(errors, name=f"kept-run-inputs-{mode}")
     assert [outcome.error for outcome in thread.outcomes] == [None, None]
     assert trace["problems"] == []
     assert TURNS[0] not in final_requests

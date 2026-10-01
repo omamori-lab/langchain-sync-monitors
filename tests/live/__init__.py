@@ -32,8 +32,9 @@ in full, on 1 October 2026:
 The suite cost $0.053 in all and took 21 minutes: 34 tests passed, and the
 Deep Agents whole-run halt under `invoke()` was skipped, its run reaching no
 halt. The suite's worst case is the sum of the caps, $0.88, since no cap is
-shared across runs. Every run also checks the execution invariant and the
-monitor's spans, which costs nothing more. The offline modules, `test_harness_offline` and
-`test_eval_checks_offline`, run the same harness and checks on fakes in the
-regular suite.
+shared across runs. Every agent run also checks the monitor's spans, and
+every run but those of the Deep Agent and the summarised thread checks the
+execution invariant too; neither check costs anything more. The offline modules,
+`test_harness_offline` and `test_eval_checks_offline`, run the same harness
+and checks on fakes in the regular suite.
 """

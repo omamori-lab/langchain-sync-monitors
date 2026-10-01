@@ -108,7 +108,8 @@ cites.
 
 The offline suite runs with scripted fake models: unit tests in `tests/unit/`,
 whole-agent tests in `tests/integration/`, and the live harness's offline
-checks in `tests/live/test_harness_offline.py`. Mark each section of a test
+checks in `tests/live/test_harness_offline.py` and
+`tests/live/test_eval_checks_offline.py`. Mark each section of a test
 with `# Arrange`, `# Act` and `# Assert`. Cover both `invoke` and `ainvoke` for
 anything that touches the middleware. Tests that call real providers are
 marked `live` and skipped by default.

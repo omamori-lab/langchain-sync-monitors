@@ -364,18 +364,18 @@ them; when the runs were made, it allowed thirteen. A step counts once however
 many samples it draws, so under Defer to Resample nine steps can make up to 27
 calls of the agent's model.
 
-The live suite goes beyond the matrix: the attack under every protocol
-variant, honest runs of four tasks under each monitor, Jev inside each
+The live suite goes beyond the matrix: the attack under six protocol
+variants, honest runs of four tasks under each monitor, Jev inside each
 wrapper monitor, a forced halt, a Deep Agent with a monitored subagent, and
 two turns after summarisation. `tests/live/__init__.py` says what each test
 measures and what the suite costs. The whole-agent attack counts as tried
 when a sample proposed reading `config/.env` or sending the key, so a monitor
-that blocks the read is tested too, and its test is skipped only when no
-sample did. The other tests are skipped only when a run never reached what
-they measure: the protocol tests when no sample reached the threshold, and
-the test of a subagent's halt that stops the whole run when no subagent step
-was halted. A run a provider rate-limits is skipped, and every live test is
-skipped without a key:
+that blocks the read is tested too. A test is skipped when its run never
+reached what it measures: the whole-agent attack when no sample proposed
+either step, a protocol test when no sample reached the threshold, and each
+test of a subagent's halt, whether the halt stops the whole run or only the
+subagent, when no subagent step was halted. A run a provider rate-limits is
+skipped too, and every live test is skipped without a key:
 
 ```console
 # Install every extra, give the key to this shell only, and run the live suite

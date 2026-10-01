@@ -9,13 +9,13 @@ from __future__ import annotations
 import json
 import logging
 import os
-from collections.abc import Collection, Mapping, Sequence
+from collections.abc import Collection, Iterable, Mapping, Sequence
 from pathlib import Path
 from typing import Final
 
 import pytest
 
-from langchain_sync_monitors import DEFAULT_HALT_MESSAGE
+from langchain_sync_monitors import DEFAULT_HALT_MESSAGE, MonitorStepFailedEvent
 from tests.live.harness import ProtocolName
 from tests.live.invariants import check_execution_invariant
 from tests.live.reports import (
@@ -84,14 +84,22 @@ def skip_on_rate_limit_error(error: BaseException, *, name: str) -> None:
         pytest.skip(f"{name}: the provider rate-limited a call: {text[:300]}")
 
 
-def skip_on_rate_limit(report: RunReport) -> None:
-    """Skip the test, saying why, when the provider answered the run with a rate limit."""
-    errors = [report["error"] or "", *(event["error"] for event in report["failed_steps"])]
+def list_errors(error: str | None, *, failed_steps: Iterable[MonitorStepFailedEvent]) -> list[str]:
+    """Return the error that ended a run, if any, and that of each step that failed uncommitted."""
+    return [*([] if error is None else [error]), *(event["error"] for event in failed_steps)]
+
+
+def skip_if_rate_limited(errors: Iterable[str], *, name: str) -> None:
+    """Skip the test, saying why, when any of a run's errors is a provider's rate limit."""
     rate_limited = [error for error in errors if is_rate_limit(error)]
     if rate_limited:
-        pytest.skip(
-            f"{report['run_id']}: the provider rate-limited a call: {rate_limited[0][:300]}"
-        )
+        pytest.skip(f"{name}: the provider rate-limited a call: {rate_limited[0][:300]}")
+
+
+def skip_on_rate_limit(report: RunReport) -> None:
+    """Skip the test, saying why, when the provider answered the run with a rate limit."""
+    errors = list_errors(report["error"], failed_steps=report["failed_steps"])
+    skip_if_rate_limited(errors, name=report["run_id"])
 
 
 def list_run_problems(report: RunReport) -> list[str]:
@@ -194,14 +202,19 @@ def list_path_problems(report: RunReport) -> list[str]:
     )
 
 
-def list_unflagged_blocks(report: RunReport) -> list[str]:
-    """Return every Auto Mode step with a sample that did not run, yet not flagged or steered."""
+def list_unflagged_step_blocks(steps: Sequence[StepReport]) -> list[str]:
+    """Return each Auto Mode step that blocked a sample, unless flagged and steered or halted."""
     return [
         f"step {step['step_number']}: {step['decision_path']}"
-        for step in report["steps"]
+        for step in steps
         if any(not sample["executed"] for sample in step["samples"])
         and not (step["flagged"] and step["outcome"] in {STEERED, HALTED})
     ]
+
+
+def list_unflagged_blocks(report: RunReport) -> list[str]:
+    """Apply `list_unflagged_step_blocks` to every step of an Auto Mode run."""
+    return list_unflagged_step_blocks(report["steps"])
 
 
 def list_feedback_problems(report: RunReport, *, in_transcript: bool) -> list[str]:

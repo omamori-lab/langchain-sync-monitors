@@ -23,6 +23,20 @@ change raises the minor version.
 - The `CachedResampleWarning` about a monitor's cached model says "an LLM
   monitor" where it said "a chat judge"; a warning filter that matches the old
   text needs the new one.
+- The `UncalibratedThresholdWarning` for a threshold compared with one
+  sample's score says `CalibratedMonitor`'s scores are "smoothed conformal
+  p-values against honest scores", where it said "honest-run percentiles"; a
+  warning filter that matches the old text needs the new one.
+
+### Fixed
+
+- Ten figures, and the prose and docstrings beside them, now match the code:
+  a failed step runs none of the agent's own tools, Defer to Resample defers
+  only when no sample passes, `CalibratedMonitor` reports a smoothed conformal
+  p-value, a guard raises `ConfigurationError` only when the chat model's
+  adapter rejects the `logprobs` keyword, the monitor's own feedback renders
+  as `<monitor_feedback>`, and input after a run that stopped early is
+  recorded as no input.
 
 ## [0.1.0] - 2026-10-01
 

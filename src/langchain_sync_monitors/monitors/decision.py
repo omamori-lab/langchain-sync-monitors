@@ -247,7 +247,8 @@ class DecisionModelMonitor(Monitor):
     Every answer is checked, whichever `DecisionModel` gave it: a skipped
     question, or an answer that is not a finite number from 0 to 1 (an
     `int`, a `float`, a `Decimal` or another real number, but not a `bool`),
-    raises `MonitorError`, so the step fails and nothing it proposed runs.
+    raises `MonitorError`, so the step fails, and none of the agent's own
+    tools run.
     """
 
     def __init__(

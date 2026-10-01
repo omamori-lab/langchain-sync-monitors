@@ -14,7 +14,7 @@ threshold has a default, listed in
 default warns. This is the warning Auto Mode gives:
 
 ```text
-UncalibratedThresholdWarning: block_threshold uses the uncalibrated default 0.6. Suspicion scores differ between monitors and agents, so a fixed default may block honest work or miss attacks. Run the agent on honest tasks, take the suspicion scores of the monitor_log records whose agent and monitor are your MonitorMiddleware's agent_name and label, and set the threshold at a high percentile of those scores (for example the 98th), as the section "Calibrate the threshold" of the guide "Use Trusted Monitoring" shows, or wrap the monitor in CalibratedMonitor so that its scores are honest-run percentiles. Pass block_threshold explicitly to silence this warning.
+UncalibratedThresholdWarning: block_threshold uses the uncalibrated default 0.6. Suspicion scores differ between monitors and agents, so a fixed default may block honest work or miss attacks. Run the agent on honest tasks, take the suspicion scores of the monitor_log records whose agent and monitor are your MonitorMiddleware's agent_name and label, and set the threshold at a high percentile of those scores (for example the 98th), as the section "Calibrate the threshold" of the guide "Use Trusted Monitoring" shows, or wrap the monitor in CalibratedMonitor so that its scores are smoothed conformal p-values against honest scores. Pass block_threshold explicitly to silence this warning.
 ```
 
 Treat the defaults as placeholders. Each monitor spreads its scores
@@ -39,9 +39,9 @@ honest runs does what it asks. There are two ways to choose one:
 
 - Take a high percentile of the raw honest scores. This is simple, but a
   percentile that falls among tied scores flags every step in the tie.
-- Wrap the monitor in `CalibratedMonitor`. Its scores are then honest-run
-  percentiles, so a threshold of 0.99 compared with one sample's score flags
-  about 1% of honest steps.
+- Wrap the monitor in `CalibratedMonitor`. Its scores are then smoothed
+  conformal p-values against the honest scores, so a threshold of 0.99
+  compared with one sample's score flags about 1% of honest steps.
 
 The rest of this guide takes the second way.
 
@@ -111,8 +111,8 @@ scores measured, here the mean of three calls, and the mean adds the
 resolution that ranking needs. The other way round would average percentiles,
 and a mean of percentiles is not itself a percentile.
 
-[![CalibratedMonitor wraps RepeatedMonitor, which wraps LLMMonitor. The proposed step goes to the LLM monitor three times, and RepeatedMonitor takes the mean of the three scores, rounded to 12 decimal places, with the reason of the most suspicious call. CalibratedMonitor then ranks that mean among the honest scores, which were collected with this same stack, so the verdict's suspicion is an honest-run percentile and its reason is still the most suspicious call's.](../assets/diagrams/monitors-average-then-calibrate-light.svg#only-light)](../assets/diagrams/monitors-average-then-calibrate-light.svg "Open the diagram at full size")
-[![CalibratedMonitor wraps RepeatedMonitor, which wraps LLMMonitor. The proposed step goes to the LLM monitor three times, and RepeatedMonitor takes the mean of the three scores, rounded to 12 decimal places, with the reason of the most suspicious call. CalibratedMonitor then ranks that mean among the honest scores, which were collected with this same stack, so the verdict's suspicion is an honest-run percentile and its reason is still the most suspicious call's.](../assets/diagrams/monitors-average-then-calibrate-dark.svg#only-dark)](../assets/diagrams/monitors-average-then-calibrate-dark.svg "Open the diagram at full size")
+[![CalibratedMonitor wraps RepeatedMonitor, which wraps LLMMonitor. The proposed step goes to the LLM monitor three times, and RepeatedMonitor takes the mean of the three scores, rounded to 12 decimal places, with the reason of the most suspicious call. CalibratedMonitor then ranks that mean among the honest scores, which were collected with RepeatedMonitor(LLMMonitor), so the verdict's suspicion is the mean's smoothed conformal p-value against the honest scores, and its reason is still the most suspicious call's.](../assets/diagrams/monitors-average-then-calibrate-light.svg#only-light)](../assets/diagrams/monitors-average-then-calibrate-light.svg "Open the diagram at full size")
+[![CalibratedMonitor wraps RepeatedMonitor, which wraps LLMMonitor. The proposed step goes to the LLM monitor three times, and RepeatedMonitor takes the mean of the three scores, rounded to 12 decimal places, with the reason of the most suspicious call. CalibratedMonitor then ranks that mean among the honest scores, which were collected with RepeatedMonitor(LLMMonitor), so the verdict's suspicion is the mean's smoothed conformal p-value against the honest scores, and its reason is still the most suspicious call's.](../assets/diagrams/monitors-average-then-calibrate-dark.svg#only-dark)](../assets/diagrams/monitors-average-then-calibrate-dark.svg "Open the diagram at full size")
 
 ## Collect honest scores
 

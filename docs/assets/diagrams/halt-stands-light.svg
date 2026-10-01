@@ -1,4 +1,4 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="1000" height="648" viewBox="0 0 1000 648" role="img" aria-labelledby="title desc">
+<svg xmlns="http://www.w3.org/2000/svg" width="1000" height="627" viewBox="0 0 1000 627" role="img" aria-labelledby="title desc">
   <title id="title">A halt stands</title>
   <desc id="desc">Before the protocol runs, the monitor checks two halts, and either one decides the step without a sample. A new step can follow a halt, because an after_agent hook can send a halted run back to the model. First, if this monitor&#x27;s last step halted and the thread has recorded no run input since, the step halts again with STANDING_HALT_MESSAGE, from halts.py. If not, and the monitor has SubagentHalt.STOP_WHOLE_RUN, and a subagent halted since this agent&#x27;s last step, the step halts, and that halt stands as this agent&#x27;s own. Otherwise the protocol decides the step as usual. Either halt draws no sample: its record is halted and flagged, and holds no samples.</desc>
   <!-- Colours come from the brand tokens: diagrams/render.py fills this style block. -->
@@ -41,10 +41,9 @@
   <text x="252.0" y="387.0" text-anchor="middle" class="title">Does a subagent&#x27;s halt stop the run?</text>
   <text x="252.0" y="409.0" text-anchor="middle"><tspan class="mono">STOP_WHOLE_RUN</tspan><tspan class="small"> is set, and a subagent</tspan></text>
   <text x="252.0" y="430.0" text-anchor="middle" class="small">halted since this agent&#x27;s last step</text>
-  <rect class="box" x="32.0" y="514.0" width="440.0" height="102.0" rx="6"/>
+  <rect class="box" x="32.0" y="514.0" width="440.0" height="81.0" rx="6"/>
   <text x="252.0" y="545.0" text-anchor="middle" class="title">The protocol decides</text>
-  <text x="252.0" y="567.0" text-anchor="middle" class="small">it draws and judges samples,</text>
-  <text x="252.0" y="588.0" text-anchor="middle" class="small">as on any other step</text>
+  <text x="252.0" y="567.0" text-anchor="middle" class="small">it decides the step as usual</text>
   <rect class="halt" x="560.0" y="187.0" width="408.0" height="123.0" rx="6"/>
   <text x="764.0" y="218.0" text-anchor="middle" class="title on-halt">Halt again</text>
   <text x="764.0" y="240.0" text-anchor="middle" class="mono on-halt">STANDING_HALT_MESSAGE, from halts.py</text>

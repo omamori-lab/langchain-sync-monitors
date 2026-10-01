@@ -260,8 +260,8 @@ class GuardModelMonitor(ChatModelMonitor):
     one. Guard models are overconfident (section 4.2.1)
     [@liu2025guardcalibration], so honest steps tend to pile up at 0 and tie,
     and a raw threshold flags an unknown share of them. Set thresholds on
-    honest-run percentiles with `CalibratedMonitor` instead: it fixes what a
-    threshold means, not the guard's probability calibration.
+    smoothed conformal p-values with `CalibratedMonitor` instead: it fixes
+    what a threshold means, not the guard's probability calibration.
 
     The verdict's reason states the guard's finding, with no probability or
     count: the most severe label among sampled replies, or, from

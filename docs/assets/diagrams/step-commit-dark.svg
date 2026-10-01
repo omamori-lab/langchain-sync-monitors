@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1000" height="434" viewBox="0 0 1000 434" role="img" aria-labelledby="title desc">
   <title id="title">A committed step and a failed one</title>
-  <desc id="desc">A monitored step ends in one of three ways. When it is decided, by the protocol or by a halt found before any sample, it is committed: one StepRecord joins monitor_log, and a monitor_step event is written to the custom stream. When a call inside it raises first, whether one of the agent&#x27;s samples, one of the monitor&#x27;s calls or the trusted model&#x27;s step, it is not committed: none of the agent&#x27;s own tools run, no record joins monitor_log, a monitor_step_failed event lists the samples judged so far, and the error is raised again. LangGraph&#x27;s own control flow, such as the interrupt that interrupt() raises, passes through with no record and no event.</desc>
+  <desc id="desc">A monitored step ends in one of three ways. When it is decided, by the protocol or by a halt found before any sample, it is committed: one StepRecord joins monitor_log, and a monitor_step event is written to the custom stream. When something inside it raises first, such as one of the agent&#x27;s samples, one of the monitor&#x27;s calls, the trusted model&#x27;s step or a malformed protocol decision, it is not committed: none of the agent&#x27;s own tools run, no record joins monitor_log, a monitor_step_failed event lists the samples judged so far, and the error is raised again. LangGraph&#x27;s own control flow, such as the interrupt that interrupt() raises, passes through with no record and no event.</desc>
   <!-- Colours come from the brand tokens: diagrams/render.py fills this style block. -->
   <style>
     svg { color-scheme: dark; }
@@ -44,13 +44,13 @@
   <rect class="box" x="32.0" y="170.0" width="300.0" height="102.0" rx="6"/>
   <text x="182.0" y="201.0" text-anchor="middle" class="title">A monitored step</text>
   <text x="182.0" y="223.0" text-anchor="middle" class="small">its samples drawn and judged, or</text>
-  <text x="182.0" y="244.0" text-anchor="middle" class="small">a halt found before any sample</text>
+  <text x="182.0" y="244.0" text-anchor="middle" class="small">decided before any sample</text>
   <path class="edge" d="M332.0,221.0 L372.0,221.0"/>
   <path class="edge" d="M372.0,91.0 L372.0,351.0"/>
   <path class="edge" d="M372.0,91.0 L518.0,91.0" marker-end="url(#arrow)"/>
   <path class="edge" d="M372.0,221.0 L518.0,221.0" marker-end="url(#arrow)"/>
   <path class="edge" d="M372.0,351.0 L518.0,351.0" marker-end="url(#arrow)"/>
   <text x="446.0" y="79.0" text-anchor="middle" class="small">decided</text>
-  <text x="446.0" y="209.0" text-anchor="middle" class="small">a call raised</text>
+  <text x="446.0" y="209.0" text-anchor="middle" class="small">it raised</text>
   <text x="446.0" y="339.0" text-anchor="middle" class="small">control flow</text>
 </svg>

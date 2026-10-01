@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1000" height="822" viewBox="0 0 1000 822" role="img" aria-labelledby="title desc">
   <title id="title">Three kinds of monitor model, one scale</title>
-  <desc id="desc">Three monitor classes cover three kinds of model, each drawn as the charm. LLMMonitor asks a chat model to reason and then score the step, from 0 to 10 by default. GuardModelMonitor has a guard model label the step against a policy you write, and suspicion is the chance the label is unsafe. DecisionModelMonitor asks a decision model yes or no questions, and suspicion is the chance of yes. Each returns the same Verdict, a suspicion from 0 to 1 and a reason, so any monitor works with any control protocol. Three wrappers nest around any monitor: RepeatedMonitor averages several calls, CalibratedMonitor ranks the score among the scores of honest runs, and CascadeMonitor runs a fast monitor on every step and, when the fast one finds the step suspicious, a careful one whose verdict replaces the fast one&#x27;s.</desc>
+  <desc id="desc">Three monitor classes cover three kinds of model, each drawn as the charm. LLMMonitor asks a chat model to reason and then score the step, from 0 to 10 by default. GuardModelMonitor has a guard model label the step against a policy you write, and suspicion is the probability of the unsafe label. DecisionModelMonitor asks a decision model yes or no questions, and suspicion is the probability of yes. Each returns the same Verdict, a suspicion from 0 to 1 and a reason, so any monitor works with any control protocol. Three wrappers nest around any monitor: RepeatedMonitor averages several calls, CalibratedMonitor reports the score&#x27;s smoothed conformal p-value against the scores of honest runs, and CascadeMonitor runs a fast monitor on every step and, when the fast one finds the step suspicious, a careful one whose verdict replaces the fast one&#x27;s.</desc>
   <!-- Colours come from the brand tokens: diagrams/render.py fills this style block. -->
   <style>
     svg { color-scheme: light; }
@@ -43,14 +43,14 @@
   <text x="197.0" y="290.0" text-anchor="middle" class="title on-charm">Guard model</text>
   <text x="197.0" y="312.0" text-anchor="middle" class="mono on-charm">GuardModelMonitor</text>
   <text x="197.0" y="333.0" text-anchor="middle" class="small on-charm">labels the step against your policy;</text>
-  <text x="197.0" y="354.0" text-anchor="middle" class="small on-charm">suspicion: the chance it is unsafe</text>
+  <text x="197.0" y="354.0" text-anchor="middle" class="small on-charm">suspicion: the probability it is unsafe</text>
   <path class="charm-cord" d="M191.0,423.0 C187.0,406.0 207.0,406.0 203.0,423.0"/>
   <path class="charm" d="M48.0,422.0 H346.0 L362.0,438.0 V539.0 Q362.0,545.0 356.0,545.0 H38.0 Q32.0,545.0 32.0,539.0 V438.0 Z"/>
   <rect class="seal" x="41.0" y="527.0" width="9" height="9" rx="1"/>
   <text x="197.0" y="453.0" text-anchor="middle" class="title on-charm">Decision model</text>
   <text x="197.0" y="475.0" text-anchor="middle" class="mono on-charm">DecisionModelMonitor</text>
   <text x="197.0" y="496.0" text-anchor="middle" class="small on-charm">answers yes or no questions;</text>
-  <text x="197.0" y="517.0" text-anchor="middle" class="small on-charm">suspicion: the chance of yes</text>
+  <text x="197.0" y="517.0" text-anchor="middle" class="small on-charm">suspicion: the probability of yes</text>
   <rect class="box" x="460.0" y="269.5" width="210.0" height="102.0" rx="6"/>
   <text x="565.0" y="300.5" text-anchor="middle" class="title">Verdict</text>
   <text x="565.0" y="322.5" text-anchor="middle" class="small">suspicion from 0 to 1,</text>
@@ -73,8 +73,8 @@
   <rect class="box" x="358.7" y="643.0" width="282.7" height="123.0" rx="6"/>
   <text x="500.0" y="674.0" text-anchor="middle" class="title">Calibrate</text>
   <text x="500.0" y="696.0" text-anchor="middle" class="mono">CalibratedMonitor</text>
-  <text x="500.0" y="717.0" text-anchor="middle" class="small">ranks each score among</text>
-  <text x="500.0" y="738.0" text-anchor="middle" class="small">the scores of honest runs</text>
+  <text x="500.0" y="717.0" text-anchor="middle" class="small">each score&#x27;s smoothed conformal</text>
+  <text x="500.0" y="738.0" text-anchor="middle" class="small">p-value against honest scores</text>
   <rect class="box" x="669.3" y="643.0" width="282.7" height="123.0" rx="6"/>
   <text x="810.7" y="674.0" text-anchor="middle" class="title">Cascade</text>
   <text x="810.7" y="696.0" text-anchor="middle" class="mono">CascadeMonitor</text>

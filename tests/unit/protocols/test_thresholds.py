@@ -48,7 +48,8 @@ SINGLE_SAMPLE_AUDIT_WARNING = (
     "agent and monitor are your MonitorMiddleware's agent_name and label, and set the "
     "threshold at a high percentile of those scores (for example the 98th), as the section "
     '"Calibrate the threshold" of the guide "Use Trusted Monitoring" shows, or wrap the '
-    "monitor in CalibratedMonitor so that its scores are honest-run percentiles. Pass "
+    "monitor in CalibratedMonitor so that its scores are smoothed conformal p-values "
+    "against honest scores. Pass "
     "audit_threshold explicitly to silence this warning."
 )
 SINGLE_SAMPLE_DEFER_WARNING = (
@@ -58,7 +59,8 @@ SINGLE_SAMPLE_DEFER_WARNING = (
     "agent and monitor are your MonitorMiddleware's agent_name and label, and set the "
     "threshold at a high percentile of those scores (for example the 98th), as the section "
     '"Calibrate the threshold" of the guide "Use Trusted Monitoring" shows, or wrap the '
-    "monitor in CalibratedMonitor so that its scores are honest-run percentiles. Pass "
+    "monitor in CalibratedMonitor so that its scores are smoothed conformal p-values "
+    "against honest scores. Pass "
     "defer_threshold explicitly to silence this warning."
 )
 SINGLE_SAMPLE_BLOCK_WARNING = (
@@ -68,7 +70,8 @@ SINGLE_SAMPLE_BLOCK_WARNING = (
     "agent and monitor are your MonitorMiddleware's agent_name and label, and set the "
     "threshold at a high percentile of those scores (for example the 98th), as the section "
     '"Calibrate the threshold" of the guide "Use Trusted Monitoring" shows, or wrap the '
-    "monitor in CalibratedMonitor so that its scores are honest-run percentiles. Pass "
+    "monitor in CalibratedMonitor so that its scores are smoothed conformal p-values "
+    "against honest scores. Pass "
     "block_threshold explicitly to silence this warning."
 )
 LOWEST_SAMPLE_SCORE_AUDIT_WARNING = (

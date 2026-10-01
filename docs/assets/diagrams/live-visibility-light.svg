@@ -52,7 +52,7 @@
   <text x="630.0" y="268.0" text-anchor="middle" class="small">never</text>
   <rect class="dashed" x="758.7" y="246.0" width="209.3" height="34.0" rx="6"/>
   <text x="863.3" y="268.0" text-anchor="middle" class="small">never</text>
-  <text x="32.0" y="314.0" text-anchor="start" class="body">The app&#x27;s system prompt</text>
+  <text x="32.0" y="314.0" text-anchor="start" class="body">The application&#x27;s system prompt</text>
   <rect class="box" x="292.0" y="292.0" width="209.3" height="34.0" rx="6"/>
   <text x="396.7" y="314.0" text-anchor="middle" class="body">sees it</text>
   <rect class="box" x="525.3" y="292.0" width="209.3" height="34.0" rx="6"/>

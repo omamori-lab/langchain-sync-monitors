@@ -372,18 +372,13 @@ def build_tool_entry(
     if is_monitor_feedback(message):
         return build_monitor_feedback_entry(message, name=tool_name)
     if message.status == "error":
-        return TranscriptEntry(
-            channel=Channel.TOOL_CALLS,
-            text=wrap_in_tag(tag="tool_error", content=message.text, name=tool_name),
-        )
-    if tool_name in view.delegation_tools:
-        return TranscriptEntry(
-            channel=Channel.SUBAGENT_REPORTS,
-            text=wrap_in_tag(tag="subagent_report", content=message.text, name=tool_name),
-        )
+        channel, tag = Channel.TOOL_CALLS, "tool_error"
+    elif tool_name in view.delegation_tools:
+        channel, tag = Channel.SUBAGENT_REPORTS, "subagent_report"
+    else:
+        channel, tag = Channel.TOOL_RESULTS, "tool_result"
     return TranscriptEntry(
-        channel=Channel.TOOL_RESULTS,
-        text=wrap_in_tag(tag="tool_result", content=message.text, name=tool_name),
+        channel=channel, text=wrap_in_tag(tag=tag, content=message.text, name=tool_name)
     )
 
 

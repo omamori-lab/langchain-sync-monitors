@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import time
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -38,16 +39,20 @@ class RecordingHandler:
         self.requests.append(request)
         self.running += 1
         self.most_at_once = max(self.most_at_once, self.running)
-        response = ModelResponse(result=[request.model.invoke(request.messages)])
-        self.running -= 1
-        return response
+        try:
+            time.sleep(self.delay)
+            return ModelResponse(result=[request.model.invoke(request.messages)])
+        finally:
+            self.running -= 1
 
     async def run_async(self, request: ModelRequest[Any]) -> ModelResponse[Any]:
         self.requests.append(request)
         self.running += 1
         self.most_at_once = max(self.most_at_once, self.running)
-        await asyncio.sleep(self.delay)
-        self.running -= 1
+        try:
+            await asyncio.sleep(self.delay)
+        finally:
+            self.running -= 1
         return ModelResponse(result=[await request.model.ainvoke(request.messages)])
 
 
@@ -191,8 +196,8 @@ def test_sync_step_draws_samples_one_after_another_however_asked(
     count: int,
     expected_overlap: int,
 ) -> None:
-    # Arrange
-    handler = RecordingHandler()
+    # Arrange: each call holds the model a moment, so draws run on threads would overlap
+    handler = RecordingHandler(delay=0.01)
     step = SyncPendingStep(
         request=build_request(untrusted_model),
         handler=handler,

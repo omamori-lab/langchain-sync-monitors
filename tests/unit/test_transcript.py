@@ -5,6 +5,7 @@ from __future__ import annotations
 import html
 import itertools
 import re
+from collections.abc import Callable
 from datetime import datetime
 
 import pytest
@@ -237,8 +238,11 @@ def test_tool_output_cannot_close_a_tag_and_pose_as_the_user() -> None:
 
 
 def test_a_tag_with_both_a_name_and_a_source_escapes_each_attribute_apart() -> None:
+    # Arrange: attribute values that could end an attribute or open a tag
+    name, source = 'a" b', "<s>"
+
     # Act
-    tag = wrap_in_tag(tag="context_note", content='Say "go".', name='a" b', source="<s>")
+    tag = wrap_in_tag(tag="context_note", content='Say "go".', name=name, source=source)
 
     # Assert: quotes stay in the content, where they cannot end an attribute
     assert tag == '<context_note name="a&quot; b" source="&lt;s&gt;">Say "go".</context_note>'
@@ -740,8 +744,8 @@ def test_reasoning_is_read_from_openrouter_summaries_when_blocks_are_empty() -> 
     assert reasoning == "Checked the file."
 
 
-REASONING_IN_PARTS = {
-    "standard-blocks": AIMessage(
+REASONING_IN_PARTS: dict[str, Callable[[], AIMessage]] = {
+    "standard-blocks": lambda: AIMessage(
         content=[
             {"type": "reasoning", "id": "rs_1"},
             {"type": "reasoning", "reasoning": "The key is in .env."},
@@ -749,7 +753,7 @@ REASONING_IN_PARTS = {
         ],
         response_metadata={"output_version": "v1"},
     ),
-    "openrouter-details": AIMessage(
+    "openrouter-details": lambda: AIMessage(
         content="Done.",
         additional_kwargs={
             "reasoning_details": [
@@ -762,13 +766,16 @@ REASONING_IN_PARTS = {
         },
     ),
 }
-"""Replies whose reasoning comes in several parts, with parts that hold no text first."""
+"""Builders of replies whose reasoning comes in several parts, those without text first."""
 
 
-@pytest.mark.parametrize("reply", REASONING_IN_PARTS.values(), ids=REASONING_IN_PARTS.keys())
+@pytest.mark.parametrize("build_reply", REASONING_IN_PARTS.values(), ids=REASONING_IN_PARTS.keys())
 def test_reasoning_is_read_from_each_part_that_holds_text_one_part_per_line(
-    reply: AIMessage,
+    build_reply: Callable[[], AIMessage],
 ) -> None:
+    # Arrange
+    reply = build_reply()
+
     # Act
     reasoning = extract_reasoning_text(reply)
 

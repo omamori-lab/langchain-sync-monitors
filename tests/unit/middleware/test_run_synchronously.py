@@ -11,7 +11,7 @@ from collections.abc import Callable, Coroutine
 import pytest
 
 from langchain_sync_monitors.errors import SynchronousRunError
-from langchain_sync_monitors.pending_steps import SYNCHRONOUS_RUN_MESSAGE, run_synchronously
+from langchain_sync_monitors.pending_steps import run_synchronously
 
 
 async def return_after_awaiting_plain_coroutines() -> str:
@@ -177,7 +177,9 @@ FAILURES_AFTER_SCHEDULING: dict[str, tuple[Callable[[], Exception], str]] = {
     "the-pending-step-s-own-error": (lambda: SynchronousRunError(STEP_ERROR), STEP_ERROR),
     "asyncio-s-missing-loop-error": (
         lambda: RuntimeError("no running event loop"),
-        SYNCHRONOUS_RUN_MESSAGE,
+        "A control protocol awaited real asynchronous work during a synchronous invoke(). "
+        "Under invoke() a protocol may await only the pending step's own methods; "
+        "run the agent with ainvoke() to use anything else.",
     ),
 }
 """How a protocol can fail after it scheduled work, and what the error that ends the call says."""

@@ -22,10 +22,12 @@ from langchain_sync_monitors.protocols import (
     TrustedMonitoring,
 )
 from langchain_sync_monitors.thresholds import (
+    AUDIT_THRESHOLD_SECTION_TITLE,
     DEFAULT_AUDIT_THRESHOLD,
     DEFAULT_BLOCK_THRESHOLD,
     DEFAULT_DEFER_THRESHOLD,
     DEFAULT_FLAG_THRESHOLD,
+    DEFER_TO_RESAMPLE_GUIDE_TITLE,
     LIBRARY_DIRECTORY,
     DefaultThreshold,
     ThresholdStatistic,
@@ -53,8 +55,8 @@ LOWEST_SAMPLE_SCORE_AUDIT_WARNING = (
     "sets it too high. Run the agent on honest tasks under the protocol and settings you "
     "will deploy, take each step's lowest score from monitor_log, and set the threshold at "
     'a high percentile of them (for example the 99th), as the section "Calibrate the audit '
-    'threshold" of the guide "Use Defer to Resample" (docs/how-to/use-defer-to-resample.md) '
-    "shows. Pass audit_threshold explicitly to silence this warning."
+    'threshold" of the guide "Use Defer to Resample" shows. Pass audit_threshold explicitly '
+    "to silence this warning."
 )
 
 
@@ -276,7 +278,7 @@ def test_the_uncalibrated_warning_advises_calibrating_on_the_statistic_given(
     assert [str(warning.message) for warning in record] == [expected]
 
 
-def test_a_threshold_compared_with_one_sample_s_score_is_the_default() -> None:
+def test_resolve_threshold_defaults_to_the_single_sample_advice() -> None:
     # Act
     with pytest.warns(UncalibratedThresholdWarning) as record:
         resolve_threshold(parameter_name="audit_threshold", threshold=DefaultThreshold(0.9))
@@ -285,7 +287,7 @@ def test_a_threshold_compared_with_one_sample_s_score_is_the_default() -> None:
     assert [str(warning.message) for warning in record] == [SINGLE_SAMPLE_AUDIT_WARNING]
 
 
-def test_resampling_protocol_s_audit_warning_advises_the_lowest_score_across_samples(
+def test_defer_to_resample_audit_warning_advises_the_lowest_score_across_samples(
     defer_to_trusted_model: DeferToTrustedModel,
 ) -> None:
     # Act: the repro of issue 108, with the default two resamples
@@ -296,6 +298,49 @@ def test_resampling_protocol_s_audit_warning_advises_the_lowest_score_across_sam
     assert [str(warning.message) for warning in record] == [LOWEST_SAMPLE_SCORE_AUDIT_WARNING]
     assert [warning.filename for warning in record] == [__file__]
     assert "CalibratedMonitor" not in str(record[0].message)
+
+
+def read_lowest_score_audit_warning(fallback: DeferToTrustedModel) -> str:
+    with pytest.warns(UncalibratedThresholdWarning) as record:
+        DeferToResample(fallback=fallback, defer_threshold=0.5)
+    return str(record[0].message)
+
+
+def read_defer_to_resample_guide_lines() -> list[str]:
+    return (HOW_TO_GUIDES / "use-defer-to-resample.md").read_text(encoding="utf-8").splitlines()
+
+
+def test_the_lowest_score_advice_names_the_defer_to_resample_guide_by_its_title(
+    defer_to_trusted_model: DeferToTrustedModel,
+) -> None:
+    # Arrange
+    warning = read_lowest_score_audit_warning(defer_to_trusted_model)
+
+    # Act
+    guide_lines = read_defer_to_resample_guide_lines()
+
+    # Assert
+    assert f'the guide "{DEFER_TO_RESAMPLE_GUIDE_TITLE}"' in warning
+    assert guide_lines[0] == f"# {DEFER_TO_RESAMPLE_GUIDE_TITLE}"
+
+
+@pytest.mark.xfail(
+    strict=True,
+    raises=AssertionError,
+    reason="pull request 104 adds this section to the guide; remove this mark once it is on main",
+)
+def test_the_lowest_score_advice_names_a_section_of_the_defer_to_resample_guide(
+    defer_to_trusted_model: DeferToTrustedModel,
+) -> None:
+    # Arrange
+    warning = read_lowest_score_audit_warning(defer_to_trusted_model)
+
+    # Act
+    guide_lines = read_defer_to_resample_guide_lines()
+
+    # Assert
+    assert f'the section "{AUDIT_THRESHOLD_SECTION_TITLE}"' in warning
+    assert f"### {AUDIT_THRESHOLD_SECTION_TITLE}" in guide_lines
 
 
 @pytest.mark.parametrize("resampling", list(Resampling), ids=[mode.value for mode in Resampling])
@@ -328,7 +373,7 @@ def test_without_resamples_the_audit_warning_keeps_the_single_sample_advice(
     assert "lowest" not in str(record[0].message)
 
 
-def test_defer_to_trusted_s_audit_warning_keeps_the_single_sample_advice(
+def test_defer_to_trusted_audit_warning_keeps_the_single_sample_advice(
     trusted_model: FakeListChatModel,
 ) -> None:
     # Act

@@ -51,7 +51,7 @@ from langchain_sync_monitors.spans import (
     build_judgement_span,
     build_verdict_outputs,
 )
-from langchain_sync_monitors.task_authorship import mark_context_notes
+from langchain_sync_monitors.task_authorship import tag_context_notes
 from langchain_sync_monitors.thresholds import LIBRARY_DIRECTORY
 
 SYNCHRONOUS_RUN_MESSAGE = (
@@ -294,9 +294,9 @@ class MonitoredStep(PendingStep):
         there verbatim, even one the request no longer holds. A turn put back
         carries its text alone, without any image it held.
         """
-        marked = mark_context_notes(conversation, task_message_ids=self.task_message_ids)
+        tagged = tag_context_notes(conversation, task_message_ids=self.task_message_ids)
         history = restore_run_inputs(
-            marked,
+            tagged,
             run_inputs=self.run_inputs,
             task_message_ids=self.task_message_ids,
             rewritten_input_ids=self.rewritten_input_ids,

@@ -342,7 +342,7 @@ class MonitorMiddleware(AgentMiddleware[MonitorState, AgentContext, StructuredOu
 
         What the call writes is checked, whatever the shape of the result, of
         a `Command`'s update or of a `ParentCommand` the call raises: its
-        messages as `mark_tool_written_notes` says, and its records as
+        messages as `tag_tool_written_notes` says, and its records as
         `returned_records` says. `tool_calls` has the rule.
         """
         return run_tool_call_sync(request, handler=handler, agent=self.agent_name)

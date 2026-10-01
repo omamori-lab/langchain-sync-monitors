@@ -144,7 +144,7 @@ def build_note_source(name: str) -> str:
     return APPLICATION_SOURCE if name in RESERVED_SOURCES else name
 
 
-def mark_context_note(message: HumanMessage) -> HumanMessage:
+def tag_as_context_note_from_name(message: HumanMessage) -> HumanMessage:
     """Return a copy of a human message tagged as a context note.
 
     The note's source is the message's `name`, as Deep Agents' Nemotron
@@ -155,14 +155,14 @@ def mark_context_note(message: HumanMessage) -> HumanMessage:
     )
 
 
-def is_note_to_mark(
+def is_note_to_tag(
     message: BaseMessage, *, task_message_ids: Collection[str]
 ) -> TypeGuard[HumanMessage]:
     """Tell whether a message is an untagged human message that was not a run's input."""
     return is_untagged_human_message(message) and message.id not in task_message_ids
 
 
-def mark_context_notes(
+def tag_context_notes(
     history: Sequence[BaseMessage],
     *,
     task_message_ids: Collection[str],
@@ -177,8 +177,8 @@ def mark_context_notes(
     lacks. A message without an id is never the task author's.
     """
     return tuple(
-        mark_context_note(message)
-        if is_note_to_mark(message, task_message_ids=task_message_ids)
+        tag_as_context_note_from_name(message)
+        if is_note_to_tag(message, task_message_ids=task_message_ids)
         else message
         for message in history
     )
@@ -263,9 +263,9 @@ def build_note_update(state: object) -> AgentStateUpdate:
     unseen_ids = find_unseen_human_message_ids(state)
     # Only a message with an id can be replaced in place; one without would be added again.
     notes = [
-        mark_context_note(message)
+        tag_as_context_note_from_name(message)
         for message in read_state_messages(state)
-        if message.id and is_note_to_mark(message, task_message_ids=task_message_ids)
+        if message.id and is_note_to_tag(message, task_message_ids=task_message_ids)
     ]
     update: AgentStateUpdate = {}
     if unseen_ids:
@@ -522,7 +522,7 @@ def relabel_parent_command(bubble: ParentCommand, *, tool_name: str, state: obje
     bubble.args = (relabelled,)
 
 
-def mark_tool_written_notes(
+def tag_tool_written_notes(
     results: ToolCallResults,
     *,
     tool_name: str,

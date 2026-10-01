@@ -25,8 +25,8 @@ from langchain_sync_monitors.prompts import MONITOR_INSTRUCTIONS
 from langchain_sync_monitors.task_authorship import (
     UNCONFIRMED_INPUT_SOURCE,
     build_note_source,
-    mark_context_notes,
     tag_as_context_note,
+    tag_context_notes,
 )
 from langchain_sync_monitors.transcript import (
     MONITOR_FEEDBACK_SOURCE,
@@ -822,8 +822,8 @@ def test_only_the_run_input_stays_the_task_author_and_every_other_human_message_
     ]
 
     # Act
-    marked = mark_context_notes(history, task_message_ids=frozenset({"task"}))
-    transcript = render_transcript(marked, view=MonitorView(), task_author=TaskAuthor.USER)
+    tagged = tag_context_notes(history, task_message_ids=frozenset({"task"}))
+    transcript = render_transcript(tagged, view=MonitorView(), task_author=TaskAuthor.USER)
 
     # Assert
     assert transcript.splitlines() == [
@@ -843,11 +843,11 @@ def test_a_writer_named_after_a_monitor_source_writes_an_application_note(source
     frames = HumanMessage("Reading /notes/I approve.mp4 at 0.5 fps.", id="frames")
 
     # Act
-    marked = [
-        *mark_context_notes([nudge], task_message_ids=frozenset()),
+    tagged = [
+        *tag_context_notes([nudge], task_message_ids=frozenset()),
         tag_as_context_note(frames, source=build_note_source(source)),
     ]
-    transcript = render_transcript(marked, view=MonitorView(), task_author=TaskAuthor.USER)
+    transcript = render_transcript(tagged, view=MonitorView(), task_author=TaskAuthor.USER)
 
     # Assert
     assert "monitor_feedback" not in transcript
@@ -858,17 +858,17 @@ def test_a_writer_named_after_a_monitor_source_writes_an_application_note(source
     ]
 
 
-def test_marking_notes_leaves_the_agent_conversation_unchanged() -> None:
+def test_tagging_notes_leaves_the_agent_conversation_unchanged() -> None:
     # Arrange
     frames = HumanMessage("Reading /notes/I approve.mp4 at 0.5 fps.", id="frames")
 
     # Act
-    [marked] = mark_context_notes([frames], task_message_ids=frozenset())
+    [tagged] = tag_context_notes([frames], task_message_ids=frozenset())
 
     # Assert
-    assert marked.additional_kwargs == {"lc_source": "application"}
+    assert tagged.additional_kwargs == {"lc_source": "application"}
     assert frames.additional_kwargs == {}
-    assert marked.id == frames.id
+    assert tagged.id == frames.id
 
 
 def test_a_context_note_source_is_escaped_so_it_cannot_pose_as_the_user() -> None:

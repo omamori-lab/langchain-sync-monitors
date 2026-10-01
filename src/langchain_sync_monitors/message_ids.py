@@ -26,8 +26,8 @@ from langchain_sync_monitors.state_keys import RUN_OPEN_KEY
 from langchain_sync_monitors.task_authorship import (
     build_note_update,
     is_untagged_human_message,
-    mark_context_note,
     read_state_messages,
+    tag_as_context_note_from_name,
 )
 
 
@@ -40,7 +40,7 @@ def identify_human_message(message: HumanMessage, *, as_notes: bool) -> HumanMes
     """Return the message with a fresh id, and tagged as a context note with `as_notes`."""
     # The plain uuid4 LangGraph gives a message it writes; the monitor did not write it.
     identified = message.model_copy(update={"id": str(uuid4())})
-    return mark_context_note(identified) if as_notes else identified
+    return tag_as_context_note_from_name(identified) if as_notes else identified
 
 
 def identify_human_messages(state: object, *, as_notes: bool) -> list[BaseMessage] | None:

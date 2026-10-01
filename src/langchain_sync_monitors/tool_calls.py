@@ -44,7 +44,7 @@ from langchain_sync_monitors.returned_records import (
     check_returned_records,
     read_tool_caller,
 )
-from langchain_sync_monitors.task_authorship import mark_tool_written_notes, relabel_parent_command
+from langchain_sync_monitors.task_authorship import relabel_parent_command, tag_tool_written_notes
 
 checked_tool_call: ContextVar[ToolCallRequest | None] = ContextVar(
     "monitor_checked_tool_call",
@@ -81,7 +81,7 @@ class CheckedToolCall:
         """Return the call's result with its messages relabelled and its records checked."""
         if self.caller is None:
             return cast_to_tool_call_result(result)
-        written = mark_tool_written_notes(
+        written = tag_tool_written_notes(
             result,
             tool_name=self.caller.tool_call["name"],
             state=self.caller.state,

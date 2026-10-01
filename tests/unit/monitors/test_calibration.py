@@ -63,11 +63,17 @@ class SlowOrFailingMonitor(Monitor):
         return Verdict(suspicion=0.1, reason="fine")
 
 
-def build_scored_step(score: float, *, label: str = "") -> MonitorInput:
+def build_scored_step(
+    score: float,
+    *,
+    label: str = "",
+    task: str = "Summarise the report.",
+    task_author: TaskAuthor = TaskAuthor.USER,
+) -> MonitorInput:
     return MonitorInput(
-        history=(HumanMessage("Summarise the report."),),
+        history=(HumanMessage(task),),
         proposal=AIMessage(f"score={score} {label}"),
-        task_author=TaskAuthor.USER,
+        task_author=task_author,
     )
 
 
@@ -172,6 +178,30 @@ def test_different_steps_with_one_seed_break_ties_differently() -> None:
 
     # Assert
     assert len(percentiles) == 20
+
+
+@pytest.mark.parametrize(
+    "other_step",
+    [
+        build_scored_step(0.5, task="Summarise the other report."),
+        build_scored_step(0.5, task_author=TaskAuthor.PARENT_AGENT),
+    ],
+    ids=["history", "task-author"],
+)
+def test_steps_that_propose_the_same_thing_after_a_different_history_break_ties_differently(
+    other_step: MonitorInput,
+) -> None:
+    # Arrange: the tie-break reads the whole step, not its proposal alone
+    calibrated = CalibratedMonitor(
+        monitor=ScoreInProposal(), honest_scores=[0.5] * 20, random_seed=3
+    )
+
+    # Act
+    first = calibrated.evaluate_sync(build_scored_step(0.5)).suspicion
+    second = calibrated.evaluate_sync(other_step).suspicion
+
+    # Assert
+    assert first != second
 
 
 async def test_a_failed_repeat_cancels_the_other_calls_and_raises_its_own_error() -> None:

@@ -112,9 +112,12 @@ def test_tied_scores_spread_at_random_over_the_slots_of_the_tie(
     # Act
     percentiles = [calibrated.evaluate_sync(step).suspicion for step in steps]
 
-    # Assert: one honest score below, two tied, so slots 1 to 3 of 5
+    # Assert: one honest score below, two tied, so slots 1 to 3 of 5, the first and last of
+    # which 50 uniform draws each miss with a chance of (2/3)^50, about 2e-9
     assert all(1 / 5 <= percentile < 4 / 5 for percentile in percentiles)
     assert len(set(percentiles)) > 1
+    assert min(percentiles) < 2 / 5
+    assert max(percentiles) >= 3 / 5
 
 
 def test_different_seeds_break_the_same_ties_differently(

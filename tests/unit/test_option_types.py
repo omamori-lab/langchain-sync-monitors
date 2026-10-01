@@ -856,3 +856,128 @@ def test_a_number_too_long_to_write_out_is_named_by_its_kind() -> None:
         "an integer too long to write out",
         "a fractions.Fraction too long to write out",
     ]
+
+
+FULL_REFUSALS: dict[str, tuple[Build, dict[str, object], str]] = {
+    "lowest-score-too-long": (
+        build_llm_monitor,
+        {"lowest_score": -HUGE},
+        "lowest_score must be an integer Python can write out, got an integer too long to "
+        "write out",
+    ),
+    "highest-score-too-long": (
+        build_llm_monitor,
+        {"highest_score": HUGE},
+        "highest_score must be an integer Python can write out, got an integer too long to "
+        "write out",
+    ),
+    "score-not-an-integer": (
+        build_llm_monitor,
+        {"lowest_score": 2.5},
+        "lowest_score must be an integer, got 2.5",
+    ),
+    "honest-scores-not-an-iterable": (
+        build_calibrated_monitor,
+        {"honest_scores": "0.1"},
+        "honest_scores must be an iterable of numbers between 0 and 1, got '0.1'",
+    ),
+    "no-honest-scores": (
+        build_calibrated_monitor,
+        {"honest_scores": []},
+        "honest_scores must hold at least one score",
+    ),
+    "classifier": (
+        build_typesafe_model,
+        {"classifier": "text"},
+        "classifier must be a Runnable, got 'text'. Pass a TypeSafeClassifier from "
+        "langchain-typesafe.",
+    ),
+    "questions-not-an-iterable": (
+        build_decision_monitor,
+        {"questions": "text"},
+        "questions must be an iterable of YesNoQuestion, got 'text'. Wrap one question in a "
+        "list, such as [IS_THE_STEP_SUSPICIOUS].",
+    ),
+    "suspicious-labels-not-a-set": (
+        build_guard_monitor,
+        {"suspicious_labels": ["violation"]},
+        "suspicious_labels must be a set of strings, such as {'violation'}, got an instance "
+        "of list",
+    ),
+    "safe-labels-not-a-set": (
+        build_guard_monitor,
+        {"safe_labels": ["no_violation"]},
+        "safe_labels must be a set of strings, such as {'no_violation'}, got an instance of list",
+    ),
+    "no-suspicious-labels": (
+        build_guard_monitor,
+        {"suspicious_labels": set()},
+        "suspicious_labels and safe_labels must each hold at least one label",
+    ),
+    "label-of-two-words": (
+        build_guard_monitor,
+        {"suspicious_labels": {"not safe"}},
+        "labels must be single words of letters, digits, _ or -, beginning and ending with a "
+        "letter or digit, got ['not safe']",
+    ),
+    "most-recent-entries": (
+        MonitorView,
+        {"most_recent_entries": 2.5},
+        "most_recent_entries must be a whole number of at least 1, or None to keep every "
+        "entry, got 2.5",
+    ),
+    "timeout-as-text": (
+        build_decision_model,
+        {"timeout_seconds": "30"},
+        "timeout_seconds must be a positive number, got '30'",
+    ),
+    "http-client": (
+        build_decision_model,
+        {"http_client": "x"},
+        "http_client must be a Client, got 'x'. Pass an httpx.Client, or None for one the "
+        "model opens.",
+    ),
+    "async-http-client": (
+        build_decision_model,
+        {"async_http_client": "x"},
+        "async_http_client must be an AsyncClient, got 'x'. Pass an httpx.AsyncClient, or "
+        "None for one per request.",
+    ),
+    "limit-fallback": (
+        build_auto_mode,
+        {"when_limit_reached": "halt"},
+        "when_limit_reached must be a Fallback, got 'halt'. Use HaltRun() or "
+        "DeferToTrustedModel(trusted_model=...).",
+    ),
+    "protocol-as-fallback": (
+        build_defer_to_resample,
+        {"fallback": build_defer_to_trusted()},
+        "fallback must be a Fallback, got an instance of DeferToTrusted. DeferToTrusted is a "
+        "control protocol, which decides whole steps. To have the trusted model write the "
+        "step, use DeferToTrustedModel(trusted_model=...).",
+    ),
+    "both-reserved-characters": (
+        build_middleware,
+        {"label": "team:a|b"},
+        "label must not contain ':' or '|', which LangGraph refuses in the names of the graph "
+        "nodes the monitor's hooks become, got 'team:a|b'",
+    ),
+}
+
+
+@pytest.mark.parametrize(
+    ("build", "options", "message"),
+    FULL_REFUSALS.values(),
+    ids=FULL_REFUSALS.keys(),
+)
+def test_a_refusal_reads_in_full(
+    build: Build,
+    options: dict[str, object],
+    message: str,
+) -> None:
+    # Act
+    with pytest.raises(ConfigurationError) as refusal:
+        build(**options)
+
+    # Assert: in full, so that no hint, example or refused value can go missing unseen
+    assert str(refusal.value) == message

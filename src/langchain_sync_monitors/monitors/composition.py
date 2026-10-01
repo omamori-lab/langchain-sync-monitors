@@ -130,9 +130,9 @@ class CalibratedMonitor(Monitor):
     """Report suspicion as the rank of a step's score among the scores of honest runs.
 
     Control evaluations set thresholds as percentiles of honest-run scores, so
-    an audit budget of 1% means flagging the top 1% of honest steps. This
-    wrapper reports the smoothed conformal rank of the raw score among the `n`
-    honest scores [@vovk2005algorithmic]:
+    an audit budget of 1% means flagging for review the top 1% of honest
+    steps. This wrapper reports the smoothed conformal rank of the raw score
+    among the `n` honest scores [@vovk2005algorithmic]:
 
         (below + U * (tied + 1)) / (n + 1)
 

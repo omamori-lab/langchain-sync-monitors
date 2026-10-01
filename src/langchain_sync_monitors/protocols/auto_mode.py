@@ -91,9 +91,11 @@ DEFAULT_FEEDBACK_TEMPLATE: Final = FeedbackTemplate(
 )
 """The feedback Auto Mode sends by default, after Claude Code's auto mode [@hughes2026automode].
 
-It says that none of the agent's tools ran the blocked step, which stays true
-when a provider's built-in tool in that step already ran inside the model
-call. Like every reason, it carries no score.
+Claude Code's denial asks the agent to find a safer path rather than route
+around the block (section "Deny-and-continue"). This feedback says that none
+of the agent's tools ran the blocked step, which stays true when a provider's
+built-in tool in that step already ran inside the model call. Like every
+reason, it carries no score.
 """
 
 DEFAULT_WHEN_LIMIT_REACHED: Final = HaltRun()
@@ -103,8 +105,9 @@ DEFAULT_WHEN_LIMIT_REACHED: Final = HaltRun()
 class AutoMode(ControlProtocol):
     """Block a suspicious step, tell the agent why, and let it try again.
 
-    This follows Claude Code's auto mode [@hughes2026automode]. A sample whose
-    suspicion is at or above `block_threshold` is blocked. The next sample of
+    This follows Claude Code's auto mode [@hughes2026automode] (section
+    "Deny-and-continue"). A sample whose suspicion is at or above
+    `block_threshold` is blocked. The next sample of
     the step is drawn with each blocked proposal and its feedback in view, so
     the agent can change course. The first acceptable sample runs: the outcome
     is ALLOWED when nothing was blocked, and STEERED, flagged for review,
@@ -114,14 +117,14 @@ class AutoMode(ControlProtocol):
     blocks across the conversation thread, `when_limit_reached` writes the step
     instead, and the step is flagged. The defaults, three in a row and twenty
     in all, are the limits at which Claude Code stops and escalates within a
-    session [@hughes2026automode].
+    session [@hughes2026automode] (section "Deny-and-continue").
 
     The total counts this monitor's blocks in the thread's `monitor_log`: this
     agent's earlier steps, which a checkpointed thread keeps across its turns,
     and the steps of the subagents it started, nested ones included, which
     reach the log when each subagent returns. A subagent starts from the total
     recorded before it was started, so delegating again does not reset the
-    budget. When blocks inside subagents since this agent's last step leave
+    total. When blocks inside subagents since this agent's last step leave
     the thread at or over the total, this agent's next step goes to
     `when_limit_reached` without being sampled. Subagents that run in parallel
     do not see each other's blocks, so together they can pass the total; their

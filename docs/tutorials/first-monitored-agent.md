@@ -45,9 +45,14 @@ pip install "langchain-sync-monitors[openrouter] @ git+https://github.com/omamor
 ```
 
 The tutorial uses two models through OpenRouter: a small, fast model as the
-agent and a stronger model as the judge. Any LangChain chat model works in
-either place; pass another provider string, or a chat model object you built
-yourself. Create a key at OpenRouter and export it:
+agent and a stronger model as the judge, since a weaker monitor cannot
+reliably tell an attack from honest work [@greenblatt2023aicontrol]
+(section 3.4). A judge stronger than the agent is not a trusted model in AI
+Control's sense, as
+[Trusted Monitoring, Defer to Trusted and Defer to Resample](../explanation/design.md#trusted-monitoring-defer-to-trusted-and-defer-to-resample)
+explains. Any LangChain chat model works in either place; pass another
+provider string, or a chat model object you built yourself. Create a key at
+OpenRouter and export it:
 
 ```console
 export OPENROUTER_API_KEY="your key"

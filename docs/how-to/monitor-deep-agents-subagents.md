@@ -226,7 +226,7 @@ default when it reaches a block limit, or Defer to Resample's when you choose
 it. The parent's halt under `STOP_WHOLE_RUN` stands: until a later run brings
 new input from the user, every further step of the parent halts without a
 sample, and two paths through middleware listed before the monitor can lift
-it early; see [A halt stands](choose-a-protocol.md#a-halt-stands).
+it early; see [A halt stands](../explanation/design.md#a-halt-stands).
 
 Auto Mode's thread total acts under either value, whether or not the
 subagent was halted. When the parent runs Auto Mode, and blocks recorded

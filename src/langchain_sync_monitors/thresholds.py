@@ -88,8 +88,8 @@ def build_uncalibrated_message(*, parameter_name: str, value: float) -> str:
     """Explain that a default threshold is in use and how to calibrate it from honest runs.
 
     Control evaluations set thresholds at a percentile of the monitor's scores
-    on honest runs [@greenblatt2023aicontrol; @bhatt2025ctrlz], so the message
-    points the user there.
+    on honest runs [@greenblatt2023aicontrol; @bhatt2025ctrlz] (AI Control,
+    section 3.2; Ctrl-Z, appendix C), so the message points the user there.
     """
     return (
         f"{parameter_name} uses the uncalibrated default {value}. Suspicion scores differ "

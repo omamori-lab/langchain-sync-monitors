@@ -22,9 +22,11 @@ a second model that scores each step, and a protocol that acts on the score.
 This library brings those protocols, from AI Control [@greenblatt2023aicontrol],
 Ctrl-Z [@bhatt2025ctrlz] and Claude Code's auto mode
 [@hughes2026automode], to `create_agent` and `create_deep_agent` as one
-middleware. "Sync" means synchronous in the control sense: a step waits for
-its verdict, so a suspicious step can be stopped before any of the agent's own
-tools run it.
+middleware. "Sync" means synchronous in the control sense, a monitor that
+runs after the model proposes an action and before the action executes, and
+can block it [@lucassen2026synchronous] (the opening and section "Blocking
+with synchronous monitors"): a step waits for its verdict, so a suspicious
+step can be stopped before any of the agent's own tools run it.
 
 Tools that the model provider runs itself are the exception. Anthropic's web
 search, OpenAI's code interpreter and Gemini's Google Search run inside the

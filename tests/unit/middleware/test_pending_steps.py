@@ -10,7 +10,14 @@ import pytest
 from langchain.agents.middleware.types import ModelRequest, ModelResponse
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, ToolMessage
 
-from langchain_sync_monitors.contracts import BlockedAttempt, StepRecord, TaskAuthor
+from langchain_sync_monitors.contracts import (
+    BlockedAttempt,
+    Monitor,
+    MonitorInput,
+    StepRecord,
+    TaskAuthor,
+    Verdict,
+)
 from langchain_sync_monitors.errors import MonitorError
 from langchain_sync_monitors.pending_steps import (
     AsyncPendingStep,
@@ -364,6 +371,48 @@ async def test_an_async_draw_the_step_outlasts_is_never_judged(
     assert len(handler.requests) == 1
     assert monitor.inputs == []
     assert step.judged_samples == []
+
+
+@dataclass
+class GatedMonitor(Monitor):
+    """Holds each async judgement until released, and says when one has begun."""
+
+    judging: asyncio.Event = field(default_factory=asyncio.Event)
+    release: asyncio.Event = field(default_factory=asyncio.Event)
+
+    async def evaluate(self, monitor_input: MonitorInput) -> Verdict:
+        self.judging.set()
+        await self.release.wait()
+        return self.evaluate_sync(monitor_input)
+
+    def evaluate_sync(self, monitor_input: MonitorInput) -> Verdict:
+        return Verdict(suspicion=0.1, reason="nothing suspicious")
+
+
+async def test_an_async_draw_after_its_step_closed_never_calls_the_model(
+    untrusted_model: ScriptedChatModel,
+) -> None:
+    # Arrange: the step is closed while the monitor judges the first of two samples
+    handler = RecordingHandler()
+    monitor = GatedMonitor()
+    step = AsyncPendingStep(
+        request=build_request(untrusted_model),
+        handler=handler.run_async,
+        monitor=monitor,
+        task_author=TaskAuthor.USER,
+    )
+    draws = asyncio.create_task(step.sample(count=2))
+    await monitor.judging.wait()
+
+    # Act
+    step.close()
+    monitor.release.set()
+    with pytest.raises(MonitorError, match="after its step was over"):
+        await draws
+
+    # Assert: the first sample was judged, and the second was refused before its model call
+    assert len(handler.requests) == 1
+    assert len(step.judged_samples) == 1
 
 
 async def test_a_closed_async_step_refuses_every_call(

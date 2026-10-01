@@ -246,16 +246,16 @@ def test_a_message_left_without_an_id_at_a_run_s_end_becomes_a_note_with_an_id()
 
 
 @pytest.mark.parametrize(
-    "unidentified",
+    "message_without_id",
     [AIMessage("A step."), HumanMessage("A summary.", additional_kwargs={"lc_source": "summary"})],
     ids=["ai-message", "tagged-human-message"],
 )
 def test_a_history_whose_untagged_human_messages_have_ids_is_not_written_back(
-    unidentified: BaseMessage,
+    message_without_id: BaseMessage,
 ) -> None:
     # Arrange: only an untagged human message needs an id to be recorded
     state = {
-        "messages": [HumanMessage("Summarise q3.md.", id="task"), unidentified],
+        "messages": [HumanMessage("Summarise q3.md.", id="task"), message_without_id],
         "monitor_task_messages": ["task"],
         "monitor_seen_human_messages": ["task"],
         "monitor_run_open": False,

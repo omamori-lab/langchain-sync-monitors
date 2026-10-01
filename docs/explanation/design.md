@@ -965,8 +965,10 @@ the error propagates unchanged. Before it does, the middleware writes a
 `MonitorStepFailedEvent` (`type="monitor_step_failed"`) to
 `stream_mode="custom"`, with every sample the monitor had judged, none if it
 had judged nothing, and the `delegation_id` inside a subagent. When there are
-judged samples, it also logs them at warning level, each with its suspicion,
-reason and proposal. A protocol's decision is checked inside the step as
+judged samples, it also logs a warning that gives the error's type and each
+sample's suspicion. The warning quotes no proposal, reason or error message,
+since any of them can hold the transcript, and no log line or error of the
+library's own does. A protocol's decision is checked inside the step as
 well: one that is not a `StepDecision` whose `response` is a `ModelResponse`
 holding a list of messages fails the step the same way, with `MonitorError`
 naming the protocol, before any record is streamed.
@@ -1237,8 +1239,8 @@ limit is linked from where it arises above.
 
 - **Retried steps.** Under a middleware that retries failed model calls from
   outside the monitor ([failed steps](#failed-steps)), the samples judged
-  before the failure reach only the warning log and the
-  `monitor_step_failed` event, never `monitor_log`.
+  before the failure reach only the `monitor_step_failed` event, and their
+  suspicions the warning log, never `monitor_log`.
 - **A committed step an outer middleware undoes.** A middleware outside the
   monitor that raises after a step returns leaves that step's record on
   `stream_mode="custom"` but out of `monitor_log`, with one monitor as with a

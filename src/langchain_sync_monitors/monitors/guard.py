@@ -132,6 +132,8 @@ def read_log_probabilities(reply: AIMessage) -> list[TokenLogProbability] | None
     The score weighs the alternatives at the label's token, so
     log-probabilities without any alternatives, as from a provider that
     ignores `top_logprobs`, count as none: they would only give a hard label.
+    Log-probabilities in an unknown format are logged by their type alone,
+    since their tokens are the guard's reply, which quotes the transcript.
     """
     payload = reply.response_metadata.get("logprobs")
     if payload is None:
@@ -139,7 +141,8 @@ def read_log_probabilities(reply: AIMessage) -> list[TokenLogProbability] | None
     try:
         tokens = ReplyLogProbabilities.model_validate(payload).content
     except ValidationError:
-        logger.debug("Ignoring log-probabilities in an unknown format: %r", payload)
+        payload_type = type(payload).__name__
+        logger.debug("Ignoring log-probabilities in an unknown format, of type %s.", payload_type)
         return None
     if not tokens or not any(token.top_logprobs for token in tokens):
         return None

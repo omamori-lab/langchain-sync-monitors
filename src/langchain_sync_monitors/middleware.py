@@ -181,14 +181,14 @@ class MonitorMiddleware(AgentMiddleware[MonitorState, AgentContext, StructuredOu
     rule.
 
     If a call inside a step raises before the protocol decides, the step is
-    not committed. The samples the monitor had judged are logged as a warning
-    and written to `stream_mode="custom"` as a `MonitorStepFailedEvent`, and
-    the exception is raised again. LangGraph's own control flow, such as the
-    `GraphInterrupt` that `interrupt()` raises, passes through unreported. Yet
-    a monitor, a protocol or a fallback must not call `interrupt()`: on
-    resume LangGraph runs the model node again [@langgraph2026], so the step
-    is sampled and judged afresh, and the person's answer applies to samples
-    they never saw.
+    not committed. The samples the monitor had judged are written to
+    `stream_mode="custom"` as a `MonitorStepFailedEvent`, their suspicions
+    are logged as a warning, and the exception is raised again. LangGraph's
+    own control flow, such as the `GraphInterrupt` that `interrupt()` raises,
+    passes through unreported. Yet a monitor, a protocol or a fallback must
+    not call `interrupt()`: on resume LangGraph runs the model node again
+    [@langgraph2026], so the step is sampled and judged afresh, and the
+    person's answer applies to samples they never saw.
 
     In LangChain tracers such as LangSmith and Langfuse, each step is a
     `monitor step` span, with the spans that `spans` describes nested in it.

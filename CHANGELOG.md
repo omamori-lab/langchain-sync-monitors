@@ -36,7 +36,7 @@ change raises the minor version.
   feedback and the monitor's own model calls never stream.
 - A step that fails after samples were judged writes a
   `MonitorStepFailedEvent` with those samples to `stream_mode="custom"`, logs
-  them as a warning and re-raises the error.
+  their suspicions as a warning and re-raises the error.
 - A halted step ends the run, including in agents with structured output and
   no tools.
 - A halt stands until the thread records another run input: when a hook such
@@ -384,6 +384,11 @@ change raises the minor version.
 - A retried Decisions API request no longer puts its body in the logs: stamina
   logged the retried method's arguments, the rendered transcript and proposed
   step among them, on every retry. A retry now logs its error and wait alone.
+- No log line or error of the library's own quotes the transcript: a failed
+  step's warning gives each sample's suspicion and the error's type, not the
+  reasons, proposals or error message, and a malformed or forged record is
+  named by its agent, monitor, step number, outcome, delegation id and number
+  of samples, never quoted.
 - A chat judge's or guard's call that the provider answers with HTTP 429 is
   made again, up to four attempts, so one rate limit no longer fails the step:
   `ChatOpenRouter`'s `max_retries` retries network errors and HTTP 5xx only.

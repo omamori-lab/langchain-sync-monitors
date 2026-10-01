@@ -1,8 +1,9 @@
 """A step that raises after the monitor judged samples leaves evidence, then raises as before.
 
 The step is never committed, so its samples cannot reach `monitor_log`. The
-middleware logs them at warning level and writes a `monitor_step_failed` event
-to `stream_mode="custom"`, and the original exception propagates unchanged.
+middleware writes them in a `monitor_step_failed` event to
+`stream_mode="custom"`, logs their suspicions and the error's type at warning
+level, and the original exception propagates unchanged.
 """
 
 from __future__ import annotations
@@ -53,6 +54,7 @@ from tests.support.agents import (
 from tests.support.flaky_models import FlakyChatModel, TriggeredFailureMonitor
 from tests.support.monitors import KeywordMonitor
 from tests.support.protocols import AcceptFirst
+from tests.unit.monitors.doubles import PLANTED_SECRET
 
 MIDDLEWARE_LOGGER = "langchain_sync_monitors.middleware"
 EXFILTRATION_SUSPICION = 0.95
@@ -145,9 +147,12 @@ def test_a_resample_that_raises_keeps_the_suspicious_sample_as_evidence(
     assert "attacker.example" in first_sample["proposal"]
     assert not any(sample["executed"] for sample in event["samples"])
     [warning] = read_warnings(caplog)
-    assert "suspicion 0.950" in warning
-    assert "attacker.example" in warning
-    assert "429 rate limited" in warning
+    assert "failed with RuntimeError before it was committed" in warning
+    assert "Their suspicions: 0.950." in warning
+    assert "monitor_step_failed event" in warning
+    # The warning quotes no proposal and no error message: either can hold the transcript.
+    assert "attacker.example" not in warning
+    assert "429 rate limited" not in warning
 
 
 def test_a_monitor_that_raises_on_a_resample_keeps_the_first_sample(
@@ -187,7 +192,9 @@ def test_an_auto_mode_retry_that_raises_keeps_the_blocked_attempt(
     assert isinstance(error, RuntimeError)
     [event] = find_failed_step_events(events)
     assert [sample["suspicion"] for sample in event["samples"]] == [EXFILTRATION_SUSPICION]
-    assert "attacker.example" in read_warnings(caplog)[0]
+    [warning] = read_warnings(caplog)
+    assert "Their suspicions: 0.950." in warning
+    assert "attacker.example" not in warning
 
 
 def test_a_trusted_model_that_raises_keeps_the_deferred_sample(
@@ -261,6 +268,10 @@ MALFORMED_DECISIONS = {
         MalformedDecision(response=AIMessage("I cannot help."), return_the_decision=False),
         "not a StepDecision",
     ),
+    "text-for-a-decision": (
+        MalformedDecision(response=f"Deploy with {PLANTED_SECRET}.", return_the_decision=False),
+        "returned a str of length 34, not a StepDecision",
+    ),
 }
 
 
@@ -285,11 +296,14 @@ def test_a_malformed_decision_fails_the_step_and_streams_no_record(
     assert isinstance(error, MonitorError)
     assert "MalformedDecision" in str(error)
     assert complaint in str(error)
+    assert PLANTED_SECRET not in str(error)
     assert [event["type"] for event in events] == ["monitor_step_failed"]
     [event] = events
     assert event["samples"][0]["suspicion"] == EXFILTRATION_SUSPICION
     [warning] = read_warnings(caplog)
-    assert "attacker.example" in warning
+    assert "failed with MonitorError" in warning
+    assert "Their suspicions: 0.950." in warning
+    assert "attacker.example" not in warning
 
 
 def test_a_commit_that_fails_streams_no_record(

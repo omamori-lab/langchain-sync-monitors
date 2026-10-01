@@ -10,6 +10,7 @@ share an id and would leave tool results without their call.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from uuid import uuid4
 
 from langchain.agents.middleware.types import ModelResponse
@@ -113,10 +114,6 @@ def build_feedback_messages(*, attempt: BlockedAttempt) -> list[BaseMessage]:
     return [blocked, *rejections]
 
 
-def build_blocked_attempt_messages(*, decision: StepDecision) -> list[BaseMessage]:
+def build_blocked_attempt_messages(attempts: Sequence[BlockedAttempt]) -> list[BaseMessage]:
     """Return the messages of every blocked attempt of a step, in the order they happened."""
-    return [
-        message
-        for attempt in decision.blocked_attempts
-        for message in build_feedback_messages(attempt=attempt)
-    ]
+    return [message for attempt in attempts for message in build_feedback_messages(attempt=attempt)]

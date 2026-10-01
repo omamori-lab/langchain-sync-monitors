@@ -115,7 +115,7 @@ def commit_step(
     )
     messages = list(decision.response.result)
     if feedback_visibility is FeedbackVisibility.IN_TRANSCRIPT:
-        messages = [*build_blocked_attempt_messages(decision=decision), *messages]
+        messages = [*build_blocked_attempt_messages(decision.blocked_attempts), *messages]
     response = ModelResponse(
         result=messages,
         structured_response=decision.response.structured_response,

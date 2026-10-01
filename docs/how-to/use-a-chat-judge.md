@@ -216,10 +216,10 @@ after a growing, jittered wait from one second, up to four attempts in all,
 and stops sooner once an attempt fails 45 seconds or more after the first
 began. A chat model that retries a 429 itself, as OpenAI's and Anthropic's
 SDKs do [@openaipythonsdk2026; @anthropicpythonsdk2026], retries each of
-these attempts. The monitor retries only its own calls: the agent's model and
-a trusted model are the agent's calls, so a 429 their chat model does not
-retry fails the step. An error that survives the retries is raised: the step
-is not committed, and nothing the agent proposed runs. [Read the monitor
+these attempts. The monitor retries only its own calls, not the agent's
+([known limits](../explanation/design.md#protocols-and-configuration)). An
+error that survives the retries is raised: the step is not committed, and
+nothing the agent proposed runs. [Read the monitor
 log](read-the-monitor-log.md) shows what such a failed step leaves behind.
 
 ## Average several calls

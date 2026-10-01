@@ -33,7 +33,7 @@ from langchain_sync_monitors._langchain import (
     TraceSpan,
     TraceValue,
     TraceValues,
-    label_monitor_spans,
+    add_step_metadata_to_spans,
     open_traced_run,
     open_traced_run_sync,
 )
@@ -79,9 +79,9 @@ class StepIdentity:
     delegation_id: str | None = None
     step_id: UUID = field(default_factory=uuid7)
 
-    def build_labels(self) -> dict[str, TraceValue]:
+    def build_step_metadata(self) -> dict[str, TraceValue]:
         """Return the metadata every span of the step carries."""
-        labels: dict[str, TraceValue] = {
+        metadata: dict[str, TraceValue] = {
             "monitor_label": self.monitor,
             "monitor_agent": self.agent,
             "monitor_step_number": self.step_number,
@@ -89,8 +89,8 @@ class StepIdentity:
             "monitor_step_id": str(self.step_id),
         }
         if self.delegation_id is not None:
-            labels["monitor_delegation_id"] = self.delegation_id
-        return labels
+            metadata["monitor_delegation_id"] = self.delegation_id
+        return metadata
 
     def build_record(self, decision: StepDecision) -> StepRecord:
         """Record the decided step, once, for `monitor_log`, the custom stream and the spans."""
@@ -213,10 +213,10 @@ def build_verdict_outputs(verdict: Verdict) -> dict[str, TraceValue]:
 
 @contextmanager
 def open_step_span_sync(identity: StepIdentity) -> Iterator[TracedRun]:
-    """Open the step span for `invoke()`, labelling every monitor span inside it with the step."""
-    # The labels are set first, so the step span itself carries them.
+    """Open the step span for `invoke()`, giving every monitor span in it the step's metadata."""
+    # The step's metadata is set first, so the step span itself carries it.
     with (
-        label_monitor_spans(identity.build_labels()),
+        add_step_metadata_to_spans(identity.build_step_metadata()),
         open_traced_run_sync(identity.build_step_span()) as traced_step,
     ):
         yield traced_step
@@ -224,9 +224,9 @@ def open_step_span_sync(identity: StepIdentity) -> Iterator[TracedRun]:
 
 @asynccontextmanager
 async def open_step_span(identity: StepIdentity) -> AsyncIterator[TracedRun]:
-    """Open the step span for `ainvoke()`, labelling every monitor span inside it with the step."""
-    # The labels are set first, so the step span itself carries them.
-    with label_monitor_spans(identity.build_labels()):
+    """Open the step span for `ainvoke()`, giving every monitor span in it the step's metadata."""
+    # The step's metadata is set first, so the step span itself carries it.
+    with add_step_metadata_to_spans(identity.build_step_metadata()):
         async with open_traced_run(identity.build_step_span()) as traced_step:
             yield traced_step
 

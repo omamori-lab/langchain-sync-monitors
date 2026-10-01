@@ -18,9 +18,15 @@ UncalibratedThresholdWarning: block_threshold uses the uncalibrated default 0.6.
 
 Treat the defaults as placeholders. Each monitor spreads its scores
 differently, and an agent's honest work looks more or less unusual depending
-on its task and tools. Control evaluations set each threshold from the scores
-the monitor gives to honest runs, so that it spends a known audit budget
-[@greenblatt2023aicontrol; @bhatt2025ctrlz].
+on its task and tools. Control evaluations set thresholds from the scores the
+monitor gives to honest runs. The audit threshold spends a known audit
+budget: 2% of honest solutions in AI Control [@greenblatt2023aicontrol]
+(section 3.2), and 1% of honest actions in Ctrl-Z [@bhatt2025ctrlz]
+(section 2.2; appendix C). A defer threshold is a percentile of the same
+scores, but it trades usefulness for safety rather than spending a budget, so
+it can sit much lower, as Ctrl-Z notes (section 3.1.3). AI Control defers the
+top 5 to 50% of solutions (table 3), and Ctrl-Z tries defer thresholds from
+the 50th to the 99th percentile (figure 3; appendix H).
 
 A threshold may be any real number from 0 to 1, a `Fraction` or a `Decimal`
 included. It is checked exactly, before it becomes a float, so a `Decimal`
@@ -33,7 +39,8 @@ honest runs does what it asks. There are two ways to choose one:
 - Take a high percentile of the raw honest scores. This is simple, but a
   percentile that falls among tied scores flags every step in the tie.
 - Wrap the monitor in `CalibratedMonitor`. Its scores are then honest-run
-  percentiles, so a threshold of 0.99 flags about 1% of honest steps.
+  percentiles, so a threshold of 0.99 compared with one sample's score flags
+  about 1% of honest steps.
 
 The rest of this guide takes the second way.
 
@@ -224,8 +231,15 @@ middleware = MonitorMiddleware(
 
 Every other protocol's thresholds read the same way: with a calibrated
 monitor, a defer threshold of 0.98 sends about 2% of honest steps to
-resampling. `honest_scores` can be a list or any other iterable, such as a
-generator, which the constructor reads once. It must hold at least one score,
+resampling. Defer to Resample's `audit_threshold` is the exception. It is
+compared with the lowest score across a step's samples, which is at most the
+first sample's score, so 0.99 flags at most about 1% of honest steps, and
+usually fewer;
+[Calibrate the audit threshold](use-defer-to-resample.md#calibrate-the-audit-threshold)
+sets it on that statistic.
+
+`honest_scores` can be a list or any other iterable, such as a generator,
+which the constructor reads once. It must hold at least one score,
 and each is checked as a threshold is: a number from 0 to 1, not a `bool` and
 not NaN, or the constructor raises `ConfigurationError`. Each is kept as a
 float, so pass Python floats or numpy `float64`s: a `float32` 0.1 becomes

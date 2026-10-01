@@ -23,6 +23,7 @@ from langgraph.checkpoint.memory import InMemorySaver
 from langgraph.graph.state import CompiledStateGraph
 from langgraph.types import interrupt
 
+from langchain_sync_monitors import commits
 from langchain_sync_monitors.contracts import (
     ControlProtocol,
     Monitor,
@@ -289,6 +290,28 @@ def test_a_malformed_decision_fails_the_step_and_streams_no_record(
     assert event["samples"][0]["suspicion"] == EXFILTRATION_SUSPICION
     [warning] = read_warnings(caplog)
     assert "attacker.example" in warning
+
+
+def test_a_commit_that_fails_streams_no_record(
+    run_mode: RunMode,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Arrange: the last part of the commit's state update fails to build
+    def fail_to_build_the_update(_state: object) -> dict[str, object]:
+        message = "planted failure in the commit's update"
+        raise MonitorError(message)
+
+    monkeypatch.setattr(commits, "build_answered_update", fail_to_build_the_update)
+    model = FlakyChatModel(replies=[build_read_step(), AIMessage("Done.")])
+    agent = build_agent(model, protocol=AcceptFirst())
+
+    # Act
+    events, error = stream_custom_events(agent, mode=run_mode)
+
+    # Assert: the step's record is streamed only once its commit is built
+    assert isinstance(error, MonitorError)
+    assert str(error) == "planted failure in the commit's update"
+    assert "monitor_step" not in [event["type"] for event in events]
 
 
 def test_a_committed_step_writes_no_failure_event(run_mode: RunMode) -> None:

@@ -49,9 +49,9 @@ reviews:
     - label: protocols
       instructions: Changes to control protocols, fallbacks or thresholds under protocols/ or in thresholds.py.
     - label: middleware
-      instructions: Changes to MonitorMiddleware, pending steps, halts, records or the LangChain boundary (middleware.py, pending_steps.py, halts.py, records.py, _langchain.py).
+      instructions: Changes to MonitorMiddleware or any module it calls to run a step, such as pending steps, commits, halts, records, tool calls, model calls, feedback, spans, options or the LangChain boundary (_langchain.py), and not covered by a more specific label.
     - label: deepagents
-      instructions: Changes to the Deep Agents integration or to subagent handling (deepagents.py, delegation.py, subagent_returns.py, task_authorship.py).
+      instructions: Changes to the Deep Agents integration or to subagents and the records they return (deepagents.py, delegation.py, subagent_returns.py, returned_records.py, task_authorship.py).
     - label: contracts
       instructions: Any change to src/langchain_sync_monitors/contracts.py.
     - label: docs
@@ -66,8 +66,9 @@ reviews:
 
   auto_review:
     enabled: true
-    # Agents open drafts while they work and mark the PR ready once
-    # scripts/check.sh passes: the first review lands on finished work.
+    # Pull requests open as drafts and are marked ready once the gates pass
+    # and the adversarial review is done: the first review lands on finished
+    # work.
     drafts: false
     auto_incremental_review: true
     # Pause incremental reviews after two reviewed commits, as the docs advise
@@ -121,8 +122,9 @@ reviews:
           record is built.
         - A state key or a message the monitor writes is the named constant
           (state_keys.py, DEFAULT_HALT_MESSAGE), never a repeated literal.
-        - Renaming a shipped name (an export, span name, score or metric key,
-          or log message) breaks integrations.
+        - Once CHANGELOG.md has a released section, renaming a shipped name
+          (an export, span name, score or metric key, or log message) breaks
+          integrations; before that, renames are free.
         Design, from AGENTS.md "How the code is designed"; flag only these:
         - A new boolean or string flag that switches behaviour inside a class,
           where a strategy object or enum passed in belongs.
@@ -281,8 +283,8 @@ reviews:
           of the form "## [X.Y.Z] - YYYY-MM-DD". Then fail if the PR renames
           or removes any of: a name in __all__ of
           src/langchain_sync_monitors/__init__.py or a public constructor
-          keyword; a span name in spans.py or MONITOR_CALL_NAME; a score,
-          metric or metadata key; a constant in state_keys.py; a monitor_log
+          keyword; a span name in spans.py, or MONITOR_CALL_NAME in
+          model_calls.py; a score, metric or metadata key; a constant in state_keys.py; a monitor_log
           record field; the text of a log message or of a message the monitor
           writes into a run, such as DEFAULT_HALT_MESSAGE. Pass if nothing
           like that changes, or if each change has a line under
@@ -317,9 +319,9 @@ reviews:
       - name: "Middleware tests run under both modes"
         mode: "warning"
         instructions: >-
-          Applies when the PR changes behaviour in src/ that MonitorMiddleware
-          reaches: middleware.py, pending_steps.py, halts.py, records.py,
-          deepagents.py, protocols/, or a monitor's evaluate and
+          Applies when the PR changes behaviour in any module under
+          src/langchain_sync_monitors/ that MonitorMiddleware reaches while it
+          runs a step, including protocols/ and a monitor's evaluate and
           evaluate_sync. Fail if the tests the PR adds or changes for that
           behaviour run it only through invoke() or only through ainvoke(),
           or only through evaluate_sync or only through evaluate, with no
@@ -360,8 +362,8 @@ reviews:
           if such access goes through a typed helper in _langchain.py.
 
   tools:
-    # CI runs ruff 0.16.9 from uv.lock as a hard gate; CodeRabbit runs its own
-    # ruff (0.16.6), which would repeat or contradict it.
+    # CI runs the ruff pinned in uv.lock as a hard gate; CodeRabbit runs its
+    # own ruff, whose version differs, so it would repeat or contradict it.
     ruff:
       enabled: false
     # Betterleaks ignores .gitleaks.toml, so it would flag the fake keys the

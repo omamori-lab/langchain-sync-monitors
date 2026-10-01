@@ -281,8 +281,9 @@ class ChatModelMonitor(Monitor, ABC):
         [@schlawack2026stamina], after a growing, jittered wait, up to
         `RATE_LIMIT_ATTEMPTS` attempts in all; any other error is raised at
         once, and so is the last 429. The retries wrap a block, not a
-        function, so stamina's retry log holds the error and the wait, never
-        the prompt.
+        function, so stamina's retry log holds the error's repr and the wait,
+        never the prompt. A custom hook is handed the error itself, which a
+        provider's SDK may give the request, prompt included.
         """
         async for attempt in stamina.retry_context(
             on=is_rate_limit_error,

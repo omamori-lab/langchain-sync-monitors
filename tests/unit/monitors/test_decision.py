@@ -262,7 +262,8 @@ async def test_a_retried_request_logs_no_part_of_the_transcript_or_the_key(
     # Act
     verdict = await evaluate_on_path(monitor, input_holding_a_secret, call_path=call_path)
 
-    # Assert: the retry happened, was logged, and nothing it handed on holds the request
+    # Assert: the retry happened and was logged, and neither the log nor the error's repr
+    # holds the request
     assert verdict.suspicion == 0.1
     assert len(server.requests) == 2
     assert PLANTED_SECRET in server.requests[0].content.decode()

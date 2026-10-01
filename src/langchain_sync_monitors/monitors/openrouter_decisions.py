@@ -284,9 +284,12 @@ class OpenRouterDecisionModel(DecisionModel):
     async def request_decisions(self, body: DecisionsRequestBody) -> bytes:
         """POST the request, retrying transient failures, and return the response body.
 
-        The retries wrap a block, not a function, so stamina's retry hooks,
-        which log the arguments of a retried function [@schlawack2026stamina],
-        never see the body: its state is the transcript and the proposed step.
+        The retries wrap a block, not a function, so no retry hook is handed
+        the body as an argument, where stamina's own hooks would log it
+        [@schlawack2026stamina]; its state is the transcript and the proposed
+        step. Those hooks log the error only as its repr, which holds neither
+        the body nor the key. A custom hook is handed the error itself, whose
+        `request` still holds both.
         """
         async for attempt in stamina.retry_context(
             on=is_retryable_http_error,
@@ -306,7 +309,8 @@ class OpenRouterDecisionModel(DecisionModel):
     def request_decisions_sync(self, body: DecisionsRequestBody) -> bytes:
         """POST the request without an event loop, retrying transient failures.
 
-        The retries wrap a block, as in `request_decisions`, so no retry hook sees the body.
+        The retries wrap a block, as in `request_decisions`, so no retry hook is handed the
+        body as an argument.
         """
         for attempt in stamina.retry_context(on=is_retryable_http_error, attempts=RETRY_ATTEMPTS):
             with attempt:

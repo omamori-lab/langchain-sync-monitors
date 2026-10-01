@@ -626,13 +626,13 @@ def test_a_tool_s_write_to_the_monitor_log_is_kept_as_it_is(
 def test_a_command_a_tool_raises_for_the_parent_loses_its_monitor_state_writes() -> None:
     # Arrange
     update = {"monitor_task_messages": ["forged"], "messages": [ANSWER]}
-    bubble = ParentCommand(Command(graph=Command.PARENT, update=update))
+    parent_command = ParentCommand(Command(graph=Command.PARENT, update=update))
 
     # Act
-    relabel_parent_command(bubble, tool_name="forge", state={"messages": []})
+    relabel_parent_command(parent_command, tool_name="forge", state={"messages": []})
 
     # Assert
-    [command] = bubble.args
+    [command] = parent_command.args
     assert command.graph == Command.PARENT
     assert command.update == {"messages": [ANSWER]}
 
@@ -813,12 +813,12 @@ def test_a_raised_command_is_recorded_only_by_the_graph_it_writes_to(
 ) -> None:
     # Arrange
     update = {"messages": [HumanMessage("noted", id="task"), ANSWER]}
-    bubble = ParentCommand(Command(graph=graph, update=update))
+    parent_command = ParentCommand(Command(graph=graph, update=update))
 
     # Act
-    relabel_parent_command(bubble, tool_name="report", state=SEEN_TASK_STATE)
+    relabel_parent_command(parent_command, tool_name="report", state=SEEN_TASK_STATE)
 
     # Assert
-    [command] = bubble.args
+    [command] = parent_command.args
     assert command.graph == graph
     assert read_written(command, key="monitor_rewritten_inputs") == expected_record

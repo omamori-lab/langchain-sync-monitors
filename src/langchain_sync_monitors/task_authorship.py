@@ -506,7 +506,7 @@ def relabel_tool_result(
     return Command(update={"messages": [message], REWRITTEN_INPUTS_KEY: rewritten_input_ids})
 
 
-def relabel_parent_command(bubble: ParentCommand, *, tool_name: str, state: object) -> None:
+def relabel_parent_command(parent_command: ParentCommand, *, tool_name: str, state: object) -> None:
     """Relabel, in place, what the command in a `ParentCommand` a tool call raises writes.
 
     A tool can raise one, or call a graph whose node returns a command for
@@ -516,11 +516,11 @@ def relabel_parent_command(bubble: ParentCommand, *, tool_name: str, state: obje
     `graph`, `goto` and `resume`. The command is replaced in the exception,
     as LangGraph itself replaces it on the way up.
     """
-    [command] = bubble.args
+    [command] = parent_command.args
     relabelled = relabel_tool_command(
         command, tool_name=tool_name, before=read_state_before_tool(state)
     )
-    bubble.args = (relabelled,)
+    parent_command.args = (relabelled,)
 
 
 def tag_tool_written_notes(

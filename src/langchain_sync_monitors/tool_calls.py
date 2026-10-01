@@ -105,9 +105,11 @@ def check_tool_call(request: ToolCallRequest, *, agent: str) -> Iterator[Checked
     with set_context_value(checked_tool_call, value=delegated):
         try:
             yield CheckedToolCall(request=delegated, caller=caller)
-        except ParentCommand as bubble:
-            relabel_parent_command(bubble, tool_name=caller.tool_call["name"], state=caller.state)
-            check_parent_command_records(bubble, caller=caller)
+        except ParentCommand as parent_command:
+            relabel_parent_command(
+                parent_command, tool_name=caller.tool_call["name"], state=caller.state
+            )
+            check_parent_command_records(parent_command, caller=caller)
             raise
 
 

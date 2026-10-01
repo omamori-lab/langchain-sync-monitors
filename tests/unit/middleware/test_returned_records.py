@@ -501,15 +501,15 @@ def test_a_command_for_the_parent_graph_is_left_to_the_parent_s_monitor() -> Non
 def test_the_records_in_a_parent_command_a_call_raises_are_checked_in_place() -> None:
     # Arrange: LangGraph names the graph by the time the parent's monitor sees it
     caller = read_tool_caller(build_state(), agent="main", tool_call=build_tool_call())
-    bubble = ParentCommand(
+    parent_command = ParentCommand(
         Command(graph="parent", update={"monitor_log": [build_record(outcome="halted")]})
     )
 
     # Act
-    check_parent_command_records(bubble, caller=caller)
+    check_parent_command_records(parent_command, caller=caller)
 
     # Assert
-    [command] = bubble.args
+    [command] = parent_command.args
     assert command.graph == "parent"
     assert read_entry(command)["halted_subagents"] == ["worker"]
 

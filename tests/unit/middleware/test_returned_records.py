@@ -281,9 +281,12 @@ def test_a_write_the_monitor_changes_logs_one_warning_naming_the_tool_and_the_re
     warning: str,
     caplog: pytest.LogCaptureFixture,
 ) -> None:
+    # Arrange
+    update = {"monitor_log": written}
+
     # Act
     with caplog.at_level(logging.WARNING, logger=LOGGER):
-        check({"monitor_log": written})
+        check(update)
 
     # Assert: the record is named by the fields that name one, never by its samples' text
     assert [record.getMessage() for record in caplog.records if record.name == LOGGER] == [warning]

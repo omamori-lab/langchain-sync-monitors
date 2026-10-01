@@ -65,6 +65,7 @@ from langchain_sync_monitors.halts import (
     find_halt_decision,
     has_just_halted,
 )
+from langchain_sync_monitors.message_ids import build_run_end_update
 from langchain_sync_monitors.monitor_state import MonitorState
 from langchain_sync_monitors.options import (
     check_enum_option,
@@ -95,7 +96,6 @@ from langchain_sync_monitors.spans import (
 from langchain_sync_monitors.state_keys import REWRITTEN_INPUTS_KEY, TASK_MESSAGES_KEY
 from langchain_sync_monitors.subagent_returns import count_returned_blocks, read_subagent_returns
 from langchain_sync_monitors.task_authorship import (
-    build_run_end_update,
     build_step_start_update,
     read_message_ids,
 )

@@ -32,11 +32,11 @@ from tests.support.monitors import KeywordMonitor
 type LateCall = Callable[[PendingStep], Awaitable[object]]
 
 
-async def sample_again(step: PendingStep) -> object:
+async def draw_another_sample(step: PendingStep) -> object:
     return await step.sample(count=1)
 
 
-async def ask_the_trusted_model(step: PendingStep) -> object:
+async def request_a_trusted_step(step: PendingStep) -> object:
     return await step.request_trusted_step(trusted_model=ScriptedChatModel(responses=[]))
 
 
@@ -64,7 +64,7 @@ class LeaveATaskBehind(ControlProtocol):
         )
 
 
-@pytest.mark.parametrize("late_call", [sample_again, ask_the_trusted_model])
+@pytest.mark.parametrize("late_call", [draw_another_sample, request_a_trusted_step])
 def test_a_task_left_running_after_the_step_is_refused_the_model(
     run_mode: RunMode,
     late_call: LateCall,

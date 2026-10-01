@@ -352,6 +352,11 @@ The library logs through Python's `logging`, under `langchain_sync_monitors`:
 | `langchain_sync_monitors.returned_records` | `WARNING` | A tool wrote to `monitor_log` an `Overwrite`, a record claiming a step of the calling agent itself, or a record that is not a whole `StepRecord`; the message names the tool and the record and says what the monitor did |
 | `langchain_sync_monitors._langchain` | `ERROR` | Writing a monitor event to the custom stream failed. The event is dropped and nothing else changes: a committed step stays committed, and a failed step's error is still raised |
 
+A retry logs through stamina's own logger, `stamina`, at `WARNING`, as
+`stamina.retry_scheduled`: each Decisions API request sent again, and each
+chat monitor call made again after HTTP 429. The record holds the error and
+the wait; the request, its transcript and key included, is never handed to it.
+
 A malformed record read from `monitor_log` raises `MonitorError` naming its
 position and the fields at fault; the monitor skips no record, since that
 could hide a halt.

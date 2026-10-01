@@ -28,9 +28,9 @@ from langchain_sync_monitors._langchain import (
     ToolCallResults,
     read_update_pairs,
 )
+from langchain_sync_monitors.message_ids import build_run_end_update
 from langchain_sync_monitors.run_inputs import build_run_start_update
 from langchain_sync_monitors.task_authorship import (
-    build_run_end_update,
     build_run_input_update,
     mark_context_notes,
     mark_tool_written_notes,

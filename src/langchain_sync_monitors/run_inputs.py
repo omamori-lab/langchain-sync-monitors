@@ -55,16 +55,18 @@ from typing import TypedDict
 from langchain_core.messages import BaseMessage, HumanMessage
 
 from langchain_sync_monitors._langchain import AgentStateUpdate
+from langchain_sync_monitors.message_ids import (
+    build_identified_messages_update,
+    identify_human_messages,
+    replace_state_messages,
+)
 from langchain_sync_monitors.state_keys import RUN_INPUTS_KEY
 from langchain_sync_monitors.task_authorship import (
     UNCONFIRMED_INPUT_SOURCE,
-    build_identified_messages_update,
     build_run_input_update,
     find_unseen_human_message_ids,
-    identify_human_messages,
     is_run_open,
     read_state_messages,
-    replace_state_messages,
     tag_as_context_note,
 )
 from langchain_sync_monitors.transcript import read_message_source

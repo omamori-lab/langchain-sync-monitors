@@ -78,12 +78,14 @@ async def evaluate_and_collect_warnings(
 
 
 @pytest.mark.usefixtures("global_cache")
+@pytest.mark.parametrize("samples", [2, 3])
 async def test_a_guard_that_samples_under_the_global_cache_warns(
     monitor_input: MonitorInput,
     call_path: CallPath,
+    samples: int,
 ) -> None:
-    # Arrange
-    guard = build_guard(ScriptedChatModel(replies=LABELS))
+    # Arrange: two samples is the fewest that the cache can turn into copies
+    guard = build_guard(ScriptedChatModel(replies=LABELS), samples=samples)
 
     # Act
     _, caught = await evaluate_and_collect_warnings(guard, monitor_input, call_path=call_path)

@@ -8,24 +8,30 @@ do not warn.
 
 from __future__ import annotations
 
+import asyncio
 import warnings
 from collections.abc import Callable, Iterator
 from typing import Any, cast
 
 import pytest
 from langchain.agents import create_agent
-from langchain.agents.middleware.types import AgentMiddleware
+from langchain.agents.middleware.types import AgentMiddleware, ModelRequest, ModelResponse
 from langchain.chat_models import init_chat_model
 from langchain_core.caches import InMemoryCache
 from langchain_core.globals import get_llm_cache, set_llm_cache
 from langchain_core.language_models import BaseChatModel
-from langchain_core.messages import AIMessage
+from langchain_core.messages import AIMessage, HumanMessage
 from langchain_core.runnables import Runnable
 
-from langchain_sync_monitors.contracts import ControlProtocol
+from langchain_sync_monitors.contracts import ControlProtocol, TaskAuthor
 from langchain_sync_monitors.middleware import MonitorMiddleware
 from langchain_sync_monitors.model_calls import CachedResampleWarning, is_response_cache_active
-from langchain_sync_monitors.pending_steps import warn_about_cached_resamples
+from langchain_sync_monitors.pending_steps import (
+    AsyncPendingStep,
+    SyncPendingStep,
+    run_synchronously,
+    warn_about_cached_resamples,
+)
 from langchain_sync_monitors.protocols import AutoMode, DeferToResample, HaltRun
 from tests.support.agents import (
     RunMode,
@@ -152,6 +158,54 @@ def test_the_warning_shows_once_even_when_every_warning_is_shown(run_mode: RunMo
 
     # Assert
     assert [warning.category for warning in caught] == [CachedResampleWarning]
+
+
+def call_model(request: ModelRequest[Any]) -> ModelResponse[Any]:
+    return ModelResponse(result=[request.model.invoke(request.messages)])
+
+
+async def call_model_async(request: ModelRequest[Any]) -> ModelResponse[Any]:
+    return ModelResponse(result=[await request.model.ainvoke(request.messages)])
+
+
+def draw_first_samples(model: ScriptedChatModel, *, count: int, mode: RunMode) -> list[str]:
+    """Draw a step's first `count` samples at once, and return the cache warnings raised."""
+    task = HumanMessage("Summarise the report.")
+    request = ModelRequest(model=model, messages=[task], state={"messages": [task]})
+    monitor = build_keyword_monitor()
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        if mode == "invoke":
+            step = SyncPendingStep(
+                request=request, handler=call_model, monitor=monitor, task_author=TaskAuthor.USER
+            )
+            run_synchronously(step.sample(count=count, concurrently=True))
+        else:
+            async_step = AsyncPendingStep(
+                request=request,
+                handler=call_model_async,
+                monitor=monitor,
+                task_author=TaskAuthor.USER,
+            )
+            asyncio.run(async_step.sample(count=count, concurrently=True))
+    return [str(warning.message) for warning in caught if warning.category is CachedResampleWarning]
+
+
+@pytest.mark.usefixtures("global_cache")
+@pytest.mark.parametrize(("count", "expected_warnings"), [(1, 0), (2, 1)])
+def test_a_first_draw_of_two_samples_under_a_cache_warns_and_of_one_does_not(
+    run_mode: RunMode,
+    count: int,
+    expected_warnings: int,
+) -> None:
+    # Arrange: no sample was drawn before, so only the count can make this draw a repeat
+    model = ScriptedChatModel(responses=[build_read_step() for _ in range(count)])
+
+    # Act
+    caught = draw_first_samples(model, count=count, mode=run_mode)
+
+    # Assert
+    assert len(caught) == expected_warnings
 
 
 class RunPickedModel(AgentMiddleware[Any, Any, Any]):

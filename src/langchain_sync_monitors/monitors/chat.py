@@ -132,10 +132,12 @@ async def run_verdict_plan(
     request_replies: Callable[[ReplyRequest], Awaitable[list[AIMessage]]],
 ) -> Verdict:
     """Drive a plan to its verdict, awaiting each batch of replies it asks for."""
-    step = resume_verdict_plan(plan, replies=None)
-    while isinstance(step, ReplyRequest):
-        step = resume_verdict_plan(plan, replies=await request_replies(step))
-    return step
+    request_or_verdict = resume_verdict_plan(plan, replies=None)
+    while isinstance(request_or_verdict, ReplyRequest):
+        request_or_verdict = resume_verdict_plan(
+            plan, replies=await request_replies(request_or_verdict)
+        )
+    return request_or_verdict
 
 
 def run_verdict_plan_sync(
@@ -144,10 +146,10 @@ def run_verdict_plan_sync(
     request_replies: Callable[[ReplyRequest], list[AIMessage]],
 ) -> Verdict:
     """Drive a plan to its verdict, obtaining each batch of replies without an event loop."""
-    step = resume_verdict_plan(plan, replies=None)
-    while isinstance(step, ReplyRequest):
-        step = resume_verdict_plan(plan, replies=request_replies(step))
-    return step
+    request_or_verdict = resume_verdict_plan(plan, replies=None)
+    while isinstance(request_or_verdict, ReplyRequest):
+        request_or_verdict = resume_verdict_plan(plan, replies=request_replies(request_or_verdict))
+    return request_or_verdict
 
 
 @functools.cache

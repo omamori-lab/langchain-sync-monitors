@@ -73,7 +73,7 @@ middleware hook [@langchain2026]:
 | Span | Inputs | Outputs | Tags |
 |---|---|---|---|
 | `monitor step` | `step_number`, and `proposed_step`, the step first proposed, added when the span ends | `outcome`, `flagged`, `blocked_count`, `max_suspicion`, and each sample's `suspicion`, `reason` and `executed` | `monitor` |
-| `monitor judgement` | `sample_number`, and `monitor`, the monitor's class name | `suspicion` and `reason` | `monitor` |
+| `monitor judgement` | `sample_number`, and `monitor_class`, the monitor's class name | `suspicion` and `reason` | `monitor` |
 | `monitor classifier` | `model`, and `questions`, each question's text by its key | `answers`, the probability of yes to each question; one span covers a request and all its retries | `monitor` |
 | `monitor decision` | Empty | `outcome`, `flagged` and `max_suspicion` | `monitor`, `monitor:<outcome>`, and `monitor:flagged` when the step is flagged |
 
@@ -92,7 +92,7 @@ Every monitor span of a step carries flat metadata keys that name the step:
 
 | Metadata key | Holds | On |
 |---|---|---|
-| `monitor_name` | The monitor's `label` | Every monitor span |
+| `monitor_label` | The monitor's `label` | Every monitor span |
 | `monitor_agent` | The agent: `main`, or a subagent's name | Every monitor span |
 | `monitor_step_number` | The step's number, as in `monitor_log` | Every monitor span |
 | `monitor_protocol` | The protocol's class, such as `AutoMode` | Every monitor span |
@@ -102,7 +102,7 @@ Every monitor span of a step carries flat metadata keys that name the step:
 | `monitor_max_suspicion` | The highest suspicion among the step's samples | `monitor decision`, when the step judged a sample |
 | `ls_agent_type`, set to `middleware` | Keeps the span out of LangSmith's Trajectory view, except inside a Deep Agents subagent; see [Limits](#limits) | `monitor judgement`, `monitor classifier` and `monitor decision` |
 
-`monitor_name`, `monitor_agent`, `monitor_step_number` and, inside a subagent,
+`monitor_label`, `monitor_agent`, `monitor_step_number` and, inside a subagent,
 `monitor_delegation_id` match a span to its `StepRecord` in `monitor_log`.
 `monitor_step_id` is the same on every monitor span of a step, so one filter
 on it gathers the step's spans. In LangSmith it is also the step span's own
@@ -160,7 +160,7 @@ agent = create_agent(
     middleware=[
         MonitorMiddleware(
             monitor=LLMMonitor(model="openrouter:xiaomi/mimo-v2.6-pro"),
-            protocol=TrustedMonitoring(flag_threshold=0.6),
+            protocol=TrustedMonitoring(audit_threshold=0.6),
         ),
     ],
 )

@@ -82,7 +82,7 @@ class StepIdentity:
     def build_labels(self) -> dict[str, TraceValue]:
         """Return the metadata every span of the step carries."""
         labels: dict[str, TraceValue] = {
-            "monitor_name": self.monitor,
+            "monitor_label": self.monitor,
             "monitor_agent": self.agent,
             "monitor_step_number": self.step_number,
             "monitor_protocol": self.protocol,
@@ -200,7 +200,7 @@ def build_judgement_span(*, sample_number: int, monitor: Monitor) -> TraceSpan:
     """
     return TraceSpan(
         name=JUDGEMENT_SPAN_NAME,
-        inputs={"sample_number": sample_number, "monitor": type(monitor).__name__},
+        inputs={"sample_number": sample_number, "monitor_class": type(monitor).__name__},
         metadata=MONITOR_WORK_METADATA,
         tags=[MONITOR_TAG],
     )

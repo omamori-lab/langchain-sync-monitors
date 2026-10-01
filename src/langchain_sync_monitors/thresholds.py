@@ -77,7 +77,7 @@ DEFAULT_DEFER_THRESHOLD: Final = DefaultThreshold(0.6)
 DEFAULT_BLOCK_THRESHOLD: Final = DefaultThreshold(0.6)
 """The default score at or above which Auto Mode blocks a step."""
 
-DEFAULT_FLAG_THRESHOLD: Final = DefaultThreshold(0.6)
+DEFAULT_TRUSTED_MONITORING_AUDIT_THRESHOLD: Final = DefaultThreshold(0.6)
 """The default score at or above which Trusted Monitoring flags a step."""
 
 DEFAULT_AUDIT_THRESHOLD: Final = DefaultThreshold(0.9)

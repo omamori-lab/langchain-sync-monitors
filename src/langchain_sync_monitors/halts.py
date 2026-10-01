@@ -67,11 +67,11 @@ does not say which.
 class InputsAtHalt(TypedDict):
     """How many run inputs the thread had recorded when one monitor last halted.
 
-    `monitor` is the middleware's name, such as `monitor[main]`, which is
+    `middleware_name` is the middleware's name, such as `monitor[main]`, which is
     unique within an agent, so stacked monitors count apart.
     """
 
-    monitor: str
+    middleware_name: str
     run_inputs: int
 
 
@@ -83,7 +83,7 @@ def merge_inputs_at_halt(  # lanorme: ignore[KWARG-001]
 
     LangGraph calls a reducer with both values by position [@langgraph2026].
     """
-    latest = {entry["monitor"]: entry for entry in [*recorded, *new]}
+    latest = {entry["middleware_name"]: entry for entry in [*recorded, *new]}
     return list(latest.values())
 
 
@@ -92,7 +92,7 @@ def count_run_inputs(state: Mapping[str, object]) -> int:
     return len(read_message_ids(state, key=TASK_MESSAGES_KEY))
 
 
-def read_run_inputs_at_halt(state: Mapping[str, object], *, monitor: str) -> int | None:
+def read_run_inputs_at_halt(state: Mapping[str, object], *, middleware_name: str) -> int | None:
     """Return how many run inputs the thread had at this monitor's latest halt, or None."""
     entries = state.get(INPUTS_AT_HALT_KEY)
     if not isinstance(entries, list):
@@ -100,7 +100,7 @@ def read_run_inputs_at_halt(state: Mapping[str, object], *, monitor: str) -> int
     counts = [
         entry.get("run_inputs")
         for entry in entries
-        if isinstance(entry, Mapping) and entry.get("monitor") == monitor
+        if isinstance(entry, Mapping) and entry.get("middleware_name") == middleware_name
     ]
     latest = counts[-1] if counts else None
     # A count that is missing or not an integer reads as None, which keeps a halt standing.
@@ -111,12 +111,12 @@ def build_halt_inputs_update(
     record: StepRecord,
     *,
     state: Mapping[str, object],
-    monitor: str,
+    middleware_name: str,
 ) -> AgentStateUpdate:
     """Return the update that stores the run inputs at a halted step, or none for another step."""
     if record["outcome"] != "halted":
         return {}
-    entry = InputsAtHalt(monitor=monitor, run_inputs=count_run_inputs(state))
+    entry = InputsAtHalt(middleware_name=middleware_name, run_inputs=count_run_inputs(state))
     return {INPUTS_AT_HALT_KEY: [entry]}
 
 
@@ -183,12 +183,12 @@ def find_halt_decision(
     *,
     previous_records: Sequence[StepRecord],
     returns: Sequence[SubagentReturn],
-    monitor: str,
+    middleware_name: str,
     when_subagent_halts: SubagentHalt,
 ) -> StepDecision | None:
     """Return the halt a step gets without a sample, or None when the protocol decides it.
 
-    `monitor` is the middleware's name, and `returns` holds what this
+    `middleware_name` is the middleware's name, and `returns` holds what this
     agent's tool calls returned since its last step. The step halts again
     while this monitor's own halt stands, and halts when one of those calls
     returned a subagent's halt and the monitor stops the whole run.
@@ -196,7 +196,7 @@ def find_halt_decision(
     if is_halt_standing(
         previous_records,
         run_inputs=count_run_inputs(state),
-        run_inputs_at_halt=read_run_inputs_at_halt(state, monitor=monitor),
+        run_inputs_at_halt=read_run_inputs_at_halt(state, middleware_name=middleware_name),
     ):
         return build_standing_halt_decision()
     if when_subagent_halts is SubagentHalt.STOP_SUBAGENT_ONLY:

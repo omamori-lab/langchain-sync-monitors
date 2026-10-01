@@ -39,7 +39,7 @@ async def test_repeated_monitor_averages_its_calls(
     call_path: CallPath,
 ) -> None:
     # Arrange: that the async path's calls overlap is checked in test_calibration.py.
-    repeated = RepeatedMonitor(monitor=three_calls, repeats=3)
+    repeated = RepeatedMonitor(monitor=three_calls, ensemble_size=3)
 
     # Act
     verdict = await evaluate_on_path(repeated, monitor_input, call_path=call_path)
@@ -53,8 +53,8 @@ def test_equal_means_compare_equal_after_rounding(
     monitor_input: MonitorInput,
 ) -> None:
     # Arrange: both steps average to 0.1, but their float sums differ in the last bits.
-    first = RepeatedMonitor(monitor=ScriptedMonitor(suspicions=[0.1, 0.0, 0.2]), repeats=3)
-    second = RepeatedMonitor(monitor=ScriptedMonitor(suspicions=[0.0, 0.0, 0.3]), repeats=3)
+    first = RepeatedMonitor(monitor=ScriptedMonitor(suspicions=[0.1, 0.0, 0.2]), ensemble_size=3)
+    second = RepeatedMonitor(monitor=ScriptedMonitor(suspicions=[0.0, 0.0, 0.3]), ensemble_size=3)
 
     # Act
     first_mean = first.evaluate_sync(monitor_input).suspicion
@@ -69,8 +69,8 @@ async def test_a_mean_keeps_the_resolution_that_averaging_adds(
     call_path: CallPath,
 ) -> None:
     # Arrange: the two means differ in the fifth decimal place only
-    lower = RepeatedMonitor(monitor=ScriptedMonitor(suspicions=[0.1, 0.2]), repeats=2)
-    higher = RepeatedMonitor(monitor=ScriptedMonitor(suspicions=[0.1, 0.2001]), repeats=2)
+    lower = RepeatedMonitor(monitor=ScriptedMonitor(suspicions=[0.1, 0.2]), ensemble_size=2)
+    higher = RepeatedMonitor(monitor=ScriptedMonitor(suspicions=[0.1, 0.2001]), ensemble_size=2)
 
     # Act
     lower_verdict = await evaluate_on_path(lower, monitor_input, call_path=call_path)
@@ -86,7 +86,7 @@ def test_repeated_monitor_keeps_the_most_suspicious_reason(
     monitor_input: MonitorInput,
 ) -> None:
     # Arrange
-    repeated = RepeatedMonitor(monitor=three_calls, repeats=3)
+    repeated = RepeatedMonitor(monitor=three_calls, ensemble_size=3)
 
     # Act
     verdict = repeated.evaluate_sync(monitor_input)
@@ -97,7 +97,7 @@ def test_repeated_monitor_keeps_the_most_suspicious_reason(
 
 def test_one_repeat_returns_the_single_score(monitor_input: MonitorInput) -> None:
     # Arrange
-    repeated = RepeatedMonitor(monitor=ScriptedMonitor(suspicions=[1.0]), repeats=1)
+    repeated = RepeatedMonitor(monitor=ScriptedMonitor(suspicions=[1.0]), ensemble_size=1)
 
     # Act
     verdict = repeated.evaluate_sync(monitor_input)
@@ -106,10 +106,10 @@ def test_one_repeat_returns_the_single_score(monitor_input: MonitorInput) -> Non
     assert verdict.suspicion == 1.0
 
 
-def test_zero_repeats_is_rejected() -> None:
+def test_an_ensemble_size_of_zero_is_rejected() -> None:
     # Act and Assert
-    with pytest.raises(ConfigurationError, match="repeats"):
-        RepeatedMonitor(monitor=ScriptedMonitor(suspicions=[0.0]), repeats=0)
+    with pytest.raises(ConfigurationError, match="ensemble_size"):
+        RepeatedMonitor(monitor=ScriptedMonitor(suspicions=[0.0]), ensemble_size=0)
 
 
 @pytest.mark.parametrize("random_seed", [None, 7], ids=["unseeded", "seeded"])
@@ -228,7 +228,7 @@ async def test_a_calm_fast_verdict_is_kept(monitor_input: MonitorInput) -> None:
     cascade = CascadeMonitor(
         fast=ScriptedMonitor(suspicions=[0.29]),
         careful=careful,
-        escalate_at=0.3,
+        escalation_threshold=0.3,
     )
 
     # Act
@@ -245,7 +245,7 @@ async def test_a_fast_verdict_at_the_threshold_escalates(monitor_input: MonitorI
     cascade = CascadeMonitor(
         fast=ScriptedMonitor(suspicions=[0.3]),
         careful=careful,
-        escalate_at=0.3,
+        escalation_threshold=0.3,
     )
 
     # Act
@@ -261,7 +261,7 @@ def test_the_sync_cascade_escalates_the_same_way(monitor_input: MonitorInput) ->
     # Arrange
     fast = ScriptedMonitor(suspicions=[0.8, 0.1])
     careful = ScriptedMonitor(suspicions=[0.95])
-    cascade = CascadeMonitor(fast=fast, careful=careful, escalate_at=0.5)
+    cascade = CascadeMonitor(fast=fast, careful=careful, escalation_threshold=0.5)
 
     # Act
     escalated = cascade.evaluate_sync(monitor_input)
@@ -277,5 +277,5 @@ def test_an_escalation_threshold_outside_zero_to_one_is_rejected() -> None:
     monitor = ScriptedMonitor(suspicions=[0.0])
 
     # Act and Assert
-    with pytest.raises(ConfigurationError, match="escalate_at"):
-        CascadeMonitor(fast=monitor, careful=monitor, escalate_at=1.2)
+    with pytest.raises(ConfigurationError, match="escalation_threshold"):
+        CascadeMonitor(fast=monitor, careful=monitor, escalation_threshold=1.2)

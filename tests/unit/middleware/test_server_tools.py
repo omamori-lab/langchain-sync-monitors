@@ -23,10 +23,10 @@ from langchain_core.runnables import Runnable
 from langchain_core.tools import BaseTool
 
 from langchain_sync_monitors.contracts import ControlProtocol
-from langchain_sync_monitors.errors import ProviderToolWarning
+from langchain_sync_monitors.errors import ServerToolWarning
 from langchain_sync_monitors.middleware import MonitorMiddleware
 from langchain_sync_monitors.protocols import AutoMode, DeferToResample, HaltRun
-from langchain_sync_monitors.provider_tools import is_provider_tool
+from langchain_sync_monitors.server_tools import is_server_tool
 from langchain_sync_monitors.thresholds import LIBRARY_DIRECTORY
 from tests.support.agents import RunMode, Workspace, build_keyword_monitor, run_agent
 from tests.support.chat_models import ScriptedChatModel, build_tool_call_message
@@ -45,8 +45,8 @@ ANTHROPIC_TEXT_EDITOR = {"type": "text_editor_20250728", "name": "str_replace_ba
 ANTHROPIC_BASH = {"type": "bash_20250124", "name": "bash"}
 
 
-class ProviderToolChatModel(ScriptedChatModel):
-    """A scripted model that accepts provider tool dictionaries, as provider models do."""
+class ServerToolChatModel(ScriptedChatModel):
+    """A scripted model that accepts server tool dictionaries, as provider models do."""
 
     def bind_tools(
         self,
@@ -59,28 +59,28 @@ class ProviderToolChatModel(ScriptedChatModel):
 def build_agent(
     model: ScriptedChatModel,
     *,
-    provider_tools: Sequence[dict[str, Any]],
+    server_tools: Sequence[dict[str, Any]],
     middleware: MonitorMiddleware | None = None,
 ) -> Runnable[Any, Any]:
     monitor = middleware or MonitorMiddleware(
         monitor=build_keyword_monitor(),
         protocol=AcceptFirst(),
     )
-    tools: list[BaseTool | dict[str, Any]] = [*Workspace().build_tools(), *provider_tools]
+    tools: list[BaseTool | dict[str, Any]] = [*Workspace().build_tools(), *server_tools]
     return create_agent(model, tools=tools, middleware=[monitor])
 
 
-def test_provider_tools_are_named_in_one_warning(run_mode: RunMode) -> None:
+def test_server_tools_are_named_in_one_warning(run_mode: RunMode) -> None:
     # Arrange
-    model = ProviderToolChatModel(responses=[AIMessage("Done.")])
-    agent = build_agent(model, provider_tools=[WEB_FETCH, WEB_SEARCH, GOOGLE_SEARCH])
+    model = ServerToolChatModel(responses=[AIMessage("Done.")])
+    agent = build_agent(model, server_tools=[WEB_FETCH, WEB_SEARCH, GOOGLE_SEARCH])
 
     # Act
-    with pytest.warns(ProviderToolWarning) as caught:
+    with pytest.warns(ServerToolWarning) as caught:
         run_agent(agent, mode=run_mode)
 
     # Assert
-    [warning] = [item for item in caught if item.category is ProviderToolWarning]
+    [warning] = [item for item in caught if item.category is ServerToolWarning]
     text = str(warning.message)
     assert "monitor[main]" in text
     assert "web_fetch_20250910, web_search, google_search" in text
@@ -91,11 +91,11 @@ def test_provider_tools_are_named_in_one_warning(run_mode: RunMode) -> None:
 def test_the_warning_is_shown_once_per_middleware_instance(run_mode: RunMode) -> None:
     # Arrange
     middleware = MonitorMiddleware(monitor=build_keyword_monitor(), protocol=AcceptFirst())
-    model = ProviderToolChatModel(responses=[AIMessage("First."), AIMessage("Second.")])
-    agent = build_agent(model, provider_tools=[WEB_SEARCH], middleware=middleware)
+    model = ServerToolChatModel(responses=[AIMessage("First."), AIMessage("Second.")])
+    agent = build_agent(model, server_tools=[WEB_SEARCH], middleware=middleware)
     subagent_copy = middleware.copy_for_subagent(subagent_name="worker")
-    subagent_model = ProviderToolChatModel(responses=[AIMessage("Worker done.")])
-    subagent = build_agent(subagent_model, provider_tools=[WEB_SEARCH], middleware=subagent_copy)
+    subagent_model = ServerToolChatModel(responses=[AIMessage("Worker done.")])
+    subagent = build_agent(subagent_model, server_tools=[WEB_SEARCH], middleware=subagent_copy)
 
     # Act
     with warnings.catch_warnings(record=True) as caught:
@@ -105,8 +105,8 @@ def test_the_warning_is_shown_once_per_middleware_instance(run_mode: RunMode) ->
         run_agent(subagent, mode=run_mode)
 
     # Assert: one for the instance, and one for its subagent copy
-    provider_warnings = [item for item in caught if item.category is ProviderToolWarning]
-    assert [str(item.message).split(":")[0] for item in provider_warnings] == [
+    server_tool_warnings = [item for item in caught if item.category is ServerToolWarning]
+    assert [str(item.message).split(":")[0] for item in server_tool_warnings] == [
         "monitor[main]",
         "monitor[worker]",
     ]
@@ -114,10 +114,10 @@ def test_the_warning_is_shown_once_per_middleware_instance(run_mode: RunMode) ->
 
 def test_an_agent_with_only_tools_it_runs_itself_gets_no_warning(run_mode: RunMode) -> None:
     # Arrange
-    model = ProviderToolChatModel(responses=[AIMessage("Done.")])
+    model = ServerToolChatModel(responses=[AIMessage("Done.")])
     agent = build_agent(
         model,
-        provider_tools=[
+        server_tools=[
             FUNCTION_TOOL,
             ANTHROPIC_CUSTOM_TOOL,
             ANTHROPIC_TEXT_EDITOR,
@@ -131,7 +131,7 @@ def test_an_agent_with_only_tools_it_runs_itself_gets_no_warning(run_mode: RunMo
         run_agent(agent, mode=run_mode)
 
     # Assert
-    assert [item for item in caught if item.category is ProviderToolWarning] == []
+    assert [item for item in caught if item.category is ServerToolWarning] == []
 
 
 def test_the_editor_that_langchain_anthropic_hands_the_model_gets_no_warning(
@@ -147,7 +147,7 @@ def test_the_editor_that_langchain_anthropic_hands_the_model_gets_no_warning(
         call_id="call-view",
         arguments={"command": "view", "path": "/notes.md"},
     )
-    model = ProviderToolChatModel(responses=[view_call, AIMessage("Done.")])
+    model = ServerToolChatModel(responses=[view_call, AIMessage("Done.")])
     monitor = MonitorMiddleware(monitor=build_keyword_monitor(), protocol=AcceptFirst())
     stack: list[AgentMiddleware[Any, Any, Any]] = [editor, monitor]
     agent = create_agent(model, middleware=stack)
@@ -158,7 +158,7 @@ def test_the_editor_that_langchain_anthropic_hands_the_model_gets_no_warning(
         result = run_agent(agent, mode=run_mode)
 
     # Assert: the tool node ran the editor's call, which the monitor judged first
-    assert [item for item in caught if item.category is ProviderToolWarning] == []
+    assert [item for item in caught if item.category is ServerToolWarning] == []
     [first_sample] = result["monitor_log"][0]["samples"]
     assert editor.tool_name in first_sample["proposal"]
     assert any(isinstance(message, ToolMessage) for message in result["messages"])
@@ -179,10 +179,10 @@ def test_a_middleware_that_has_warned_can_still_be_copied_and_pickled(
 ) -> None:
     # Arrange
     middleware = MonitorMiddleware(monitor=build_keyword_monitor(), protocol=protocol)
-    model = ProviderToolChatModel(responses=[AIMessage("Done.")])
-    with pytest.warns(ProviderToolWarning):
+    model = ServerToolChatModel(responses=[AIMessage("Done.")])
+    with pytest.warns(ServerToolWarning):
         run_agent(
-            build_agent(model, provider_tools=[WEB_SEARCH], middleware=middleware), mode=run_mode
+            build_agent(model, server_tools=[WEB_SEARCH], middleware=middleware), mode=run_mode
         )
 
     # Act
@@ -200,17 +200,17 @@ def test_a_middleware_that_has_warned_can_still_be_copied_and_pickled(
 def test_a_copy_warns_once_of_its_own_and_the_original_stays_quiet(run_mode: RunMode) -> None:
     # Arrange
     middleware = MonitorMiddleware(monitor=build_keyword_monitor(), protocol=AcceptFirst())
-    first_model = ProviderToolChatModel(responses=[AIMessage("First.")])
-    with pytest.warns(ProviderToolWarning):
+    first_model = ServerToolChatModel(responses=[AIMessage("First.")])
+    with pytest.warns(ServerToolWarning):
         run_agent(
-            build_agent(first_model, provider_tools=[WEB_SEARCH], middleware=middleware),
+            build_agent(first_model, server_tools=[WEB_SEARCH], middleware=middleware),
             mode=run_mode,
         )
     duplicate = copy.deepcopy(middleware)
-    original_model = ProviderToolChatModel(responses=[AIMessage("Again.")])
-    copy_model = ProviderToolChatModel(responses=[AIMessage("Copy."), AIMessage("Copy again.")])
-    original = build_agent(original_model, provider_tools=[WEB_SEARCH], middleware=middleware)
-    copied = build_agent(copy_model, provider_tools=[WEB_SEARCH], middleware=duplicate)
+    original_model = ServerToolChatModel(responses=[AIMessage("Again.")])
+    copy_model = ServerToolChatModel(responses=[AIMessage("Copy."), AIMessage("Copy again.")])
+    original = build_agent(original_model, server_tools=[WEB_SEARCH], middleware=middleware)
+    copied = build_agent(copy_model, server_tools=[WEB_SEARCH], middleware=duplicate)
 
     # Act
     with warnings.catch_warnings(record=True) as caught:
@@ -220,7 +220,7 @@ def test_a_copy_warns_once_of_its_own_and_the_original_stays_quiet(run_mode: Run
         run_agent(copied, mode=run_mode)
 
     # Assert
-    assert len([item for item in caught if item.category is ProviderToolWarning]) == 1
+    assert len([item for item in caught if item.category is ServerToolWarning]) == 1
 
 
 @pytest.mark.parametrize(
@@ -294,12 +294,12 @@ def test_a_copy_warns_once_of_its_own_and_the_original_stays_quiet(run_mode: Run
         "json-schema",
     ],
 )
-def test_only_the_server_tools_a_provider_runs_itself_are_provider_tools(
+def test_only_the_tools_a_provider_runs_itself_are_server_tools(
     tool: dict[str, Any],
     is_provider: bool,
 ) -> None:
     # Act
-    result = is_provider_tool(tool)
+    result = is_server_tool(tool)
 
     # Assert
     assert result is is_provider

@@ -13,8 +13,8 @@ the step runs, and the flag marks its record.
 
 ## How it works
 
-[![The agent's model proposes one step, and the monitor, drawn as an omamori charm, reads it through its view and scores it from 0 to 1. The step runs as proposed whatever the score, and its outcome is allowed. A score below flag_threshold leaves the step unflagged; a score at or above flag_threshold flags it for a person to review. Either way the step is sampled once, and one record joins monitor_log.](../assets/diagrams/protocol-trusted-monitoring-light.svg#only-light)](../assets/diagrams/protocol-trusted-monitoring-light.svg "Open the diagram at full size")
-[![The agent's model proposes one step, and the monitor, drawn as an omamori charm, reads it through its view and scores it from 0 to 1. The step runs as proposed whatever the score, and its outcome is allowed. A score below flag_threshold leaves the step unflagged; a score at or above flag_threshold flags it for a person to review. Either way the step is sampled once, and one record joins monitor_log.](../assets/diagrams/protocol-trusted-monitoring-dark.svg#only-dark)](../assets/diagrams/protocol-trusted-monitoring-dark.svg "Open the diagram at full size")
+[![The agent's model proposes one step, and the monitor, drawn as an omamori charm, reads it through its view and scores it from 0 to 1. The step runs as proposed whatever the score, and its outcome is allowed. A score below audit_threshold leaves the step unflagged; a score at or above audit_threshold flags it for a person to review. Either way the step is sampled once, and one record joins monitor_log.](../assets/diagrams/protocol-trusted-monitoring-light.svg#only-light)](../assets/diagrams/protocol-trusted-monitoring-light.svg "Open the diagram at full size")
+[![The agent's model proposes one step, and the monitor, drawn as an omamori charm, reads it through its view and scores it from 0 to 1. The step runs as proposed whatever the score, and its outcome is allowed. A score below audit_threshold leaves the step unflagged; a score at or above audit_threshold flags it for a person to review. Either way the step is sampled once, and one record joins monitor_log.](../assets/diagrams/protocol-trusted-monitoring-dark.svg#only-dark)](../assets/diagrams/protocol-trusted-monitoring-dark.svg "Open the diagram at full size")
 
 Each step is sampled once and always runs. A high score changes only the
 `flagged` mark on the step's record.
@@ -41,7 +41,7 @@ monitor = MonitorMiddleware(
     # The judge that scores each step.
     monitor=LLMMonitor(model="openrouter:xiaomi/mimo-v2.6-pro"),
     # Flag steps at or above 0.6; calibrate your own value from honest runs.
-    protocol=TrustedMonitoring(flag_threshold=0.6),
+    protocol=TrustedMonitoring(audit_threshold=0.6),
 )
 agent = create_agent(
     model="openrouter:deepseek/deepseek-v4.1-flash",
@@ -65,7 +65,7 @@ judge: pass a provider string, or a chat model object you built.
 
 | Option | Default | What it does |
 |---|---|---|
-| `flag_threshold` | 0.6, with a warning | A step whose suspicion is at or above this value is flagged. Any number from 0 to 1; see [Thresholds](choose-a-protocol.md#thresholds). |
+| `audit_threshold` | 0.6, with a warning | A step whose suspicion is at or above this value is flagged. Any number from 0 to 1; see [Thresholds](choose-a-protocol.md#thresholds). |
 
 `MonitorMiddleware`'s own options are listed in
 [Middleware options](choose-a-protocol.md#middleware-options).
@@ -93,7 +93,7 @@ honest_scores = [
     for sample in record["samples"]
 ]
 # The 98th percentile flags about 2% of honest steps, if the scores do not tie.
-flag_threshold = statistics.quantiles(honest_scores, n=100)[97]
+audit_threshold = statistics.quantiles(honest_scores, n=100)[97]
 ```
 
 A single chat judge scores in steps of 0.1, so many honest steps share a
@@ -112,7 +112,7 @@ Every step adds one record:
 | Field | Under Trusted Monitoring |
 |---|---|
 | `outcome` | `"allowed"`: the step always runs |
-| `flagged` | `True` when the step's suspicion reached `flag_threshold` |
+| `flagged` | `True` when the step's suspicion reached `audit_threshold` |
 | `blocked_count` | 0 |
 | `samples` | One sample, with `executed` set to `True`, its `suspicion`, the monitor's `reason`, and the `proposal` as rendered text |
 
@@ -152,7 +152,7 @@ for record in result["monitor_log"]:
 - **A provider's built-in tools run before the judgement.** Tools such as
   Anthropic's web fetch run inside the model call, so the step has used them
   before the monitor scores it; see
-  [Tools the provider runs itself](choose-a-protocol.md#tools-the-provider-runs-itself).
+  [Server tools](choose-a-protocol.md#server-tools).
 - **The graph takes more steps.** The monitor adds two graph steps per agent
   step, however many model calls the step makes, and two per run;
   [Allow for the graph steps](read-the-monitor-log.md#allow-for-the-graph-steps)
@@ -160,7 +160,7 @@ for record in result["monitor_log"]:
 
 ## Related guides
 
-- [Combine and calibrate monitors](combine-and-calibrate-monitors.md) to set the flag threshold from honest runs.
+- [Combine and calibrate monitors](combine-and-calibrate-monitors.md) to set the audit threshold from honest runs.
 - [Read the monitor log](read-the-monitor-log.md) to find and audit flagged steps.
 
 ## References

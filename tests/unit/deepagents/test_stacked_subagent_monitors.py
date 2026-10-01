@@ -42,7 +42,7 @@ def build_resampling(*, max_resamples: int) -> ControlProtocol:
 def build_trusted_monitoring_monitor(monitor: KeywordMonitor | None = None) -> MonitorMiddleware:
     return MonitorMiddleware(
         monitor=monitor or KeywordMonitor(),
-        protocol=TrustedMonitoring(flag_threshold=THRESHOLD),
+        protocol=TrustedMonitoring(audit_threshold=THRESHOLD),
     )
 
 
@@ -113,7 +113,7 @@ def test_a_monitor_given_either_way_is_named_inside_a_spec_s_resampling_monitor(
     worker = build_guarded_worker(build_resampling(max_resamples=1))
     strict = MonitorMiddleware(
         monitor=KeywordMonitor(),
-        protocol=TrustedMonitoring(flag_threshold=THRESHOLD),
+        protocol=TrustedMonitoring(audit_threshold=THRESHOLD),
         label="strict",
     )
     overrides = {"worker": strict} if given_as == "override" else None
@@ -153,7 +153,7 @@ def test_monitoring_its_own_output_again_names_each_monitor_added_inside() -> No
 
 @pytest.mark.parametrize(
     "guard_protocol",
-    [TrustedMonitoring(flag_threshold=THRESHOLD), build_resampling(max_resamples=0)],
+    [TrustedMonitoring(audit_threshold=THRESHOLD), build_resampling(max_resamples=0)],
     ids=["trusted-monitoring", "resample-none-then-halt"],
 )
 def test_a_monitor_added_inside_a_spec_s_single_call_monitor_is_not_named(
@@ -185,7 +185,7 @@ def test_subagent_blocks_at_the_total_leave_a_monitor_inside_auto_mode_sound(
     )
     inner = MonitorMiddleware(
         monitor=inner_monitor,
-        protocol=TrustedMonitoring(flag_threshold=THRESHOLD),
+        protocol=TrustedMonitoring(audit_threshold=THRESHOLD),
         label="inner",
     )
     worker = SubAgent(
@@ -238,7 +238,7 @@ def test_an_added_monitor_that_shows_its_blocks_inside_a_spec_s_monitor_is_named
     guard_monitor = KeywordMonitor()
     guard = MonitorMiddleware(
         monitor=guard_monitor,
-        protocol=TrustedMonitoring(flag_threshold=THRESHOLD),
+        protocol=TrustedMonitoring(audit_threshold=THRESHOLD),
         label="guard",
         agent_name="worker",
     )

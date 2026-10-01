@@ -18,7 +18,7 @@ from langchain_core.language_models.fake_chat_models import FakeListChatModel
 from langchain_core.prompts import ChatPromptTemplate
 
 from langchain_sync_monitors.monitors import (
-    Combine,
+    Aggregation,
     DecisionModel,
     DecisionModelMonitor,
     GuardModelMonitor,
@@ -43,7 +43,7 @@ GuardModelMonitor(
     safe_labels={"no_violation"},
     scoring=GuardScoring.HARD_LABEL,
 )
-DecisionModelMonitor(decision_model=UnusedDecisionModel(), combine=Combine.MEAN)
+DecisionModelMonitor(decision_model=UnusedDecisionModel(), aggregation=Aggregation.MEAN)
 """
 
 
@@ -70,4 +70,4 @@ def test_every_construction_warning_shows_under_the_default_filters(tmp_path: Pa
     assert finished.returncode == 0, finished.stderr
     assert "UncalibratedThresholdWarning: block_threshold uses the uncalibrated" in finished.stderr
     assert "HardLabelWarning: GuardScoring.HARD_LABEL gives every step" in finished.stderr
-    assert "UserWarning: Combine.MEAN dilutes a single strong hit" in finished.stderr
+    assert "UserWarning: Aggregation.MEAN dilutes a single strong hit" in finished.stderr

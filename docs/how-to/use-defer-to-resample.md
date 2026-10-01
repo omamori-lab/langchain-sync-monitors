@@ -236,7 +236,7 @@ reached the threshold.
 - **A provider's built-in tools run once per sample.** A web search in the
   proposed step runs at the provider for every sample drawn, rejected ones
   included; see
-  [Tools the provider runs itself](choose-a-protocol.md#tools-the-provider-runs-itself).
+  [Server tools](choose-a-protocol.md#server-tools).
 - **Middleware inside the monitor can go out of step.** If a middleware after
   the monitor in the list returns commands, only those of the last model call
   survive. They match the committed step when sequential resampling accepts a

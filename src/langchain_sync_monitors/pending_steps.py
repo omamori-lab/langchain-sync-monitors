@@ -60,7 +60,7 @@ SYNCHRONOUS_RUN_MESSAGE = (
     "run the agent with ainvoke() to use anything else."
 )
 MONITOR_EVENT_LOOP_MESSAGE = (
-    "The monitor {monitor_name} started asynchronous work in evaluate_sync, where no event "
+    "The monitor {monitor_class} started asynchronous work in evaluate_sync, where no event "
     "loop can run it, during a synchronous invoke(). A monitor's evaluate_sync must finish "
     "without an event loop; run the agent with ainvoke() to use asyncio."
 )
@@ -443,8 +443,8 @@ class SyncPendingStep(MonitoredStep):
         except RuntimeError as error:
             if not is_missing_event_loop_error(error):
                 raise
-            monitor_name = type(self.monitor).__name__
-            message = MONITOR_EVENT_LOOP_MESSAGE.format(monitor_name=monitor_name)
+            monitor_class_name = type(self.monitor).__name__
+            message = MONITOR_EVENT_LOOP_MESSAGE.format(monitor_class=monitor_class_name)
             raise SynchronousRunError(message) from error
 
     @override

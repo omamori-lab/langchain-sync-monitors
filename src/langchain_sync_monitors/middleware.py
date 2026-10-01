@@ -78,13 +78,13 @@ from langchain_sync_monitors.pending_steps import (
     SyncPendingStep,
     run_synchronously,
 )
-from langchain_sync_monitors.provider_tools import warn_about_provider_tools
 from langchain_sync_monitors.records import find_monitor_records, read_step_records
 from langchain_sync_monitors.run_inputs import (
     build_refresh_update,
     build_run_start_update,
     read_current_run_inputs,
 )
+from langchain_sync_monitors.server_tools import warn_about_server_tools
 from langchain_sync_monitors.spans import (
     StepIdentity,
     open_step_span,
@@ -111,8 +111,8 @@ class MonitorMiddleware(AgentMiddleware[MonitorState, AgentContext, StructuredOu
     audit. Tools the model provider runs itself, such as Anthropic's
     `web_fetch` or OpenAI's `web_search`, run inside the model call, before
     the monitor judges the step and again for every sample, so no monitor can
-    stop them; the middleware emits a `ProviderToolWarning`, once per
-    instance, when the model request holds such tools. `provider_tools` lists
+    stop them; the middleware emits a `ServerToolWarning`, once per
+    instance, when the model request holds such tools. `server_tools` lists
     the ones it knows, and what it cannot see.
     Nothing the protocol calls streams to `stream_mode="messages"`: not the
     samples, not the trusted model's step, not the monitor's own calls. The
@@ -426,7 +426,7 @@ class MonitorMiddleware(AgentMiddleware[MonitorState, AgentContext, StructuredOu
 
     def prepare_step(self, request: AgentModelRequest) -> PreparedStep:
         """Read the log once for a step: its identity, a halt without a sample, its options."""
-        warn_about_provider_tools(request, middleware=self, middleware_name=self.name)
+        warn_about_server_tools(request, middleware=self, middleware_name=self.name)
         delegation_id = read_delegation_id(request.state)
         previous_records = find_monitor_records(
             read_step_records(request.state),
@@ -446,7 +446,7 @@ class MonitorMiddleware(AgentMiddleware[MonitorState, AgentContext, StructuredOu
             request.state,
             previous_records=previous_records,
             returns=returns,
-            monitor=self.name,
+            middleware_name=self.name,
             when_subagent_halts=self.when_subagent_halts,
         )
         options = PendingStepOptions(

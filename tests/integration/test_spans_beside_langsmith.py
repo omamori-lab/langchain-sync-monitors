@@ -130,12 +130,12 @@ def build_stacked_agent() -> Runnable[Any, Any]:
         middleware=[
             MonitorMiddleware(
                 monitor=TracedMonitor(),
-                protocol=TrustedMonitoring(flag_threshold=0.8),
+                protocol=TrustedMonitoring(audit_threshold=0.8),
                 label="outer",
             ),
             MonitorMiddleware(
                 monitor=TracedMonitor(),
-                protocol=TrustedMonitoring(flag_threshold=0.8),
+                protocol=TrustedMonitoring(audit_threshold=0.8),
                 label="inner",
             ),
         ],
@@ -222,7 +222,7 @@ def test_langsmith_traceable_runs_inside_a_span_carry_its_labels(
     # Assert
     sent_runs = read_sent_runs(langsmith_client)
     outer_step, inner_step = find_sent_runs(sent_runs, "monitor step")
-    assert (outer_step.metadata["monitor_name"], inner_step.metadata["monitor_name"]) == (
+    assert (outer_step.metadata["monitor_label"], inner_step.metadata["monitor_label"]) == (
         "outer",
         "inner",
     )

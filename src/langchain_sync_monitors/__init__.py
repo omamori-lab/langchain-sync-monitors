@@ -6,7 +6,7 @@ tools run, and a control protocol decides what happens with that judgement.
 `create_deep_agent`; `monitor_subagents` gives every Deep Agents subagent a
 monitor of its own. Tools the model provider runs itself run inside the model
 call, before any judgement; the middleware warns about the server tools of
-Anthropic, OpenAI and Gemini it knows with a `ProviderToolWarning`.
+Anthropic, OpenAI and Gemini it knows with a `ServerToolWarning`.
 """
 
 from langchain_sync_monitors._langchain import MonitorStepEvent, MonitorStepFailedEvent
@@ -37,7 +37,7 @@ from langchain_sync_monitors.errors import (
     InvalidSuspicionError,
     MissingExtraError,
     MonitorError,
-    ProviderToolWarning,
+    ServerToolWarning,
     SynchronousRunError,
 )
 from langchain_sync_monitors.middleware import MonitorMiddleware
@@ -46,10 +46,10 @@ from langchain_sync_monitors.monitor_state import MonitorState
 from langchain_sync_monitors.monitors import (
     ATTACK_CRITERIA,
     IS_THE_STEP_SUSPICIOUS,
+    Aggregation,
     CalibratedMonitor,
     CascadeMonitor,
     ChatModelMonitor,
-    Combine,
     DecisionModel,
     DecisionModelMonitor,
     GuardModelMonitor,
@@ -88,6 +88,7 @@ __all__ = [
     "DEFAULT_HALT_MESSAGE",
     "DEFAULT_MONITOR_PROMPT",
     "IS_THE_STEP_SUSPICIOUS",
+    "Aggregation",
     "AutoMode",
     "BlockedAttempt",
     "CachedResampleWarning",
@@ -95,7 +96,6 @@ __all__ = [
     "CascadeMonitor",
     "Channel",
     "ChatModelMonitor",
-    "Combine",
     "ConfigurationError",
     "ControlProtocol",
     "DecisionModel",
@@ -127,11 +127,11 @@ __all__ = [
     "OpenRouterDecisionModel",
     "Outcome",
     "PendingStep",
-    "ProviderToolWarning",
     "RepeatedMonitor",
     "Resampling",
     "Sample",
     "SampleRecord",
+    "ServerToolWarning",
     "StepDecision",
     "StepRecord",
     "SubagentHalt",

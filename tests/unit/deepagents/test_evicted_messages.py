@@ -62,7 +62,7 @@ def test_a_tool_that_tags_the_user_s_task_for_eviction_writes_a_note_after_it(
         model=model,
         tools=[tag_message, *Workspace().build_tools()],
         middleware=[
-            MonitorMiddleware(monitor=monitor, protocol=TrustedMonitoring(flag_threshold=0.6)),
+            MonitorMiddleware(monitor=monitor, protocol=TrustedMonitoring(audit_threshold=0.6)),
         ],
     )
 

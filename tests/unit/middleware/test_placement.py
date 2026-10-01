@@ -122,7 +122,7 @@ def test_request_only_and_hook_only_middleware_are_safe_inside_the_monitor(
 def test_middleware_inside_a_monitor_that_calls_the_model_once_is_not_named() -> None:
     # Arrange: Trusted Monitoring calls the rest of the stack once per step
     outer = MonitorMiddleware(
-        monitor=KeywordMonitor(), protocol=TrustedMonitoring(flag_threshold=0.5), label="outer"
+        monitor=KeywordMonitor(), protocol=TrustedMonitoring(audit_threshold=0.5), label="outer"
     )
     stack = [
         outer,

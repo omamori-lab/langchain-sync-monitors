@@ -88,7 +88,7 @@ def test_a_rate_limited_judge_call_is_made_again_and_the_step_commits(run_mode: 
     workspace = Workspace()
     middleware = MonitorMiddleware(
         monitor=LLMMonitor(model=judge),
-        protocol=TrustedMonitoring(flag_threshold=0.9),
+        protocol=TrustedMonitoring(audit_threshold=0.9),
     )
     agent: Runnable[Any, Any] = create_agent(
         model=ScriptedChatModel(responses=[build_read_step(), AIMessage(FINAL_ANSWER)]),

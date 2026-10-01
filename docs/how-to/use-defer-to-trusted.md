@@ -143,7 +143,7 @@ for record in result["monitor_log"]:
 - **A provider's built-in tools run before the judgement.** A rejected
   proposal's web search or code execution has already run at the provider;
   see
-  [Tools the provider runs itself](choose-a-protocol.md#tools-the-provider-runs-itself).
+  [Server tools](choose-a-protocol.md#server-tools).
 - **The graph takes more steps.** The monitor adds two graph steps per agent
   step, however many model calls the step makes, and two per run;
   [Allow for the graph steps](read-the-monitor-log.md#allow-for-the-graph-steps)

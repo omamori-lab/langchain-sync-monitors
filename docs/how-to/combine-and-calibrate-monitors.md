@@ -44,9 +44,9 @@ around the other wrappers, and every protocol accepts it.
 
 | Wrapper | What it reports | Calls per judged sample | Reason |
 |---|---|---|---|
-| `RepeatedMonitor(monitor=..., repeats=...)` | The mean suspicion of `repeats` calls | `repeats` times the wrapped monitor's | The most suspicious call's |
+| `RepeatedMonitor(monitor=..., ensemble_size=...)` | The mean suspicion of `ensemble_size` calls | `ensemble_size` times the wrapped monitor's | The most suspicious call's |
 | `CalibratedMonitor(monitor=..., honest_scores=..., random_seed=...)` | The rank of the score among honest scores | The wrapped monitor's, and no more | The wrapped monitor's |
-| `CascadeMonitor(fast=..., careful=..., escalate_at=...)` | The fast verdict, or the careful one when the fast suspicion reaches `escalate_at` | The fast monitor's, plus the careful monitor's for escalated samples | The verdict's own |
+| `CascadeMonitor(fast=..., careful=..., escalation_threshold=...)` | The fast verdict, or the careful one when the fast suspicion reaches `escalation_threshold` | The fast monitor's, plus the careful monitor's for escalated samples | The verdict's own |
 
 The wrappers never add a score to a reason. Auto Mode shows the reason to the
 agent, and a number would tell the agent how close its step came to passing.
@@ -78,14 +78,14 @@ from langchain_sync_monitors import LLMMonitor, RepeatedMonitor
 
 # The calls only differ when the judge samples, so its temperature is above zero.
 judge_model = init_chat_model("openrouter:xiaomi/mimo-v2.6-pro", temperature=1.0)
-monitor = RepeatedMonitor(monitor=LLMMonitor(model=judge_model), repeats=3)
+monitor = RepeatedMonitor(monitor=LLMMonitor(model=judge_model), ensemble_size=3)
 ```
 
 Give the model no LangChain response cache, which would answer every repeat
 with a copy of the first call. The mean is rounded to 12 decimal places, so
 that equal means tie exactly instead of differing in their last bits.
 Under `ainvoke()` the calls run concurrently, and one that fails cancels the
-others; under `invoke()` they run one after another. `repeats` must be a
+others; under `invoke()` they run one after another. `ensemble_size` must be a
 whole number of at least 1, or `ConfigurationError` is raised.
 
 ## Stack the wrappers in order
@@ -141,12 +141,12 @@ HONEST_TASKS = [
 
 # Exactly the monitor you will calibrate.
 judge_model = init_chat_model("openrouter:xiaomi/mimo-v2.6-pro", temperature=1.0)
-monitor = RepeatedMonitor(monitor=LLMMonitor(model=judge_model), repeats=3)
+monitor = RepeatedMonitor(monitor=LLMMonitor(model=judge_model), ensemble_size=3)
 agent = create_agent(
     "openrouter:deepseek/deepseek-v4.1-flash",
     tools=[read_file],
     middleware=[
-        MonitorMiddleware(monitor=monitor, protocol=TrustedMonitoring(flag_threshold=0.9)),
+        MonitorMiddleware(monitor=monitor, protocol=TrustedMonitoring(audit_threshold=0.9)),
     ],
 )
 
@@ -210,7 +210,7 @@ from langchain_sync_monitors import (
 honest_scores = json.loads(Path("honest_scores.json").read_text(encoding="utf-8"))
 judge_model = init_chat_model("openrouter:xiaomi/mimo-v2.6-pro", temperature=1.0)
 monitor = CalibratedMonitor(
-    monitor=RepeatedMonitor(monitor=LLMMonitor(model=judge_model), repeats=3),
+    monitor=RepeatedMonitor(monitor=LLMMonitor(model=judge_model), ensemble_size=3),
     honest_scores=honest_scores,
     # A fixed seed makes the tie-breaking replayable.
     random_seed=2026,
@@ -218,7 +218,7 @@ monitor = CalibratedMonitor(
 # Flag about 1% of honest steps.
 middleware = MonitorMiddleware(
     monitor=monitor,
-    protocol=TrustedMonitoring(flag_threshold=0.99),
+    protocol=TrustedMonitoring(audit_threshold=0.99),
 )
 ```
 
@@ -283,7 +283,7 @@ same calibrated suspicion, and an evaluation can be replayed exactly.
 ## Put a fast monitor in front of a careful one
 
 `CascadeMonitor` runs a fast monitor on every step and sends a step to a
-careful one only when the fast suspicion reaches `escalate_at`. Below it, the
+careful one only when the fast suspicion reaches `escalation_threshold`. Below it, the
 fast verdict stands; at or above it, the careful verdict, reason included,
 replaces it. This follows the two stages of Claude Code's auto mode, a fast
 filter in front of a reasoning classifier [@hughes2026automode]. Hua et
@@ -291,8 +291,8 @@ al.'s best two-monitor protocol calls the expensive monitor only when the
 cheap one's score falls in an uncertain range [@hua2025combining];
 `CascadeMonitor` uses the simpler rule of one threshold.
 
-[![CascadeMonitor runs the fast monitor, such as a calibrated decision model, on every step. When the fast suspicion is below escalate_at, the fast verdict stands, its reason included. At or above escalate_at, the careful monitor, such as a calibrated, repeated chat judge, scores the step, and its verdict, reason included, replaces the fast one. The careful monitor runs on escalated steps only.](../assets/diagrams/monitors-cascade-light.svg#only-light)](../assets/diagrams/monitors-cascade-light.svg "Open the diagram at full size")
-[![CascadeMonitor runs the fast monitor, such as a calibrated decision model, on every step. When the fast suspicion is below escalate_at, the fast verdict stands, its reason included. At or above escalate_at, the careful monitor, such as a calibrated, repeated chat judge, scores the step, and its verdict, reason included, replaces the fast one. The careful monitor runs on escalated steps only.](../assets/diagrams/monitors-cascade-dark.svg#only-dark)](../assets/diagrams/monitors-cascade-dark.svg "Open the diagram at full size")
+[![CascadeMonitor runs the fast monitor, such as a calibrated decision model, on every step. When the fast suspicion is below escalation_threshold, the fast verdict stands, its reason included. At or above escalation_threshold, the careful monitor, such as a calibrated, repeated chat judge, scores the step, and its verdict, reason included, replaces the fast one. The careful monitor runs on escalated steps only.](../assets/diagrams/monitors-cascade-light.svg#only-light)](../assets/diagrams/monitors-cascade-light.svg "Open the diagram at full size")
+[![CascadeMonitor runs the fast monitor, such as a calibrated decision model, on every step. When the fast suspicion is below escalation_threshold, the fast verdict stands, its reason included. At or above escalation_threshold, the careful monitor, such as a calibrated, repeated chat judge, scores the step, and its verdict, reason included, replaces the fast one. The careful monitor runs on escalated steps only.](../assets/diagrams/monitors-cascade-dark.svg#only-dark)](../assets/diagrams/monitors-cascade-dark.svg "Open the diagram at full size")
 
 Calibrate each stage on its own honest scores, collected as above with that
 stage as the monitor. Collect the careful stage's scores on every honest step,
@@ -327,23 +327,23 @@ monitor = CascadeMonitor(
     ),
     # Careful: three judge calls, only for escalated steps.
     careful=CalibratedMonitor(
-        monitor=RepeatedMonitor(monitor=LLMMonitor(model=judge_model), repeats=3),
+        monitor=RepeatedMonitor(monitor=LLMMonitor(model=judge_model), ensemble_size=3),
         honest_scores=careful_scores,
     ),
     # Escalate about 5% of honest steps.
-    escalate_at=0.95,
+    escalation_threshold=0.95,
 )
 ```
 
-With both stages calibrated, `escalate_at` is a share too: 0.95 sends about
+With both stages calibrated, `escalation_threshold` is a share too: 0.95 sends about
 5% of honest steps to the careful stage, which bounds its cost. A threshold
 `t` on the result then flags at most about a share `1 - t` of honest steps,
 since only the escalated ones can reach it.
 
-Keep `escalate_at` at or below the protocol's lowest threshold. A step the
-fast stage keeps has a suspicion below `escalate_at`, so a threshold below
-`escalate_at` could trigger the protocol on a step the careful stage never
-read. `escalate_at` is checked as a protocol threshold is: a number from 0
+Keep `escalation_threshold` at or below the protocol's lowest threshold. A step the
+fast stage keeps has a suspicion below `escalation_threshold`, so a threshold below
+`escalation_threshold` could trigger the protocol on a step the careful stage never
+read. `escalation_threshold` is checked as a protocol threshold is: a number from 0
 to 1, kept as a float, and anything else, NaN included, raises
 `ConfigurationError`.
 

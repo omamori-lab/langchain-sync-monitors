@@ -30,8 +30,8 @@ Tools that the model provider runs itself are the exception. Anthropic's web
 search, OpenAI's code interpreter and Gemini's Google Search run inside the
 model call, so they have run by the time the monitor sees the step, and they
 run again for every sample a protocol draws.
-[Tools the provider runs itself](how-to/choose-a-protocol.md#tools-the-provider-runs-itself)
-lists the ones `ProviderToolWarning` warns about and the ones it cannot see.
+[Server tools](how-to/choose-a-protocol.md#server-tools)
+lists the ones `ServerToolWarning` warns about and the ones it cannot see.
 
 ## Install
 

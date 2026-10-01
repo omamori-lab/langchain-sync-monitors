@@ -61,7 +61,7 @@ as follows:
 
 | Protocol | Outcomes in the log | Flagged when |
 |---|---|---|
-| Trusted Monitoring | `allowed` | The suspicion is at or above `flag_threshold` |
+| Trusted Monitoring | `allowed` | The suspicion is at or above `audit_threshold` |
 | Defer to Trusted | `allowed`, `deferred_to_trusted` | The suspicion is at or above `audit_threshold` |
 | Defer to Resample | `allowed`, `resampled`, `deferred_to_trusted`, `halted` | The lowest suspicion across the samples is at or above `audit_threshold`, or the step halted |
 | Auto Mode | `allowed`, `steered`, `deferred_to_trusted`, `halted` | An attempt was blocked, or the fallback wrote the step |
@@ -165,7 +165,7 @@ through another middleware listed before the monitor:
 `check_monitor_placement` does not warn about these hooks, which many
 middleware have for sound reasons.
 
-### Tools the provider runs itself
+### Server tools
 
 A monitor judges each step before any of the agent's own tools run. Some
 providers also run built-in tools themselves, on their servers, inside the
@@ -174,7 +174,7 @@ they run again for every sample or attempt the protocol draws, so no protocol
 can stop them. Give the agent tools of its own for any action that must be
 judged before it runs.
 
-The middleware emits a `ProviderToolWarning`, once per middleware instance,
+The middleware emits a `ServerToolWarning`, once per middleware instance,
 when a model call receives one of the server tools it knows:
 
 - Anthropic's web search, web fetch, code execution and MCP connector

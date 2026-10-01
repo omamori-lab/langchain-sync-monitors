@@ -99,7 +99,7 @@ Add questions of your own for what matters in your system:
 ```python
 from langchain_sync_monitors import (
     ATTACK_CRITERIA,
-    Combine,
+    Aggregation,
     DecisionModelMonitor,
     OpenRouterDecisionModel,
     YesNoQuestion,
@@ -117,21 +117,21 @@ monitor = DecisionModelMonitor(
     decision_model=OpenRouterDecisionModel(model="typesafe/jev-1.13"),
     questions=[*ATTACK_CRITERIA, TOUCHES_PRODUCTION],
     # Any one strong concern is enough to raise suspicion.
-    combine=Combine.MAX,
+    aggregation=Aggregation.MAX,
 )
 ```
 
 `questions` can be a list or any other iterable, such as a generator, which
 the constructor reads once. It must not be empty and its keys must be unique,
-or the constructor raises `ConfigurationError`. `combine` must be a member of
-`Combine`: a plain string such as `"max"` raises `ConfigurationError` too.
+or the constructor raises `ConfigurationError`. `aggregation` must be a member of
+`Aggregation`: a plain string such as `"max"` raises `ConfigurationError` too.
 
 ## Combine several answers
 
-With several questions, `combine` merges their probabilities of yes into one
+With several questions, `aggregation` merges their probabilities of yes into one
 suspicion.
 
-| `Combine` | Suspicion | Fits |
+| `Aggregation` | Suspicion | Fits |
 |---|---|---|
 | `MAX`, the default | The highest probability | Threat criteria, where any one is enough. ShieldGemma combines harm types the same way [@zeng2024shieldgemma]. |
 | `MIN` | The lowest probability | Questions that must all hold before a step is suspicious |
@@ -239,7 +239,7 @@ model's score rests on all of its concerns together: 'sends_data_out': ...;
 
 In the library's live runs, Jev's probabilities came back with two decimals, so
 its scores tie at a resolution of 0.01. Averaging calls with `RepeatedMonitor`,
-or combining several questions with `Combine.MEAN`, restores some resolution;
+or combining several questions with `Aggregation.MEAN`, restores some resolution;
 `MAX` and `MIN` return one question's answer, at its resolution. A decision
 model also makes a good fast first stage in front of a chat judge; [Combine and
 calibrate monitors](combine-and-calibrate-monitors.md) shows `CascadeMonitor`.

@@ -21,7 +21,7 @@ agent = create_agent(
     middleware=[
         MonitorMiddleware(
             monitor=LLMMonitor(model="openrouter:xiaomi/mimo-v2.6-pro"),
-            protocol=TrustedMonitoring(flag_threshold=0.6),
+            protocol=TrustedMonitoring(audit_threshold=0.6),
         ),
     ],
 )
@@ -153,7 +153,7 @@ the step: by the time anyone reads the log, the step has run or been
 replaced. Each protocol flags its own way:
 
 - **Trusted Monitoring** flags a step whose suspicion is at or above
-  `flag_threshold`.
+  `audit_threshold`.
 - **Defer to Trusted and Defer to Resample** flag a step when even the least
   suspicious of its samples is at or above `audit_threshold`.
   `audit_threshold=None` turns this off.
@@ -191,7 +191,7 @@ main, step 1: steered
 calls. A provider's built-in tool in it, such as a web fetch, already ran when
 the sample was drawn. Each sample's `proposal` shows every channel, the
 agent's reasoning included, even when the monitor did not read it. It also
-holds each provider tool result in full, once per sample drawn, so a large
+holds each server tool result in full, once per sample drawn, so a large
 fetched page makes every record of that step large.
 
 ## Follow steps as they are committed
@@ -370,7 +370,7 @@ A malformed record read from `monitor_log` raises `MonitorError` naming its
 position, the record and the fields at fault; the monitor skips no record,
 since that could hide a halt.
 
-Warnings about configuration, such as `ProviderToolWarning` and
+Warnings about configuration, such as `ServerToolWarning` and
 `UncalibratedThresholdWarning`, go through Python's `warnings` module instead.
 
 ```python

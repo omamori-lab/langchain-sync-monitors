@@ -47,7 +47,7 @@ from langchain_sync_monitors._langchain import (
     AnyAgentMiddleware,
     read_bound_tools,
 )
-from langchain_sync_monitors.errors import ProviderToolWarning
+from langchain_sync_monitors.errors import ServerToolWarning
 from langchain_sync_monitors.thresholds import LIBRARY_DIRECTORY
 
 SERVER_TOOL_TYPES: Final = frozenset(
@@ -68,7 +68,7 @@ GEMINI_SERVER_TOOL_KEYS: Final = frozenset(
 """The keys by which langchain-google-genai recognises a Gemini tool that Google runs itself."""
 
 warned_middleware_ids: Final[set[int]] = set()
-"""The ids of the middleware instances that have shown their `ProviderToolWarning` already.
+"""The ids of the middleware instances that have shown their `ServerToolWarning` already.
 
 It holds ids, so it never hashes a middleware, which a subclass may make
 unhashable, and it lives outside the middleware, which keeps no mutable state
@@ -77,7 +77,7 @@ later instance at the same address still warns.
 """
 
 
-def is_provider_tool(tool: Mapping[str, object]) -> bool:
+def is_server_tool(tool: Mapping[str, object]) -> bool:
     """Tell whether a tool dictionary of a model request is one the model provider runs itself."""
     tool_type = tool.get("type")
     if isinstance(tool_type, str):
@@ -86,28 +86,28 @@ def is_provider_tool(tool: Mapping[str, object]) -> bool:
     return bool(GEMINI_SERVER_TOOL_KEYS & tool.keys())
 
 
-def describe_provider_tool(tool: Mapping[str, object]) -> str:
-    """Name a provider tool by its `type`, or by its keys for a Gemini tool, as `google_search`."""
+def describe_server_tool(tool: Mapping[str, object]) -> str:
+    """Name a server tool by its `type`, or by its keys for a Gemini tool, as `google_search`."""
     tool_type = tool.get("type")
     if isinstance(tool_type, str):
         return tool_type
     return ", ".join(sorted(GEMINI_SERVER_TOOL_KEYS & tool.keys()))
 
 
-def find_provider_tools(tools: Sequence[object]) -> list[str]:
+def find_server_tools(tools: Sequence[object]) -> list[str]:
     """Name each tool of a model request that the model provider runs itself."""
     return [
-        describe_provider_tool(tool)
+        describe_server_tool(tool)
         for tool in tools
-        if isinstance(tool, Mapping) and is_provider_tool(tool)
+        if isinstance(tool, Mapping) and is_server_tool(tool)
     ]
 
 
-def render_provider_tool_warning(*, middleware_name: str, provider_tools: Sequence[str]) -> str:
+def render_server_tool_warning(*, middleware_name: str, server_tools: Sequence[str]) -> str:
     """Explain that the provider runs these tools before the monitor judges the step."""
     return (
         f"{middleware_name}: the agent's model is given tools its provider runs itself: "
-        f"{', '.join(provider_tools)}. The provider runs them inside the model call: before "
+        f"{', '.join(server_tools)}. The provider runs them inside the model call: before "
         "the monitor judges the step, and again for every sample the protocol draws, so the "
         "monitor cannot stop them. Give the agent tools of its own for any action that must "
         "be judged before it runs."
@@ -139,13 +139,13 @@ def read_tools_reaching_the_model(request: AgentModelRequest) -> list[object]:
     return read_bound_tools(request.model)
 
 
-def warn_about_provider_tools(
+def warn_about_server_tools(
     request: AgentModelRequest,
     *,
     middleware: AnyAgentMiddleware,
     middleware_name: str,
 ) -> None:
-    """Emit a `ProviderToolWarning` when a model call receives tools the provider runs itself.
+    """Emit a `ServerToolWarning` when a model call receives tools the provider runs itself.
 
     Each middleware instance warns once, at the first step whose model call
     receives such tools. Two steps racing in parallel runs may both warn,
@@ -153,17 +153,17 @@ def warn_about_provider_tools(
     """
     if id(middleware) in warned_middleware_ids:
         return
-    provider_tools = find_provider_tools(read_tools_reaching_the_model(request))
-    if not provider_tools:
+    server_tools = find_server_tools(read_tools_reaching_the_model(request))
+    if not server_tools:
         return
     mark_warned(middleware)
-    message = render_provider_tool_warning(
+    message = render_server_tool_warning(
         middleware_name=middleware_name,
-        provider_tools=provider_tools,
+        server_tools=server_tools,
     )
     warnings.warn(
         message,
-        ProviderToolWarning,
+        ServerToolWarning,
         stacklevel=2,
         skip_file_prefixes=(LIBRARY_DIRECTORY,),
     )

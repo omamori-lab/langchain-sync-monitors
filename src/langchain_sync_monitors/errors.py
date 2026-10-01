@@ -48,7 +48,7 @@ class SynchronousRunError(MonitorError):
     """
 
 
-class ProviderToolWarning(UserWarning):
+class ServerToolWarning(UserWarning):
     """The agent's model is given tools that the model provider runs itself.
 
     A provider runs its server-side tools, such as Anthropic's `web_fetch` or
@@ -56,7 +56,7 @@ class ProviderToolWarning(UserWarning):
     the step, and again for every sample a protocol draws, so no monitor can
     stop them. The monitor middleware emits this warning once per middleware
     instance. It knows the server tools of Anthropic, OpenAI and Gemini that
-    `provider_tools` lists, and reads only the tools of a model request: a
+    `server_tools` lists, and reads only the tools of a model request: a
     server-side feature set on the model itself, such as OpenRouter's web
     plugin, runs without a warning.
     """

@@ -59,7 +59,7 @@ GROUNDING_QUERY_KEYS = ("web_search_queries", "image_search_queries")
 """The keys of Gemini's `grounding_metadata` that hold the searches its built-in tools ran."""
 
 
-class ProviderToolCallDetails(TypedDict):
+class ServerToolCallDetails(TypedDict):
     """What the entry of a provider's built-in tool call shows.
 
     `args` is a dictionary once the call is complete; a streamed part of a
@@ -155,29 +155,29 @@ def render_malformed_tool_call(tool_call: InvalidToolCall) -> str:
     )
 
 
-def is_provider_tool_call(block: ContentBlock) -> TypeGuard[ServerToolCall | ServerToolCallChunk]:
+def is_server_tool_call(block: ContentBlock) -> TypeGuard[ServerToolCall | ServerToolCallChunk]:
     """Tell whether a content block is a built-in tool call the provider ran, whole or streamed."""
     return block["type"] == "server_tool_call" or block["type"] == "server_tool_call_chunk"
 
 
-def render_provider_tool_call(block: ServerToolCall | ServerToolCallChunk) -> str:
+def render_server_tool_call(block: ServerToolCall | ServerToolCallChunk) -> str:
     """Render a built-in tool call that the model provider ran inside the model call.
 
     The content holds the call's arguments and, when the block has them, its
     provider `extras`, where a remote MCP call keeps the name of the tool it
     ran and any arguments that could not be parsed.
     """
-    details = ProviderToolCallDetails(args=block.get("args", {}))
+    details = ServerToolCallDetails(args=block.get("args", {}))
     if "extras" in block:
         details["extras"] = block["extras"]
     return wrap_in_tag(
-        tag="provider_tool_call",
+        tag="server_tool_call",
         content=render_json(details),
         name=block.get("name"),
     )
 
 
-def render_provider_tool_result(block: ServerToolResult, *, tool_name: str) -> str:
+def render_server_tool_result(block: ServerToolResult, *, tool_name: str) -> str:
     """Render what a provider's built-in tool returned: its output as text, or else as JSON."""
     output = block.get("output")
     if output is None:
@@ -186,7 +186,7 @@ def render_provider_tool_result(block: ServerToolResult, *, tool_name: str) -> s
         content = output
     else:
         content = render_json(output)
-    return wrap_in_tag(tag="provider_tool_result", content=content, name=tool_name)
+    return wrap_in_tag(tag="server_tool_result", content=content, name=tool_name)
 
 
 def read_unrecognised_block_value(block: NonStandardContentBlock) -> Mapping[str, object]:
@@ -238,7 +238,7 @@ def build_unrecognised_block_entry(
     return TranscriptEntry(channel=channel, text=text)
 
 
-def build_provider_tool_entries(
+def build_server_tool_entries(
     blocks: Sequence[ContentBlock],
     *,
     tool_names_by_call: Mapping[str, str],
@@ -256,16 +256,16 @@ def build_provider_tool_entries(
     with the tool calls too, so it is never dropped unseen.
     """
     for block in blocks:
-        if is_provider_tool_call(block):
+        if is_server_tool_call(block):
             yield TranscriptEntry(
                 channel=Channel.TOOL_CALLS,
-                text=render_provider_tool_call(block),
+                text=render_server_tool_call(block),
             )
         elif block["type"] == "server_tool_result":
             tool_name = tool_names_by_call.get(block.get("tool_call_id", ""), "unknown")
             yield TranscriptEntry(
                 channel=Channel.TOOL_RESULTS,
-                text=render_provider_tool_result(block, tool_name=tool_name),
+                text=render_server_tool_result(block, tool_name=tool_name),
             )
         elif block["type"] == "non_standard":
             entry = build_unrecognised_block_entry(block, known_call_ids=known_call_ids)
@@ -274,7 +274,7 @@ def build_provider_tool_entries(
 
 
 def build_grounding_entries(message: AIMessage) -> Iterator[TranscriptEntry]:
-    """Yield the searches of Gemini's built-in grounding tools as a provider tool call and result.
+    """Yield the searches of Gemini's built-in grounding tools as a server tool call and result.
 
     langchain-google-genai keeps the queries of Gemini's Google Search only
     in the reply's `grounding_metadata`, which LangChain's Gemini translator
@@ -286,11 +286,11 @@ def build_grounding_entries(message: AIMessage) -> Iterator[TranscriptEntry]:
         return
     queries = {key: metadata[key] for key in GROUNDING_QUERY_KEYS if metadata.get(key)}
     if queries:
-        details = ProviderToolCallDetails(args=queries)
+        details = ServerToolCallDetails(args=queries)
         yield TranscriptEntry(
             channel=Channel.TOOL_CALLS,
             text=wrap_in_tag(
-                tag="provider_tool_call", content=render_json(details), name="grounding"
+                tag="server_tool_call", content=render_json(details), name="grounding"
             ),
         )
     sources = metadata.get("grounding_chunks")
@@ -298,7 +298,7 @@ def build_grounding_entries(message: AIMessage) -> Iterator[TranscriptEntry]:
         yield TranscriptEntry(
             channel=Channel.TOOL_RESULTS,
             text=wrap_in_tag(
-                tag="provider_tool_result", content=render_json(sources), name="grounding"
+                tag="server_tool_result", content=render_json(sources), name="grounding"
             ),
         )
 
@@ -308,9 +308,9 @@ def build_agent_entries(
     *,
     tool_names_by_call: Mapping[str, str],
 ) -> Iterator[TranscriptEntry]:
-    """Yield the reasoning, provider tools, text, tool calls and malformed calls of a message.
+    """Yield the reasoning, server tools, text, tool calls and malformed calls of a message.
 
-    `tool_names_by_call` names the provider tool call that each provider tool
+    `tool_names_by_call` names the server tool call that each server tool
     result answers.
     """
     reasoning = extract_reasoning_text(message)
@@ -320,7 +320,7 @@ def build_agent_entries(
             text=wrap_in_tag(tag="agent_reasoning", content=reasoning),
         )
     calls: list[ToolCall | InvalidToolCall] = [*message.tool_calls, *message.invalid_tool_calls]
-    yield from build_provider_tool_entries(
+    yield from build_server_tool_entries(
         message.content_blocks,
         tool_names_by_call=tool_names_by_call,
         known_call_ids={call["id"] for call in calls if call["id"]},
@@ -442,11 +442,11 @@ def build_message_entries(
     return []
 
 
-def read_provider_tool_names_by_call(message: AIMessage) -> dict[str, str]:
+def read_server_tool_names_by_call(message: AIMessage) -> dict[str, str]:
     """Return the name of each built-in tool call the provider ran in a message, by id."""
     names: dict[str, str] = {}
     for block in message.content_blocks:
-        if is_provider_tool_call(block):
+        if is_server_tool_call(block):
             call_id = block.get("id")
             name = block.get("name")
             if call_id and name:
@@ -461,7 +461,7 @@ def read_tool_names_by_call(message: AIMessage) -> dict[str, str]:
     """
     calls: list[ToolCall | InvalidToolCall] = [*message.tool_calls, *message.invalid_tool_calls]
     names = {call["id"]: call["name"] for call in calls if call["id"] and call["name"]}
-    return {**names, **read_provider_tool_names_by_call(message)}
+    return {**names, **read_server_tool_names_by_call(message)}
 
 
 def build_transcript_entries(
@@ -539,7 +539,7 @@ def render_proposed_step(proposal: AIMessage, *, view: MonitorView) -> str:
         channels |= Channel.AGENT_TEXT
     entries = build_agent_entries(
         proposal,
-        tool_names_by_call=read_provider_tool_names_by_call(proposal),
+        tool_names_by_call=read_server_tool_names_by_call(proposal),
     )
     parts = [entry.text for entry in entries if entry.channel in channels]
     return "<proposed_step>\n" + "\n".join(parts) + "\n</proposed_step>"

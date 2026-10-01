@@ -342,14 +342,14 @@ async def test_a_reply_whose_score_is_not_alone_after_the_reasoning_fails_closed
 @pytest.mark.parametrize(
     ("build_wrapper", "lowest_expected_suspicion"),
     [
-        (lambda judge: RepeatedMonitor(monitor=judge, repeats=2), 1.0),
+        (lambda judge: RepeatedMonitor(monitor=judge, ensemble_size=2), 1.0),
         # Above all three honest scores, a calibrated suspicion lands in [3/4, 1).
         (lambda judge: CalibratedMonitor(monitor=judge, honest_scores=[0.0, 0.2, 0.5]), 0.75),
         (
             lambda judge: CascadeMonitor(
                 fast=judge,
                 careful=ScriptedMonitor(suspicions=[1.0]),
-                escalate_at=0.5,
+                escalation_threshold=0.5,
             ),
             1.0,
         ),

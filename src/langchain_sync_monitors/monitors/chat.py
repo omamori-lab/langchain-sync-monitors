@@ -85,9 +85,11 @@ def is_rate_limit_error(error: Exception) -> bool:
     `ChatOpenRouter` hands its retries to the OpenRouter SDK
     [@langchainopenrouter2026], which retries a chat completion on HTTP 5xx
     and network errors alone, and whose retry settings name no status code
-    [@openrouterpythonsdk2026]. Provider SDKs, OpenRouter's, OpenAI's and
-    Anthropic's among them, put the status on their errors as `status_code`;
-    httpx puts it on the error's response [@httpx2024].
+    [@openrouterpythonsdk2026]. Provider SDKs put the status on their errors
+    as `status_code`, OpenRouter's, OpenAI's and Anthropic's among them, and
+    the last two retry a 429 themselves too
+    [@openaipythonsdk2026; @anthropicpythonsdk2026]; httpx puts the status
+    on the error's response [@httpx2024].
     """
     if isinstance(error, httpx.HTTPStatusError):
         status: object = error.response.status_code

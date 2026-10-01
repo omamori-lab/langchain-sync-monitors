@@ -1178,6 +1178,10 @@ limit is linked from where it arises above.
   cache on a monitor's model makes a guard's samples, and a chat judge's
   request after an unreadable reply, copies of the first reply, and warns
   the same way.
+- **A rate limit on the agent's own calls fails the step.** The chat
+  monitors retry their own calls on HTTP 429. The agent's model and a trusted
+  model are the agent's calls, retried only as their chat model retries, and
+  `ChatOpenRouter` retries no 429, so one fails the step.
 - **No timeouts under `invoke()`.** `asyncio.timeout` or `asyncio.wait_for`
   cannot limit a pending step's call under `invoke()`: outside a running loop
   it raises `SynchronousRunError`, and inside one it never fires, because the

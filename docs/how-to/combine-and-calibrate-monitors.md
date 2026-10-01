@@ -19,9 +19,8 @@ UncalibratedThresholdWarning: block_threshold uses the uncalibrated default 0.6.
 Treat the defaults as placeholders. Each monitor spreads its scores
 differently, and an agent's honest work looks more or less unusual depending
 on its task and tools. Control evaluations set each threshold from the scores
-the monitor gives to honest runs, so that it spends a known audit budget, as
-AI Control (section 3.2) and Ctrl-Z (section 3.1.2) do
-[@greenblatt2023aicontrol; @bhatt2025ctrlz].
+the monitor gives to honest runs, so that it spends a known audit budget
+([where the ideas come from](../explanation/background.md#thresholds-and-scores)).
 
 A threshold may be any real number from 0 to 1, a `Fraction` or a `Decimal`
 included. It is checked exactly, before it becomes a float, so a `Decimal`
@@ -251,10 +250,9 @@ counts those equal to it. `U` is a random number from 0 up to 1, which spreads
 the step evenly over its own place and the places of the honest scores it ties
 with. The smoothed p-value counts the places above the step's score and a
 random share of the tied ones, the step's own included, out of `n + 1`; one
-minus it is the formula above. It is the score's percentile rank among the
-honest scores, with ties broken at random, as Makins et al. (appendix G.4.1)
-and LinuxArena (section 5.1) break them
-[@makins2026multiagent; @tracy2026linuxarena].
+minus it, with `U` standing for one minus Vovk's random number, is the formula
+above. It is the score's percentile rank among the honest scores, with ties
+broken at random.
 
 The guarantee holds when the step's raw score is exchangeable with the honest
 scores: the step comes from the same kind of honest run, scored by the same
@@ -301,13 +299,9 @@ same calibrated suspicion, and an evaluation can be replayed exactly.
 careful one only when the fast suspicion reaches `escalate_at`. Below it, the
 fast verdict stands; at or above it, the careful verdict, reason included,
 replaces it. This follows the two stages of Claude Code's auto mode, a fast
-filter in front of a reasoning classifier [@hughes2026automode], and the
-multi-stage classifiers of Cunningham et al., whose first stage passes on only
-the examples it scores above one threshold (section Multi-stage classifiers)
-[@cunningham2025cheapmonitors]. Hua et al.'s best two-monitor protocol calls
-the expensive monitor only when the cheap one's score falls in an uncertain
-range (section 6) [@hua2025combining]; `CascadeMonitor` uses the simpler rule
-of one threshold.
+filter in front of a reasoning classifier [@hughes2026automode];
+[where the ideas come from](../explanation/background.md#thresholds-and-scores)
+compares this rule of one threshold with other cascades.
 
 [![CascadeMonitor runs the fast monitor, such as a calibrated decision model, on every step. When the fast suspicion is below escalate_at, the fast verdict stands, its reason included. At or above escalate_at, the careful monitor, such as a calibrated, repeated chat judge, scores the step, and its verdict, reason included, replaces the fast one. The careful monitor runs on escalated steps only.](../assets/diagrams/monitors-cascade-light.svg#only-light)](../assets/diagrams/monitors-cascade-light.svg "Open the diagram at full size")
 [![CascadeMonitor runs the fast monitor, such as a calibrated decision model, on every step. When the fast suspicion is below escalate_at, the fast verdict stands, its reason included. At or above escalate_at, the careful monitor, such as a calibrated, repeated chat judge, scores the step, and its verdict, reason included, replaces the fast one. The careful monitor runs on escalated steps only.](../assets/diagrams/monitors-cascade-dark.svg#only-dark)](../assets/diagrams/monitors-cascade-dark.svg "Open the diagram at full size")

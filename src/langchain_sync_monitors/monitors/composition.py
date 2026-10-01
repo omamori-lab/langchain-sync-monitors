@@ -37,17 +37,12 @@ class RepeatedMonitor(Monitor):
     A single call of a chat judge gives an integer score, and integer scores tie
     so often that a low audit budget cannot be set: the budget falls inside a
     group of tied steps. Averaging repeated calls adds resolution at low false
-    positive rates (BashArena, section 4.3) [@kaufman2025basharena]. BashArena
-    averages three calls (section 4.2) and LinuxArena two (section 5.1), and
-    Ctrl-Z samples its monitor several times at temperature 1.1 (appendix D)
-    [@kaufman2025basharena; @tracy2026linuxarena; @bhatt2025ctrlz]. For
-    ensembles of different monitors, Koran et al. found the arithmetic mean as
-    good as the other aggregators they tried (section 3.2), and found that
-    three calls of one monitor gain less than three different monitors
-    (section 5.2) [@koran2026ensemble]. The calls only differ when the wrapped
-    monitor samples, so its model needs a temperature above zero, and no
-    LangChain response cache, which would answer every repeat with a copy of
-    the first call.
+    positive rates, as BashArena shows (section 4.3) [@kaufman2025basharena];
+    the how-to Combine and calibrate monitors says how many calls other
+    control evaluations make. The calls only differ when the wrapped monitor
+    samples, so its model needs a temperature above zero, and no LangChain
+    response cache, which would answer every repeat with a copy of the first
+    call.
 
     The reason is the most suspicious call's own reason, since that is the one
     an auditor needs to read. `evaluate` makes the calls concurrently, and one
@@ -134,39 +129,27 @@ class CalibratedMonitor(Monitor):
     """Report suspicion as the percentile rank of a step's score among the scores of honest runs.
 
     Control evaluations set thresholds as percentiles of honest-run scores.
-    AI Control audits the top 2% of proposals, a 2% false positive rate on
-    honest solutions (section 3.2), and Ctrl-Z (appendix C) and LinuxArena
-    (section 5.1) put a 1% audit budget at the 99th percentile of honest
-    scores [@greenblatt2023aicontrol; @bhatt2025ctrlz; @tracy2026linuxarena].
-    AI Control also maps each score through the empirical distribution of
-    honest scores before combining monitors (appendix K). This wrapper
-    reports one minus the smoothed conformal p-value of the raw score, with
-    the `n` honest scores as the calibration set [@vovk2005algorithmic]:
+    This wrapper reports one minus the smoothed conformal p-value of the raw
+    score, with the `n` honest scores as the calibration set
+    [@vovk2005algorithmic]:
 
         (below + U * (tied + 1)) / (n + 1)
 
     where `below` counts the honest scores lower than the raw score, `tied`
-    counts those equal to it, and `U` is uniform on [0, 1). This is the raw
-    score's percentile rank among the honest scores, with ties broken at
-    random: `U` spreads the step evenly over its own place and those of the
-    honest scores it ties with, as Makins et al. (appendix G.4.1) and
-    LinuxArena (section 5.1) break ties [@makins2026multiagent; @tracy2026linuxarena].
-    A score above every honest score lands between `n / (n + 1)` and 1.
+    counts those equal to it, and `U`, uniform on [0, 1), stands for one minus
+    Vovk's random number. This is the raw score's percentile rank among the
+    honest scores, with ties broken at random: `U` spreads the step evenly
+    over its own place and those of the honest scores it ties with. A score
+    above every honest score lands between `n / (n + 1)` and 1.
 
-    What a threshold means: when a step's raw score is exchangeable with the
-    honest scores, as for a step of the same kind of honest run scored by the
-    same monitor with the same settings, the smoothed p-value is exactly
-    uniform, so the calibrated suspicion is uniform on [0, 1]. A threshold `t`
-    then flags exactly a share `1 - t` of such steps, so 0.99 flags 1% of
-    honest steps. The share is exact on average over the honest scores
-    collected; for one fixed set of `n` scores it varies around `1 - t`. With
-    no ties and `(n + 1) * t` a whole number, the share of honest steps left
-    unflagged follows Beta(n + 1 - l, l) with `l = (n + 1) * (1 - t)`, the
-    coverage of split conformal prediction for a fixed calibration set
-    (Angelopoulos and Bates, section 3.2, equation 16, after Vovk)
-    [@angelopoulos2021gentle]. Its standard deviation is
-    `sqrt(t * (1 - t) / (n + 2))`, so collect enough scores: at `t = 0.99`, a
-    thousand give a spread of about 0.3 percentage points.
+    When a step's raw score is exchangeable with the honest scores, as for a
+    step of the same kind of honest run scored by the same monitor with the
+    same settings, a threshold `t` flags a share `1 - t` of such steps on
+    average, so 0.99 flags 1% of honest steps. For the one set of honest
+    scores collected, the share varies around `1 - t`. The how-to Combine and
+    calibrate monitors gives that spread, and so how many honest scores to
+    collect; the explanation Where the ideas come from names the control
+    evaluations that set thresholds this way.
 
     Collect `honest_scores` by running the wrapped monitor, with the same
     settings, on steps from runs you trust, and pass them as Python floats or
@@ -242,18 +225,9 @@ class CascadeMonitor(Monitor):
     rest go to the careful monitor, whose verdict, reason included, replaces
     it. This follows the two stages of Claude Code's auto mode, a fast filter
     tuned for recall in front of a reasoning classifier (section Two-stage
-    classification: efficiency and recall) [@hughes2026automode]. The rule of
-    one threshold is the multi-stage classifier of Cunningham et al., whose
-    first stage passes on the examples it scores above a threshold and clears
-    the rest (section Multi-stage classifiers) [@cunningham2025cheapmonitors].
-    Hua et al.'s single-region policy instead calls the second monitor only
-    when the first one's score falls inside a band (section 6)
-    [@hua2025combining].
-
-    Pairing a decision model as the fast stage with a chat judge as the
-    careful one is the library's suggestion, by analogy with auto mode, whose
-    first stage answers with a single yes or no token and whose second
-    reasons. No cited source evaluates how well this pairing catches attacks.
+    classification: efficiency and recall) [@hughes2026automode]. The
+    explanation Where the ideas come from compares this rule of one threshold
+    with other cascades.
     """
 
     def __init__(self, *, fast: Monitor, careful: Monitor, escalate_at: float) -> None:

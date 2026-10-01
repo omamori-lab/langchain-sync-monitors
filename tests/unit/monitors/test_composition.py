@@ -96,7 +96,7 @@ def test_zero_repeats_is_rejected() -> None:
 
 
 @pytest.mark.parametrize("random_seed", [None, 7], ids=["unseeded", "seeded"])
-def test_tied_scores_spread_at_random_over_the_slots_of_the_tie(
+def test_tied_scores_spread_at_random_over_the_places_of_the_tie(
     honest_scores: list[float],
     monitor_input: MonitorInput,
     random_seed: int | None,
@@ -112,7 +112,7 @@ def test_tied_scores_spread_at_random_over_the_slots_of_the_tie(
     # Act
     percentiles = [calibrated.evaluate_sync(step).suspicion for step in steps]
 
-    # Assert: one honest score below, two tied, so slots 1 to 3 of 5
+    # Assert: one honest score below, two tied, so places 1 to 3 of 5
     assert all(1 / 5 <= percentile < 4 / 5 for percentile in percentiles)
     assert len(set(percentiles)) > 1
 
@@ -148,7 +148,7 @@ def test_different_seeds_break_the_same_ties_differently(
     ("raw_suspicion", "honest_scores_below"),
     [(0.0, 0), (0.25, 3), (0.3 + 1e-9, 4), (1.0, 4)],
 )
-def test_an_untied_score_lands_in_its_own_rank_slot(
+def test_an_untied_score_lands_in_its_own_place(
     honest_scores: list[float],
     monitor_input: MonitorInput,
     raw_suspicion: float,
@@ -159,14 +159,14 @@ def test_an_untied_score_lands_in_its_own_rank_slot(
         monitor=ScriptedMonitor(suspicions=[raw_suspicion]),
         honest_scores=honest_scores,
     )
-    slot_count = len(honest_scores) + 1
+    place_count = len(honest_scores) + 1
 
     # Act
     verdict = calibrated.evaluate_sync(monitor_input)
 
     # Assert
-    assert honest_scores_below / slot_count <= verdict.suspicion
-    assert verdict.suspicion < (honest_scores_below + 1) / slot_count
+    assert honest_scores_below / place_count <= verdict.suspicion
+    assert verdict.suspicion < (honest_scores_below + 1) / place_count
     assert verdict.reason == f"call 1 scored {raw_suspicion}"
 
 
@@ -185,7 +185,7 @@ async def test_honest_scores_given_as_a_generator_are_all_ranked_among(
         await evaluate_on_path(calibrated, monitor_input, call_path=call_path) for _ in range(20)
     ]
 
-    # Assert: above all 500 honest scores, the step lands in the top slot.
+    # Assert: above all 500 honest scores, the step lands in the top place.
     assert min(verdict.suspicion for verdict in verdicts) >= 500 / 501
 
 

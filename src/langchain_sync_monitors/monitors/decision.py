@@ -5,11 +5,11 @@ context with probabilities, in one fast request. TypeSafe describes Jev's
 probabilities as calibrated (section Frontiers, Old and New)
 [@typesafe2026jev]; the library has not measured their calibration on agent
 steps, so set thresholds from honest runs, as for any monitor.
-`DecisionModelMonitor` asks
-yes/no questions about the rendered step and takes suspicion from the
-probabilities of yes. `OpenRouterDecisionModel`, in `openrouter_decisions`,
-and `TypeSafeDecisionModel` reach Jev through OpenRouter's Decisions API and
-through TypeSafe's own client. The evidence behind the question format is in
+`DecisionModelMonitor` asks yes/no questions about the rendered step and
+takes suspicion from the probabilities of yes. `OpenRouterDecisionModel`, in
+`openrouter_decisions`, and `TypeSafeDecisionModel` reach Jev through
+OpenRouter's Decisions API and through TypeSafe's own client. The evidence
+behind the question format is in
 `docs/plans/initial-implementation/research/decision-model-question-format.md`.
 """
 

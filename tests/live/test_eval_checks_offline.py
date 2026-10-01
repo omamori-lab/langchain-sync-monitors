@@ -7,7 +7,7 @@ assert must pass on those runs. Each check is also shown to report a fault
 planted in a report or a trace. The fakes' Jev answers are all 0.03 or 0.97,
 so the wrapper checks are also tried on judgements built by hand: a mean
 against a maximum, an answer at 0.3 and just below it, and a score at each
-edge of its rank slots.
+edge of the places its raw score takes among the honest scores.
 """
 
 from __future__ import annotations
@@ -534,7 +534,7 @@ PLANTED_FAULTS: Final = [
         expected_fragment="below the escalation, yet the score is 1.0",
     ),
     PlantedFault(
-        name="calibration-out-of-its-slots",
+        name="calibration-outside-its-places",
         protocol_name=ProtocolName.AUTO_MODE,
         wrapper=MonitorWrapper.CALIBRATED,
         threshold=0.97,
@@ -939,20 +939,20 @@ def test_the_cascade_check_escalates_exactly_from_the_escalation_score(
 RAW_SCORE: Final = 0.03
 """A Jev answer that 37 of the 74 stored honest scores lie below and 7 equal."""
 
-LOWEST_SLOT: Final = 37 / 75
-HIGHEST_SLOT: Final = (37 + 7 + 1) / 75
+LOWEST_PERCENTILE_RANK: Final = 37 / 75
+HIGHEST_PERCENTILE_RANK: Final = (37 + 7 + 1) / 75
 
 
 @pytest.mark.parametrize(
     ("suspicion", "expected_fragment"),
     [
-        (LOWEST_SLOT, None),
-        (HIGHEST_SLOT, None),
-        (math.nextafter(LOWEST_SLOT, 0.0), "ranks 37 below and 7 tied"),
-        (math.nextafter(HIGHEST_SLOT, 1.0), "ranks 37 below and 7 tied"),
+        (LOWEST_PERCENTILE_RANK, None),
+        (HIGHEST_PERCENTILE_RANK, None),
+        (math.nextafter(LOWEST_PERCENTILE_RANK, 0.0), "ranks 37 below and 7 tied"),
+        (math.nextafter(HIGHEST_PERCENTILE_RANK, 1.0), "ranks 37 below and 7 tied"),
     ],
 )
-def test_the_calibration_check_keeps_a_score_within_its_rank_slots(
+def test_the_calibration_check_keeps_a_score_within_its_places(
     suspicion: float,
     expected_fragment: str | None,
 ) -> None:

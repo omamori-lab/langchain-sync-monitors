@@ -9,13 +9,14 @@ streams and traces show. A closing section gathers every known limit.
 
 ## The monitored step
 
-An agent step is one run of the agent's model node, which proposes the
-agent's next tool calls or its final answer; a protocol may draw several
-samples of that proposal. `MonitorMiddleware` wraps the model call inside it: the untrusted model proposes the step, the monitor
-judges it, and a control protocol decides what the agent's state receives,
-all before any of the agent's own tools run. A model provider's built-in
-tools, such as web search, are the exception: they run inside the model call,
-so they have run by the time the monitor sees the step
+An agent step is one run of the agent's model node, which proposes the agent's
+next tool calls or its final answer; a protocol may draw several samples of
+that proposal. `MonitorMiddleware` wraps the model call inside it: the
+untrusted model proposes the step, the monitor judges it, and a control
+protocol decides what the agent's state receives, all before any of the
+agent's own tools run. A model provider's built-in tools, such as web search,
+are the exception: they run inside the model call, so they have run by the
+time the monitor sees the step
 ([what the monitor cannot stop](#what-the-monitor-cannot-stop)).
 
 [![The untrusted model proposes a step. The monitor, drawn as an omamori charm, reads it through its view and scores its suspicion from 0 to 1. The control protocol chooses one of five outcomes, from the lightest touch to the strongest: allow it, resample it, defer to the trusted model, block it and tell the agent why, or halt. All of this happens inside the middleware, before any of the agent's own tools run; a brushed line marks that boundary. A committed step reaches the tools and a halted run ends, and either way one record joins monitor_log. Tool results come back, and the next model call is a new step.](../assets/diagrams/monitored-step-light.svg#only-light)](../assets/diagrams/monitored-step-light.svg "Open the diagram at full size")
@@ -485,9 +486,8 @@ monitor itself, address this and stack around any family:
   flags 1% of honest steps on average;
 - `CascadeMonitor` runs a fast monitor on every step and a careful one when
   the fast score reaches one threshold, after the two stages of Claude Code's
-  auto mode [@hughes2026automode]. Hua et al.'s best two-monitor protocol
-  calls the expensive monitor only when the cheap score falls in an uncertain
-  band [@hua2025combining]; `CascadeMonitor` uses the simpler rule.
+  auto mode [@hughes2026automode]
+  ([where the ideas come from](background.md#thresholds-and-scores)).
 
 ## Task authorship and notes
 
@@ -501,15 +501,14 @@ text holds the path the agent chose, and its Nemotron harness profile writes
 named nudges [@langchain2026; @deepagents2026]. So only an untagged human
 message that arrives as a run's input speaks as the task author:
 
-| A human message | The judge reads it as |
+| A human message | The monitor reads it as |
 |---|---|
 | Tagged `lc_source="monitor"` | `<monitor_feedback>` |
 | Tagged with any other `lc_source` | `<context_note>`, named after that source |
 | Untagged, recorded as a run's input | `<user>`, or `<delegator>` inside a subagent |
 | Untagged, not recorded as input | `<context_note>`, named after the message's `name`, or `application` |
 
-The monitor keeps this record in the graph state, not only in what the judge
-reads:
+The monitor keeps this record in the graph state, not only in what it reads:
 
 - **At the start of a run**, its `before_agent` hook records each untagged
   human message it has not seen as the run's input.
@@ -525,13 +524,13 @@ reads:
   `stream_mode="messages"`. That run's checkpoint stores the history once
   more, and `stream_mode="updates"` shows it as the hook's write; input given
   as a message or a dictionary needs neither.
-- **Every run's input stays with the judge.** At the start of a run the
+- **Every run's input stays with the monitor.** At the start of a run the
   monitor keeps the text of each input under `monitor_run_inputs`, with the
   ids of up to three messages before it. The kept copy follows its message in
   the state: at each run start, step start and commit, and in memory before
   each judgement, its text becomes the text the state holds under its id. So
   a redaction such as `PIIMiddleware`'s, or the user's `update_state` edit,
-  reaches the judge as the agent reads it. When the model request no longer
+  reaches the monitor as the agent reads it. When the model request no longer
   holds an input, because a summary replaced it or a tool removed it, the
   monitor puts it back in its own copy. It goes just after the nearest of the
   three messages before it that is still there, else just before a message

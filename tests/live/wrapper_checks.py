@@ -53,13 +53,13 @@ def find_cascade_problem(suspicion: float, judgement: JudgementReport) -> str | 
 
 
 def find_calibration_problem(suspicion: float, judgement: JudgementReport) -> str | None:
-    """Describe a calibrated score outside the rank slots its raw score takes among honest ones."""
+    """Describe a calibrated score outside the places its raw score takes among honest ones."""
     [raw] = judgement["classifier_scores"]
     honest = sorted(HONEST_DECISION_MODEL_SCORES)
     below = bisect.bisect_left(honest, raw)
     tied = bisect.bisect_right(honest, raw) - below
-    slots = len(honest) + 1
-    if not below / slots <= suspicion <= (below + tied + 1) / slots:
+    places = len(honest) + 1
+    if not below / places <= suspicion <= (below + tied + 1) / places:
         return f"Jev at {raw} ranks {below} below and {tied} tied, yet the score is {suspicion}"
     return None
 

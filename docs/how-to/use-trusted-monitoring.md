@@ -112,12 +112,11 @@ audit_threshold = statistics.quantiles(honest_scores, n=100, method="inclusive")
 
 A single chat judge scores in steps of 0.1, so many honest steps share a
 score, and the share of honest steps flagged can land well away from the
-percentile you chose (section 5.1) [@koran2026ensemble]. A threshold that
-still flags the judge's top score flags every honest step given that score,
-however few you meant to flag (section 4.3) [@kaufman2025basharena].
-[Combine and calibrate monitors](combine-and-calibrate-monitors.md) shows how
-`RepeatedMonitor` spreads the scores out and `CalibratedMonitor` turns them
-into ranks among honest-run scores.
+percentile you chose.
+[Combine and calibrate monitors](combine-and-calibrate-monitors.md#average-repeated-calls)
+gives the evidence, and shows how `RepeatedMonitor` spreads the scores out
+and `CalibratedMonitor` turns them into smoothed conformal p-values against
+honest-run scores.
 
 ## Read the outcome in `monitor_log`
 

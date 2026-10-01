@@ -4,7 +4,8 @@ The rest of the package codes against these definitions, so they change only in
 a dedicated pull request. How they fit together is explained in
 `docs/explanation/design.md`.
 
-A step is one model call of the agent. The untrusted model proposes it, a
+A step is one run of the agent's model node, as defined under "The monitored
+step" in `docs/explanation/design.md`. The untrusted model proposes it, a
 `Monitor` scores it, and a `ControlProtocol` decides what the agent state
 receives. Protocols reach the model only through a `PendingStep`, which is how
 one copy of each protocol serves both `invoke()` and `ainvoke()`.
@@ -123,7 +124,8 @@ class MonitorView:
     `most_recent_entries` keeps only the last entries of the history, at least
     one, or every entry when it is `None`; the messages of the task author are
     kept in addition. `delegation_tools` names the tools whose results are
-    subagent reports.
+    subagent reports; it defaults to the `task` tool through which Deep Agents
+    delegates to a subagent [@deepagents2026].
 
     Each option is checked when the view is built: `channels` must be a
     `Channel`, `most_recent_entries` a whole number of at least 1 or `None`,

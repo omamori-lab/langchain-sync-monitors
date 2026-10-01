@@ -16,7 +16,7 @@ with the same keys.
 | `AutoMode`, the default view, `CascadeMonitor` | Block and continue, the limits of three and twenty, a classifier that does not read the agent's own messages, two stages | Claude Code's auto mode [@hughes2026automode] |
 | `DEFAULT_MONITOR_PROMPT` | Reasoning before the score, on an anchored scale | Apollo Research [@apollo2026monitoringprompt] |
 | Verdicts read only where the format puts them | The threat of prompt injections aimed at the monitor | Terekhov et al. [@terekhov2025adaptive] |
-| `RepeatedMonitor`, `CalibratedMonitor` | Averaged calls, conformal ranks and random tie-breaking | [Thresholds and scores](#thresholds-and-scores) |
+| `RepeatedMonitor`, `CalibratedMonitor` | Averaged calls, smoothed conformal p-values and random tie-breaking | [Thresholds and scores](#thresholds-and-scores) |
 | `GuardModelMonitor` | The probability of the unsafe label, or the share of samples that carry it | [Guard models](#guard-models) |
 | `DecisionModelMonitor` | Yes or no probabilities from Jev | [Decision models](#decision-models) |
 
@@ -115,23 +115,27 @@ ranking [@apollo2026monitoringprompt].
 
 Control evaluations set thresholds as percentiles of the scores a monitor
 gives to honest runs, so an audit budget of 1% means flagging for review the
-top 1% of honest steps. BashArena shows that averaging a few calls of a
-monitor raises its resolution at low false-positive rates
-(section 4.3) [@kaufman2025basharena], and LinuxArena averages two calls per
-action [@tracy2026linuxarena]. Koran et al. note that integer scores from
-0 to 10 leave a sparse threshold space (section 5.1) [@koran2026ensemble],
-and find the plain mean as good a way to combine monitors' scores as the
-other aggregators they tried (section 3.2) [@koran2026ensemble].
+top 1% of honest steps. LinuxArena puts its 1% budget at the 99th percentile
+of honest scores (section 5.1) [@tracy2026linuxarena], and
+[Combine and calibrate monitors](../how-to/combine-and-calibrate-monitors.md)
+gives the budgets of AI Control and Ctrl-Z.
 
-`CalibratedMonitor` reports a step's smoothed conformal rank among honest
-scores, defined in
-[What a calibrated threshold means](../how-to/combine-and-calibrate-monitors.md#what-a-calibrated-threshold-means),
-and breaks the remaining ties at random, as Makins et al. and LinuxArena do
-[@makins2026multiagent; @tracy2026linuxarena].
+`RepeatedMonitor` draws on BashArena, LinuxArena, Ctrl-Z and Koran et al.
+[@kaufman2025basharena; @tracy2026linuxarena; @bhatt2025ctrlz; @koran2026ensemble];
+[Average repeated calls](../how-to/combine-and-calibrate-monitors.md#average-repeated-calls)
+says what each contributed. `CalibratedMonitor`, which reports a step's
+smoothed conformal p-value against honest scores and breaks the remaining ties
+at random, draws on Vovk et al., Makins et al. and LinuxArena
+[@vovk2016criteria; @makins2026multiagent; @tracy2026linuxarena];
+[What a calibrated threshold means](../how-to/combine-and-calibrate-monitors.md#what-a-calibrated-threshold-means)
+defines the p-value and says what each contributed.
+
 Hua et al. combine monitors under a cost budget, and their best two-monitor
 protocol calls the expensive monitor only when the cheap score falls in an
-uncertain band [@hua2025combining]. `CascadeMonitor` uses a simpler rule, one
-threshold on the cheap score.
+uncertain band (section 6) [@hua2025combining]. `CascadeMonitor` uses a
+simpler rule, one threshold on the cheap score, which is the multi-stage
+classifier of Cunningham et al. (section Multi-stage classifiers)
+[@cunningham2025cheapmonitors].
 
 Weighting a judge's score by the probabilities of its levels gives a finer,
 continuous score [@liu2023geval], and taking the mean of the judgement
@@ -145,15 +149,14 @@ Guard models such as Llama Guard [@inan2023llamaguard], ShieldGemma
 with the probability of the label that marks content unsafe, `unsafe` for Llama
 Guard and `Yes` for the other two, and Llama Guard 3's model card takes the
 probability of the first generated token as the unsafe class's
-[@meta2024llamaguard3]. Guard models are overconfident, and markedly
-miscalibrated under jailbreak prompts [@liu2025guardcalibration].
+[@meta2024llamaguard3].
 
 When a provider returns no log-probabilities, the share of several samples
-that carry the unsafe label estimates the same probability. The evidence for
-sampling comes from studies of confidence in question answering, not of
-guards: Xiong et al. see its gains converge as samples grow, and Lyu et al.
-see them saturate after 15 to 20 samples
-[@xiong2024uncertainty; @lyu2025sampleconsistency].
+that carry the unsafe label estimates the same probability.
+[Choose how labels become a score](../how-to/use-a-guard-model.md#choose-how-labels-become-a-score)
+gives the evidence on how many samples to draw, from Lyu et al., Xiong et al.
+and Tian et al., and on how guard models are calibrated, from Liu et al.
+[@lyu2025sampleconsistency; @xiong2024uncertainty; @tian2023justask; @liu2025guardcalibration].
 
 Llama Guard 3 writes its label on the first line and, for unsafe content, the
 codes of the violated categories on the next [@meta2024llamaguard3format].

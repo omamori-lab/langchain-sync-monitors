@@ -1,11 +1,15 @@
-"""Decision models as monitors: calibrated yes/no probabilities, no generated text.
+"""Decision models as monitors: yes/no probabilities, no generated text.
 
 A decision model such as TypeSafe's Jev answers typed questions about some
-context with probabilities, in one fast request. `DecisionModelMonitor` asks
-yes/no questions about the rendered step and takes suspicion from the
-probabilities of yes. `OpenRouterDecisionModel`, in `openrouter_decisions`,
-and `TypeSafeDecisionModel` reach Jev through OpenRouter's Decisions API and
-through TypeSafe's own client. The evidence behind the question format is in
+context with probabilities, in one fast request. TypeSafe describes Jev's
+probabilities as calibrated (section Frontiers, Old and New)
+[@typesafe2026jev]; the library has not measured their calibration on agent
+steps, so set thresholds from honest runs, as for any monitor.
+`DecisionModelMonitor` asks yes/no questions about the rendered step and
+takes suspicion from the probabilities of yes. `OpenRouterDecisionModel`, in
+`openrouter_decisions`, and `TypeSafeDecisionModel` reach Jev through
+OpenRouter's Decisions API and through TypeSafe's own client. The evidence
+behind the question format is in
 `docs/plans/initial-implementation/research/decision-model-question-format.md`.
 """
 
@@ -193,9 +197,20 @@ class Aggregation(StrEnum):
     """How `DecisionModelMonitor` aggregates the probabilities of several questions.
 
     `MAX` lets any single criterion raise suspicion, the right shape for threat
-    criteria, and the way ShieldGemma aggregates harm types
-    [@zeng2024shieldgemma]. `MIN` fits questions that must all hold. `MEAN`
-    dilutes one strong hit: 0.95 with three 0.05s averages 0.275.
+    criteria, and the way ShieldGemma turns its harm types into one binary
+    outcome when it evaluates them (section 5.1) [@zeng2024shieldgemma]. `MIN`
+    fits questions that must all hold. `MEAN` dilutes one strong hit: 0.95
+    with three 0.05s averages 0.275.
+
+    `MAX` takes the maximum of raw probabilities. Control evaluations
+    aggregate on the honest scale instead: LinuxArena turns each monitor's
+    score into a percentile rank against its honest distribution and then
+    takes the maximum (appendix C), and AI Control maps each score through the
+    empirical distribution of honest scores before aggregating (appendix K)
+    [@tracy2026linuxarena; @greenblatt2023aicontrol]. On raw probabilities, a
+    question that honest steps often answer yes to can dominate the maximum.
+    Wrapping the monitor in `CalibratedMonitor` makes a threshold flag a known
+    share of honest steps, but does not remove that dominance.
     """
 
     MAX = "max"

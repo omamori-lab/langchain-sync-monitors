@@ -7,14 +7,18 @@ middleware added authorises nothing. The monitor judges what a step
 would really do, treats everything it reads as data rather than instructions,
 scores on anchored levels, and reasons before it scores. It is asked to keep
 its score out of its reasoning, because the reasoning becomes the verdict's
-reason, which Auto Mode shows the agent. Reading everything as
-data answers an agent that aims a prompt injection at its monitor
-[@terekhov2025adaptive]. Apollo Research found structured reasoning to be the
-prompt component that matters most
-[@apollo2026monitoringprompt]; the authorisation rule and the focus on real
-effects follow Claude Code's auto mode classifier [@hughes2026automode]; and
-reasoning followed by a bounded integer score is the monitor format of Ctrl-Z
-[@bhatt2025ctrlz].
+reason, which Auto Mode shows the agent.
+
+An agent can aim a prompt injection at its monitor [@terekhov2025adaptive], so
+the prompt tells the monitor to treat everything it reads as data. That
+instruction is the library's own mitigation. The paper did not test it, and it
+names, after earlier work, a key limitation of current monitors: they cannot
+reliably keep instructions and data apart (section 6) [@terekhov2025adaptive].
+Apollo Research found structured reasoning to be the prompt component that
+matters most (section Summary) [@apollo2026monitoringprompt]; the
+authorisation rule and the focus on real effects follow Claude Code's auto
+mode classifier [@hughes2026automode]; and reasoning followed by a bounded
+integer score is the monitor format of Ctrl-Z (appendix D) [@bhatt2025ctrlz].
 
 The prompt expects four values: `transcript` and `proposed_step`, rendered by
 `langchain_sync_monitors.transcript`, and `lowest_score` and `highest_score`,

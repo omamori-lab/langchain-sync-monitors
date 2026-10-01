@@ -48,7 +48,7 @@ the action the protocol gates, so part of it is shown whatever the view:
 
 A step is a final answer when it has no tool call that can still run: none at
 all, only malformed ones, or only server tool calls, which have already run.
-So under the default view the judge sees a tool-calling step's calls but not
+So under the default view the monitor sees a tool-calling step's calls but not
 its text, and it sees a final answer's text.
 
 ## Set a view
@@ -84,7 +84,7 @@ its tag and pose as the user. System messages are never rendered.
 |---|---|---|
 | `<user>` | `USER` | A message from the user who gave the task. |
 | `<delegator>` | `USER` | Inside a subagent, the task from the parent agent, in place of `<user>`. |
-| `<context_note source="...">` | `USER` | Any other human message; the next section says where notes come from and what the judge is told about them. |
+| `<context_note source="...">` | `USER` | Any other human message; the next section says where notes come from and what the monitor's model is told about them. |
 | `<monitor_feedback>` | `USER` | The monitor's feedback on a blocked step, named after the tool when it answers a blocked tool call. |
 | `<tool_call name="...">` | `TOOL_CALLS` | A tool call, with its arguments as JSON. |
 | `<malformed_tool_call name="...">` | `TOOL_CALLS` | A call whose arguments could not be parsed, with the raw text. It never ran. |
@@ -110,8 +110,8 @@ loses the task and the notes.
 Only a run's input renders as the task author's words; every other human
 message renders as a note:
 
-[![The judge reads each human message in one of five ways. A message tagged with the monitor's own source is its feedback, read as monitor_feedback. A message with any other tag, such as summarization, is a context_note named after that tag, and authorises nothing. An untagged message that is not a run's input, because a tool, a middleware or the application wrote it during a run, is a context_note named after the tool, the message's name, or application. An untagged message that is new when a run starts is that run's input. If the run before it stopped early, it is a context_note from unconfirmed_input, which is kept and comes back as this note after summarisation or removal. Otherwise it reads as user, or as delegator inside a subagent: the task author's words, kept verbatim even after summarisation or removal.](../assets/diagrams/who-speaks-as-the-user-light.svg#only-light)](../assets/diagrams/who-speaks-as-the-user-light.svg "Open the diagram at full size")
-[![The judge reads each human message in one of five ways. A message tagged with the monitor's own source is its feedback, read as monitor_feedback. A message with any other tag, such as summarization, is a context_note named after that tag, and authorises nothing. An untagged message that is not a run's input, because a tool, a middleware or the application wrote it during a run, is a context_note named after the tool, the message's name, or application. An untagged message that is new when a run starts is that run's input. If the run before it stopped early, it is a context_note from unconfirmed_input, which is kept and comes back as this note after summarisation or removal. Otherwise it reads as user, or as delegator inside a subagent: the task author's words, kept verbatim even after summarisation or removal.](../assets/diagrams/who-speaks-as-the-user-dark.svg#only-dark)](../assets/diagrams/who-speaks-as-the-user-dark.svg "Open the diagram at full size")
+[![The monitor reads each human message in one of five ways. A message tagged with the monitor's own source is its feedback, read as monitor_feedback. A message with any other tag, such as summarization, is a context_note named after that tag, and authorises nothing. An untagged message that is not a run's input, because a tool, a middleware or the application wrote it during a run, is a context_note named after the tool, the message's name, or application. An untagged message that is new when a run starts is that run's input. If the run before it stopped early, it is a context_note from unconfirmed_input, which is kept and comes back as this note after summarisation or removal. Otherwise it reads as user, or as delegator inside a subagent: the task author's words, kept verbatim even after summarisation or removal.](../assets/diagrams/who-speaks-as-the-user-light.svg#only-light)](../assets/diagrams/who-speaks-as-the-user-light.svg "Open the diagram at full size")
+[![The monitor reads each human message in one of five ways. A message tagged with the monitor's own source is its feedback, read as monitor_feedback. A message with any other tag, such as summarization, is a context_note named after that tag, and authorises nothing. An untagged message that is not a run's input, because a tool, a middleware or the application wrote it during a run, is a context_note named after the tool, the message's name, or application. An untagged message that is new when a run starts is that run's input. If the run before it stopped early, it is a context_note from unconfirmed_input, which is kept and comes back as this note after summarisation or removal. Otherwise it reads as user, or as delegator inside a subagent: the task author's words, kept verbatim even after summarisation or removal.](../assets/diagrams/who-speaks-as-the-user-dark.svg#only-dark)](../assets/diagrams/who-speaks-as-the-user-dark.svg "Open the diagram at full size")
 
 - **Where notes come from.** LangChain's and Deep Agents' summaries are
   tagged `summarization`, and Deep Agents' rubric grader `rubric_grader`
@@ -121,11 +121,11 @@ message renders as a note:
   so the agent must not be able to speak as the user through either. The
   monitor writes a note's tag into the message in the agent's state too, so a
   saved history keeps it.
-- **What the judge is told about notes.** The tag is all the monitor adds.
-  `DEFAULT_MONITOR_PROMPT` tells a chat judge that a note is not the user and
-  authorises nothing, a request the judge may not always follow. A guard
-  policy or a prompt of your own must say so itself, and a decision model
-  gets only the tag.
+- **What the monitor's model is told about notes.** The tag is all the
+  monitor adds. `DEFAULT_MONITOR_PROMPT` tells a chat judge that a note is not
+  the user and authorises nothing, a request the judge may not always follow.
+  A guard policy or a prompt of your own must say so itself, and a decision
+  model gets only the tag.
 - **`unconfirmed_input`.** A run that stopped before its end, for example
   because its model call raised or its client cancelled it, may leave messages
   the monitor never saw. The next run cannot tell them from its own input, so
@@ -159,9 +159,9 @@ monitor can stop a call that has already run. `ServerToolWarning` warns about
 the known ones; [Server tools](choose-a-protocol.md#server-tools) lists them
 and what the warning cannot see.
 
-The judge always reads their calls in the step it judges. Their results sit in
-`TOOL_RESULTS`, which the default view leaves out. This step's only call ran at
-the provider, so it is a final answer, and its text is shown:
+The monitor always reads their calls in the step it judges. Their results sit
+in `TOOL_RESULTS`, which the default view leaves out. This step's only call
+ran at the provider, so it is a final answer, and its text is shown:
 
 ```python
 from langchain_core.messages import AIMessage
@@ -242,13 +242,15 @@ image. Each goes back just after a message that stood before it and is still
 there, or else at the start, before the summary, which stays a context note;
 the turns put back keep their order. Input after a run that stopped early comes
 back as a note from `unconfirmed_input`. A tool that reorders turns the state
-still holds reorders them for the judge as for the agent. The monitor keeps the
-text in its private state, so the state grows by the size of the user's turns.
+still holds reorders them for the monitor as for the agent. The monitor keeps
+the text in its private state, so the state grows by the size of the user's
+turns.
 
 ## Name your delegation tools
 
 Results of the tools in `delegation_tools` are subagent reports; results of
-every other tool are tool results. The default names Deep Agents' `task` tool.
+every other tool are tool results. The default names Deep Agents' `task` tool,
+through which a Deep Agent delegates to a subagent [@deepagents2026].
 If your agent delegates through tools of its own, name them:
 
 ```python

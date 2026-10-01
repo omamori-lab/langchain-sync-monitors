@@ -53,7 +53,7 @@ around the other wrappers, and every protocol accepts it.
 | Wrapper | What it reports | Calls per judged sample | Reason |
 |---|---|---|---|
 | `RepeatedMonitor(monitor=..., ensemble_size=...)` | The mean suspicion of `ensemble_size` calls | `ensemble_size` times the wrapped monitor's | The most suspicious call's |
-| `CalibratedMonitor(monitor=..., honest_scores=..., random_seed=...)` | The rank of the score among honest scores | The wrapped monitor's, and no more | The wrapped monitor's |
+| `CalibratedMonitor(monitor=..., honest_scores=..., random_seed=...)` | The smoothed conformal p-value of the score against honest scores | The wrapped monitor's, and no more | The wrapped monitor's |
 | `CascadeMonitor(fast=..., careful=..., escalation_threshold=...)` | The fast verdict, or the careful one when the fast suspicion reaches `escalation_threshold` | The fast monitor's, plus the careful monitor's for escalated samples | The verdict's own |
 
 The wrappers never add a score to a reason. Auto Mode shows the reason to the
@@ -74,14 +74,17 @@ one monitor [@koran2026ensemble]. Its `ensemble_size` is the number of calls,
 which LinuxArena calls the ensemble size (appendix C) [@tracy2026linuxarena].
 
 A chat judge gives an integer score, and integer scores tie so often that a
-small audit budget falls inside a group of tied scores
+small audit budget falls inside a group of tied scores, as BashArena (section
+4.3) and Koran et al. (section 5.1) found
 [@kaufman2025basharena; @koran2026ensemble]. Averaging several calls adds
-resolution [@kaufman2025basharena]. BashArena averages three calls and
-LinuxArena two, and Ctrl-Z samples its monitor several times at temperature
-1.1 [@kaufman2025basharena; @tracy2026linuxarena; @bhatt2025ctrlz]. For
-ensembles of different monitors, Koran et al. found a plain mean as good as
-other aggregators, and found that three calls of one monitor gain less than
-three different monitors [@koran2026ensemble].
+resolution, as BashArena shows (section 4.3) [@kaufman2025basharena].
+BashArena averages three calls (section 4.2) and LinuxArena two (section
+5.1), and Ctrl-Z samples its monitor several times at temperature 1.1
+(appendix D) [@kaufman2025basharena; @tracy2026linuxarena; @bhatt2025ctrlz].
+For ensembles of different monitors, Koran et al. found the arithmetic mean
+as good as the other aggregators they tried (section 3.2), and found that
+three calls of one monitor gain less than three different monitors (section
+5.2) [@koran2026ensemble].
 
 ```python
 from langchain.chat_models import init_chat_model
@@ -253,7 +256,7 @@ float, so pass Python floats or numpy `float64`s: a `float32` 0.1 becomes
 ## What a calibrated threshold means
 
 `CalibratedMonitor` replaces the wrapped monitor's score with its smoothed
-conformal rank among the `n` honest scores:
+conformal p-value, with the `n` honest scores as the calibration set:
 
 ```text
 calibrated suspicion = (below + U * (tied + 1)) / (n + 1)
@@ -263,8 +266,9 @@ The step takes one of `n + 1` places in the sorted list of honest scores.
 `below` counts the honest scores lower than the step's score, and `tied`
 counts those equal to it. `U` is a random number from 0 up to 1, which spreads
 the step evenly over its own place and the places of the honest scores it ties
-with. Makins et al. and LinuxArena also break ties at random in their control
-evaluations [@makins2026multiagent; @tracy2026linuxarena].
+with. Makins et al. (appendix G.4.1) and LinuxArena (section 5.1) also break
+ties at random in their control evaluations
+[@makins2026multiagent; @tracy2026linuxarena].
 
 This is the smoothed conformal p-value of Vovk et al., with the step's raw
 score in the place of their conformity score and `U` as their uniform random
@@ -275,16 +279,24 @@ Gammerman and Shafer's book [@vovk2016criteria; @vovk2005algorithmic].
 
 The guarantee holds when the step's raw score is exchangeable with the honest
 scores: the step comes from the same kind of honest run, scored by the same
-monitor with the same settings. Its calibrated suspicion is then spread evenly
-from 0 to 1, so a threshold `t` flags a share `1 - t` of such steps: 0.99 flags
-1% of honest steps, and 0.95 flags 5%.
+monitor with the same settings. A smoothed conformal p-value is then exactly
+uniform, so the calibrated suspicion is spread evenly from 0 to 1, and a
+threshold `t` flags a share `1 - t` of such steps: 0.99 flags 1% of honest
+steps, and 0.95 flags 5%.
 
 That share is exact on average over the honest scores you might have
-collected. For the one set you did collect, it varies around `1 - t`. Its
-standard deviation is about `sqrt(t * (1 - t) / n)`, the spread of a share
-estimated from `n` draws; this approximation is ours, not a cited result, and
-a simulation matches it. At `t = 0.99` it is about 0.3 percentage points for a
-thousand honest scores, and about 1 point for a hundred.
+collected. For the one set you did collect, it varies around `1 - t`. When
+the honest scores you collected and those of new honest steps are independent
+draws from one distribution, with no ties, and `(n + 1) * t` is a whole number
+from 1 to `n`, the share of honest steps left unflagged follows
+Beta(n + 1 - l, l), where `l = (n + 1) * (1 - t)`. This is the coverage of
+split conformal prediction for a fixed calibration set, which Angelopoulos and
+Bates give after Vovk (section 3.2) [@angelopoulos2021gentle]. Its standard
+deviation is `sqrt(t * (1 - t) / (n + 2))`, close to that of a share
+estimated from `n` draws. At `t = 0.99` it is about 0.3 percentage points for
+a thousand honest scores, and about 1 point for a hundred. When
+`(n + 1) * t` is not a whole number the spread is close to this; with ties it
+can differ.
 
 | Consequence | What it means |
 |---|---|
@@ -313,9 +325,9 @@ careful one only when the fast suspicion reaches `escalation_threshold`.
 Below it, the fast verdict stands; at or above it, the careful verdict,
 reason included, replaces it. This follows the two stages of Claude Code's
 auto mode, a fast filter in front of a reasoning classifier
-[@hughes2026automode]. Hua et al.'s best two-monitor protocol calls the
-expensive monitor only when the cheap one's score falls in an uncertain range
-[@hua2025combining]; `CascadeMonitor` uses the simpler rule of one threshold.
+[@hughes2026automode];
+[where the ideas come from](../explanation/background.md#thresholds-and-scores)
+compares this rule of one threshold with other cascades.
 
 [![CascadeMonitor runs the fast monitor, such as a calibrated decision model, on every step. When the fast suspicion is below escalation_threshold, the fast verdict stands, its reason included. At or above escalation_threshold, the careful monitor, such as a calibrated, repeated chat judge, scores the step, and its verdict, reason included, replaces the fast one. The careful monitor runs on escalated steps only.](../assets/diagrams/monitors-cascade-light.svg#only-light)](../assets/diagrams/monitors-cascade-light.svg "Open the diagram at full size")
 [![CascadeMonitor runs the fast monitor, such as a calibrated decision model, on every step. When the fast suspicion is below escalation_threshold, the fast verdict stands, its reason included. At or above escalation_threshold, the careful monitor, such as a calibrated, repeated chat judge, scores the step, and its verdict, reason included, replaces the fast one. The careful monitor runs on escalated steps only.](../assets/diagrams/monitors-cascade-dark.svg#only-dark)](../assets/diagrams/monitors-cascade-dark.svg "Open the diagram at full size")

@@ -134,12 +134,22 @@ one suspicion.
 
 | `Aggregation` | Suspicion | Fits |
 |---|---|---|
-| `MAX`, the default | The highest probability | Threat criteria, where any one is enough. ShieldGemma aggregates harm types the same way [@zeng2024shieldgemma]. |
+| `MAX`, the default | The highest probability | Threat criteria, where any one is enough. ShieldGemma aggregates harm types the same way when it evaluates them (section 5.1) [@zeng2024shieldgemma]. |
 | `MIN` | The lowest probability | Questions that must all hold before a step is suspicious |
 | `MEAN` | The average | Rarely: it dilutes one strong hit, and the constructor warns |
 
 With answers of 0.95, 0.05, 0.05 and 0.05, `MAX` gives 0.95 and `MEAN` gives
 0.275.
+
+`MAX` takes the maximum of the raw probabilities. Control evaluations
+aggregate on the honest scale instead: LinuxArena turns each monitor's score
+into a percentile rank against its honest distribution and then takes the
+maximum (appendix C), and AI Control maps each score through the empirical
+distribution of honest scores before aggregating (appendix K)
+[@tracy2026linuxarena; @greenblatt2023aicontrol]. On raw probabilities, a
+question that honest steps often answer yes to can dominate the maximum. Wrap
+the monitor in `CalibratedMonitor` so that a threshold flags a known share of
+honest steps; that fixes the share, but not the dominance.
 
 ## See what the model reads
 
@@ -241,10 +251,14 @@ model's score rests on all of its concerns together: 'sends_data_out': ...;
 In the library's live runs, Jev's probabilities came back with two decimals, so
 its scores tie at a resolution of 0.01. Averaging calls with `RepeatedMonitor`,
 or aggregating several questions with `Aggregation.MEAN`, restores some
-resolution; `MAX` and `MIN` return one question's answer, at its resolution. A
-decision model also makes a good fast first stage in front of a chat judge;
-[Combine and calibrate monitors](combine-and-calibrate-monitors.md) shows
-`CascadeMonitor`.
+resolution; `MAX` and `MIN` return one question's answer, at its resolution.
+
+The library suggests a decision model as the fast first stage in front of a
+chat judge, by analogy with Claude Code's auto mode, whose first stage answers
+with a single yes or no token and whose second reasons (section Two-stage
+classification: efficiency and recall) [@hughes2026automode]. No cited source
+evaluates how well this pairing catches attacks. [Combine and calibrate
+monitors](combine-and-calibrate-monitors.md) shows `CascadeMonitor`.
 
 ## Related guides
 

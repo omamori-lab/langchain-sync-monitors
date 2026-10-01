@@ -1,7 +1,7 @@
 # How the library is built
 
 This explanation describes how langchain-sync-monitors works and where it
-stops: what one monitored step does, what the judge reads and whom it
+stops: what one monitored step does, what the monitor reads and whom it
 believes, when a halt stands, how subagents are counted, and what the records,
 streams and traces show. A closing section gathers every known limit.
 
@@ -9,12 +9,14 @@ streams and traces show. A closing section gathers every known limit.
 
 ## The monitored step
 
-An agent step is one run of the agent's model node. `MonitorMiddleware` wraps
-the model call inside it: the untrusted model proposes the step, the monitor
-judges it, and a control protocol decides what the agent's state receives,
-all before any of the agent's own tools run. Server-side tools, such as a
-provider's web search, are the exception: they run inside the model call, so
-they have run by the time the monitor sees the step
+An agent step is one run of the agent's model node, which proposes the agent's
+next tool calls or its final answer; a protocol may draw several samples of
+that proposal. `MonitorMiddleware` wraps the model call inside it: the
+untrusted model proposes the step, the monitor judges it, and a control
+protocol decides what the agent's state receives, all before any of the
+agent's own tools run. Server-side tools, such as a provider's web search,
+are the exception: they run inside the model call, so they have run by the
+time the monitor sees the step
 ([what the monitor cannot stop](#what-the-monitor-cannot-stop)).
 
 [![The untrusted model proposes a step. The monitor, drawn as an omamori charm, reads it through its view and scores its suspicion from 0 to 1. The control protocol chooses one of five outcomes, from the lightest touch to the strongest: allow it, resample it, defer to the trusted model, block it and tell the agent why, or halt. All of this happens inside the middleware, before any of the agent's own tools run; a brushed line marks that boundary. A committed step reaches the tools and a halted run ends, and either way one record joins monitor_log. Tool results come back, and the next model call is a new step.](../assets/diagrams/monitored-step-light.svg#only-light)](../assets/diagrams/monitored-step-light.svg "Open the diagram at full size")
@@ -359,7 +361,7 @@ drop a message's `name`; a custom `FeedbackTemplate` or `HaltRun` message
 should too. The trusted model at the limit sees neither the blocked attempts
 nor the feedback.
 
-## What the judge reads
+## What the monitor reads
 
 Every transcript entry belongs to one `Channel`: `USER`, `REASONING`,
 `AGENT_TEXT`, `TOOL_CALLS`, `TOOL_RESULTS` or `SUBAGENT_REPORTS`. A
@@ -373,9 +375,9 @@ reports, `task` by default.
 The default view, `Channel.ACTIONS`, reads `USER`, `TOOL_CALLS` and
 `SUBAGENT_REPORTS`. It leaves out the agent's reasoning, its prose and raw
 tool output, as Claude Code's auto mode classifier leaves out the agent's
-messages and tool outputs [@hughes2026automode]. So by default the judge
+messages and tool outputs [@hughes2026automode]. So by default the monitor
 does not read the text the agent writes beside a tool call
-([what the judge does not see](#what-the-judge-does-not-see)). Adding
+([what the monitor does not see](#what-the-monitor-does-not-see)). Adding
 `Channel.AGENT_TEXT` to the view shows that text, and adding
 `Channel.REASONING` the chain of thought;
 [where the ideas come from](background.md#what-a-monitor-reads) sums up what
@@ -422,9 +424,9 @@ LangChain's translators give server tools as standard `server_tool_call` and
 Gemini's code execution [@langchaincore2026]. Gemini's
 Google Search leaves its queries only in the reply's `grounding_metadata`, so
 the monitor renders them as a `<server_tool_call name="grounding">`, with
-the sources found as its result. Under the default view the judge reads the
+the sources found as its result. Under the default view the monitor reads the
 call and not its result; the audit record keeps both. A tool that leaves no
-block is not shown ([what the judge does not see](#what-the-judge-does-not-see)).
+block is not shown ([what the monitor does not see](#what-the-monitor-does-not-see)).
 
 When the view keeps only recent entries, every message from the task author is
 kept anyway, in order: the first states the task, and a later one can narrow or
@@ -465,18 +467,16 @@ suspicious.
   label, read from the label token's log-probabilities
   [@inan2023llamaguard; @zeng2024shieldgemma; @padhi2024graniteguardian].
   Without log-probabilities, the share of several samples labelled unsafe
-  estimates the same probability. Studies of sample consistency, on question
-  answering rather than guards, find its gains converge as samples grow, and
-  saturate after 15 to 20 in Lyu et al.
-  [@xiong2024uncertainty; @lyu2025sampleconsistency]. `GuardScoring.AUTO`
-  reads log-probabilities when the provider returns them and draws five
-  samples otherwise. LangChain has no capability flag for log-probabilities,
-  so `AUTO` asks every model for them, and a chat model that rejects the
-  request, such as `ChatAnthropic`, fails the first judged step with a
-  `ConfigurationError` that names `GuardScoring.SAMPLE_FRACTION`.
+  estimates the same probability. `GuardScoring.AUTO` reads
+  log-probabilities when the provider returns them and draws five samples
+  otherwise
+  ([choose how labels become a score](../how-to/use-a-guard-model.md#choose-how-labels-become-a-score)
+  gives the evidence for five). LangChain has no capability flag for
+  log-probabilities, so `AUTO` asks every model for them, and a chat model
+  that rejects the request, such as `ChatAnthropic`, fails the first judged
+  step with a `ConfigurationError` that names `GuardScoring.SAMPLE_FRACTION`.
   `GuardScoring.HARD_LABEL` warns, because a hard 0 or 1 gives a threshold
-  only one operating point, and guard models are overconfident and markedly
-  miscalibrated under jailbreak prompts [@liu2025guardcalibration].
+  only one operating point.
 - **Decision models** (`DecisionModelMonitor`) answer yes or no questions
   with a probability and generate no text. Suspicion is the probability of
   yes. Several questions in one request are combined by their maximum by
@@ -511,22 +511,21 @@ keep its score out of it, but its wording may still hint at one.
 
 Scores have to be fine-grained. Control evaluations set thresholds as
 percentiles of honest-run scores, and a score with few distinct values cannot
-hit a small audit budget, because the budget falls inside a group of tied
-scores [@kaufman2025basharena; @koran2026ensemble]. Three wrappers, each a
-monitor itself, address this and stack around any family:
+hit a small audit budget
+([average repeated calls](../how-to/combine-and-calibrate-monitors.md#average-repeated-calls)
+gives the evidence). Three wrappers, each a monitor itself, address this and
+stack around any family:
 
-- `RepeatedMonitor` averages several calls of one monitor, which raises its
-  resolution at low false-positive rates [@kaufman2025basharena], as
-  LinuxArena does with two calls per action [@tracy2026linuxarena];
-- `CalibratedMonitor` reports suspicion as the step's smoothed conformal rank
-  among honest-run scores, breaking ties at random [@makins2026multiagent],
-  so a threshold of 0.99 flags 1% of honest steps on average
+- `RepeatedMonitor` averages several calls of one monitor, which spreads its
+  scores out;
+- `CalibratedMonitor` reports suspicion as the step's smoothed conformal
+  p-value against honest-run scores, breaking ties at random, so a threshold
+  of 0.99 flags 1% of honest steps on average
   ([what a calibrated threshold means](../how-to/combine-and-calibrate-monitors.md#what-a-calibrated-threshold-means));
 - `CascadeMonitor` runs a fast monitor on every step and a careful one when
   the fast score reaches one threshold, after the two stages of Claude Code's
-  auto mode [@hughes2026automode]. Hua et al.'s best two-monitor protocol
-  calls the expensive monitor only when the cheap score falls in an uncertain
-  band [@hua2025combining]; `CascadeMonitor` uses the simpler rule.
+  auto mode [@hughes2026automode]
+  ([where the ideas come from](background.md#thresholds-and-scores)).
 
 ## Task authorship and notes
 
@@ -540,15 +539,14 @@ text holds the path the agent chose, and its Nemotron harness profile writes
 named nudges [@langchain2026; @deepagents2026]. So only an untagged human
 message that arrives as a run's input speaks as the task author:
 
-| A human message | The judge reads it as |
+| A human message | The monitor reads it as |
 |---|---|
 | Tagged `lc_source="monitor"` | `<monitor_feedback>` |
 | Tagged with any other `lc_source` | `<context_note>`, named after that source |
 | Untagged, recorded as a run's input | `<user>`, or `<delegator>` inside a subagent |
 | Untagged, not recorded as input | `<context_note>`, named after the message's `name`, or `application` |
 
-The monitor keeps this record in the graph state, not only in what the judge
-reads:
+The monitor keeps this record in the graph state, not only in what it reads:
 
 - **At the start of a run**, its `before_agent` hook records each untagged
   human message it has not seen as the run's input.
@@ -564,13 +562,13 @@ reads:
   `stream_mode="messages"`. That run's checkpoint stores the history once
   more, and `stream_mode="updates"` shows it as the hook's write; input given
   as a message or a dictionary needs neither.
-- **Every run's input stays with the judge.** At the start of a run the
+- **Every run's input stays with the monitor.** At the start of a run the
   monitor keeps the text of each input under `monitor_run_inputs`, with the
   ids of up to three messages before it. The kept copy follows its message in
   the state: at each run start, step start and commit, and in memory before
   each judgement, its text becomes the text the state holds under its id. So
   a redaction such as `PIIMiddleware`'s, or the user's `update_state` edit,
-  reaches the judge as the agent reads it. When the model request no longer
+  reaches the monitor as the agent reads it. When the model request no longer
   holds an input, because a summary replaced it or a tool removed it, the
   monitor puts it back in its own copy. It goes just after the nearest of the
   three messages before it that is still there, else just before a message
@@ -1078,14 +1076,14 @@ limit is linked from where it arises above.
   way without a warning; [Server tools](../how-to/choose-a-protocol.md#server-tools)
   lists them.
 
-### What the judge does not see
+### What the monitor does not see
 
-- **The agent's prose, by default.** Under `Channel.ACTIONS` the judge does
+- **The agent's prose, by default.** Under `Channel.ACTIONS` the monitor does
   not read the text the agent writes beside a tool call, as in Claude Code's
   auto mode [@hughes2026automode]; it reads a final answer's text. Adding
   `Channel.AGENT_TEXT` to the view shows it.
 - **Server tools that leave no block.** A server tool whose reply leaves
-  no block LangChain keeps is invisible to the judge: Gemini's URL context,
+  no block LangChain keeps is invisible to the monitor: Gemini's URL context,
   whose metadata langchain-google-genai does not keep, and the search of
   OpenRouter's web plugin.
 

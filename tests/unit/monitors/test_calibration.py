@@ -101,9 +101,9 @@ def measure_honest_flag_rate(*, calibration_size: int) -> float:
 
 @pytest.mark.parametrize("calibration_size", [100, 150])
 def test_a_new_honest_step_is_flagged_at_exactly_the_audit_budget(calibration_size: int) -> None:
-    """The new score's rank among n + 1 exchangeable scores is uniform on the n + 1 slots.
+    """The new score's rank among n + 1 exchangeable scores is uniform on the n + 1 places.
 
-    Spreading the step uniformly over its slot makes the calibrated suspicion
+    Spreading the step uniformly over its place makes the calibrated suspicion
     uniform on [0, 1], so a threshold of 0.99 flags exactly 1% of new honest
     steps. The earlier `below / n` flagged (n - ceil(0.99 n) + 1) / (n + 1):
     2/101, about 1.98%, at n = 100, and 2/151, about 1.32%, at n = 150.
@@ -115,10 +115,10 @@ def test_a_new_honest_step_is_flagged_at_exactly_the_audit_budget(calibration_si
     assert rate == pytest.approx(1 - AUDIT_THRESHOLD, abs=0.0018)
 
 
-def test_every_rank_slot_is_reached_and_none_reaches_one() -> None:
+def test_every_place_is_reached_and_none_reaches_one() -> None:
     # Arrange: each of 21 distinct scores in turn plays the new step
     scores = [index / 20 for index in range(21)]
-    slot_count = len(scores)
+    place_count = len(scores)
 
     # Act
     percentiles = []
@@ -128,7 +128,9 @@ def test_every_rank_slot_is_reached_and_none_reaches_one() -> None:
         percentiles.append((rank, calibrated.evaluate_sync(build_scored_step(score)).suspicion))
 
     # Assert
-    assert all(rank / slot_count <= value < (rank + 1) / slot_count for rank, value in percentiles)
+    assert all(
+        rank / place_count <= value < (rank + 1) / place_count for rank, value in percentiles
+    )
 
 
 def test_a_seeded_step_gets_the_same_suspicion_whatever_ran_before() -> None:

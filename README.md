@@ -113,7 +113,7 @@ Monitors for [chat judges](docs/how-to/use-a-chat-judge.md), [guard models](docs
   <img alt="Every entry of the transcript belongs to one channel. The default view, Channel.ACTIONS, reads USER (every turn of the user, kept verbatim even after summarisation, context notes and feedback), TOOL_CALLS (tool calls and errors) and SUBAGENT_REPORTS (what subagents report), and leaves out REASONING, AGENT_TEXT and TOOL_RESULTS, each one flag away. The proposed step's tool calls are always shown, and its text when it is a final answer; the rest of the step follows the view's channels. A MonitorView chooses the channels, can keep only the most recent entries besides the user's turns, and names the tools whose results are subagent reports. The monitor reads the chosen entries as escaped, tagged text ending with the proposed step, then scores the step." src="docs/assets/diagrams/monitor-view-light.svg">
 </picture>
 
-What the judge reads by default, and each channel it leaves out: [Choose what the monitor reads](docs/how-to/choose-what-the-monitor-reads.md).
+What the monitor reads by default, and each channel it leaves out: [Choose what the monitor reads](docs/how-to/choose-what-the-monitor-reads.md).
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/assets/diagrams/subagents-dark.svg">
@@ -130,7 +130,7 @@ A monitor in every Deep Agents subagent: [Monitor Deep Agents subagents](docs/ho
   `ServerToolWarning` warns about the known ones for
   Anthropic, OpenAI and Gemini when it can see them; it cannot see some, such
   as OpenRouter's web plugin.
-- **What the judge reads.** By default it reads the task, the tool calls, the
+- **What the monitor reads.** By default it reads the task, the tool calls, the
   subagent reports and a proposed final answer. It does not read the agent's
   reasoning, the text the agent writes beside a tool call, or raw tool
   output; each is one flag away.

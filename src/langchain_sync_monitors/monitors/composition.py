@@ -41,14 +41,13 @@ class RepeatedMonitor(Monitor):
 
     A single call of a chat judge gives an integer score, and integer scores tie
     so often that a low audit budget cannot be set: the budget falls inside a
-    group of tied steps. Averaging repeated calls adds resolution
-    [@kaufman2025basharena]. BashArena averages three calls and LinuxArena
-    two, and Ctrl-Z samples its monitor several times at temperature 1.1
-    [@kaufman2025basharena; @tracy2026linuxarena; @bhatt2025ctrlz]; a plain
-    mean works as well as more elaborate aggregators [@koran2026ensemble]. The
-    calls only differ when the wrapped monitor samples, so its model needs a
-    temperature above zero, and no LangChain response cache, which would
-    answer every call after the first with a copy of it.
+    group of tied steps. Averaging repeated calls adds resolution at low false
+    positive rates, as BashArena shows (section 4.3) [@kaufman2025basharena];
+    the how-to Combine and calibrate monitors says how many calls other
+    control evaluations make. The calls only differ when the wrapped monitor
+    samples, so its model needs a temperature above zero, and no LangChain
+    response cache, which would answer every call after the first with a copy
+    of it.
 
     The reason is the most suspicious call's own reason, since that is the one
     an auditor needs to read. `evaluate` makes the calls concurrently, and one
@@ -134,19 +133,20 @@ def render_tie_break_key(monitor_input: MonitorInput) -> str:
 
 
 class CalibratedMonitor(Monitor):
-    """Report suspicion as the rank of a step's score among the scores of honest runs.
+    """Report suspicion as the smoothed conformal p-value of a step's score against honest runs.
 
     Control evaluations set thresholds as percentiles of honest-run scores, so
     an audit budget of 1% means flagging for review the top 1% of honest
-    steps. This wrapper reports the raw score's smoothed conformal rank among
-    the `n` honest scores: its place among them, as a share of `n + 1`, with
-    its ties broken by a uniform random draw. That is the smoothed conformal
-    p-value of Vovk et al., with the raw score in the place of their
-    conformity score (section 2, equation 2) [@vovk2016criteria], and its ties
-    are broken at random as Makins et al. and LinuxArena break them
-    [@makins2026multiagent; @tracy2026linuxarena]. The formula, and the
-    guarantee that a threshold of 0.99 flags 1% of the steps whose raw scores
-    are exchangeable with the honest scores, on average, are in
+    steps. This wrapper reports the raw score's smoothed conformal p-value
+    against the `n` honest scores: its place among them, as a share of
+    `n + 1`, with its ties broken by a uniform random draw. That is the
+    p-value of Vovk et al. with the raw score in the place of their conformity
+    score (section 2, equation 2) [@vovk2016criteria], and its ties are broken
+    at random as Makins et al. (appendix G.4.1) and LinuxArena (section 5.1)
+    break them [@makins2026multiagent; @tracy2026linuxarena]. The formula,
+    the guarantee that a threshold of 0.99 flags 1% of the steps whose raw
+    scores are exchangeable with the honest scores, on average, and how far
+    that share strays for one set of honest scores are in
     `docs/how-to/combine-and-calibrate-monitors.md` ("What a calibrated
     threshold means").
 
@@ -196,7 +196,7 @@ class CalibratedMonitor(Monitor):
         return self.build_calibrated_verdict(verdict, monitor_input=monitor_input)
 
     def build_calibrated_verdict(self, verdict: Verdict, *, monitor_input: MonitorInput) -> Verdict:
-        """Replace the raw suspicion with its smoothed conformal rank among the honest scores."""
+        """Replace the raw suspicion with its smoothed conformal p-value against honest scores."""
         scores = self.sorted_honest_scores
         # (below + U * (tied + 1)) / (n + 1): every honest score below counts, and the tied
         # ones, with the step itself, count for a random share U.
@@ -225,9 +225,9 @@ class CascadeMonitor(Monitor):
     verdict; the rest go to the careful monitor, whose verdict, reason
     included, replaces it. This follows the two stages of Claude Code's auto
     mode, a fast filter tuned for recall in front of a reasoning classifier
-    [@hughes2026automode], and the idea of calling an expensive monitor only
-    when a cheap one asks for it [@hua2025combining]. A decision model makes a
-    good fast stage and a chat judge a good careful one.
+    (section Two-stage classification: efficiency and recall)
+    [@hughes2026automode]. The explanation Where the ideas come from compares
+    this rule of one threshold with other cascades.
     """
 
     def __init__(self, *, fast: Monitor, careful: Monitor, escalation_threshold: float) -> None:

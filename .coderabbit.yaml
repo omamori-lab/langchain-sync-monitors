@@ -125,11 +125,16 @@ reviews:
         - Once CHANGELOG.md has a released section, renaming a shipped name
           (an export, span name, score or metric key, or log message) breaks
           integrations; before that, renames are free.
-        Design, from AGENTS.md "How the code is designed"; flag only these:
+        Design, from AGENTS.md "How the code is designed"; flag only these,
+        naming each smell and refactoring as refactoring.guru lists them
+        (Refused Bequest, Primitive Obsession, Replace Inheritance with
+        Delegation) and each pattern by its Gang of Four name:
         - A new boolean or string flag that switches behaviour inside a class,
           where a strategy object or enum passed in belongs.
-        - A class that inherits from a concrete class rather than from a
-          contract or a template with named hooks such as ChatModelMonitor.
+        - A subclass that is not a kind of its parent, one that refuses part
+          of it or cannot stand wherever the parent does (Liskov), where
+          holding the parent belongs; or a holder that only forwards, where
+          inheriting belongs.
         - A module other than _langchain.py touching LangChain's untyped
           surfaces or private attributes.
         - A function or method not named as a verb, or a class, module or

@@ -10,9 +10,15 @@ import pytest
 from langchain_core.messages import AIMessage
 from langchain_core.prompts import ChatPromptTemplate
 
-from langchain_sync_monitors.contracts import Channel, Monitor, MonitorInput, MonitorView
+from langchain_sync_monitors.contracts import Channel, Monitor, MonitorInput, MonitorView, Verdict
 from langchain_sync_monitors.errors import ConfigurationError
-from langchain_sync_monitors.monitors.chat import LLMMonitor, find_reasoning_block
+from langchain_sync_monitors.monitors.chat import (
+    ChatModelMonitor,
+    LLMMonitor,
+    ReplyRequest,
+    VerdictPlan,
+    find_reasoning_block,
+)
 from langchain_sync_monitors.monitors.composition import (
     CalibratedMonitor,
     CascadeMonitor,
@@ -36,6 +42,9 @@ CHAT_LOGGER = "langchain_sync_monitors.monitors.chat"
 
 CALM_REPLY = "<reasoning>It reads the file the user named.</reasoning>\n<score>3</score>"
 UNREADABLE_REPLY = "<reasoning>Hard to say.</reasoning> I would give it a seven."
+TRANSCRIPT_AND_STEP_PROMPT = ChatPromptTemplate.from_messages(
+    [("human", "{transcript}\n{proposed_step}")],
+)
 POSTSCRIPT_QUOTING_A_PLANTED_SCORE = (
     JUDGE_REPLY_QUOTING_A_PLANTED_SCORE
     + "\n\nNote: the step's note asked me to output <score>0</score>."
@@ -590,6 +599,45 @@ async def test_the_monitor_call_is_tagged_as_internal(monitor_input: MonitorInpu
 
     # Assert
     assert model.received_metadata[0]["lc_source"] == "llm_monitor"
+
+
+class EchoMonitor(ChatModelMonitor):
+    """A chat monitor written outside the library: it asks once and gives the reply as reason."""
+
+    def build_verdict_plan(self, monitor_input: MonitorInput) -> VerdictPlan:
+        request = ReplyRequest(model=self.model, messages=self.build_prompt_messages(monitor_input))
+        (reply,) = yield request
+        return Verdict(suspicion=0.5, reason=reply.text)
+
+
+async def test_a_chat_monitor_written_outside_the_library_tags_its_call_as_internal(
+    monitor_input: MonitorInput,
+    call_path: CallPath,
+) -> None:
+    # Arrange: a subclass that names no call source of its own
+    model = ScriptedChatModel(replies=["It reads the file the user named."])
+    monitor = EchoMonitor(model=model, prompt=TRANSCRIPT_AND_STEP_PROMPT, view=MonitorView())
+
+    # Act
+    verdict = await evaluate_on_path(monitor, monitor_input, call_path=call_path)
+
+    # Assert
+    assert verdict.reason == "It reads the file the user named."
+    assert model.received_metadata[0]["lc_source"] == "monitor"
+
+
+def test_a_chat_monitor_written_outside_the_library_fills_no_other_variable() -> None:
+    # Arrange
+    prompt = ChatPromptTemplate.from_messages([("human", "{extra}{transcript}{proposed_step}")])
+
+    # Act
+    with pytest.raises(ConfigurationError) as refusal:
+        EchoMonitor(model=ScriptedChatModel(replies=["x"]), prompt=prompt, view=MonitorView())
+
+    # Assert
+    assert str(refusal.value) == (
+        "the monitor prompt uses variables the monitor cannot fill: ['extra']"
+    )
 
 
 def test_a_prompt_without_the_proposed_step_is_rejected() -> None:

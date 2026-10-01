@@ -4,6 +4,7 @@ protocol's guide and on the pages that sum them up; chosen thresholds stay quiet
 from __future__ import annotations
 
 import math
+import os
 import warnings
 from pathlib import Path
 
@@ -23,6 +24,7 @@ from langchain_sync_monitors.thresholds import (
     DEFAULT_BLOCK_THRESHOLD,
     DEFAULT_DEFER_THRESHOLD,
     DEFAULT_FLAG_THRESHOLD,
+    LIBRARY_DIRECTORY,
     DefaultThreshold,
     UncalibratedThresholdWarning,
     resolve_threshold,
@@ -156,6 +158,19 @@ def test_the_uncalibrated_warning_names_the_default_and_says_how_to_calibrate() 
         "CalibratedMonitor so that its scores are honest-run percentiles. Pass block_threshold "
         "explicitly to silence this warning."
     ]
+
+
+def test_the_warning_points_at_a_caller_whose_path_only_begins_like_the_library_s() -> None:
+    # Arrange: a sibling package such as langchain_sync_monitors_extras is not this library
+    sibling_file = os.path.join(LIBRARY_DIRECTORY.rstrip(os.sep) + "_extras", "protocols.py")
+    build_protocol = compile("AutoMode()", sibling_file, "exec")
+
+    # Act
+    with pytest.warns(UncalibratedThresholdWarning) as record:
+        exec(build_protocol, {"AutoMode": AutoMode})
+
+    # Assert
+    assert [warning.filename for warning in record] == [sibling_file]
 
 
 def test_auto_mode_warns_once_at_the_constructor_call() -> None:

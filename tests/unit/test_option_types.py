@@ -12,11 +12,13 @@ build without error and fail only at the first suspicious step: with a
 
 from __future__ import annotations
 
+import dataclasses
 import math
 import numbers
 from collections.abc import Callable
 from dataclasses import dataclass
 from decimal import Decimal
+from enum import StrEnum
 from fractions import Fraction
 from pathlib import Path
 from types import FunctionType
@@ -30,16 +32,25 @@ from langchain_core.messages import AIMessage, HumanMessage
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.runnables import RunnableLambda
 
-from langchain_sync_monitors.contracts import Channel, MonitorInput, MonitorView, TaskAuthor
+from langchain_sync_monitors.contracts import (
+    Channel,
+    MonitorInput,
+    MonitorView,
+    Resampling,
+    TaskAuthor,
+)
 from langchain_sync_monitors.deepagents import monitor_subagents
 from langchain_sync_monitors.errors import ConfigurationError
 from langchain_sync_monitors.middleware import MonitorMiddleware
 from langchain_sync_monitors.monitors import (
+    ATTACK_CRITERIA,
     IS_THE_STEP_SUSPICIOUS,
     CalibratedMonitor,
     CascadeMonitor,
+    Combine,
     DecisionModelMonitor,
     GuardModelMonitor,
+    GuardScoring,
     LLMMonitor,
     OpenRouterDecisionModel,
     RepeatedMonitor,
@@ -49,6 +60,7 @@ from langchain_sync_monitors.monitors import (
 from langchain_sync_monitors.options import describe_option_value
 from langchain_sync_monitors.placement import check_monitor_placement
 from langchain_sync_monitors.protocols import (
+    DEFAULT_FEEDBACK_TEMPLATE,
     AutoMode,
     DeferToResample,
     DeferToTrusted,
@@ -57,7 +69,11 @@ from langchain_sync_monitors.protocols import (
     HaltRun,
     TrustedMonitoring,
 )
-from langchain_sync_monitors.thresholds import DefaultThreshold, resolve_threshold
+from langchain_sync_monitors.thresholds import (
+    DEFAULT_BLOCK_THRESHOLD,
+    DefaultThreshold,
+    resolve_threshold,
+)
 from tests.support.monitors import KeywordMonitor
 from tests.support.protocols import AcceptFirst
 from tests.unit.monitors.doubles import CallPath, evaluate_on_path
@@ -981,3 +997,52 @@ def test_a_refusal_reads_in_full(
 
     # Assert: in full, so that no hint, example or refused value can go missing unseen
     assert str(refusal.value) == message
+
+
+@pytest.mark.parametrize(
+    ("option_type", "text", "member"),
+    [
+        (Combine, "max", Combine.MAX),
+        (Combine, "min", Combine.MIN),
+        (Combine, "mean", Combine.MEAN),
+        (GuardScoring, "auto", GuardScoring.AUTO),
+        (GuardScoring, "log_probabilities", GuardScoring.LOG_PROBABILITIES),
+        (GuardScoring, "sample_fraction", GuardScoring.SAMPLE_FRACTION),
+        (GuardScoring, "hard_label", GuardScoring.HARD_LABEL),
+        (Resampling, "sequential", Resampling.SEQUENTIAL),
+        (Resampling, "parallel", Resampling.PARALLEL),
+    ],
+)
+def test_a_string_from_configuration_converts_to_the_member_it_names(
+    option_type: type[StrEnum],
+    text: str,
+    member: StrEnum,
+) -> None:
+    # Act: as each refusal of a plain string advises, such as with Combine(value)
+    converted = option_type(text)
+
+    # Assert
+    assert converted is member
+
+
+SHARED_PRESETS: dict[str, tuple[object, str]] = {
+    "default-question": (IS_THE_STEP_SUSPICIOUS, "key"),
+    "attack-criterion": (ATTACK_CRITERIA[0], "text"),
+    "default-feedback": (DEFAULT_FEEDBACK_TEMPLATE, "text"),
+    "default-limit-fallback": (build_auto_mode().when_limit_reached, "message"),
+    "default-threshold": (DEFAULT_BLOCK_THRESHOLD, "value"),
+}
+
+
+@pytest.mark.parametrize(
+    ("preset", "field_name"),
+    SHARED_PRESETS.values(),
+    ids=SHARED_PRESETS.keys(),
+)
+def test_a_preset_every_monitor_or_protocol_shares_cannot_be_changed_in_place(
+    preset: object,
+    field_name: str,
+) -> None:
+    # Act / Assert: one instance serves every monitor or protocol built with the default
+    with pytest.raises(dataclasses.FrozenInstanceError):
+        setattr(preset, field_name, "changed")

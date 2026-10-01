@@ -64,6 +64,20 @@ def test_equal_means_compare_equal_after_rounding(
     assert first_mean == second_mean
 
 
+def test_a_mean_keeps_the_resolution_that_averaging_adds(monitor_input: MonitorInput) -> None:
+    # Arrange: the two means differ in the fifth decimal place only
+    lower = RepeatedMonitor(monitor=ScriptedMonitor(suspicions=[0.1, 0.2]), repeats=2)
+    higher = RepeatedMonitor(monitor=ScriptedMonitor(suspicions=[0.1, 0.2001]), repeats=2)
+
+    # Act
+    lower_mean = lower.evaluate_sync(monitor_input).suspicion
+    higher_mean = higher.evaluate_sync(monitor_input).suspicion
+
+    # Assert
+    assert lower_mean == pytest.approx(0.15)
+    assert higher_mean == pytest.approx(0.15005)
+
+
 def test_repeated_monitor_keeps_the_most_suspicious_reason(
     three_calls: ScriptedMonitor,
     monitor_input: MonitorInput,

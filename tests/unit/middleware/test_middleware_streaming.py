@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Sequence
 from typing import Any
 
 import pytest
@@ -28,11 +29,19 @@ JUDGE_TEXT = "judge verdict text"
 AGENT_ANSWER = "Q3 revenue grew 12%."
 
 
+def build_judged_middleware(*, judge_tags: Sequence[str] = ()) -> MonitorMiddleware:
+    judge_model = GenericFakeChatModel(messages=iter([AIMessage(JUDGE_TEXT)] * 4))
+    monitor = KeywordMonitor(
+        suspicion_by_keyword=SUSPICION_BY_KEYWORD,
+        judge_model=judge_model,
+        judge_tags=judge_tags,
+    )
+    return MonitorMiddleware(monitor=monitor, protocol=AcceptFirst())
+
+
 @pytest.fixture
 def judged_middleware() -> MonitorMiddleware:
-    judge_model = GenericFakeChatModel(messages=iter([AIMessage(JUDGE_TEXT)] * 4))
-    monitor = KeywordMonitor(suspicion_by_keyword=SUSPICION_BY_KEYWORD, judge_model=judge_model)
-    return MonitorMiddleware(monitor=monitor, protocol=AcceptFirst())
+    return build_judged_middleware()
 
 
 def test_each_committed_step_is_streamed_as_a_custom_event(run_mode: RunMode) -> None:
@@ -79,12 +88,14 @@ def test_monitor_calls_never_reach_the_messages_stream(
 
 
 @pytest.mark.filterwarnings("ignore::langchain_core._api.beta_decorator.LangChainBetaWarning")
+@pytest.mark.parametrize("judge_tags", [(), ("judge",)], ids=["inherited-tags", "own-tags"])
 def test_monitor_calls_are_dropped_from_the_run_messages_projection(
-    judged_middleware: MonitorMiddleware,
+    judge_tags: tuple[str, ...],
 ) -> None:
-    # Arrange
+    # Arrange: a judge call with tags of its own escapes the nostream block, so only the
+    # internal-call metadata the monitor's calls carry can drop it
     model = ScriptedChatModel(responses=[AIMessage(AGENT_ANSWER)])
-    agent = create_agent(model, middleware=[judged_middleware])
+    agent = create_agent(model, middleware=[build_judged_middleware(judge_tags=judge_tags)])
 
     # Act
     run = agent.stream_events(build_task_input(), version="v3")

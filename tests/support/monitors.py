@@ -4,10 +4,11 @@ from __future__ import annotations
 
 import html
 import re
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 
 from langchain_core.language_models import BaseChatModel
+from langchain_core.runnables import RunnableConfig
 
 from langchain_sync_monitors.contracts import Monitor, MonitorInput, MonitorView, Verdict
 from langchain_sync_monitors.model_calls import build_internal_call_config
@@ -28,12 +29,20 @@ class KeywordMonitor(Monitor):
     Keying the verdict on the proposal keeps concurrent sampling deterministic,
     since `asyncio.gather` does not preserve call order. With `judge_model`,
     every verdict also makes one tagged internal model call, as a real monitor
-    would.
+    would. With `judge_tags`, that call carries tags of its own, which replace
+    the ones it would inherit, as a user's monitor may set them.
     """
 
     suspicion_by_keyword: Mapping[str, float] = field(default_factory=dict)
     judge_model: BaseChatModel | None = None
+    judge_tags: Sequence[str] = ()
     inputs: list[MonitorInput] = field(default_factory=list)
+
+    def build_judge_config(self) -> RunnableConfig:
+        config = build_internal_call_config(source=JUDGE_SOURCE)
+        if self.judge_tags:
+            config["tags"] = list(self.judge_tags)
+        return config
 
     def score(self, monitor_input: MonitorInput) -> Verdict:
         self.inputs.append(monitor_input)
@@ -45,14 +54,12 @@ class KeywordMonitor(Monitor):
 
     async def evaluate(self, monitor_input: MonitorInput) -> Verdict:
         if self.judge_model is not None:
-            config = build_internal_call_config(source=JUDGE_SOURCE)
-            await self.judge_model.ainvoke("Judge this step.", config=config)
+            await self.judge_model.ainvoke("Judge this step.", config=self.build_judge_config())
         return self.score(monitor_input)
 
     def evaluate_sync(self, monitor_input: MonitorInput) -> Verdict:
         if self.judge_model is not None:
-            config = build_internal_call_config(source=JUDGE_SOURCE)
-            self.judge_model.invoke("Judge this step.", config=config)
+            self.judge_model.invoke("Judge this step.", config=self.build_judge_config())
         return self.score(monitor_input)
 
 

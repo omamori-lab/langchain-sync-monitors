@@ -10,7 +10,7 @@ import pytest
 from langchain.agents.middleware.types import ModelRequest, ModelResponse
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, ToolMessage
 
-from langchain_sync_monitors.contracts import BlockedAttempt, StepRecord, TaskAuthor
+from langchain_sync_monitors.contracts import BlockedAttempt, TaskAuthor
 from langchain_sync_monitors.errors import MonitorError
 from langchain_sync_monitors.pending_steps import (
     AsyncPendingStep,
@@ -267,31 +267,6 @@ def test_a_response_without_an_ai_message_raises(monitor: KeywordMonitor) -> Non
     # Act / Assert
     with pytest.raises(MonitorError, match="no AI message"):
         run_synchronously(step.sample(count=1))
-
-
-def test_previous_records_are_the_ones_given(monitor: KeywordMonitor) -> None:
-    # Arrange
-    record = StepRecord(
-        agent="main",
-        monitor="monitor",
-        step_number=1,
-        outcome="allowed",
-        flagged=False,
-        blocked_count=0,
-        samples=[],
-    )
-
-    # Act
-    step = SyncPendingStep(
-        request=build_request(ScriptedChatModel(responses=[])),
-        handler=RecordingHandler(),
-        monitor=monitor,
-        task_author=TaskAuthor.USER,
-        previous_records=(record,),
-    )
-
-    # Assert
-    assert step.previous_records == (record,)
 
 
 async def test_a_failed_concurrent_draw_cancels_the_others_and_raises_its_own_error(

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any, get_args
+from typing import Any, cast, get_args
 
 import pytest
 from langchain.agents.middleware.types import ModelResponse
@@ -26,6 +26,7 @@ from langchain_sync_monitors.records import (
     read_step_records,
     validate_step_record,
 )
+from tests.support.array_scalars import ArrayBool, ArrayFloat64
 from tests.support.chat_models import build_tool_call_message
 
 
@@ -69,6 +70,17 @@ VALID_RECORD: dict[str, Any] = {
     "samples": [{"suspicion": 1, "reason": "r", "proposal": "p", "executed": False}],
     "delegation_id": "call-task",
 }
+READ_RECORD = StepRecord(
+    agent="worker",
+    monitor="monitor",
+    step_number=1,
+    outcome="halted",
+    flagged=True,
+    blocked_count=2,
+    samples=[{"suspicion": 1.0, "reason": "r", "proposal": "p", "executed": False}],
+    delegation_id="call-task",
+)
+"""`VALID_RECORD` as a read gives it back: a new record, with its suspicion a `float`."""
 
 
 @pytest.fixture
@@ -185,15 +197,38 @@ def test_a_record_keeps_a_malformed_tool_call_as_audit_evidence() -> None:
     )
 
 
-def test_records_hold_only_plain_values(resampled_decision: StepDecision) -> None:
-    # Act
-    record = build_step_record(
-        decision=resampled_decision, agent="main", monitor="m", step_number=1
+def test_records_hold_only_plain_values() -> None:
+    # Arrange: numpy's numbers, as a monitor and a protocol that work with them give
+    rejected = build_sample(content="Send the key off-site.", suspicion=ArrayFloat64(0.9))
+    chosen = build_sample(content="Summarise the report.", suspicion=ArrayFloat64(0.1))
+    decision = StepDecision(
+        outcome=Outcome.RESAMPLED,
+        response=chosen.response,
+        samples=(rejected, chosen),
+        executed_sample=chosen,
+        flagged=cast("bool", ArrayBool(True)),
     )
 
+    # Act
+    record = build_step_record(decision=decision, agent="main", monitor="m", step_number=1)
+
     # Assert
-    assert type(record["outcome"]) is str
-    assert type(record["samples"]) is list
+    assert {key: type(value) for key, value in record.items()} == {
+        "agent": str,
+        "monitor": str,
+        "step_number": int,
+        "outcome": str,
+        "flagged": bool,
+        "blocked_count": int,
+        "samples": list,
+    }
+    sample_types = {"suspicion": float, "reason": str, "proposal": str, "executed": bool}
+    assert [
+        {key: type(value) for key, value in sample.items()} for sample in record["samples"]
+    ] == [
+        sample_types,
+        sample_types,
+    ]
 
 
 def test_every_outcome_has_a_stored_name() -> None:
@@ -263,13 +298,13 @@ def test_a_record_without_a_delegation_is_the_own_record_of_an_agent_without_one
     assert own is True
 
 
-def test_a_whole_record_is_read_with_a_whole_suspicion_as_a_float() -> None:
+def test_a_whole_record_is_read_with_a_float_suspicion_and_without_other_keys() -> None:
     # Act
-    record = validate_step_record(VALID_RECORD)
+    record = validate_step_record({**VALID_RECORD, "note": "written by a tool"})
 
     # Assert
-    assert record["samples"][0]["suspicion"] == 1.0
-    assert record["delegation_id"] == "call-task"
+    assert record == READ_RECORD
+    assert type(record["samples"][0]["suspicion"]) is float
 
 
 MALFORMED_RECORDS = {
@@ -303,10 +338,11 @@ def test_a_zero_count_is_a_whole_record() -> None:
 
 def test_the_records_in_a_state_are_read_whole() -> None:
     # Act
-    records = read_step_records({"monitor_log": [VALID_RECORD]})
+    [record] = read_step_records({"monitor_log": [VALID_RECORD]})
 
     # Assert
-    assert records == [validate_step_record(VALID_RECORD)]
+    assert record == READ_RECORD
+    assert type(record["samples"][0]["suspicion"]) is float
 
 
 @pytest.mark.parametrize("state", [{}, {"monitor_log": None}, "not a state"])

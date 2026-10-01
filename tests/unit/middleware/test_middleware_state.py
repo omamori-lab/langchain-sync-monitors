@@ -5,6 +5,7 @@ from __future__ import annotations
 import dataclasses
 import json
 import logging
+import operator
 from typing import Annotated, Any, Literal
 
 import pytest
@@ -17,6 +18,7 @@ from langgraph.checkpoint.memory import InMemorySaver
 from langgraph.graph.state import CompiledStateGraph
 from langgraph.types import Command
 
+from langchain_sync_monitors._langchain import MONITOR_DELEGATION_KEY
 from langchain_sync_monitors.contracts import StepRecord, SubagentHalt, TaskAuthor
 from langchain_sync_monitors.middleware import MonitorMiddleware
 from langchain_sync_monitors.monitor_state import MonitorState
@@ -58,11 +60,16 @@ class DelegationReport:
     messages: list[ToolMessage]
 
 
-def build_delegating_tool(shape: Literal["pairs", "dataclass"]) -> BaseTool:
-    """Return a `delegate` tool whose update carries the subagent's halt in `shape`."""
+type UpdateShape = Literal["dict", "pairs", "dataclass"]
 
-    @tool
-    def delegate(
+
+def build_delegating_tool(shape: UpdateShape) -> BaseTool:
+    """Return a `delegate` tool whose update carries the subagent's halt in `shape`."""
+    if shape == "dict":
+        return delegate
+
+    @tool("delegate")
+    def delegate_in_shape(
         description: str,
         tool_call_id: Annotated[str, InjectedToolCallId],
     ) -> Command[None]:
@@ -73,7 +80,7 @@ def build_delegating_tool(shape: Literal["pairs", "dataclass"]) -> BaseTool:
         update = DelegationReport(monitor_log=[SUBAGENT_HALT], messages=[report])
         return Command[None](update=update)
 
-    return delegate
+    return delegate_in_shape
 
 
 def build_delegation_step() -> AIMessage:
@@ -110,7 +117,9 @@ def test_the_log_is_an_appending_channel(middleware: MonitorMiddleware) -> None:
     agent = create_agent(ScriptedChatModel(responses=[]), middleware=[middleware])
 
     # Assert
-    assert isinstance(agent.channels["monitor_log"], BinaryOperatorAggregate)
+    channel = agent.channels["monitor_log"]
+    assert isinstance(channel, BinaryOperatorAggregate)
+    assert channel.operator is operator.add
 
 
 def test_records_round_trip_through_a_checkpointer_and_keep_counting(
@@ -133,12 +142,18 @@ def test_records_round_trip_through_a_checkpointer_and_keep_counting(
     assert json.loads(json.dumps(stored)) == stored
 
 
-def test_the_parent_halts_before_its_next_model_call_when_a_subagent_halted(
+@pytest.mark.parametrize("shape", ["dict", "pairs", "dataclass"])
+def test_the_parent_halts_before_its_next_model_call_whatever_the_update_shape(
     run_mode: RunMode,
+    shape: UpdateShape,
 ) -> None:
-    # Arrange
+    # Arrange: the monitor reads the records from the state, once LangGraph has written them
     model = ScriptedChatModel(responses=[build_delegation_step(), AIMessage("never drawn")])
-    agent = build_parent_agent(model=model, when_subagent_halts=SubagentHalt.STOP_WHOLE_RUN)
+    agent = build_parent_agent(
+        model=model,
+        when_subagent_halts=SubagentHalt.STOP_WHOLE_RUN,
+        delegating_tool=build_delegating_tool(shape),
+    )
 
     # Act
     result = run_agent(agent, mode=run_mode)
@@ -155,31 +170,6 @@ def test_the_parent_halts_before_its_next_model_call_when_a_subagent_halted(
         ("main", "halted"),
     ]
     assert log[-1]["samples"] == []
-
-
-@pytest.mark.parametrize("shape", ["pairs", "dataclass"])
-def test_a_subagent_halt_reaches_the_parent_whatever_the_update_shape(
-    run_mode: RunMode,
-    shape: Literal["pairs", "dataclass"],
-) -> None:
-    # Arrange: the monitor reads the records from the state, once LangGraph has written them
-    model = ScriptedChatModel(responses=[build_delegation_step(), AIMessage("never drawn")])
-    agent = build_parent_agent(
-        model=model,
-        when_subagent_halts=SubagentHalt.STOP_WHOLE_RUN,
-        delegating_tool=build_delegating_tool(shape),
-    )
-
-    # Act
-    result = run_agent(agent, mode=run_mode)
-
-    # Assert
-    assert len(model.calls) == 1
-    assert [(record["agent"], record["outcome"]) for record in result["monitor_log"]] == [
-        ("main", "allowed"),
-        ("researcher", "halted"),
-        ("main", "halted"),
-    ]
     assert "Stopped by the safety monitor." in read_texts(result["messages"])
 
 
@@ -247,18 +237,8 @@ def test_two_monitors_on_one_agent_count_their_own_steps(run_mode: RunMode) -> N
     assert all(record["monitor"] == "monitor" for record in inner_protocol.seen_previous_records[1])
 
 
-@pytest.mark.parametrize(
-    "key",
-    [
-        "monitor_task_messages",
-        "monitor_seen_human_messages",
-        "monitor_run_inputs",
-        "monitor_rewritten_inputs",
-        "monitor_inputs_at_halt",
-        "monitor_subagent_returns",
-    ],
-)
-def test_the_message_ids_and_halt_counts_the_monitor_records_are_private(
+@pytest.mark.parametrize("key", sorted(MONITOR_STATE_KEYS - {MONITOR_DELEGATION_KEY}))
+def test_every_key_only_the_monitor_writes_but_the_delegation_is_private(
     middleware: MonitorMiddleware,
     key: str,
 ) -> None:
@@ -345,8 +325,21 @@ def test_names_are_unique_per_agent_and_subagent_copies_trust_the_parent_less(
     assert middleware.task_author is TaskAuthor.USER
 
 
-def test_the_middleware_holds_no_mutable_run_state(middleware: MonitorMiddleware) -> None:
-    # Act / Assert
+def test_the_middleware_holds_no_mutable_run_state(
+    run_mode: RunMode,
+    middleware: MonitorMiddleware,
+) -> None:
+    # Arrange
+    model = ScriptedChatModel(responses=[build_delegation_step(), AIMessage("Done.")])
+    agent = create_agent(model, tools=[delegate], middleware=[middleware])
+
+    # Act
+    run_agent(agent, mode=run_mode)
+
+    # Assert: after a run the instance holds its options only, none of them a container
+    options = vars(middleware)
+    assert set(options) == {field.name for field in dataclasses.fields(middleware)}
+    assert not any(isinstance(value, list | dict | set) for value in options.values())
     with pytest.raises(dataclasses.FrozenInstanceError):
         middleware.agent_name = "changed"  # ty: ignore[invalid-assignment]
 

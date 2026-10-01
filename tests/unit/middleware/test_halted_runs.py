@@ -283,6 +283,21 @@ async def test_the_hook_ends_the_run_only_right_after_this_monitors_halt(
     assert async_update == expected
 
 
+async def test_the_hook_leaves_a_state_without_messages_to_run_on() -> None:
+    # Arrange: a halt record, but no halt message for the step to have ended with
+    state = MonitorState(messages=[], monitor_log=[build_record(agent="main", outcome="halted")])
+    middleware = build_halting_monitor()
+    runtime = Runtime(context=None)
+
+    # Act
+    sync_update = middleware.after_model(state, runtime)
+    async_update = await middleware.aafter_model(state, runtime)
+
+    # Assert
+    assert sync_update is None
+    assert async_update is None
+
+
 @pytest.mark.parametrize(
     ("record_delegation_id", "ends_the_run"),
     [("call-fork", True), (None, False), ("call-other", False)],

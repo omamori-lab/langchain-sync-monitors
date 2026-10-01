@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
+import logging
+
 import pytest
 from langchain.agents import create_agent
 from langchain_core.messages import AIMessage
 
 from langchain_sync_monitors.contracts import TaskAuthor
 from langchain_sync_monitors.middleware import MonitorMiddleware
+from langchain_sync_monitors.protocols import AutoMode
 from tests.support.agents import (
     ATTACKER_URL,
     RunMode,
@@ -28,6 +31,7 @@ from tests.support.protocols import (
 )
 
 FINAL_ANSWER = "Q3 revenue grew 12%."
+MIDDLEWARE_LOGGER = "langchain_sync_monitors.middleware"
 
 
 @pytest.fixture
@@ -173,3 +177,28 @@ def test_a_halt_ends_the_run_before_any_tool_runs(
     [record] = result["monitor_log"]
     assert record["outcome"] == "halted"
     assert record["flagged"] is True
+
+
+def test_each_committed_step_logs_its_outcome_at_debug_level(
+    run_mode: RunMode,
+    workspace: Workspace,
+    monitor: KeywordMonitor,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    # Arrange: the Auto Mode run that the how-to Read the monitor log shows
+    caplog.set_level(logging.DEBUG, logger=MIDDLEWARE_LOGGER)
+    untrusted_model = ScriptedChatModel(
+        responses=[build_exfiltration_step(), build_read_step(), AIMessage(FINAL_ANSWER)],
+    )
+    middleware = MonitorMiddleware(monitor=monitor, protocol=AutoMode(block_threshold=0.6))
+    agent = create_agent(untrusted_model, tools=workspace.build_tools(), middleware=[middleware])
+
+    # Act
+    run_agent(agent, mode=run_mode)
+
+    # Assert: the lines the how-to quotes, word for word
+    assert [
+        record.getMessage()
+        for record in caplog.records
+        if record.name == MIDDLEWARE_LOGGER and record.levelno == logging.DEBUG
+    ] == ["monitor[main] committed step 1: steered", "monitor[main] committed step 2: allowed"]

@@ -361,6 +361,45 @@ def test_a_malformed_record_in_the_state_raises_naming_its_position() -> None:
         read_step_records(state)
 
 
+UNREADABLE_LOG_ITEMS = {
+    "negative-count": (
+        {**VALID_RECORD, "blocked_count": -100},
+        "step_number and blocked_count must be zero or more",
+        "a dict with agent 'worker', monitor 'monitor', step number 1, outcome 'halted', "
+        "delegation id 'call-task', 1 sample(s)",
+    ),
+    "not-a-mapping": ("halted", "record: Input should be a valid dictionary", "a str of length 6"),
+    "most-fields-missing": (
+        {"agent": "worker"},
+        "monitor: Field required; step_number: Field required; outcome: Field required",
+        "a dict with agent 'worker'",
+    ),
+}
+
+
+@pytest.mark.parametrize(
+    ("item", "faults", "named"), UNREADABLE_LOG_ITEMS.values(), ids=UNREADABLE_LOG_ITEMS.keys()
+)
+def test_a_malformed_record_in_the_state_raises_naming_its_first_three_faults(
+    item: object,
+    faults: str,
+    named: str,
+) -> None:
+    # Arrange
+    state = {"monitor_log": [VALID_RECORD, item]}
+
+    # Act
+    with pytest.raises(MonitorError) as raised:
+        read_step_records(state)
+
+    # Assert: at most three faults, then the record by the fields that name one
+    assert str(raised.value) == (
+        f"monitor_log[1] is not a step record the monitor can read ({faults}): {named}. "
+        "The monitor skips no record, since that could hide a halt; repair or remove it, "
+        "with update_state."
+    )
+
+
 def test_a_malformed_record_in_the_state_raises_without_quoting_its_samples() -> None:
     # Arrange: the sample lacks `executed`, so pydantic's error would quote the whole sample
     sample = {"suspicion": 0.9, "reason": "quoted reason", "proposal": "quoted proposal"}

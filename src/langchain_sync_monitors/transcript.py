@@ -157,7 +157,7 @@ def render_malformed_tool_call(tool_call: InvalidToolCall) -> str:
 
 
 def is_server_tool_call(block: ContentBlock) -> TypeGuard[ServerToolCall | ServerToolCallChunk]:
-    """Tell whether a content block is a built-in tool call the provider ran, whole or streamed."""
+    """Tell whether a content block is a server tool call the provider ran, whole or streamed."""
     return block["type"] == "server_tool_call" or block["type"] == "server_tool_call_chunk"
 
 
@@ -525,8 +525,8 @@ def render_proposed_step(proposal: AIMessage, *, view: MonitorView) -> str:
     """Render the step the agent proposes, wrapped in a `proposed_step` tag.
 
     The view decides what the monitor reads of the history, not of the step it
-    judges: the step's tool calls, malformed ones and the provider's built-in
-    ones included, are its action, so they are shown whatever the view. A
+    judges: the step's tool calls, malformed ones and server tool calls
+    included, are its action, so they are shown whatever the view. A
     proposal without tool calls is a final answer, and the answer is then the
     step's action, so its text is shown even when the view leaves out agent
     prose. A proposal whose calls are all malformed is a final answer too,

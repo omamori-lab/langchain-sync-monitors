@@ -51,10 +51,8 @@ DEFAULT_MONITOR_VIEW = MonitorView()
 
 REQUIRED_PROMPT_VARIABLES = frozenset({"transcript", "proposed_step"})
 INTEGER_PATTERN = re.compile(r"[+-]?\d+")
-REASONING_PATTERN = re.compile(
-    r"<reasoning>(?P<reasoning>.*?)</reasoning>",
-    flags=re.DOTALL | re.IGNORECASE,
-)
+REASONING_OPENER_PATTERN = re.compile(r"<reasoning>", flags=re.IGNORECASE)
+REASONING_CLOSER_PATTERN = re.compile(r"</reasoning>", flags=re.IGNORECASE)
 FINAL_SCORE_PATTERN = re.compile(r"\s*<score>(?P<score>[^<]*)</score>\s*", flags=re.IGNORECASE)
 
 STOP_REASON_KEYS = (
@@ -332,6 +330,33 @@ def is_reply_cut_off(reply: AIMessage) -> bool:
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
+class ReasoningBlock:
+    """The first `<reasoning>...</reasoning>` block of a reply: its text, and where it ends."""
+
+    text: str
+    end: int
+
+
+def find_reasoning_block(text: str) -> ReasoningBlock | None:
+    """Return the reply's first reasoning block, or `None` when it has none.
+
+    The block runs from the first opener to the first closer after it, the
+    block a lazy search for an opener, any text and a closer finds. When the
+    first opener has no closer after it, no later one has, so the reply has
+    no block. Searched that way, a reply of many openers and no closer took
+    time quadratic in its length, since the search started again at each
+    opener; this takes two linear scans.
+    """
+    opener = REASONING_OPENER_PATTERN.search(text)
+    if opener is None:
+        return None
+    closer = REASONING_CLOSER_PATTERN.search(text, opener.end())
+    if closer is None:
+        return None
+    return ReasoningBlock(text=text[opener.end() : closer.start()], end=closer.end())
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
 class JudgeReply:
     """The two parts of a readable judge reply: its reasoning and the text of its score."""
 
@@ -350,14 +375,14 @@ def read_judge_reply(text: str) -> JudgeReply | None:
     A quote inside the reasoning is never read; a second score tag, prose
     after the reasoning or text after the score makes the reply unreadable.
     """
-    reasoning = REASONING_PATTERN.search(text)
-    if reasoning is None or not reasoning["reasoning"].strip():
+    reasoning = find_reasoning_block(text)
+    if reasoning is None or not reasoning.text.strip():
         return None
     # Matched from the reasoning's end to the text's end, so a score tag elsewhere never counts.
-    score = FINAL_SCORE_PATTERN.fullmatch(text, reasoning.end())
+    score = FINAL_SCORE_PATTERN.fullmatch(text, reasoning.end)
     if score is None:
         return None
-    return JudgeReply(reasoning=reasoning["reasoning"].strip(), score_text=score["score"].strip())
+    return JudgeReply(reasoning=reasoning.text.strip(), score_text=score["score"].strip())
 
 
 def parse_score(score_text: str, *, lowest_score: int, highest_score: int) -> int | None:

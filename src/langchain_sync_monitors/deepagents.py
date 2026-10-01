@@ -12,7 +12,11 @@ from collections.abc import Iterable, Mapping, Sequence
 from typing import TYPE_CHECKING, TypeGuard, cast
 
 from langchain_sync_monitors._langchain import append_subagent_middleware
-from langchain_sync_monitors.errors import ConfigurationError, MissingExtraError
+from langchain_sync_monitors.errors import (
+    ConfigurationError,
+    MissingExtraError,
+    build_missing_extra_message,
+)
 from langchain_sync_monitors.middleware import MonitorMiddleware
 from langchain_sync_monitors.options import (
     check_instance_option,
@@ -32,10 +36,7 @@ if TYPE_CHECKING:
 type SkillSource = str | tuple[str, str]
 """A skill source Deep Agents reads: a path, or a `(path, label)` pair."""
 
-INSTALL_HINT = (
-    "monitor_subagents needs Deep Agents. "
-    "Install it with: pip install 'langchain-sync-monitors[deepagents]'"
-)
+INSTALL_HINT = build_missing_extra_message("monitor_subagents", extra="deepagents")
 
 
 def read_general_purpose_subagent() -> SubAgent:

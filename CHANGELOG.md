@@ -16,6 +16,10 @@ change raises the minor version.
 
 ### Changed
 
+- The install instructions lead with `uv add`, with `pip install` as the
+  alternative.
+- Every `MissingExtraError` message has one form, which names the `uv add`
+  command as well as `pip install`.
 - The docs and docstrings call `LLMMonitor`'s family an LLM monitor, the AI
   control literature's term, not a chat judge. The guide "Use a chat judge" is
   now [Use an LLM monitor](https://omamori-lab.github.io/langchain-sync-monitors/how-to/use-an-llm-monitor/),

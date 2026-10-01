@@ -46,11 +46,14 @@ monitor = DecisionModelMonitor(
 `TypeSafeDecisionModel` wraps a `TypeSafeClassifier` from `langchain-typesafe`
 [@typesafe2026langchain], which you configure with its key, model and HTTP
 clients. It needs the `typesafe` extra, and raises `MissingExtraError` with
-the install command without it:
+the install commands without it:
 
 ```console
-pip install 'langchain-sync-monitors[typesafe]'
+uv add "langchain-sync-monitors[typesafe]"
 ```
+
+With pip, run `pip install "langchain-sync-monitors[typesafe]"` instead;
+[Install](../index.md#install) says what each command needs.
 
 ```python
 from langchain_typesafe import TypeSafeClassifier

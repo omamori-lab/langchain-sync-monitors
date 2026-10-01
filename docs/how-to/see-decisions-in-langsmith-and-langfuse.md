@@ -181,7 +181,7 @@ keys:
 
 ```console
 # Langfuse's SDK, and the keys of your Langfuse project.
-pip install langfuse
+uv add langfuse  # or: pip install langfuse
 export LANGFUSE_PUBLIC_KEY="your public key"
 export LANGFUSE_SECRET_KEY="your secret key"
 # Your project's region: https://cloud.langfuse.com in the EU, https://us.cloud.langfuse.com in the US.

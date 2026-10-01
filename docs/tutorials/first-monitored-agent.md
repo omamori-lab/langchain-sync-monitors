@@ -31,11 +31,20 @@ step. This agent has none.
 
 ## Before you start
 
-You need Python 3.12 or newer. Install the library with the OpenRouter extra:
+You need [Python 3.12 or newer](../index.md#install). Add the library and its
+OpenRouter extra to your project with uv:
+
+```console
+uv add "langchain-sync-monitors[openrouter]"
+```
+
+Or install it with pip:
 
 ```console
 pip install "langchain-sync-monitors[openrouter]"
 ```
+
+[Install](../index.md#install) says how the two differ and lists every extra.
 
 The tutorial uses two models through OpenRouter: a small, fast model as the
 agent and a stronger model as the monitor, since a weaker monitor cannot

@@ -166,70 +166,11 @@ def read_label_prefix(token: str) -> str:
     return LEADING_MARKUP_PATTERN.sub("", token.strip()).lower()
 
 
-def classify_label_token(
-    token: str,
-    *,
-    suspicious_labels: frozenset[str],
-    safe_labels: frozenset[str],
-) -> LabelKind | None:
-    """Tell which kind of label a token begins; `None` if it begins none, or both kinds."""
-    prefix = read_label_prefix(token)
-    if not prefix:
-        return None
-    begins_suspicious = any(label.startswith(prefix) for label in suspicious_labels)
-    begins_safe = any(label.startswith(prefix) for label in safe_labels)
-    if begins_suspicious == begins_safe:
-        return None
-    return "suspicious" if begins_suspicious else "safe"
-
-
 def collect_alternatives(position: TokenLogProbability) -> dict[str, float]:
     """Map the guard's own token and its alternatives at a position to their log-probabilities."""
     alternatives = {alternative.token: alternative.logprob for alternative in position.top_logprobs}
     alternatives.setdefault(position.token, position.logprob)
     return alternatives
-
-
-def compute_suspicious_share(
-    position: TokenLogProbability,
-    *,
-    label_kind: LabelKind,
-    suspicious_labels: frozenset[str],
-    safe_labels: frozenset[str],
-) -> float | None:
-    """Share of the label probability at the label's first token that is suspicious.
-
-    Every alternative that begins a label counts, so variants such as
-    `violation`, ` violation` and `Violation` add up, and dividing by the mass
-    of all label tokens renormalises over the labels, as in Granite Guardian's
-    probability of risk [@padhi2024graniteguardian]. ShieldGemma renormalises
-    over exactly `Yes` and `No` [@zeng2024shieldgemma]; Llama Guard reads its
-    first token's probability as it is [@inan2023llamaguard].
-
-    The share is `None` unless the provider gave alternatives at the position
-    and the guard's own token there begins a label of `label_kind`, the kind
-    the reply's text names. Otherwise the alternatives would be weighed at a
-    token that is not the label, where a label the guard all but ruled out
-    could decide the score.
-    """
-    chosen_kind = classify_label_token(
-        position.token,
-        suspicious_labels=suspicious_labels,
-        safe_labels=safe_labels,
-    )
-    if not position.top_logprobs or chosen_kind != label_kind:
-        return None
-    mass = {"suspicious": 0.0, "safe": 0.0}
-    for token, logprob in collect_alternatives(position).items():
-        kind = classify_label_token(
-            token,
-            suspicious_labels=suspicious_labels,
-            safe_labels=safe_labels,
-        )
-        if kind is not None:
-            mass[kind] += math.exp(logprob)
-    total = mass["suspicious"] + mass["safe"]
-    return mass["suspicious"] / total if total > 0.0 else None
 
 
 def validate_labels(*, suspicious_labels: AbstractSet[str], safe_labels: AbstractSet[str]) -> None:
@@ -406,12 +347,7 @@ class GuardModelMonitor(ChatModelMonitor):
         if match is None or index is None:
             return None
         position = tokens[index]
-        share = compute_suspicious_share(
-            position,
-            label_kind=self.classify_label(match.label),
-            suspicious_labels=self.suspicious_labels,
-            safe_labels=self.safe_labels,
-        )
+        share = self.compute_suspicious_share(position, label_kind=self.classify_label(match.label))
         if share is None:
             return None
         reason = self.build_log_probability_reason(
@@ -420,6 +356,37 @@ class GuardModelMonitor(ChatModelMonitor):
             share=share,
         )
         return Verdict(suspicion=share, reason=reason)
+
+    def compute_suspicious_share(
+        self,
+        position: TokenLogProbability,
+        *,
+        label_kind: LabelKind,
+    ) -> float | None:
+        """Share of the label probability at the label's first token that is suspicious.
+
+        Every alternative that begins a label counts, so variants such as
+        `violation`, ` violation` and `Violation` add up, and dividing by the mass
+        of all label tokens renormalises over the labels, as in Granite Guardian's
+        probability of risk [@padhi2024graniteguardian]. ShieldGemma renormalises
+        over exactly `Yes` and `No` [@zeng2024shieldgemma]; Llama Guard reads its
+        first token's probability as it is [@inan2023llamaguard].
+
+        The share is `None` unless the provider gave alternatives at the position
+        and the guard's own token there begins a label of `label_kind`, the kind
+        the reply's text names. Otherwise the alternatives would be weighed at a
+        token that is not the label, where a label the guard all but ruled out
+        could decide the score.
+        """
+        if not position.top_logprobs or self.classify_token(position.token) != label_kind:
+            return None
+        mass = {"suspicious": 0.0, "safe": 0.0}
+        for token, logprob in collect_alternatives(position).items():
+            kind = self.classify_token(token)
+            if kind is not None:
+                mass[kind] += math.exp(logprob)
+        total = mass["suspicious"] + mass["safe"]
+        return mass["suspicious"] / total if total > 0.0 else None
 
     def build_log_probability_reason(
         self,
@@ -473,12 +440,15 @@ class GuardModelMonitor(ChatModelMonitor):
         return "suspicious" if label in self.suspicious_labels else "safe"
 
     def classify_token(self, token: str) -> LabelKind | None:
-        """Tell which kind of this monitor's labels a token begins, if exactly one."""
-        return classify_label_token(
-            token,
-            suspicious_labels=self.suspicious_labels,
-            safe_labels=self.safe_labels,
-        )
+        """Tell which kind of this monitor's labels a token begins; `None` for none, or both."""
+        prefix = read_label_prefix(token)
+        if not prefix:
+            return None
+        begins_suspicious = any(label.startswith(prefix) for label in self.suspicious_labels)
+        begins_safe = any(label.startswith(prefix) for label in self.safe_labels)
+        if begins_suspicious == begins_safe:
+            return None
+        return "suspicious" if begins_suspicious else "safe"
 
     async def request_replies(self, request: ReplyRequest) -> list[AIMessage]:
         """Draw the requested replies concurrently; see `explain_rejected_log_probabilities`."""

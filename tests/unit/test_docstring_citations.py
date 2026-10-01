@@ -83,6 +83,104 @@ def test_citations_inside_code_stay_as_written(hook: ModuleType) -> None:
     assert rendered == page
 
 
+@pytest.mark.parametrize(
+    "page",
+    [
+        '<p title="See [@first2026]">Text</p>',
+        '<p title="a > [@first2026]">Text</p>',
+        "<p><a href='#' data-cite='[@first2026]'>Text</a></p>",
+    ],
+    ids=["double-quoted", "after-a-quoted-angle-bracket", "single-quoted"],
+)
+def test_a_citation_inside_an_attribute_stays_as_written(hook: ModuleType, page: str) -> None:
+    # Act
+    rendered = hook.render_citations(page, known_keys=KNOWN_KEYS, render_entry=render_test_entry)
+
+    # Assert
+    assert rendered == page
+
+
+def test_a_citation_inside_code_stays_while_one_in_its_text_renders(hook: ModuleType) -> None:
+    # Arrange
+    page = "<p>Write <code>[@first2026]</code> to cite, as [@second2026] does.</p>"
+
+    # Act
+    rendered = hook.render_citations(page, known_keys=KNOWN_KEYS, render_entry=render_test_entry)
+
+    # Assert
+    assert rendered.startswith(
+        "<p>Write <code>[@first2026]</code> to cite, as "
+        '<sup id="fnref:second2026"><a class="footnote-ref" href="#fn:second2026">1</a></sup>'
+        " does.</p>\n",
+    )
+    assert '<li id="fn:second2026">' in rendered
+    assert "fn:first2026" not in rendered
+
+
+@pytest.mark.parametrize(
+    "page",
+    [
+        '<script>const cite = "[@first2026]";</script>',
+        '<style>p::after { content: "[@first2026]"; }</style>',
+        "<textarea>[@first2026]</textarea>",
+        '<svg><title>A figure after [@first2026]</title><rect width="1" /></svg>',
+    ],
+    ids=["script", "style", "textarea", "title"],
+)
+def test_a_citation_inside_an_element_html_reads_as_plain_text_stays_as_written(
+    hook: ModuleType,
+    page: str,
+) -> None:
+    # Act
+    rendered = hook.render_citations(page, known_keys=KNOWN_KEYS, render_entry=render_test_entry)
+
+    # Assert
+    assert rendered == page
+
+
+def test_an_end_tag_nothing_opened_leaves_the_text_after_it_cited(hook: ModuleType) -> None:
+    # Arrange
+    page = "<p>A stray </code> end tag, then [@first2026].</p>"
+
+    # Act
+    rendered = hook.render_citations(page, known_keys=KNOWN_KEYS, render_entry=render_test_entry)
+
+    # Assert
+    assert rendered.startswith(
+        "<p>A stray </code> end tag, then "
+        '<sup id="fnref:first2026"><a class="footnote-ref" href="#fn:first2026">1</a></sup>'
+        ".</p>\n",
+    )
+
+
+def test_a_text_citation_renders_in_place_after_markup_it_leaves_alone(hook: ModuleType) -> None:
+    # Arrange
+    before = (
+        '<h2 id="a">A &amp; B</h2>\n\n'
+        "<!-- a comment that cites [@second2026] -->\n"
+        '<p title="See [@second2026]">Line one,\n'
+        "line two &#8212; and &copy;"
+    )
+    after = "</p>\n"
+    page = f"{before}[@first2026]{after}"
+
+    # Act
+    rendered = hook.render_citations(page, known_keys=KNOWN_KEYS, render_entry=render_test_entry)
+
+    # Assert
+    assert rendered == (
+        f"{before}"
+        '<sup id="fnref:first2026"><a class="footnote-ref" href="#fn:first2026">1</a></sup>'
+        f"{after}"
+        "\n"
+        '<div class="footnote">\n<hr />\n<ol>\n'
+        '<li id="fn:first2026">\n<p>Entry for first2026.&#160;'
+        '<a class="footnote-backref" href="#fnref:first2026" '
+        'title="Jump back to footnote 1 in the text">&#8617;</a></p>\n</li>\n'
+        "</ol>\n</div>"
+    )
+
+
 def test_a_group_and_a_repeat_number_footnotes_by_first_use(hook: ModuleType) -> None:
     # Arrange
     page = "<p>A [@second2026; @first2026] and again [@second2026].</p>"

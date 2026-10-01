@@ -8,9 +8,11 @@ text. This MkDocs hook [@mkdocs2024] runs on each converted page. It gives
 every citation left in the page's text the footnote markup Python-Markdown
 gives the citations of the other pages, numbered in order of first use, and
 appends the footnotes, each with the text mkdocs-bibtex formats from
-``docs/references.bib``. Citations inside code stay as they are. A key missing
-from the bibliography, or a page that already has footnotes of its own, is
-logged as a warning, which fails a strict build.
+``docs/references.bib``. Only the page's text is rewritten: a citation inside
+a tag or one of its attributes, inside code, or inside an element whose content
+HTML reads as plain text stays as it is. A key missing from the bibliography,
+or a page that already has footnotes of its own, is logged as a warning, which
+fails a strict build.
 """
 
 from __future__ import annotations
@@ -18,6 +20,8 @@ from __future__ import annotations
 import logging
 import re
 from collections.abc import Callable, Collection
+from html.parser import HTMLParser
+from typing import override
 
 import markdown
 from mkdocs.config.defaults import MkDocsConfig
@@ -28,8 +32,58 @@ logger = logging.getLogger("mkdocs.hooks.citations")
 
 CITATION_PATTERN = re.compile(r"\[(@[\w:.-]+(?:;\s*@[\w:.-]+)*)\]")
 KEY_PATTERN = re.compile(r"@([\w:.-]+)")
-CODE_PATTERN = re.compile(r"<(pre|code)\b.*?</\1>", flags=re.DOTALL)
+NEWLINE_PATTERN = re.compile("\n")
+# Code, and the elements whose content HTML reads as plain text rather than markup.
+VERBATIM_TAGS = frozenset({"code", "pre", "script", "style", "textarea", "title"})
 FOOTNOTE_LIST_START = '<div class="footnote">'
+
+
+class TextSpanParser(HTMLParser):
+    """Record where each run of a page's text outside the verbatim tags starts and ends.
+
+    With ``convert_charrefs=False`` the standard library's parser hands
+    ``handle_data`` each run of text exactly as written, and ``getpos`` gives
+    the line and column where that run starts, so the run is the slice of the
+    page from there. Tags with their attributes, comments and character
+    references reach other handlers, so no recorded span holds any of them.
+    The parser ends a run only at a ``<`` or an ``&``, neither of which a
+    citation holds, so no citation straddles two runs.
+    """
+
+    def __init__(self, html: str) -> None:
+        super().__init__(convert_charrefs=False)
+        self.line_starts = [0, *(match.end() for match in NEWLINE_PATTERN.finditer(html))]
+        self.verbatim_depth = 0
+        self.spans: list[tuple[int, int]] = []
+
+    @override
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        """Count one more open verbatim element."""
+        if tag in VERBATIM_TAGS:
+            self.verbatim_depth += 1
+
+    @override
+    def handle_endtag(self, tag: str) -> None:
+        """Count one fewer open verbatim element, ignoring an end tag nothing opened."""
+        if tag in VERBATIM_TAGS and self.verbatim_depth:
+            self.verbatim_depth -= 1
+
+    @override
+    def handle_data(self, data: str) -> None:
+        """Record the span of a run of text, unless it lies inside a verbatim element."""
+        if self.verbatim_depth:
+            return
+        line, column = self.getpos()
+        start = self.line_starts[line - 1] + column
+        self.spans.append((start, start + len(data)))
+
+
+def find_text_spans(html: str) -> list[tuple[int, int]]:
+    """Return the start and end of each run of the page's text outside the verbatim tags."""
+    parser = TextSpanParser(html)
+    parser.feed(html)
+    parser.close()
+    return parser.spans
 
 
 def build_reference_id(key: str, *, use: int) -> str:
@@ -65,7 +119,7 @@ def render_citations(
     known_keys: Collection[str],
     render_entry: Callable[[str], str],
 ) -> str:
-    """Return the page with its citations outside code as footnotes, or unchanged without any."""
+    """Return the page with the citations in its text as footnotes, or unchanged without any."""
     uses: dict[str, int] = {}
 
     def render_citation_group(match: re.Match[str]) -> str:
@@ -78,11 +132,11 @@ def render_citations(
 
     pieces = []
     position = 0
-    for code in CODE_PATTERN.finditer(html):
-        pieces.append(CITATION_PATTERN.sub(render_citation_group, html[position : code.start()]))
-        pieces.append(code.group(0))
-        position = code.end()
-    pieces.append(CITATION_PATTERN.sub(render_citation_group, html[position:]))
+    for start, end in find_text_spans(html):
+        pieces.append(html[position:start])
+        pieces.append(CITATION_PATTERN.sub(render_citation_group, html[start:end]))
+        position = end
+    pieces.append(html[position:])
     if not uses:
         return html
     if FOOTNOTE_LIST_START in html:

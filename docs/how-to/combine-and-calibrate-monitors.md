@@ -290,11 +290,11 @@ same calibrated suspicion, and an evaluation can be replayed exactly.
 `CascadeMonitor` runs a fast monitor on every step and sends a step to a
 careful one only when the fast suspicion reaches `escalation_threshold`.
 Below it, the fast verdict stands; at or above it, the careful verdict,
-reason included, replaces it. This follows the two stages of Claude Code's auto mode, a fast
-filter in front of a reasoning classifier [@hughes2026automode]. Hua et
-al.'s best two-monitor protocol calls the expensive monitor only when the
-cheap one's score falls in an uncertain range [@hua2025combining];
-`CascadeMonitor` uses the simpler rule of one threshold.
+reason included, replaces it. This follows the two stages of Claude Code's
+auto mode, a fast filter in front of a reasoning classifier
+[@hughes2026automode]. Hua et al.'s best two-monitor protocol calls the
+expensive monitor only when the cheap one's score falls in an uncertain range
+[@hua2025combining]; `CascadeMonitor` uses the simpler rule of one threshold.
 
 [![CascadeMonitor runs the fast monitor, such as a calibrated decision model, on every step. When the fast suspicion is below escalation_threshold, the fast verdict stands, its reason included. At or above escalation_threshold, the careful monitor, such as a calibrated, repeated chat judge, scores the step, and its verdict, reason included, replaces the fast one. The careful monitor runs on escalated steps only.](../assets/diagrams/monitors-cascade-light.svg#only-light)](../assets/diagrams/monitors-cascade-light.svg "Open the diagram at full size")
 [![CascadeMonitor runs the fast monitor, such as a calibrated decision model, on every step. When the fast suspicion is below escalation_threshold, the fast verdict stands, its reason included. At or above escalation_threshold, the careful monitor, such as a calibrated, repeated chat judge, scores the step, and its verdict, reason included, replaces the fast one. The careful monitor runs on escalated steps only.](../assets/diagrams/monitors-cascade-dark.svg#only-dark)](../assets/diagrams/monitors-cascade-dark.svg "Open the diagram at full size")

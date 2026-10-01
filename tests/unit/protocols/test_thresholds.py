@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import math
 import os
+import re
 import warnings
 from pathlib import Path
 from types import FunctionType
@@ -144,16 +145,103 @@ def test_the_thresholds_section_states_every_default_threshold() -> None:
     assert summary in prose
 
 
+def read_sentences(page: Path) -> list[str]:
+    """Return a docs page's prose split into sentences, without fenced code or table rows."""
+    prose_lines: list[str] = []
+    inside_fence = False
+    for line in page.read_text(encoding="utf-8").splitlines():
+        stripped = line.lstrip()
+        if stripped.startswith(("```", "~~~")):
+            inside_fence = not inside_fence
+            continue
+        if not inside_fence and not stripped.startswith("|"):
+            prose_lines.append(line)
+    prose = " ".join(" ".join(prose_lines).split())
+    return re.split(r"(?<=[.!?])\s+", prose)
+
+
+def mentions_value(sentence: str, value: float) -> bool:
+    """Tell whether a sentence names a number exactly, so 0.6 matches `0.6,` but not 0.65."""
+    return re.search(rf"(?<![\d.]){re.escape(str(value))}(?!\d)", sentence) is not None
+
+
+def restates_the_default_thresholds(sentence: str) -> bool:
+    """Tell whether a sentence gives both default values and calls them defaults, in any words."""
+    return (
+        "default" in sentence.lower()
+        and mentions_value(sentence, DEFAULT_DEFER_THRESHOLD.value)
+        and mentions_value(sentence, DEFAULT_AUDIT_THRESHOLD.value)
+    )
+
+
+@pytest.mark.parametrize(
+    ("sentence", "restates"),
+    [
+        ("The defaults are 0.6 to defer, block or flag and 0.9 to audit.", True),
+        ("By default it defers at 0.6, and audits at 0.9.", True),
+        ("A step whose lowest score is at or above 0.9 is flagged.", False),
+        ("The default feedback is shown at 0.65 and 0.9.", False),
+    ],
+    ids=["old-wording", "paraphrase", "one-value", "other-number"],
+)
+def test_restated_defaults_are_recognised_in_other_words(sentence: str, restates: bool) -> None:
+    # Act
+    recognised = restates_the_default_thresholds(sentence)
+
+    # Assert
+    assert recognised is restates
+
+
 def test_no_other_page_restates_the_default_thresholds() -> None:
-    # Arrange: the defaults are said once, on the page that owns thresholds.
+    # Arrange: the defaults are said once, on the page that owns thresholds, in any words.
     summary = build_defaults_summary()
     pages = sorted(page for page in DOCS.rglob("*.md") if "plans" not in page.parts)
 
     # Act
     stating = [str(page.relative_to(DOCS)) for page in pages if summary in read_prose(page)]
+    restating = [
+        str(page.relative_to(DOCS))
+        for page in pages
+        if any(restates_the_default_thresholds(sentence) for sentence in read_sentences(page))
+    ]
 
     # Assert
     assert stating == ["how-to/choose-a-protocol.md"]
+    assert restating == ["how-to/choose-a-protocol.md"]
+
+
+def test_trusted_monitoring_audits_at_0_6_by_default() -> None:
+    # Arrange: the literal, not a constant, so swapping in the 0.9 of the Defer protocols fails.
+    with pytest.warns(UncalibratedThresholdWarning):
+        # Act
+        protocol = TrustedMonitoring()
+
+    # Assert
+    assert protocol.audit_threshold == 0.6
+
+
+def test_defer_to_trusted_audits_at_0_9_by_default(trusted_model: FakeListChatModel) -> None:
+    # Arrange: the literal, so swapping in Trusted Monitoring's 0.6 fails.
+    with pytest.warns(UncalibratedThresholdWarning):
+        # Act
+        protocol = DeferToTrusted(trusted_model=trusted_model)
+
+    # Assert
+    assert protocol.audit_threshold == 0.9
+    assert protocol.defer_threshold == 0.6
+
+
+def test_defer_to_resample_audits_at_0_9_by_default(
+    defer_to_trusted_model: DeferToTrustedModel,
+) -> None:
+    # Arrange: the literal, so swapping in Trusted Monitoring's 0.6 fails.
+    with pytest.warns(UncalibratedThresholdWarning):
+        # Act
+        protocol = DeferToResample(fallback=defer_to_trusted_model)
+
+    # Assert
+    assert protocol.audit_threshold == 0.9
+    assert protocol.defer_threshold == 0.6
 
 
 def test_trusted_monitoring_warns_once_at_the_constructor_call() -> None:

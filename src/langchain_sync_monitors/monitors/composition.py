@@ -232,11 +232,11 @@ class CascadeMonitor(Monitor):
 
     Steps the fast monitor scores below `escalation_threshold` keep its
     verdict; the rest go to the careful monitor, whose verdict, reason
-    included, replaces it. This follows the two stages of Claude Code's auto mode, a fast filter
-    tuned for recall in front of a reasoning classifier [@hughes2026automode],
-    and the idea of calling an expensive monitor only when a cheap one asks
-    for it [@hua2025combining]. A decision model makes a good fast stage and a
-    chat judge a good careful one.
+    included, replaces it. This follows the two stages of Claude Code's auto
+    mode, a fast filter tuned for recall in front of a reasoning classifier
+    [@hughes2026automode], and the idea of calling an expensive monitor only
+    when a cheap one asks for it [@hua2025combining]. A decision model makes a
+    good fast stage and a chat judge a good careful one.
     """
 
     def __init__(self, *, fast: Monitor, careful: Monitor, escalation_threshold: float) -> None:

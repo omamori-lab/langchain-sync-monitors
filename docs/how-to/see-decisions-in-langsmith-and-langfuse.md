@@ -344,7 +344,7 @@ async def print_decisions() -> None:
 asyncio.run(print_decisions())
 ```
 
-A scripted run with the same protocol, Trusted Monitoring with a flag
+A scripted run with the same protocol, Trusted Monitoring with an audit
 threshold of 0.6, in which the judge scored the first step 0.9 and the second
 0.1, printed:
 

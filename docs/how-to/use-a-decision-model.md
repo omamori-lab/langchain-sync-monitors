@@ -214,7 +214,7 @@ classifier is raised as it is.
 
 ## Read the reason
 
-The verdict's reason names questions, never a probability or the combined
+The verdict's reason names questions, never a probability or the aggregated
 score. Auto Mode shows the reason to the agent, and a number would tell the
 agent how close its step came to passing; the numbers stay in the suspicion,
 which the log records keep.

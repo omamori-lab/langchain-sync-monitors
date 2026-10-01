@@ -122,11 +122,11 @@ they defer it, as their sources do: a person can audit only a small share of
 steps, and deferring is the cheaper response. AI Control's Defer to Trusted
 audits the top 2% most suspicious code and defers the next most suspicious to
 the trusted model, down to the top 5%, 10%, 20% or 50% in its runs (section
-3.3, table 3) [@greenblatt2023aicontrol]. Ctrl-Z audits at the 99th
-percentile of honest scores (appendix C) and defers at thresholds from the
-50th to the 99th percentile (appendix H) [@bhatt2025ctrlz]. Trusted
-Monitoring has no defer threshold, and its 0.6 is the library's own choice;
-no source sets it.
+3.3, table 3) [@greenblatt2023aicontrol]. At a 1% auditing budget, Ctrl-Z
+audits above the 99th percentile of honest scores (appendix C), and it defers
+at thresholds from the 50th to the 99th percentile (appendix H)
+[@bhatt2025ctrlz]. Trusted Monitoring has no defer threshold, and its 0.6 is
+the library's own choice; no source sets it.
 
 Every default is a placeholder: a protocol built with one emits an
 `UncalibratedThresholdWarning`. Pass your own value, set from the scores your

@@ -95,7 +95,7 @@ def test_repeated_monitor_keeps_the_most_suspicious_reason(
     assert verdict.reason == "call 2 scored 0.7"
 
 
-def test_one_repeat_returns_the_single_score(monitor_input: MonitorInput) -> None:
+def test_an_ensemble_of_one_returns_the_single_score(monitor_input: MonitorInput) -> None:
     # Arrange
     repeated = RepeatedMonitor(monitor=ScriptedMonitor(suspicions=[1.0]), ensemble_size=1)
 

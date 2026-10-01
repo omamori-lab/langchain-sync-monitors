@@ -98,7 +98,7 @@ from langchain_sync_monitors.task_authorship import (
     build_step_start_update,
     read_message_ids,
 )
-from langchain_sync_monitors.tool_calls import arun_tool_call, run_tool_call_sync
+from langchain_sync_monitors.tool_calls import run_tool_call, run_tool_call_sync
 
 
 @dataclass(frozen=True, kw_only=True, eq=False)
@@ -357,7 +357,7 @@ class MonitorMiddleware(AgentMiddleware[MonitorState, AgentContext, StructuredOu
 
         What the call writes is checked as under `invoke()`.
         """
-        return await arun_tool_call(request, handler=handler, agent=self.agent_name)
+        return await run_tool_call(request, handler=handler, agent=self.agent_name)
 
     @override
     def before_agent(self, state: MonitorState, runtime: AgentRuntime) -> AgentStateUpdate | None:

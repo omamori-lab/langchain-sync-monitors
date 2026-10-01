@@ -123,7 +123,7 @@ def run_tool_call_sync(
     return checked_call.check_result(result)
 
 
-async def arun_tool_call(
+async def run_tool_call(
     request: ToolCallRequest,
     *,
     handler: AsyncToolCallHandler,

@@ -37,6 +37,7 @@ from langchain_sync_monitors.contracts import (
     MonitorInput,
     PendingStep,
     Sample,
+    SampleDrawing,
     StepDecision,
     StepRecord,
     TaskAuthor,
@@ -45,6 +46,7 @@ from langchain_sync_monitors.contracts import (
 from langchain_sync_monitors.errors import MonitorError, SynchronousRunError
 from langchain_sync_monitors.feedback import build_blocked_attempt_messages
 from langchain_sync_monitors.model_calls import CachedResampleWarning, is_response_cache_active
+from langchain_sync_monitors.options import check_enum_option
 from langchain_sync_monitors.run_inputs import RunInput, restore_run_inputs
 from langchain_sync_monitors.spans import (
     StepIdentity,
@@ -308,6 +310,26 @@ class MonitoredStep(PendingStep):
         self.judged_samples.append(sample)
         return sample
 
+    def prepare_draws(
+        self,
+        *,
+        count: int,
+        blocked_attempts: tuple[BlockedAttempt, ...],
+        drawing: SampleDrawing,
+    ) -> tuple[BaseMessage, ...]:
+        """Check a call to `sample`, and return the conversation its samples are drawn on.
+
+        A closed step raises `closed_step_error`, and a `drawing` that is not
+        a `SampleDrawing` member raises `ConfigurationError` naming the
+        members. Both entry points check `drawing`, though `invoke()` draws
+        one after another whatever it says, so a protocol that passes a plain
+        string fails alike under both.
+        """
+        self.check_open()
+        check_enum_option(drawing, option_type=SampleDrawing, parameter_name="drawing")
+        self.warn_when_resamples_are_cached(count=count, blocked_attempts=blocked_attempts)
+        return self.build_conversation(blocked_attempts)
+
     def warn_when_resamples_are_cached(
         self,
         *,
@@ -340,17 +362,19 @@ class AsyncPendingStep(MonitoredStep):
         *,
         count: int,
         blocked_attempts: tuple[BlockedAttempt, ...] = (),
-        concurrently: bool = False,
+        drawing: SampleDrawing = SampleDrawing.SEQUENTIAL,
     ) -> tuple[Sample, ...]:
         """Draw `count` samples through the rest of the stack and have the monitor judge each.
 
-        With `concurrently`, the samples are drawn at once in a task group, so
-        one failed draw cancels the others.
+        With `SampleDrawing.CONCURRENT`, the samples are drawn at once in a
+        task group, so one failed draw cancels the others.
         """
-        self.check_open()
-        self.warn_when_resamples_are_cached(count=count, blocked_attempts=blocked_attempts)
-        conversation = self.build_conversation(blocked_attempts)
-        if concurrently:
+        conversation = self.prepare_draws(
+            count=count,
+            blocked_attempts=blocked_attempts,
+            drawing=drawing,
+        )
+        if drawing is SampleDrawing.CONCURRENT:
             draws = (self.draw_sample(conversation) for _ in range(count))
             return tuple(await run_concurrently(draws))
         return tuple([await self.draw_sample(conversation) for _ in range(count)])
@@ -405,16 +429,18 @@ class SyncPendingStep(MonitoredStep):
         *,
         count: int,
         blocked_attempts: tuple[BlockedAttempt, ...] = (),
-        concurrently: bool = False,
+        drawing: SampleDrawing = SampleDrawing.SEQUENTIAL,
     ) -> tuple[Sample, ...]:
         """Draw `count` samples one after another and have the monitor judge each.
 
-        Without an event loop nothing can run at once, so `concurrently` draws
-        the same samples in sequence.
+        Without an event loop nothing can run at once, so
+        `SampleDrawing.CONCURRENT` draws the same samples in sequence.
         """
-        self.check_open()
-        self.warn_when_resamples_are_cached(count=count, blocked_attempts=blocked_attempts)
-        conversation = self.build_conversation(blocked_attempts)
+        conversation = self.prepare_draws(
+            count=count,
+            blocked_attempts=blocked_attempts,
+            drawing=drawing,
+        )
         return tuple(self.draw_sample(conversation) for _ in range(count))
 
     def draw_sample(self, conversation: tuple[BaseMessage, ...]) -> Sample:

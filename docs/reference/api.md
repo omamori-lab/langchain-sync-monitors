@@ -251,6 +251,12 @@ name `langchain_sync_monitors` exports, grouped by what it is for.
         - blocks_in_thread
         - new_subagent_blocks
 
+::: langchain_sync_monitors.SampleDrawing
+    options:
+      members:
+        - SEQUENTIAL
+        - CONCURRENT
+
 ::: langchain_sync_monitors.Sample
     options:
       members:

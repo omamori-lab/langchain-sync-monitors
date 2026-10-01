@@ -108,6 +108,9 @@ change raises the minor version.
   the run is resumed.
 - `PendingStep.blocks_in_thread` and `PendingStep.new_subagent_blocks`, which
   give a protocol these counts.
+- `SampleDrawing`, with which a protocol has `PendingStep.sample` draw its
+  samples one after another or at once; under `invoke()` they are drawn one
+  after another either way, and a plain string raises `ConfigurationError`.
 - Default thresholds, 0.6 for `defer_threshold`, `block_threshold` and Trusted
   Monitoring's `audit_threshold`, and 0.9 for the `audit_threshold` of Defer
   to Trusted and Defer to Resample, which raise `UncalibratedThresholdWarning`

@@ -111,8 +111,10 @@ happens with the score are separate choices.
 Every monitor reports suspicion on the same scale, so any monitor works with
 any protocol. A protocol reaches the models only through its `PendingStep`:
 
-- `sample(count=..., blocked_attempts=..., concurrently=...)` draws fresh
-  samples of the step and has the monitor judge each, returning `Sample`s;
+- `sample(count=..., blocked_attempts=..., drawing=...)` draws fresh
+  samples of the step, one after another or, with
+  `SampleDrawing.CONCURRENT`, at once, and has the monitor judge each,
+  returning `Sample`s;
 - `request_trusted_step(trusted_model=...)` has a trusted model write the
   step, with the same conversation and tools, and without the rejected
   samples;
@@ -939,12 +941,12 @@ rather than draw a sample nothing can use. A timeout cannot limit a pending
 step's call under `invoke()`
 ([protocols and configuration](#protocols-and-configuration)).
 
-Under `invoke()`, samples asked for concurrently are drawn one after another.
-Under `ainvoke()` they are drawn in an `asyncio.TaskGroup`, as are the calls
-of `RepeatedMonitor`, so a call that fails cancels the others instead of
-leaving them to spend tokens, and its own error propagates, not wrapped in an
-`ExceptionGroup`. Monitors declare both `evaluate` and `evaluate_sync`, so a
-monitor that lacks either cannot be instantiated.
+Under `invoke()`, samples asked for with `SampleDrawing.CONCURRENT` are drawn
+one after another. Under `ainvoke()` they are drawn in an `asyncio.TaskGroup`,
+as are the calls of `RepeatedMonitor`, so a call that fails cancels the others
+instead of leaving them to spend tokens, and its own error propagates, not
+wrapped in an `ExceptionGroup`. Monitors declare both `evaluate` and
+`evaluate_sync`, so a monitor that lacks either cannot be instantiated.
 
 ## Errors
 

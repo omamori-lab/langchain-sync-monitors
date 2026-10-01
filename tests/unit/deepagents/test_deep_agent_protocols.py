@@ -2,16 +2,12 @@
 
 from __future__ import annotations
 
-from typing import Any
-
 import pytest
-from langchain_core.callbacks import AsyncCallbackManagerForLLMRun, CallbackManagerForLLMRun
-from langchain_core.messages import AIMessage, BaseMessage
-from langchain_core.outputs import ChatResult
+from langchain_core.messages import AIMessage
 from langchain_core.tools import BaseTool
 from langgraph.checkpoint.memory import InMemorySaver
 
-from langchain_sync_monitors.contracts import FeedbackVisibility
+from langchain_sync_monitors.contracts import FeedbackVisibility, SampleDrawing
 from langchain_sync_monitors.middleware import MonitorMiddleware
 from tests.support.agents import (
     ATTACKER_URL,
@@ -24,7 +20,7 @@ from tests.support.agents import (
     read_texts,
     run_agent,
 )
-from tests.support.chat_models import ScriptedChatModel
+from tests.support.chat_models import OverlapCountingChatModel, ScriptedChatModel
 from tests.support.deep_agents import build_deep_agent, build_delegation_step
 from tests.support.protocols import ResampleThenDefer, SteerWithFeedback
 
@@ -32,43 +28,6 @@ MAIN_ANSWER = "Here is the summary."
 TRUSTED_ANSWER = "I will summarise without sending anything."
 MOST_DRAWS_AT_ONCE = {"invoke": 1, "ainvoke": 2}
 """Two resamples overlap under `ainvoke()`; `invoke()` draws them one after another."""
-
-
-class OverlapCountingChatModel(ScriptedChatModel):
-    """A scripted model that counts the most calls it was answering at once."""
-
-    answering: int = 0
-    most_at_once: int = 0
-
-    def start_call(self) -> None:
-        self.answering += 1
-        self.most_at_once = max(self.most_at_once, self.answering)
-
-    def _generate(
-        self,
-        messages: list[BaseMessage],
-        stop: list[str] | None = None,
-        run_manager: CallbackManagerForLLMRun | None = None,
-        **kwargs: Any,
-    ) -> ChatResult:
-        self.start_call()
-        try:
-            return super()._generate(messages, stop, run_manager, **kwargs)
-        finally:
-            self.answering -= 1
-
-    async def _agenerate(
-        self,
-        messages: list[BaseMessage],
-        stop: list[str] | None = None,
-        run_manager: AsyncCallbackManagerForLLMRun | None = None,
-        **kwargs: Any,
-    ) -> ChatResult:
-        self.start_call()
-        try:
-            return await super()._agenerate(messages, stop, run_manager, **kwargs)
-        finally:
-            self.answering -= 1
 
 
 @pytest.fixture
@@ -101,7 +60,7 @@ def test_concurrent_resamples_run_through_the_deep_agent_stack(
     # Arrange
     responses = [build_exfiltration_step(), AIMessage(MAIN_ANSWER), AIMessage(MAIN_ANSWER)]
     main_model = OverlapCountingChatModel(responses=responses, delay=0.01)
-    protocol = ResampleThenDefer(trusted_model=trusted_model, concurrently=True)
+    protocol = ResampleThenDefer(trusted_model=trusted_model, drawing=SampleDrawing.CONCURRENT)
     agent = build_deep_agent(
         main_model=main_model,
         worker_model=worker_model,

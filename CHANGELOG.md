@@ -14,6 +14,8 @@ change raises the minor version.
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-10-01
+
 ### Changed
 
 - The install instructions lead with `uv add`, with `pip install` as the
@@ -131,5 +133,6 @@ change raises the minor version.
 - The full list is in
   [Known limits and open paths](https://omamori-lab.github.io/langchain-sync-monitors/explanation/design/#known-limits-and-open-paths).
 
-[Unreleased]: https://github.com/omamori-lab/langchain-sync-monitors/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/omamori-lab/langchain-sync-monitors/compare/v0.1.1...HEAD
+[0.1.1]: https://github.com/omamori-lab/langchain-sync-monitors/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/omamori-lab/langchain-sync-monitors/releases/tag/v0.1.0

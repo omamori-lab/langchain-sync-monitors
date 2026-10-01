@@ -49,12 +49,11 @@ class DeferToResample(ControlProtocol):
 
     The step is flagged for audit when the lowest suspicion across its samples
     is at or above `audit_threshold`, the statistic Ctrl-Z found to work well
-    (section 3.2, footnote 6) [@bhatt2025ctrlz]. A flag is a mark in
-    `monitor_log` for a person to review after the fact; it never blocks the
-    step, which has already run or been replaced by the time anyone reads it.
-    For that reason an `audit_threshold` below `defer_threshold` is allowed:
-    it flags steps that still ran, a review queue of borderline steps below
-    the deferral line.
+    (section 3.2, footnote 6). A flag is a mark in `monitor_log` for a person
+    to review after the fact; it never blocks the step, which has already run
+    or been replaced by the time anyone reads it. For that reason an
+    `audit_threshold` below `defer_threshold` is allowed: it flags steps that
+    still ran, a review queue of borderline steps below the deferral line.
     Every sample stays in the step's record as evidence, and an auditor should
     read the most suspicious one first. The agent never sees the rejected
     samples. Each is a fresh call on the same conversation, so the agent
@@ -67,7 +66,7 @@ class DeferToResample(ControlProtocol):
     An agent can write text aimed at the monitor into its step, and an
     injection that fools the monitor only some of the time gets another try
     with every sample, so resampling turns it into a best-of-n attack
-    (sections 4.2 and 6) [@terekhov2025adaptive]. An injection that passes one
+    [@terekhov2025adaptive] (sections 4.2 and 6). An injection that passes one
     sample in five gets through about half the time across three samples.
 
     One caveat comes from how LangChain composes middleware. If a middleware
@@ -98,7 +97,7 @@ class DeferToResample(ControlProtocol):
         """Keep the configuration, warning for each threshold left at its default.
 
         Two resamples, three samples in all, is the number Ctrl-Z draws
-        (section 3.2) [@bhatt2025ctrlz].
+        [@bhatt2025ctrlz].
         """
         check_fallback_option(fallback, parameter_name="fallback")
         check_enum_option(resampling, option_type=Resampling, parameter_name="resampling")

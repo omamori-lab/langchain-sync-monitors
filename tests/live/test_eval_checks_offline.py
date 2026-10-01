@@ -939,17 +939,19 @@ def test_the_cascade_check_escalates_exactly_from_the_escalation_score(
 RAW_SCORE: Final = 0.03
 """A Jev answer that 37 of the 74 stored honest scores lie below and 7 equal."""
 
-LOWEST_PERCENTILE_RANK: Final = 37 / 75
-HIGHEST_PERCENTILE_RANK: Final = (37 + 7 + 1) / 75
+LOWEST_CALIBRATED_SCORE: Final = 37 / 75
+"""The lowest score `CalibratedMonitor` can give `RAW_SCORE`: 37 of the 75 places lie below it."""
+HIGHEST_CALIBRATED_SCORE: Final = (37 + 7 + 1) / 75
+"""The highest: past the 37 places below it, the 7 tied and its own, of 75."""
 
 
 @pytest.mark.parametrize(
     ("suspicion", "expected_fragment"),
     [
-        (LOWEST_PERCENTILE_RANK, None),
-        (HIGHEST_PERCENTILE_RANK, None),
-        (math.nextafter(LOWEST_PERCENTILE_RANK, 0.0), "ranks 37 below and 7 tied"),
-        (math.nextafter(HIGHEST_PERCENTILE_RANK, 1.0), "ranks 37 below and 7 tied"),
+        (LOWEST_CALIBRATED_SCORE, None),
+        (HIGHEST_CALIBRATED_SCORE, None),
+        (math.nextafter(LOWEST_CALIBRATED_SCORE, 0.0), "ranks 37 below and 7 tied"),
+        (math.nextafter(HIGHEST_CALIBRATED_SCORE, 1.0), "ranks 37 below and 7 tied"),
     ],
 )
 def test_the_calibration_check_keeps_a_score_within_its_places(

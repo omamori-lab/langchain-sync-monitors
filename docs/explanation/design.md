@@ -467,18 +467,16 @@ suspicious.
   label, read from the label token's log-probabilities
   [@inan2023llamaguard; @zeng2024shieldgemma; @padhi2024graniteguardian].
   Without log-probabilities, the share of several samples labelled unsafe
-  estimates the same probability. Studies of sample consistency, on question
-  answering rather than guards, find its gains converge as samples grow, and
-  saturate after 15 to 20 in Lyu et al.
-  [@xiong2024uncertainty; @lyu2025sampleconsistency]. `GuardScoring.AUTO`
-  reads log-probabilities when the provider returns them and draws five
-  samples otherwise. LangChain has no capability flag for log-probabilities,
-  so `AUTO` asks every model for them, and a chat model that rejects the
-  request, such as `ChatAnthropic`, fails the first judged step with a
-  `ConfigurationError` that names `GuardScoring.SAMPLE_FRACTION`.
+  estimates the same probability. `GuardScoring.AUTO` reads
+  log-probabilities when the provider returns them and draws five samples
+  otherwise
+  ([choose how labels become a score](../how-to/use-a-guard-model.md#choose-how-labels-become-a-score)
+  gives the evidence for five). LangChain has no capability flag for
+  log-probabilities, so `AUTO` asks every model for them, and a chat model
+  that rejects the request, such as `ChatAnthropic`, fails the first judged
+  step with a `ConfigurationError` that names `GuardScoring.SAMPLE_FRACTION`.
   `GuardScoring.HARD_LABEL` warns, because a hard 0 or 1 gives a threshold
-  only one operating point, and guard models are overconfident and markedly
-  miscalibrated under jailbreak prompts [@liu2025guardcalibration].
+  only one operating point.
 - **Decision models** (`DecisionModelMonitor`) answer yes or no questions
   with a probability and generate no text. Suspicion is the probability of
   yes. Several questions in one request are combined by their maximum by
@@ -513,17 +511,16 @@ keep its score out of it, but its wording may still hint at one.
 
 Scores have to be fine-grained. Control evaluations set thresholds as
 percentiles of honest-run scores, and a score with few distinct values cannot
-hit a small audit budget, because the budget falls inside a group of tied
-scores [@kaufman2025basharena; @koran2026ensemble]. Three wrappers, each a
-monitor itself, address this and stack around any family:
+hit a small audit budget
+([average repeated calls](../how-to/combine-and-calibrate-monitors.md#average-repeated-calls)
+gives the evidence). Three wrappers, each a monitor itself, address this and
+stack around any family:
 
-- `RepeatedMonitor` averages several calls of one monitor, which raises its
-  resolution at low false-positive rates [@kaufman2025basharena], as
-  LinuxArena does with two calls per action [@tracy2026linuxarena];
+- `RepeatedMonitor` averages several calls of one monitor, which spreads its
+  scores out;
 - `CalibratedMonitor` reports suspicion as the step's smoothed conformal
-  p-value against honest-run scores, breaking ties at random
-  [@makins2026multiagent], so a threshold of 0.99 flags 1% of honest steps on
-  average
+  p-value against honest-run scores, breaking ties at random, so a threshold
+  of 0.99 flags 1% of honest steps on average
   ([what a calibrated threshold means](../how-to/combine-and-calibrate-monitors.md#what-a-calibrated-threshold-means));
 - `CascadeMonitor` runs a fast monitor on every step and a careful one when
   the fast score reaches one threshold, after the two stages of Claude Code's

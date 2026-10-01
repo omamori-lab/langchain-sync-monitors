@@ -60,7 +60,7 @@ from langchain_sync_monitors.contracts import (
 from langchain_sync_monitors.delegation import count_blocks_in_thread, read_delegation_id
 from langchain_sync_monitors.errors import ConfigurationError
 from langchain_sync_monitors.halts import (
-    build_end_run_update,
+    build_jump_to_end_update,
     find_halt_decision,
     has_just_halted,
 )
@@ -419,9 +419,9 @@ class MonitorMiddleware(AgentMiddleware[MonitorState, AgentContext, StructuredOu
         return build_run_end_update(state)
 
     def build_halt_end_update(self, state: MonitorState) -> AgentStateUpdate | None:
-        """Return the update that ends the run right after this monitor's halt, else None."""
+        """Return the update that jumps to the agent's end after this monitor's halt, else None."""
         if has_just_halted(state, monitor=self.label, agent=self.agent_name):
-            return build_end_run_update()
+            return build_jump_to_end_update()
         return None
 
     def prepare_step(self, request: AgentModelRequest) -> PreparedStep:

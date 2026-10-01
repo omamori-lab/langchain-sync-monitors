@@ -121,8 +121,12 @@ def build_halt_inputs_update(
     return {INPUTS_AT_HALT_KEY: [entry]}
 
 
-def build_end_run_update() -> AgentStateUpdate:
-    """Return the update with which an `after_model` hook ends the agent's run [@langchain2026]."""
+def build_jump_to_end_update() -> AgentStateUpdate:
+    """Return the update with which an `after_model` hook jumps to the agent's end [@langchain2026].
+
+    The agent's end is its exit node, the first `after_agent` hook when there
+    is one, so the run does not always end there.
+    """
     return {"jump_to": "end"}
 
 

@@ -11,12 +11,15 @@ from langchain_core.globals import get_llm_cache
 from langchain_core.language_models import BaseChatModel
 from langchain_core.runnables import RunnableConfig
 
-from langchain_sync_monitors.errors import ConfigurationError, MissingExtraError
+from langchain_sync_monitors.errors import (
+    ConfigurationError,
+    MissingExtraError,
+    build_missing_extra_message,
+)
 
 OPENROUTER_PREFIX = "openrouter:"
-OPENROUTER_INSTALL_HINT = (
-    "An 'openrouter:' model string needs the openrouter extra: "
-    "pip install 'langchain-sync-monitors[openrouter]'"
+OPENROUTER_INSTALL_HINT = build_missing_extra_message(
+    "An 'openrouter:' model string", extra="openrouter"
 )
 
 

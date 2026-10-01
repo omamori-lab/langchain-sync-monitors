@@ -26,8 +26,22 @@ class MissingExtraError(ConfigurationError, ImportError):
     """A feature needs an optional extra that is not installed.
 
     It is both a `ConfigurationError` and an `ImportError`, so code that
-    catches either one sees it. The message names the extra to install.
+    catches either one sees it. The message names the extra, and the uv and
+    pip commands that install it.
     """
+
+
+def build_missing_extra_message(feature: str, *, extra: str) -> str:
+    """Say that `feature` needs `extra`, and how to install it with uv or with pip.
+
+    Every `MissingExtraError` the library raises takes its message from here,
+    so the install commands are written once.
+    """
+    requirement = f"'langchain-sync-monitors[{extra}]'"
+    return (
+        f"{feature} needs the {extra} extra. "
+        f"Install it with: uv add {requirement} (or pip install {requirement})"
+    )
 
 
 class InvalidSuspicionError(MonitorError, ValueError):

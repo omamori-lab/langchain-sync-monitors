@@ -67,7 +67,7 @@ for record in result["monitor_log"]:
 ```
 
 The model strings are examples, and `openrouter:` strings need the
-`openrouter` extra. Any LangChain chat model works in each of the three
+[`openrouter` extra](../index.md#install). Any LangChain chat model works in each of the three
 places: pass a provider string, or a chat model object you built.
 
 ## Options

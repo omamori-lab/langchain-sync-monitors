@@ -22,6 +22,14 @@ tools run it.
 
 ## Install
 
+With uv:
+
+```console
+uv add "langchain-sync-monitors[openrouter,deepagents]"
+```
+
+Or with pip:
+
 ```console
 pip install "langchain-sync-monitors[openrouter,deepagents]"
 ```

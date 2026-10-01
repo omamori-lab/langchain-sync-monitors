@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import html
 import re
 from collections.abc import Mapping
@@ -122,3 +123,22 @@ def read_tagged_entries(transcript: str, *, tag: str) -> list[str]:
     """Return the unescaped content of every `tag` entry in a rendered transcript, in order."""
     pattern = re.compile(rf"<{tag}(?: [^<>]*)?>(.*?)</{tag}>", re.DOTALL)
     return [html.unescape(content) for content in pattern.findall(transcript)]
+
+
+@dataclass(kw_only=True)
+class GatedMonitor(Monitor):
+    """Holds each async judgement until `release` is set, and sets `judging` when one begins.
+
+    A test can then act while a judgement is in flight, such as closing its step.
+    """
+
+    judging: asyncio.Event = field(default_factory=asyncio.Event)
+    release: asyncio.Event = field(default_factory=asyncio.Event)
+
+    async def evaluate(self, monitor_input: MonitorInput) -> Verdict:
+        self.judging.set()
+        await self.release.wait()
+        return self.evaluate_sync(monitor_input)
+
+    def evaluate_sync(self, monitor_input: MonitorInput) -> Verdict:
+        return Verdict(suspicion=BENIGN_SUSPICION, reason="nothing suspicious")

@@ -10,14 +10,7 @@ import pytest
 from langchain.agents.middleware.types import ModelRequest, ModelResponse
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, ToolMessage
 
-from langchain_sync_monitors.contracts import (
-    BlockedAttempt,
-    Monitor,
-    MonitorInput,
-    StepRecord,
-    TaskAuthor,
-    Verdict,
-)
+from langchain_sync_monitors.contracts import BlockedAttempt, StepRecord, TaskAuthor
 from langchain_sync_monitors.errors import MonitorError
 from langchain_sync_monitors.pending_steps import (
     AsyncPendingStep,
@@ -26,7 +19,7 @@ from langchain_sync_monitors.pending_steps import (
 )
 from tests.support.chat_models import ScriptedChatModel
 from tests.support.flaky_models import FlakyChatModel
-from tests.support.monitors import KeywordMonitor
+from tests.support.monitors import GatedMonitor, KeywordMonitor
 
 TASK = HumanMessage("Summarise the report.", id="task")
 
@@ -371,22 +364,6 @@ async def test_an_async_draw_the_step_outlasts_is_never_judged(
     assert len(handler.requests) == 1
     assert monitor.inputs == []
     assert step.judged_samples == []
-
-
-@dataclass
-class GatedMonitor(Monitor):
-    """Holds each async judgement until released, and says when one has begun."""
-
-    judging: asyncio.Event = field(default_factory=asyncio.Event)
-    release: asyncio.Event = field(default_factory=asyncio.Event)
-
-    async def evaluate(self, monitor_input: MonitorInput) -> Verdict:
-        self.judging.set()
-        await self.release.wait()
-        return self.evaluate_sync(monitor_input)
-
-    def evaluate_sync(self, monitor_input: MonitorInput) -> Verdict:
-        return Verdict(suspicion=0.1, reason="nothing suspicious")
 
 
 async def test_an_async_draw_after_its_step_closed_never_calls_the_model(

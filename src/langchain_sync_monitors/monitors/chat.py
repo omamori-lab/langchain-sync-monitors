@@ -492,8 +492,9 @@ class LLMMonitor(ChatModelMonitor):
                 return verdict
             logger.debug("Monitor reply %d of %d had no readable score.", attempt, attempts)
         logger.warning(
-            "The monitor gave no readable score in %d replies; the step is treated as suspicious.",
+            "The monitor gave no readable score in %d %s; the step is treated as suspicious.",
             attempts,
+            "reply" if attempts == 1 else "replies",
         )
         reason = "The monitor gave no readable score, so the step is treated as suspicious."
         return Verdict(suspicion=1.0, reason=reason)

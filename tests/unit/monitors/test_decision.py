@@ -842,6 +842,35 @@ def test_the_mean_warns_at_the_constructor_call_that_it_dilutes_a_single_hit() -
     assert record[0].filename == __file__
 
 
+MEAN_WARNING = (
+    "Combine.MEAN dilutes a single strong hit (0.95 with three 0.05s averages 0.275); "
+    "Combine.MAX keeps it."
+)
+
+
+@pytest.mark.parametrize(
+    ("combine", "expected"),
+    [(Combine.MAX, []), (Combine.MIN, []), (Combine.MEAN, [MEAN_WARNING])],
+    ids=["max", "min", "mean"],
+)
+def test_only_the_mean_warns_and_the_warning_says_why(
+    combine: Combine,
+    expected: list[str],
+) -> None:
+    # Arrange
+    model = ScriptedDecisionModel(probabilities={})
+
+    # Act
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        DecisionModelMonitor(decision_model=model, combine=combine)
+
+    # Assert
+    assert [(warning.category, str(warning.message)) for warning in caught] == [
+        (UserWarning, message) for message in expected
+    ]
+
+
 @pytest.mark.filterwarnings("ignore:Combine.MEAN dilutes:UserWarning")
 async def test_the_mean_averages_the_answers(
     monitor_input: MonitorInput,

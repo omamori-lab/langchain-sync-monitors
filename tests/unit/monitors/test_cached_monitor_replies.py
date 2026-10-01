@@ -170,6 +170,24 @@ async def test_one_reply_per_prompt_does_not_warn(
 
 
 @pytest.mark.usefixtures("global_cache")
+async def test_the_warning_points_at_the_first_caller_outside_the_library(
+    monitor_input: MonitorInput,
+    call_path: CallPath,
+) -> None:
+    # Arrange
+    guard = build_guard(ScriptedChatModel(replies=LABELS))
+
+    # Act
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        await evaluate_on_path(guard, monitor_input, call_path=call_path)
+
+    # Assert: here that caller is the test helper that scored the step
+    [warning] = [warning for warning in caught if warning.category is CachedResampleWarning]
+    assert warning.filename == evaluate_on_path.__code__.co_filename
+
+
+@pytest.mark.usefixtures("global_cache")
 async def test_the_warning_shows_once_even_when_every_warning_is_shown(
     monitor_input: MonitorInput,
     call_path: CallPath,

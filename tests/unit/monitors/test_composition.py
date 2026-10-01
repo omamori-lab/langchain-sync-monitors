@@ -64,6 +64,23 @@ def test_equal_means_compare_equal_after_rounding(
     assert first_mean == second_mean
 
 
+async def test_a_mean_keeps_the_resolution_that_averaging_adds(
+    monitor_input: MonitorInput,
+    call_path: CallPath,
+) -> None:
+    # Arrange: the two means differ in the fifth decimal place only
+    lower = RepeatedMonitor(monitor=ScriptedMonitor(suspicions=[0.1, 0.2]), repeats=2)
+    higher = RepeatedMonitor(monitor=ScriptedMonitor(suspicions=[0.1, 0.2001]), repeats=2)
+
+    # Act
+    lower_verdict = await evaluate_on_path(lower, monitor_input, call_path=call_path)
+    higher_verdict = await evaluate_on_path(higher, monitor_input, call_path=call_path)
+
+    # Assert
+    assert lower_verdict.suspicion == pytest.approx(0.15)
+    assert higher_verdict.suspicion == pytest.approx(0.15005)
+
+
 def test_repeated_monitor_keeps_the_most_suspicious_reason(
     three_calls: ScriptedMonitor,
     monitor_input: MonitorInput,
@@ -96,9 +113,10 @@ def test_zero_repeats_is_rejected() -> None:
 
 
 @pytest.mark.parametrize("random_seed", [None, 7], ids=["unseeded", "seeded"])
-def test_tied_scores_spread_at_random_over_the_slots_of_the_tie(
+async def test_tied_scores_spread_at_random_over_the_slots_of_the_tie(
     honest_scores: list[float],
     monitor_input: MonitorInput,
+    call_path: CallPath,
     random_seed: int | None,
 ) -> None:
     # Arrange
@@ -110,11 +128,15 @@ def test_tied_scores_spread_at_random_over_the_slots_of_the_tie(
     steps = [build_step_with_text(monitor_input, text=f"step {index}") for index in range(50)]
 
     # Act
-    percentiles = [calibrated.evaluate_sync(step).suspicion for step in steps]
+    verdicts = [await evaluate_on_path(calibrated, step, call_path=call_path) for step in steps]
+    percentiles = [verdict.suspicion for verdict in verdicts]
 
-    # Assert: one honest score below, two tied, so slots 1 to 3 of 5
+    # Assert: one honest score below, two tied, so slots 1 to 3 of 5, the first and last of
+    # which 50 uniform draws each miss with a chance of (2/3)^50, about 2e-9
     assert all(1 / 5 <= percentile < 4 / 5 for percentile in percentiles)
     assert len(set(percentiles)) > 1
+    assert min(percentiles) < 2 / 5
+    assert max(percentiles) >= 3 / 5
 
 
 def test_different_seeds_break_the_same_ties_differently(

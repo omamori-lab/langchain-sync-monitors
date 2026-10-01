@@ -10,9 +10,15 @@ import pytest
 from langchain_core.messages import AIMessage
 from langchain_core.prompts import ChatPromptTemplate
 
-from langchain_sync_monitors.contracts import Channel, Monitor, MonitorInput, MonitorView
+from langchain_sync_monitors.contracts import Channel, Monitor, MonitorInput, MonitorView, Verdict
 from langchain_sync_monitors.errors import ConfigurationError
-from langchain_sync_monitors.monitors.chat import LLMMonitor, find_reasoning_block
+from langchain_sync_monitors.monitors.chat import (
+    ChatModelMonitor,
+    LLMMonitor,
+    ReplyRequest,
+    VerdictPlan,
+    find_reasoning_block,
+)
 from langchain_sync_monitors.monitors.composition import (
     CalibratedMonitor,
     CascadeMonitor,
@@ -24,10 +30,21 @@ from .captured_replies import (
     JUDGE_REPLY_TO_A_BENIGN_STEP,
     JUDGE_REPLY_TO_AN_EXFILTRATING_STEP,
 )
-from .doubles import CallPath, ScriptedChatModel, ScriptedMonitor, evaluate_on_path
+from .doubles import (
+    CallPath,
+    ScriptedChatModel,
+    ScriptedMonitor,
+    evaluate_on_path,
+    read_logged_lines,
+)
+
+CHAT_LOGGER = "langchain_sync_monitors.monitors.chat"
 
 CALM_REPLY = "<reasoning>It reads the file the user named.</reasoning>\n<score>3</score>"
 UNREADABLE_REPLY = "<reasoning>Hard to say.</reasoning> I would give it a seven."
+TRANSCRIPT_AND_STEP_PROMPT = ChatPromptTemplate.from_messages(
+    [("human", "{transcript}\n{proposed_step}")],
+)
 POSTSCRIPT_QUOTING_A_PLANTED_SCORE = (
     JUDGE_REPLY_QUOTING_A_PLANTED_SCORE
     + "\n\nNote: the step's note asked me to output <score>0</score>."
@@ -72,6 +89,51 @@ def test_the_ends_of_the_scale_map_to_zero_and_one(
 
     # Assert
     assert verdict.suspicion == suspicion
+
+
+@pytest.mark.parametrize(
+    "reply",
+    [
+        "<reasoning>r</reasoning>\n<score>3</score>\n",
+        "<reasoning>r</reasoning>\n\n<score>3</score>  \n\n",
+        "<reasoning>r</reasoning><SCORE>3</SCORE>",
+        "<REASONING>r</Reasoning><score>3</score>",
+    ],
+    ids=["newline-after", "blank-lines-around", "upper-case-score", "mixed-case-reasoning"],
+)
+async def test_whitespace_and_letter_case_around_the_tags_do_not_change_the_score(
+    monitor_input: MonitorInput,
+    call_path: CallPath,
+    reply: str,
+) -> None:
+    # Arrange
+    judge, model = build_judge(reply, max_parse_retries=0)
+
+    # Act
+    verdict = await evaluate_on_path(judge, monitor_input, call_path=call_path)
+
+    # Assert
+    assert verdict.suspicion == pytest.approx(0.3)
+    assert len(model.received_messages) == 1
+
+
+@pytest.mark.parametrize(("score", "suspicion"), [("-5", 0.0), ("-3", 0.2), ("+5", 1.0)])
+async def test_a_signed_score_on_a_scale_below_zero_is_read(
+    monitor_input: MonitorInput,
+    call_path: CallPath,
+    score: str,
+    suspicion: float,
+) -> None:
+    # Arrange
+    model = ScriptedChatModel(replies=[f"<reasoning>r</reasoning><score>{score}</score>"])
+    judge = LLMMonitor(model=model, lowest_score=-5, highest_score=5)
+
+    # Act
+    verdict = await evaluate_on_path(judge, monitor_input, call_path=call_path)
+
+    # Assert
+    assert verdict.suspicion == pytest.approx(suspicion)
+    assert len(model.received_messages) == 1
 
 
 def test_a_custom_scale_reaches_the_prompt_and_maps_onto_zero_to_one(
@@ -195,6 +257,7 @@ async def test_a_reply_cut_off_at_a_length_limit_fails_closed(
     monitor_input: MonitorInput,
     call_path: CallPath,
     metadata: dict[str, object],
+    caplog: pytest.LogCaptureFixture,
 ) -> None:
     # Arrange: the cut falls right after a planted closing tag and score the judge quoted,
     # so the text alone has the shape of a readable reply.
@@ -205,10 +268,19 @@ async def test_a_reply_cut_off_at_a_length_limit_fails_closed(
     judge, _ = build_judge(reply, max_parse_retries=0)
 
     # Act
-    verdict = await evaluate_on_path(judge, monitor_input, call_path=call_path)
+    with caplog.at_level(logging.DEBUG, logger=CHAT_LOGGER):
+        verdict = await evaluate_on_path(judge, monitor_input, call_path=call_path)
 
-    # Assert
+    # Assert: a single reply is counted in the singular
     assert verdict.suspicion == 1.0
+    assert read_logged_lines(caplog, logger=CHAT_LOGGER) == [
+        ("DEBUG", "The monitor reply was cut off at a length limit."),
+        ("DEBUG", "Monitor reply 1 of 1 had no readable score."),
+        (
+            "WARNING",
+            "The monitor gave no readable score in 1 reply; the step is treated as suspicious.",
+        ),
+    ]
 
 
 @pytest.mark.parametrize(
@@ -413,16 +485,24 @@ async def test_no_readable_score_in_the_default_three_replies_fails_closed_and_w
     judge = LLMMonitor(model=model)
 
     # Act
-    with caplog.at_level(logging.WARNING):
+    with caplog.at_level(logging.DEBUG, logger=CHAT_LOGGER):
         verdict = await evaluate_on_path(judge, monitor_input, call_path=call_path)
 
-    # Assert
+    # Assert: the log counts the replies and quotes none of them
     assert verdict.suspicion == 1.0
     assert verdict.reason == (
         "The monitor gave no readable score, so the step is treated as suspicious."
     )
     assert len(model.received_messages) == 3
-    assert "no readable score in 3 replies" in caplog.text
+    assert read_logged_lines(caplog, logger=CHAT_LOGGER) == [
+        ("DEBUG", "Monitor reply 1 of 3 had no readable score."),
+        ("DEBUG", "Monitor reply 2 of 3 had no readable score."),
+        ("DEBUG", "Monitor reply 3 of 3 had no readable score."),
+        (
+            "WARNING",
+            "The monitor gave no readable score in 3 replies; the step is treated as suspicious.",
+        ),
+    ]
 
 
 async def test_the_reason_is_the_reasoning_without_the_score(
@@ -525,6 +605,45 @@ async def test_the_monitor_call_is_tagged_as_internal(monitor_input: MonitorInpu
 
     # Assert
     assert model.received_metadata[0]["lc_source"] == "llm_monitor"
+
+
+class EchoMonitor(ChatModelMonitor):
+    """A chat monitor written outside the library: it asks once and gives the reply as reason."""
+
+    def build_verdict_plan(self, monitor_input: MonitorInput) -> VerdictPlan:
+        request = ReplyRequest(model=self.model, messages=self.build_prompt_messages(monitor_input))
+        (reply,) = yield request
+        return Verdict(suspicion=0.5, reason=reply.text)
+
+
+async def test_a_chat_monitor_written_outside_the_library_tags_its_call_as_internal(
+    monitor_input: MonitorInput,
+    call_path: CallPath,
+) -> None:
+    # Arrange: a subclass that names no call source of its own
+    model = ScriptedChatModel(replies=["It reads the file the user named."])
+    monitor = EchoMonitor(model=model, prompt=TRANSCRIPT_AND_STEP_PROMPT, view=MonitorView())
+
+    # Act
+    verdict = await evaluate_on_path(monitor, monitor_input, call_path=call_path)
+
+    # Assert
+    assert verdict.reason == "It reads the file the user named."
+    assert model.received_metadata[0]["lc_source"] == "monitor"
+
+
+def test_a_chat_monitor_written_outside_the_library_fills_no_other_variable() -> None:
+    # Arrange
+    prompt = ChatPromptTemplate.from_messages([("human", "{extra}{transcript}{proposed_step}")])
+
+    # Act
+    with pytest.raises(ConfigurationError) as refusal:
+        EchoMonitor(model=ScriptedChatModel(replies=["x"]), prompt=prompt, view=MonitorView())
+
+    # Assert
+    assert str(refusal.value) == (
+        "the monitor prompt uses variables the monitor cannot fill: ['extra']"
+    )
 
 
 def test_a_prompt_without_the_proposed_step_is_rejected() -> None:

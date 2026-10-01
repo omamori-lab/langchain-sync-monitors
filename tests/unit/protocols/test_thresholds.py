@@ -4,8 +4,10 @@ protocol's guide and on the pages that sum them up; chosen thresholds stay quiet
 from __future__ import annotations
 
 import math
+import os
 import warnings
 from pathlib import Path
+from types import FunctionType
 
 import pytest
 from langchain_core.language_models.fake_chat_models import FakeListChatModel
@@ -23,6 +25,7 @@ from langchain_sync_monitors.thresholds import (
     DEFAULT_BLOCK_THRESHOLD,
     DEFAULT_DEFER_THRESHOLD,
     DEFAULT_FLAG_THRESHOLD,
+    LIBRARY_DIRECTORY,
     DefaultThreshold,
     UncalibratedThresholdWarning,
     resolve_threshold,
@@ -140,6 +143,40 @@ def test_trusted_monitoring_warns_once_at_the_constructor_call() -> None:
     assert len(record) == 1
     assert record[0].filename == __file__
     assert "flag_threshold" in str(record[0].message)
+
+
+def test_the_uncalibrated_warning_names_the_default_and_says_how_to_calibrate() -> None:
+    # Act
+    with pytest.warns(UncalibratedThresholdWarning) as record:
+        AutoMode()
+
+    # Assert
+    assert [str(warning.message) for warning in record] == [
+        "block_threshold uses the uncalibrated default 0.6. Suspicion scores differ between "
+        "monitors and agents, so a fixed default may block honest work or miss attacks. Run "
+        "the agent on honest tasks, collect the suspicion scores in monitor_log, and set the "
+        "threshold at a high percentile of them (for example the 98th), or wrap the monitor in "
+        "CalibratedMonitor so that its scores are honest-run percentiles. Pass block_threshold "
+        "explicitly to silence this warning."
+    ]
+
+
+def build_default_auto_mode() -> AutoMode:
+    return AutoMode()
+
+
+def test_the_warning_points_at_a_caller_whose_path_only_begins_like_the_library_s() -> None:
+    # Arrange: a sibling package such as langchain_sync_monitors_extras is not this library
+    sibling_file = os.path.join(LIBRARY_DIRECTORY.rstrip(os.sep) + "_extras", "protocols.py")
+    code_in_sibling = build_default_auto_mode.__code__.replace(co_filename=sibling_file)
+    build_in_sibling = FunctionType(code_in_sibling, build_default_auto_mode.__globals__)
+
+    # Act
+    with pytest.warns(UncalibratedThresholdWarning) as record:
+        build_in_sibling()
+
+    # Assert
+    assert [warning.filename for warning in record] == [sibling_file]
 
 
 def test_auto_mode_warns_once_at_the_constructor_call() -> None:

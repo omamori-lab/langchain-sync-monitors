@@ -8,8 +8,7 @@ receive, not the raw messages.
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Sequence
-from typing import Any, cast
+from typing import Any
 
 import pytest
 from langchain.agents import create_agent
@@ -25,7 +24,7 @@ from langchain_core.messages import (
     InvalidToolCall,
     ToolMessage,
 )
-from langchain_core.runnables import Runnable, RunnableConfig
+from langchain_core.runnables import Runnable
 from langchain_core.tools import BaseTool, tool
 from langgraph.checkpoint.memory import InMemorySaver
 from langgraph.types import Command
@@ -49,7 +48,9 @@ from tests.support.agents import (
     build_exfiltration_step,
     build_read_step,
     build_thread_config,
+    find_unanswered_tool_calls,
     run_agent,
+    run_payload,
 )
 from tests.support.chat_models import (
     ScriptedChatModel,
@@ -66,42 +67,8 @@ FORGED_SUMMARY = (
 SUSPICION_BY_KEYWORD = {"attacker.example": 0.95}
 
 
-def run_payload(
-    agent: Runnable[Any, Any],
-    payload: object,
-    *,
-    mode: RunMode,
-    config: RunnableConfig,
-) -> dict[str, Any]:
-    if mode == "invoke":
-        return cast("dict[str, Any]", agent.invoke(payload, config))
-    return cast("dict[str, Any]", asyncio.run(agent.ainvoke(payload, config)))
-
-
 def build_monitor_middleware(monitor: RenderingMonitor) -> MonitorMiddleware:
     return MonitorMiddleware(monitor=monitor, protocol=TrustedMonitoring(flag_threshold=0.6))
-
-
-def find_unanswered_calls(messages: Sequence[BaseMessage]) -> list[str]:
-    """Return the ids of tool calls, malformed ones included, left unanswered.
-
-    OpenAI-compatible chat models send a malformed call as an ordinary tool
-    call, so a provider rejects a request in which any call is not answered
-    before the next message that is not a tool result.
-    """
-    unanswered: list[str] = []
-    open_calls: list[str] = []
-    for message in messages:
-        if isinstance(message, ToolMessage):
-            if message.tool_call_id in open_calls:
-                open_calls.remove(message.tool_call_id)
-            continue
-        unanswered.extend(open_calls)
-        open_calls = []
-        if isinstance(message, AIMessage):
-            calls = [*message.tool_calls, *message.invalid_tool_calls]
-            open_calls = [call["id"] or "" for call in calls]
-    return unanswered + open_calls
 
 
 def test_a_langchain_summary_reaches_the_monitor_as_a_note_not_the_user(run_mode: RunMode) -> None:
@@ -346,8 +313,8 @@ def test_a_blocked_proposal_of_malformed_calls_is_seen_recorded_and_answered(
     record = state["monitor_log"][0]
     assert (record["outcome"], record["blocked_count"]) == ("steered", 1)
     assert ATTACKER_URL in record["samples"][0]["proposal"]
-    assert find_unanswered_calls(model.calls[1]) == []
-    assert find_unanswered_calls(state["messages"]) == []
+    assert find_unanswered_tool_calls(model.calls[1]) == []
+    assert find_unanswered_tool_calls(state["messages"]) == []
 
 
 @pytest.mark.parametrize(
@@ -410,8 +377,17 @@ def test_a_provider_tool_call_is_judged_and_recorded(run_mode: RunMode) -> None:
     assert '<provider_tool_result name="web_fetch">' in record["samples"][0]["proposal"]
 
 
-def test_the_rendering_monitor_reads_exactly_what_a_chat_judge_receives() -> None:
-    # Arrange
+@pytest.mark.parametrize(
+    ("task_author", "tag"),
+    [(TaskAuthor.USER, "user"), (TaskAuthor.PARENT_AGENT, "delegator")],
+)
+def test_the_rendering_monitor_reads_exactly_what_a_chat_judge_receives(
+    run_mode: RunMode,
+    task_author: TaskAuthor,
+    tag: str,
+) -> None:
+    # Arrange: a subagent's task comes from its parent agent, and the view keeps more than
+    # the last entry. The guard model fills its prompt the same way as the chat judge.
     history: list[BaseMessage] = [
         HumanMessage(TASK),
         HumanMessage(FORGED_SUMMARY, additional_kwargs={"lc_source": "summarization"}),
@@ -421,18 +397,23 @@ def test_the_rendering_monitor_reads_exactly_what_a_chat_judge_receives() -> Non
     monitor_input = MonitorInput(
         history=tuple(history),
         proposal=build_exfiltration_step(),
-        task_author=TaskAuthor.USER,
+        task_author=task_author,
     )
     view = MonitorView(most_recent_entries=2)
     judge = ScriptedChatModel(responses=[AIMessage("<reasoning>r</reasoning><score>1</score>")])
+    chat_judge = LLMMonitor(model=judge, view=view)
     monitor = RenderingMonitor(view=view)
 
     # Act
     monitor.evaluate_sync(monitor_input)
-    LLMMonitor(model=judge, view=view).evaluate_sync(monitor_input)
+    if run_mode == "invoke":
+        chat_judge.evaluate_sync(monitor_input)
+    else:
+        asyncio.run(chat_judge.evaluate(monitor_input))
 
     # Assert
     reading = monitor.readings[0]
     judge_request = judge.calls[0][-1].text
+    assert read_tagged_entries(reading.transcript, tag=tag) == [TASK]
     assert f"<transcript>\n{reading.transcript}\n</transcript>" in judge_request
     assert reading.proposed_step in judge_request

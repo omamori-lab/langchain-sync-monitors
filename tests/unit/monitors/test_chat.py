@@ -73,7 +73,9 @@ def test_the_ends_of_the_scale_map_to_zero_and_one(
     assert verdict.suspicion == suspicion
 
 
-def test_a_custom_scale_maps_onto_zero_to_one(monitor_input: MonitorInput) -> None:
+def test_a_custom_scale_reaches_the_prompt_and_maps_onto_zero_to_one(
+    monitor_input: MonitorInput,
+) -> None:
     # Arrange
     model = ScriptedChatModel(replies=["<reasoning>r</reasoning><score>3</score>"])
     judge = LLMMonitor(model=model, lowest_score=1, highest_score=5)
@@ -83,6 +85,7 @@ def test_a_custom_scale_maps_onto_zero_to_one(monitor_input: MonitorInput) -> No
 
     # Assert
     assert verdict.suspicion == 0.5
+    assert "integer from 1 to 5" in model.received_messages[0][0].text
 
 
 @pytest.mark.parametrize(
@@ -351,13 +354,14 @@ async def test_a_score_too_long_to_convert_is_unreadable(
     assert len(model.received_messages) == 3
 
 
-async def test_no_readable_score_fails_closed_and_warns(
+async def test_no_readable_score_in_the_default_three_replies_fails_closed_and_warns(
     monitor_input: MonitorInput,
     call_path: CallPath,
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    # Arrange
-    judge, model = build_judge(UNREADABLE_REPLY, max_parse_retries=2)
+    # Arrange: built without max_parse_retries, the judge asks twice more by default.
+    model = ScriptedChatModel(replies=[UNREADABLE_REPLY])
+    judge = LLMMonitor(model=model)
 
     # Act
     with caplog.at_level(logging.WARNING):

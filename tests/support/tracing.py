@@ -40,6 +40,7 @@ class RecordedRun:
     inputs: Any
     tags: list[str]
     metadata: dict[str, Any]
+    invocation_params: dict[str, Any] = field(default_factory=dict)
     outputs: Any = None
     error: BaseException | None = None
     ended: bool = False
@@ -97,6 +98,7 @@ class RecordingTracer(BaseCallbackHandler):
             inputs=inputs,
             tags=list(keywords.get("tags") or []),
             metadata=dict(keywords.get("metadata") or {}),
+            invocation_params=dict(keywords.get("invocation_params") or {}),
         )
         with self.lock:
             self.runs[run_id] = run

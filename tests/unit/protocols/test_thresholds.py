@@ -1,9 +1,11 @@
-"""Default thresholds warn at the user's constructor call; chosen thresholds stay quiet."""
+"""Default thresholds warn at the user's constructor call, and each protocol's guide states
+them; chosen thresholds stay quiet."""
 
 from __future__ import annotations
 
 import math
 import warnings
+from pathlib import Path
 
 import pytest
 from langchain_core.language_models.fake_chat_models import FakeListChatModel
@@ -25,6 +27,8 @@ from langchain_sync_monitors.thresholds import (
     UncalibratedThresholdWarning,
     resolve_threshold,
 )
+
+HOW_TO_GUIDES = Path(__file__).resolve().parents[3] / "docs" / "how-to"
 
 
 @pytest.mark.parametrize("value", [0.0, 0.42, 1.0])
@@ -70,17 +74,35 @@ def test_default_threshold_outside_the_unit_interval_is_rejected() -> None:
         resolve_threshold(parameter_name="flag_threshold", threshold=DefaultThreshold(2.0))
 
 
-def test_defaults_are_the_documented_values() -> None:
+@pytest.mark.parametrize(
+    ("page", "parameter_name", "default"),
+    [
+        ("use-trusted-monitoring.md", "flag_threshold", DEFAULT_FLAG_THRESHOLD),
+        ("use-auto-mode.md", "block_threshold", DEFAULT_BLOCK_THRESHOLD),
+        ("use-defer-to-resample.md", "defer_threshold", DEFAULT_DEFER_THRESHOLD),
+        ("use-defer-to-resample.md", "audit_threshold", DEFAULT_AUDIT_THRESHOLD),
+        ("use-defer-to-trusted.md", "defer_threshold", DEFAULT_DEFER_THRESHOLD),
+        ("use-defer-to-trusted.md", "audit_threshold", DEFAULT_AUDIT_THRESHOLD),
+    ],
+    ids=[
+        "trusted-monitoring-flag",
+        "auto-mode-block",
+        "defer-to-resample-defer",
+        "defer-to-resample-audit",
+        "defer-to-trusted-defer",
+        "defer-to-trusted-audit",
+    ],
+)
+def test_each_protocol_guide_documents_the_default_threshold(
+    page: str,
+    parameter_name: str,
+    default: DefaultThreshold,
+) -> None:
     # Act
-    values = (
-        DEFAULT_DEFER_THRESHOLD.value,
-        DEFAULT_BLOCK_THRESHOLD.value,
-        DEFAULT_FLAG_THRESHOLD.value,
-        DEFAULT_AUDIT_THRESHOLD.value,
-    )
+    guide = (HOW_TO_GUIDES / page).read_text(encoding="utf-8")
 
     # Assert
-    assert values == (0.6, 0.6, 0.6, 0.9)
+    assert f"| `{parameter_name}` | {default.value}, with a warning |" in guide
 
 
 def test_trusted_monitoring_warns_once_at_the_constructor_call() -> None:

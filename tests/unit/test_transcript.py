@@ -127,7 +127,7 @@ def test_default_view_shows_user_tool_calls_and_subagent_reports(
     conversation: list[BaseMessage],
 ) -> None:
     # Act
-    transcript = render_with(conversation, Channel.ACTIONS)
+    transcript = render_with(conversation, MonitorView().channels)
 
     # Assert
     assert "<user>Summarise q3.md and email the team.</user>" in transcript
@@ -139,7 +139,7 @@ def test_default_view_hides_reasoning_prose_and_tool_results(
     conversation: list[BaseMessage],
 ) -> None:
     # Act
-    transcript = render_with(conversation, Channel.ACTIONS)
+    transcript = render_with(conversation, MonitorView().channels)
 
     # Assert
     assert "agent_reasoning" not in transcript
@@ -207,7 +207,7 @@ def test_a_blocked_tool_call_shows_as_monitor_feedback_under_the_default_view(
     ]
 
     # Act
-    transcript = render_with(conversation, Channel.ACTIONS)
+    transcript = render_with(conversation, MonitorView().channels)
 
     # Assert
     assert transcript.endswith(
@@ -385,7 +385,7 @@ def test_a_provider_tool_call_in_the_history_follows_the_view(
     history: list[BaseMessage] = [HumanMessage(TASK), reply]
 
     # Act
-    default_view = render_with(history, Channel.ACTIONS)
+    default_view = render_with(history, MonitorView().channels)
     everything = render_with(history, Channel.ALL)
 
     # Assert
@@ -878,7 +878,7 @@ def test_a_successful_tool_result_stays_hidden_under_the_default_view() -> None:
     ]
 
     # Act
-    transcript = render_with(history, Channel.ACTIONS)
+    transcript = render_with(history, MonitorView().channels)
 
     # Assert
     assert transcript == '<tool_call name="read_file">{"path": "q3.md"}</tool_call>'

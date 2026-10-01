@@ -461,6 +461,27 @@ async def test_sample_fraction_draws_every_sample_without_log_probabilities(
     assert model.received_options == [{}] * 4
 
 
+async def test_sample_fraction_draws_five_samples_by_default(
+    monitor_input: MonitorInput,
+    call_path: CallPath,
+) -> None:
+    # Arrange
+    model = ScriptedChatModel(replies=["no_violation"])
+    guard = GuardModelMonitor(
+        model=model,
+        policy_prompt=POLICY_PROMPT,
+        suspicious_labels={"violation"},
+        safe_labels={"no_violation"},
+        scoring=GuardScoring.SAMPLE_FRACTION,
+    )
+
+    # Act
+    await evaluate_on_path(guard, monitor_input, call_path=call_path)
+
+    # Assert
+    assert len(model.received_messages) == 5
+
+
 async def test_a_failed_sample_stops_the_other_samples(
     monitor_input: MonitorInput,
     call_path: CallPath,
@@ -489,6 +510,23 @@ async def test_a_failed_sample_stops_the_other_samples(
     assert model.finished_calls == 0
 
 
+def test_a_hard_label_warns_at_the_constructor_call() -> None:
+    # Act
+    with pytest.warns(HardLabelWarning, match="every threshold flags the same steps") as record:
+        GuardModelMonitor(
+            model=ScriptedChatModel(replies=["violation"]),
+            policy_prompt=POLICY_PROMPT,
+            suspicious_labels={"violation"},
+            safe_labels={"no_violation"},
+            scoring=GuardScoring.HARD_LABEL,
+        )
+
+    # Assert
+    assert len(record) == 1
+    assert record[0].filename == __file__
+
+
+@pytest.mark.filterwarnings("ignore::langchain_sync_monitors.monitors.guard.HardLabelWarning")
 @pytest.mark.parametrize(
     ("reply", "suspicion"),
     [("no_violation", 0.0), ("violation", 1.0), ("**No_Violation**", 0.0), ("unclear", 1.0)],
@@ -500,8 +538,7 @@ async def test_a_hard_label_reads_one_reply_as_zero_or_one(
     suspicion: float,
 ) -> None:
     # Arrange
-    with pytest.warns(HardLabelWarning, match="every threshold flags the same steps"):
-        guard, model = build_guard(reply, scoring=GuardScoring.HARD_LABEL)
+    guard, model = build_guard(reply, scoring=GuardScoring.HARD_LABEL)
 
     # Act
     verdict = await evaluate_on_path(guard, monitor_input, call_path=call_path)

@@ -7,7 +7,7 @@ from typing import get_args
 
 import pytest
 
-from langchain_sync_monitors.contracts import Channel, Outcome, OutcomeName, Verdict
+from langchain_sync_monitors.contracts import Channel, MonitorView, Outcome, OutcomeName, Verdict
 from langchain_sync_monitors.errors import InvalidSuspicionError, MonitorError
 
 
@@ -40,7 +40,7 @@ def test_an_invalid_suspicion_is_a_library_error(suspicion: float) -> None:
 
 def test_default_view_reads_actions_but_not_reasoning() -> None:
     # Act
-    channels = Channel.ACTIONS
+    channels = MonitorView().channels
 
     # Assert
     assert Channel.USER in channels

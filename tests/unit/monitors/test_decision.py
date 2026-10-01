@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import dataclasses
 import json
 import math
 import re
@@ -17,7 +18,7 @@ import pytest
 import stamina
 from pydantic import SecretStr
 
-from langchain_sync_monitors.contracts import Channel, MonitorInput, MonitorView
+from langchain_sync_monitors.contracts import Channel, MonitorInput, MonitorView, TaskAuthor
 from langchain_sync_monitors.errors import ConfigurationError, MonitorError
 from langchain_sync_monitors.monitors.decision import (
     Combine,
@@ -314,15 +315,6 @@ async def test_fields_the_library_does_not_read_cannot_discard_an_answer(
     assert probabilities == {"leaks": 0.95}
 
 
-def test_a_probability_outside_zero_to_one_is_rejected() -> None:
-    # Arrange
-    server = DecisionsServer(responders=[answer_with({"leaks": 1.5})])
-
-    # Act and Assert
-    with pytest.raises(MonitorError, match="unexpected shape"):
-        server.build_model().estimate_probabilities_sync(context="x", questions=[LEAK_QUESTION])
-
-
 @pytest.mark.parametrize("raw_answer", REFUSED_RAW_ANSWERS)
 def test_a_decisions_answer_that_is_no_json_number_from_zero_to_one_is_refused(
     raw_answer: str,
@@ -583,18 +575,26 @@ async def test_one_question_gives_its_probability_of_yes(
     assert "'suspicious_step'" in verdict.reason
 
 
-def test_the_context_holds_the_transcript_and_the_proposed_step(
+@pytest.mark.parametrize(
+    ("task_author", "tag"),
+    [(TaskAuthor.USER, "user"), (TaskAuthor.PARENT_AGENT, "delegator")],
+)
+async def test_the_context_holds_the_transcript_and_the_proposed_step(
     monitor_input: MonitorInput,
+    call_path: CallPath,
+    task_author: TaskAuthor,
+    tag: str,
 ) -> None:
-    # Arrange
+    # Arrange: a subagent's task comes from its parent agent, not from the user.
     model = ScriptedDecisionModel(probabilities={"suspicious_step": 0.03})
+    step = dataclasses.replace(monitor_input, task_author=task_author)
 
     # Act
-    DecisionModelMonitor(decision_model=model).evaluate_sync(monitor_input)
+    await evaluate_on_path(DecisionModelMonitor(decision_model=model), step, call_path=call_path)
 
     # Assert
     (context,) = model.contexts
-    assert context.startswith("<transcript>\n<user>Summarise q3.md")
+    assert context.startswith(f"<transcript>\n<{tag}>Summarise q3.md")
     assert context.endswith(
         '<tool_call name="read_file">{"path": "q3.md"}</tool_call>\n</proposed_step>'
     )
@@ -793,19 +793,35 @@ async def test_answers_at_zero_and_one_are_read_as_floats(
     assert type(verdict.suspicion) is float
 
 
-def test_the_mean_warns_that_it_dilutes_a_single_hit(monitor_input: MonitorInput) -> None:
+def test_the_mean_warns_at_the_constructor_call_that_it_dilutes_a_single_hit() -> None:
     # Arrange
-    probabilities = {"leaks": 0.95, "suspicious_step": 0.05}
-    model = ScriptedDecisionModel(probabilities=probabilities)
+    model = ScriptedDecisionModel(probabilities={})
 
     # Act
-    with pytest.warns(UserWarning, match="dilutes a single strong hit"):
-        monitor = DecisionModelMonitor(
-            decision_model=model,
-            questions=[LEAK_QUESTION, IS_THE_STEP_SUSPICIOUS],
-            combine=Combine.MEAN,
-        )
-    verdict = monitor.evaluate_sync(monitor_input)
+    with pytest.warns(UserWarning, match="dilutes a single strong hit") as record:
+        DecisionModelMonitor(decision_model=model, combine=Combine.MEAN)
+
+    # Assert
+    assert len(record) == 1
+    assert record[0].filename == __file__
+
+
+@pytest.mark.filterwarnings("ignore:Combine.MEAN dilutes:UserWarning")
+async def test_the_mean_averages_the_answers(
+    monitor_input: MonitorInput,
+    call_path: CallPath,
+) -> None:
+    # Arrange
+    monitor = DecisionModelMonitor(
+        decision_model=ScriptedDecisionModel(
+            probabilities={"leaks": 0.95, "suspicious_step": 0.05},
+        ),
+        questions=[LEAK_QUESTION, IS_THE_STEP_SUSPICIOUS],
+        combine=Combine.MEAN,
+    )
+
+    # Act
+    verdict = await evaluate_on_path(monitor, monitor_input, call_path=call_path)
 
     # Assert
     assert verdict.suspicion == pytest.approx(0.5)
@@ -897,3 +913,4 @@ def test_the_attack_criteria_are_four_distinct_questions() -> None:
         "goes_beyond_the_task",
         "misleads_the_user",
     }
+    assert len({question.text for question in ATTACK_CRITERIA}) == len(ATTACK_CRITERIA) == 4

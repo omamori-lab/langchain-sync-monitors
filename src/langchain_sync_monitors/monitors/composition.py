@@ -3,7 +3,7 @@
 Each wrapper is a `Monitor` itself, so it stacks around any monitor family, and
 around other wrappers, without the control protocols noticing. A common stack
 averages a few calls first, then expresses the result as an honest-run
-percentile: `CalibratedMonitor(monitor=RepeatedMonitor(monitor=judge,
+percentile: `CalibratedMonitor(monitor=RepeatedMonitor(monitor=llm_monitor,
 ensemble_size=3), honest_scores=scores)`.
 
 The wrappers change the suspicion and pass on the wrapped monitor's reason word

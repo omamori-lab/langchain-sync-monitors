@@ -1,6 +1,6 @@
 """Monitors: the models that judge each proposed step, and wrappers around them.
 
-Three families score a step: chat models as judges (`LLMMonitor`), guard
+Three families score a step: LLM monitors (`LLMMonitor`), guard
 models (`GuardModelMonitor`) and decision models (`DecisionModelMonitor`).
 The wrappers in `composition` are monitors too, so they stack around any of
 them.

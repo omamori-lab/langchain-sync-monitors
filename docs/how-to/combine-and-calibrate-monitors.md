@@ -62,10 +62,10 @@ agent, and a number would tell the agent how close its step came to passing.
 Protocols multiply these costs, because they judge every sample they draw.
 Trusted Monitoring and Defer to Trusted judge one sample per step; Defer to
 Resample and Auto Mode judge up to three by default. So Defer to Resample
-around a `RepeatedMonitor` of three LLM monitor calls makes three judge calls on
-an ordinary step and up to nine on a suspicious one, counting one readable
-reply per call. An LLM monitor asks again for an unreadable reply, up to
-`max_parse_retries` more times.
+around a `RepeatedMonitor` of three LLM monitor calls makes three monitor
+calls on an ordinary step and up to nine on a suspicious one, counting one
+readable reply per call. An LLM monitor asks again for an unreadable reply,
+up to `max_parse_retries` more times.
 
 ## Average repeated calls
 
@@ -91,9 +91,9 @@ from langchain.chat_models import init_chat_model
 
 from langchain_sync_monitors import LLMMonitor, RepeatedMonitor
 
-# The calls only differ when the judge samples, so its temperature is above zero.
-judge_model = init_chat_model("openrouter:xiaomi/mimo-v2.6-pro", temperature=1.0)
-monitor = RepeatedMonitor(monitor=LLMMonitor(model=judge_model), ensemble_size=3)
+# The calls only differ when the model samples, so its temperature is above zero.
+monitor_model = init_chat_model("openrouter:xiaomi/mimo-v2.6-pro", temperature=1.0)
+monitor = RepeatedMonitor(monitor=LLMMonitor(model=monitor_model), ensemble_size=3)
 ```
 
 Give the model no LangChain response cache, which would answer every call
@@ -155,8 +155,8 @@ HONEST_TASKS = [
 ]
 
 # Exactly the monitor you will calibrate.
-judge_model = init_chat_model("openrouter:xiaomi/mimo-v2.6-pro", temperature=1.0)
-monitor = RepeatedMonitor(monitor=LLMMonitor(model=judge_model), ensemble_size=3)
+monitor_model = init_chat_model("openrouter:xiaomi/mimo-v2.6-pro", temperature=1.0)
+monitor = RepeatedMonitor(monitor=LLMMonitor(model=monitor_model), ensemble_size=3)
 agent = create_agent(
     "openrouter:deepseek/deepseek-v4.1-flash",
     tools=[read_file],
@@ -192,7 +192,7 @@ Read the highest honest scores before you calibrate. An LLM monitor whose reply
 could not be read gives 1.0, with the reason "The monitor gave no readable
 score, so the step is treated as suspicious." That score measures nothing
 about the step, and a 1.0 in the honest set ties with every later 1.0: a step
-that fails closed, and a step the judge genuinely scores at the top of its
+that fails closed, and a step the monitor genuinely scores at the top of its
 scale. Either then lands at a random place among the ties instead of above
 every honest score. Fix the cause, such as too small a `max_tokens`, and
 collect again.
@@ -223,9 +223,9 @@ from langchain_sync_monitors import (
 )
 
 honest_scores = json.loads(Path("honest_scores.json").read_text(encoding="utf-8"))
-judge_model = init_chat_model("openrouter:xiaomi/mimo-v2.6-pro", temperature=1.0)
+monitor_model = init_chat_model("openrouter:xiaomi/mimo-v2.6-pro", temperature=1.0)
 monitor = CalibratedMonitor(
-    monitor=RepeatedMonitor(monitor=LLMMonitor(model=judge_model), ensemble_size=3),
+    monitor=RepeatedMonitor(monitor=LLMMonitor(model=monitor_model), ensemble_size=3),
     honest_scores=honest_scores,
     # A fixed seed makes the tie-breaking replayable.
     random_seed=2026,
@@ -353,7 +353,7 @@ from langchain_sync_monitors import (
 
 fast_scores = json.loads(Path("fast_honest_scores.json").read_text(encoding="utf-8"))
 careful_scores = json.loads(Path("careful_honest_scores.json").read_text(encoding="utf-8"))
-judge_model = init_chat_model("openrouter:xiaomi/mimo-v2.6-pro", temperature=1.0)
+monitor_model = init_chat_model("openrouter:xiaomi/mimo-v2.6-pro", temperature=1.0)
 
 monitor = CascadeMonitor(
     # Fast: one decision model request per step.
@@ -363,9 +363,9 @@ monitor = CascadeMonitor(
         ),
         honest_scores=fast_scores,
     ),
-    # Careful: three judge calls, only for escalated steps.
+    # Careful: three LLM monitor calls, only for escalated steps.
     careful=CalibratedMonitor(
-        monitor=RepeatedMonitor(monitor=LLMMonitor(model=judge_model), ensemble_size=3),
+        monitor=RepeatedMonitor(monitor=LLMMonitor(model=monitor_model), ensemble_size=3),
         honest_scores=careful_scores,
     ),
     # Escalate about 5% of honest steps.

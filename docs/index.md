@@ -160,7 +160,7 @@ answer. Each left-out channel is one flag away:
 ```python
 from langchain_sync_monitors import Channel, LLMMonitor, MonitorView
 
-judge = LLMMonitor(
+monitor = LLMMonitor(
     model="openrouter:xiaomi/mimo-v2.6-pro",
     # Read the agent's reasoning too, on top of the default channels.
     view=MonitorView(channels=Channel.ACTIONS | Channel.REASONING),

@@ -137,9 +137,10 @@ simpler rule, one threshold on the cheap score, which is the multi-stage
 classifier of Cunningham et al. (section Multi-stage classifiers)
 [@cunningham2025cheapmonitors].
 
-Weighting a judge's score by the probabilities of its levels gives a finer,
-continuous score [@liu2023geval], and taking the mean of the judgement
-distribution outperforms taking its most likely level [@wang2025judgment];
+In LLM-as-a-judge evaluation [@zheng2023judging], weighting a judge's score
+by the probabilities of its levels gives a finer, continuous score
+[@liu2023geval], and taking the mean of the judgement distribution
+outperforms taking its most likely level [@wang2025judgment];
 the same argument favours the continuous probabilities of decision models.
 
 ## Guard models

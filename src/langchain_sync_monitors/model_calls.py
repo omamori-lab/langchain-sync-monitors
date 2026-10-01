@@ -116,7 +116,7 @@ def build_internal_call_config(*, source: str) -> RunnableConfig:
     """Tag a model call the library makes itself, such as a monitor's call.
 
     The run is named `MONITOR_CALL_NAME`, which replaces any name the model
-    was given, so a judge built with ``name="security judge"`` shows as
+    was given, so a model built with ``name="security monitor"`` shows as
     ``monitor call`` too. The model still shows as the call's model and in
     the ``ls_model_name`` metadata, which the chat model adds itself, and the
     judgement span around the call names the monitor. The name goes to the

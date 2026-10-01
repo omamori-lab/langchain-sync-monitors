@@ -235,8 +235,8 @@ The monitor's own model calls carry no `monitor` tag, but each one it makes
 through LangChain is named `monitor call`, whatever its model: the calls of
 the LLM monitors and the guards, and the classifier call of
 `TypeSafeDecisionModel`. The fixed name
-replaces any name you gave the model, so a judge built with
-`name="security judge"` shows as `monitor call` too. The model still shows as
+replaces any name you gave the model, so a model built with
+`name="security monitor"` shows as `monitor call` too. The model still shows as
 the call's model and in its `ls_model_name` metadata, and the judgement span
 around the call names the monitor. A classifier wrapped in `with_retry()`
 gives the name to the wrapper's run, and the attempts inside it keep the
@@ -346,7 +346,7 @@ asyncio.run(print_decisions())
 ```
 
 A scripted run with the same protocol, Trusted Monitoring with an audit
-threshold of 0.6, in which the judge scored the first step 0.9 and the second
+threshold of 0.6, in which the monitor scored the first step 0.9 and the second
 0.1, printed:
 
 ```text

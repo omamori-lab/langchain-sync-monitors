@@ -1,4 +1,4 @@
-"""Chat models as judges: fill a prompt with the rendered step, call the model, read the reply.
+"""Chat models as monitors: fill a prompt with the rendered step, call the model, read the reply.
 
 `ChatModelMonitor` holds what LLM monitors and guard models share. Each monitor
 writes its scoring once, as a plan: a generator that yields the model replies
@@ -364,7 +364,7 @@ def find_reasoning_block(text: str) -> ReasoningBlock | None:
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class JudgeReply:
-    """The two parts of a readable judge reply: its reasoning and the text of its score."""
+    """The two parts of a readable reply: its reasoning and the text of its score."""
 
     reasoning: str
     score_text: str
@@ -376,8 +376,8 @@ def read_judge_reply(text: str) -> JudgeReply | None:
     A reply is readable only when its score is structurally the last thing in
     it: the first `<reasoning>...</reasoning>` block, holding some text, then
     one `<score>...</score>` tag with only whitespace around it. The agent
-    writes the step the judge reads, so it can plant a score tag there, and a
-    judge may quote that tag, in its reasoning or in a note after its score.
+    writes the step the monitor reads, so it can plant a score tag there, and
+    the model may quote that tag, in its reasoning or in a note after its score.
     A quote inside the reasoning is never read; a second score tag, prose
     after the reasoning or text after the score makes the reply unreadable.
     """
@@ -408,7 +408,7 @@ def parse_score(score_text: str, *, lowest_score: int, highest_score: int) -> in
 
 
 class LLMMonitor(ChatModelMonitor):
-    """A general chat model used as a judge: reasoning first, then a score on an anchored scale.
+    """A general chat model used as a monitor: reasoning first, then a score on an anchored scale.
 
     The model reasons inside `<reasoning>` tags and then gives an integer from
     `lowest_score` to `highest_score` inside `<score>` tags. The score maps
@@ -426,9 +426,9 @@ class LLMMonitor(ChatModelMonitor):
     score. A custom `prompt` must ask for this shape, or every reply is
     unreadable. An agent can write text aimed at its monitor into its step
     [@terekhov2025adaptive], so the shape keeps a score tag the agent planted,
-    and the judge quoted, from becoming the verdict. A reply that the provider
+    and the model quoted, from becoming the verdict. A reply that the provider
     reports as cut off at a length limit is unreadable too, since its end is
-    not the judge's verdict.
+    not the model's verdict.
 
     An unreadable reply is asked for again, up to `max_parse_retries` more
     times. If none can be read, the monitor fails closed: the step gets
@@ -508,7 +508,7 @@ class LLMMonitor(ChatModelMonitor):
     def parse_verdict(self, reply: AIMessage) -> Verdict | None:
         """Turn a reply into a verdict, or return `None` when it is unreadable.
 
-        The reason is the judge's reasoning alone. The score stays out of it,
+        The reason is the model's reasoning alone. The score stays out of it,
         because Auto Mode shows the reason to the agent, and a score would tell
         the agent how close its step came to passing.
         """

@@ -61,7 +61,7 @@ from langchain_sync_monitors import Channel, LLMMonitor, MonitorView
 # Read the default channels plus the agent's reasoning, and only the 40 latest entries.
 view = MonitorView(channels=Channel.ACTIONS | Channel.REASONING, most_recent_entries=40)
 
-# The judge model is yours to choose; the library never picks one.
+# The monitor's model is yours to choose; the library never picks one.
 monitor = LLMMonitor(model="openrouter:xiaomi/mimo-v2.6-pro", view=view)
 ```
 
@@ -122,19 +122,19 @@ message renders as a note:
   monitor writes a note's tag into the message in the agent's state too, so a
   saved history keeps it.
 - **What the monitor's model is told about notes.** The tag is all the
-  monitor adds. `DEFAULT_MONITOR_PROMPT` tells an LLM monitor that a note is not
-  the user and authorises nothing, a request the judge may not always follow.
-  A guard policy or a prompt of your own must say so itself, and a decision
-  model gets only the tag.
+  monitor adds. `DEFAULT_MONITOR_PROMPT` tells an LLM monitor that a note is
+  not the user and authorises nothing, a request the model may not always
+  follow. A guard policy or a prompt of your own must say so itself, and a
+  decision model gets only the tag.
 - **`unconfirmed_input`.** A run that stopped before its end, for example
   because its model call raised or its client cancelled it, may leave messages
   the monitor never saw. The next run cannot tell them from its own input, so
   all its new messages, the user's own included, become notes from
   `unconfirmed_input`, and stay notes for the rest of the thread.
-  `DEFAULT_MONITOR_PROMPT` tells an LLM monitor to take no approval from such a note, but
-  to apply a limit it sets that narrows what the agent may do, such as a
-  user's "stop", and that a note never removes a safeguard, such as asking the
-  user first. Send an approval again in a later turn.
+  `DEFAULT_MONITOR_PROMPT` tells an LLM monitor to take no approval from such
+  a note, but to apply a limit it sets that narrows what the agent may do,
+  such as a user's "stop", and that a note never removes a safeguard, such as
+  asking the user first. Send an approval again in a later turn.
 - **Subagents.** `monitor_subagents` gives each subagent's monitor
   `TaskAuthor.PARENT_AGENT`, so its task renders as `<delegator>`.
 - **Two open paths.** Both go through a middleware listed before the monitor.

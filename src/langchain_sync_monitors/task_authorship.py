@@ -38,7 +38,7 @@ context note, in the state as well as in what the monitor reads.
   checkpoint inside a run, and the state may hold messages the monitor never
   saw. The monitor cannot tell them from the new input, so it tags all of
   them as notes from `unconfirmed_input`, which they stay for the rest of
-  the thread. The prompt tells the judge that such a note may be the user's
+  the thread. The prompt tells the monitor that such a note may be the user's
   own words: it authorises nothing, and only a limit it sets that narrows
   what the agent may do still applies, since no note removes a safeguard.
 

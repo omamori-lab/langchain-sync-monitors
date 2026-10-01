@@ -39,7 +39,7 @@ def http_post(url: str, body: str) -> str:
 
 
 monitor = MonitorMiddleware(
-    # The judge that scores each step.
+    # The LLM monitor that scores each step.
     monitor=LLMMonitor(model="openrouter:xiaomi/mimo-v2.6-pro"),
     # Flag steps at or above 0.6; calibrate your own value from honest runs.
     protocol=TrustedMonitoring(audit_threshold=0.6),
@@ -60,7 +60,7 @@ for record in result["monitor_log"]:
 
 The model strings are examples, and `openrouter:` strings need the
 `openrouter` extra. Any LangChain chat model works for the agent and for the
-judge: pass a provider string, or a chat model object you built.
+LLM monitor: pass a provider string, or a chat model object you built.
 
 ## Options
 

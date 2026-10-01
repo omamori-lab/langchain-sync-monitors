@@ -23,7 +23,7 @@ in full, on 1 October 2026:
 - `test_wrapper_monitors`: the cascade, the repeat and the calibration score
   from their own calls. 3 runs at $0.03; $0.0038.
 - `test_halt_path`: a forced halt stops the run before any tool runs.
-  2 runs at $0.01; $0.0007.
+  2 runs at $0.01; $0.00073.
 - `test_deep_agents_subagents`: a monitored subagent's records, and halts
   that stop it or the whole run. 5 runs at $0.04; $0.011.
 - `test_kept_run_inputs`: every request stays in view after summarisation.

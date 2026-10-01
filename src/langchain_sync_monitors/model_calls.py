@@ -44,8 +44,8 @@ def resolve_chat_model(model: str | BaseChatModel) -> BaseChatModel:
         message = (
             "model must be a LangChain chat model or a provider string such as "
             f"'openrouter:xiaomi/mimo-v2.6-pro', got {type(model).__name__}. Pass the chat "
-            "model itself, not a Runnable wrapped around it; chat models retry on their own "
-            "through max_retries."
+            "model itself, not a Runnable wrapped around it, and set its retries through its "
+            "own max_retries."
         )
         raise ConfigurationError(message)
     if model.startswith(OPENROUTER_PREFIX) and not is_package_installed("langchain_openrouter"):

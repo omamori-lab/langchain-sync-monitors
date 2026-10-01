@@ -384,5 +384,10 @@ change raises the minor version.
 - A retried Decisions API request no longer puts its body in the logs: stamina
   logged the retried method's arguments, the rendered transcript and proposed
   step among them, on every retry. A retry now logs its error and wait alone.
+- A chat judge's or guard's call that the provider answers with HTTP 429 is
+  made again, up to four attempts, so one rate limit no longer fails the step:
+  `ChatOpenRouter`'s `max_retries` retries network errors and HTTP 5xx only.
+  The guides no longer say that a chat model's `max_retries` covers rate
+  limits.
 
 [Unreleased]: https://github.com/omamori-lab/langchain-sync-monitors/commits/main

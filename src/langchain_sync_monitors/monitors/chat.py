@@ -17,6 +17,8 @@ from collections.abc import Awaitable, Callable, Generator
 from dataclasses import dataclass
 from typing import ClassVar
 
+import httpx
+import stamina
 from langchain_core.language_models import BaseChatModel, LanguageModelInput
 from langchain_core.messages import AIMessage, BaseMessage
 from langchain_core.prompts import ChatPromptTemplate
@@ -62,6 +64,29 @@ Bedrock Converse the fourth and Ollama the last.
 
 CUT_OFF_STOP_REASONS = ("length", "max_tokens", "max_output_tokens", "context_window_exceeded")
 """Stop reasons that mean the reply hit a length limit before the model finished it."""
+
+RATE_LIMIT_ATTEMPTS = 4
+"""How many times a monitor's call is tried in all while the provider answers HTTP 429."""
+RATE_LIMIT_FIRST_WAIT_SECONDS = 1.0
+"""The wait before the first retry of a rate-limited call; each later wait doubles, up to 5 s."""
+
+
+def is_rate_limit_error(error: Exception) -> bool:
+    """Tell whether a chat model's call failed on a rate limit, HTTP 429.
+
+    A chat model's own `max_retries` does not always cover one:
+    `ChatOpenRouter` hands its retries to the OpenRouter SDK
+    [@langchainopenrouter2026], which retries a chat completion on HTTP 5xx
+    and network errors alone, and whose retry settings name no status code
+    [@openrouterpythonsdk2026]. Provider SDKs, OpenRouter's, OpenAI's and
+    Anthropic's among them, put the status on their errors as `status_code`;
+    httpx puts it on the error's response [@httpx2024].
+    """
+    if isinstance(error, httpx.HTTPStatusError):
+        status: object = error.response.status_code
+    else:
+        status = getattr(error, "status_code", None)
+    return status == httpx.codes.TOO_MANY_REQUESTS
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -135,7 +160,9 @@ class ChatModelMonitor(Monitor, ABC):
     Subclasses write their scoring once, in `build_verdict_plan`. The model's
     calls carry LangChain's internal-call metadata, which drops them from
     `stream_events(version="v3")`; the monitor middleware's `nostream` tag
-    keeps them out of `stream_mode="messages"`.
+    keeps them out of `stream_mode="messages"`. A call the provider answers
+    with HTTP 429 is made again, as `request_reply` says; every other error
+    is left to the chat model's own `max_retries`.
     """
 
     call_source: ClassVar[str] = "monitor"
@@ -197,17 +224,41 @@ class ChatModelMonitor(Monitor, ABC):
 
     async def request_replies(self, request: ReplyRequest) -> list[AIMessage]:
         """Draw the requested replies concurrently; one failed call cancels the others."""
-        return await run_concurrently(
-            request.model.ainvoke(list(request.messages), config=self.call_config)
-            for _ in range(request.count)
-        )
+        return await run_concurrently(self.request_reply(request) for _ in range(request.count))
 
     def request_replies_sync(self, request: ReplyRequest) -> list[AIMessage]:
         """Draw the requested replies one after another."""
-        return [
-            request.model.invoke(list(request.messages), config=self.call_config)
-            for _ in range(request.count)
-        ]
+        return [self.request_reply_sync(request) for _ in range(request.count)]
+
+    async def request_reply(self, request: ReplyRequest) -> AIMessage:
+        """Draw one reply, calling the model again after a rate limit.
+
+        A call the provider answers with HTTP 429 is tried again with stamina
+        [@schlawack2026stamina], after a growing, jittered wait, up to
+        `RATE_LIMIT_ATTEMPTS` attempts in all; any other error is raised at
+        once, and so is the last 429. The retries wrap a block, not a
+        function, so stamina's retry log holds the error and the wait, never
+        the prompt.
+        """
+        async for attempt in stamina.retry_context(
+            on=is_rate_limit_error,
+            attempts=RATE_LIMIT_ATTEMPTS,
+            wait_initial=RATE_LIMIT_FIRST_WAIT_SECONDS,
+        ):
+            with attempt:
+                reply = await request.model.ainvoke(list(request.messages), config=self.call_config)
+        return reply
+
+    def request_reply_sync(self, request: ReplyRequest) -> AIMessage:
+        """Draw one reply without an event loop, calling the model again after a rate limit."""
+        for attempt in stamina.retry_context(
+            on=is_rate_limit_error,
+            attempts=RATE_LIMIT_ATTEMPTS,
+            wait_initial=RATE_LIMIT_FIRST_WAIT_SECONDS,
+        ):
+            with attempt:
+                reply = request.model.invoke(list(request.messages), config=self.call_config)
+        return reply
 
 
 def is_reply_cut_off(reply: AIMessage) -> bool:

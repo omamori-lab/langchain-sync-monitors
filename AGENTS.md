@@ -60,7 +60,9 @@ a lanorme finding.
 - **Prefer a canonical library to hand-rolled logic**: stamina for retries of
   network calls, pydantic for validating external payloads, httpx for HTTP,
   the standard library `statistics` and `bisect` for numbers. Chat models
-  already retry on their own (`max_retries`); do not wrap them in stamina.
+  retry network and server errors on their own (`max_retries`), so do not wrap
+  them in stamina. HTTP 429 is the exception: `ChatOpenRouter` does not retry
+  it, so a chat monitor retries its own calls on one (`monitors/chat.py`).
 - **Cite sources at the point of use.** When code or a docs page takes an idea,
   a protocol, a number or a code pattern from a paper, a post or another
   codebase, cite it with `[@key]` in the docstring or text and add the entry to

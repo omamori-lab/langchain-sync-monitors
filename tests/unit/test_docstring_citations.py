@@ -18,7 +18,10 @@ from types import ModuleType
 
 import pytest
 
-HOOK_PATH = Path(__file__).resolve().parents[2] / "docs" / "hooks" / "citations.py"
+REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
+HOOK_PATH = REPOSITORY_ROOT / "docs" / "hooks" / "citations.py"
+CONFIG_PATH = REPOSITORY_ROOT / "mkdocs.yml"
+HOOK_CONFIG_ENTRY = "docs/hooks/citations.py"
 HOOK_LOGGER = "mkdocs.hooks.citations"
 KNOWN_KEYS = frozenset({"first2026", "second2026"})
 
@@ -135,6 +138,26 @@ def test_a_page_with_footnotes_of_its_own_warns(
 
     # Assert
     assert [record.name for record in caplog.records] == [HOOK_LOGGER]
+
+
+def test_the_site_runs_the_hook_with_the_bibliography(hook: ModuleType) -> None:
+    # Arrange
+    config_module = importlib.import_module("mkdocs.config")
+    config = config_module.load_config(config_file=str(CONFIG_PATH))
+    config["plugins"]["bibtex"].on_config(config)
+    registered = config["hooks"][HOOK_CONFIG_ENTRY]
+    page = "<p>Auto mode [@hughes2026automode] blocks a step.</p>"
+
+    # Act
+    rendered = registered.on_page_content(page, page=None, config=config, files=None)
+
+    # Assert
+    assert Path(registered.__file__) == HOOK_PATH
+    assert list(config["plugins"]).index("bibtex") < list(config["plugins"]).index(
+        HOOK_CONFIG_ENTRY,
+    )
+    assert '<sup id="fnref:hughes2026automode">' in rendered
+    assert '<li id="fn:hughes2026automode">\n<p>John Hughes. How we built Claude Code' in rendered
 
 
 def test_an_entry_renders_its_markdown_link_inline(hook: ModuleType) -> None:

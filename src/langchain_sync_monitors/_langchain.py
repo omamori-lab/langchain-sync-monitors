@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import logging
 from collections.abc import AsyncIterator, Awaitable, Callable, Iterator, Mapping, Sequence
-from contextlib import asynccontextmanager, contextmanager
+from contextlib import AbstractContextManager, asynccontextmanager, contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass, field, replace
 from typing import Any, Literal, NotRequired, TypedDict, cast
@@ -34,6 +34,7 @@ from langgraph.runtime import Runtime
 from langgraph.types import Command, Overwrite
 from pydantic import TypeAdapter, ValidationError
 
+from langchain_sync_monitors.context_values import set_context_value
 from langchain_sync_monitors.contracts import Delegation, SampleRecord, StepRecord
 from langchain_sync_monitors.errors import ConfigurationError, MonitorError
 
@@ -160,9 +161,16 @@ def read_overwrite_forms(value: UpdateValue) -> tuple[bool, UpdateValue]:
     """
     if isinstance(value, Overwrite):
         return True, value.value
-    if isinstance(value, dict) and len(value) == 1 and OVERWRITE_KEY in value:
+    if isinstance(value, dict):
+        return read_overwrite_dict(value)
+    return False, None
+
+
+def read_overwrite_dict(value: dict[str, UpdateValue]) -> tuple[bool, UpdateValue]:
+    """Tell whether a dict is one of the two dictionary forms of an `Overwrite`, and read it."""
+    if len(value) == 1 and OVERWRITE_KEY in value:
         return True, value[OVERWRITE_KEY]
-    if isinstance(value, dict) and value.get("type") == OVERWRITE_KEY and "value" in value:
+    if value.get("type") == OVERWRITE_KEY and "value" in value:
         return True, value["value"]
     return False, None
 
@@ -457,11 +465,8 @@ def hide_model_calls_from_message_stream() -> Iterator[None]:
     """
     config = var_child_runnable_config.get() or RunnableConfig()
     hidden_config: RunnableConfig = {**config, "tags": [*config.get("tags", []), TAG_NOSTREAM]}
-    token = var_child_runnable_config.set(hidden_config)
-    try:
+    with set_context_value(var_child_runnable_config, value=hidden_config):
         yield
-    finally:
-        var_child_runnable_config.reset(token)
 
 
 @contextmanager
@@ -474,11 +479,8 @@ def label_monitor_spans(labels: TraceValues) -> Iterator[None]:
     in the metadata LangChain passes down, so no model call inside the block
     carries them.
     """
-    token = span_labels.set(labels)
-    try:
+    with set_context_value(span_labels, value=labels):
         yield
-    finally:
-        span_labels.reset(token)
 
 
 def build_span_manager[ManagerT: (CallbackManager, AsyncCallbackManager)](
@@ -537,8 +539,20 @@ def build_span_manager[ManagerT: (CallbackManager, AsyncCallbackManager)](
     return callback_manager
 
 
+def nest_calls_in_run(
+    run_callbacks: BaseCallbackManager,
+    *,
+    config: RunnableConfig,
+) -> AbstractContextManager[None]:
+    """Give every LangChain run started inside the block a span's child callbacks, as its parent."""
+    callbacks_config = patch_config(config, callbacks=run_callbacks)
+    return set_context_value(var_child_runnable_config, value=callbacks_config)
+
+
 @contextmanager
-def open_traced_run_sync(span: TraceSpan) -> Iterator[TracedRun]:
+def open_traced_run_sync(  # lanorme: ignore[SIMILAR-001] its async twin awaits each callback
+    span: TraceSpan,
+) -> Iterator[TracedRun]:
     """Open the span under the running node, for `invoke()`; model calls in the block nest in it.
 
     With no callback handler attached nothing is opened, and the block runs as
@@ -560,16 +574,13 @@ def open_traced_run_sync(span: TraceSpan) -> Iterator[TracedRun]:
     run_manager = callback_manager.on_chain_start(
         None, dict(span.inputs), run_id=span.run_id, name=span.name
     )
-    token = var_child_runnable_config.set(patch_config(config, callbacks=run_manager.get_child()))
-    try:
-        yield traced_run
-    except BaseException as error:
-        run_manager.on_chain_error(error, **traced_run.build_end_arguments())
-        raise
-    else:
+    with nest_calls_in_run(run_manager.get_child(), config=config):
+        try:
+            yield traced_run
+        except BaseException as error:
+            run_manager.on_chain_error(error, **traced_run.build_end_arguments())
+            raise
         run_manager.on_chain_end(dict(traced_run.outputs), **traced_run.build_end_arguments())
-    finally:
-        var_child_runnable_config.reset(token)
 
 
 @asynccontextmanager
@@ -590,13 +601,10 @@ async def open_traced_run(span: TraceSpan) -> AsyncIterator[TracedRun]:
     run_manager = await callback_manager.on_chain_start(
         None, dict(span.inputs), run_id=span.run_id, name=span.name
     )
-    token = var_child_runnable_config.set(patch_config(config, callbacks=run_manager.get_child()))
-    try:
-        yield traced_run
-    except BaseException as error:
-        await run_manager.on_chain_error(error, **traced_run.build_end_arguments())
-        raise
-    else:
+    with nest_calls_in_run(run_manager.get_child(), config=config):
+        try:
+            yield traced_run
+        except BaseException as error:
+            await run_manager.on_chain_error(error, **traced_run.build_end_arguments())
+            raise
         await run_manager.on_chain_end(dict(traced_run.outputs), **traced_run.build_end_arguments())
-    finally:
-        var_child_runnable_config.reset(token)

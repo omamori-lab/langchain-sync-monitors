@@ -24,6 +24,7 @@ from __future__ import annotations
 from collections.abc import Iterator
 from contextlib import contextmanager
 from contextvars import ContextVar
+from dataclasses import dataclass
 
 from langchain.agents.middleware.types import ToolCallRequest
 from langgraph.errors import ParentCommand
@@ -35,6 +36,7 @@ from langchain_sync_monitors._langchain import (
     ToolCallResults,
     cast_to_tool_call_result,
 )
+from langchain_sync_monitors.context_values import set_context_value
 from langchain_sync_monitors.delegation import add_delegation
 from langchain_sync_monitors.returned_records import (
     ToolCaller,
@@ -63,31 +65,50 @@ def is_checked_further_out(request: ToolCallRequest) -> bool:
     )
 
 
-@contextmanager
-def check_tool_call(request: ToolCallRequest, *, caller: ToolCaller) -> Iterator[None]:
-    """Mark the request this monitor hands on as checked while the rest of the stack runs it.
+@dataclass(frozen=True, slots=True, kw_only=True)
+class CheckedToolCall:
+    """A tool call as this monitor hands it on: the request to run, and who made the call.
 
-    A `ParentCommand` the call raises is relabelled and checked, in place, on its way out.
+    `caller` is None when a monitor further out in the agent checks the call,
+    and the result then passes through as it is. It has no default, so
+    leaving it out cannot build a call that skips the checks.
     """
-    token = checked_tool_call.set(request)
-    try:
-        yield
-    except ParentCommand as bubble:
-        relabel_parent_command(bubble, tool_name=caller.tool_call["name"], state=caller.state)
-        check_parent_command_records(bubble, caller=caller)
-        raise
-    finally:
-        checked_tool_call.reset(token)
+
+    request: ToolCallRequest
+    caller: ToolCaller | None
+
+    def check_result(self, result: ToolCallResults) -> ToolCallResult:
+        """Return the call's result with its messages relabelled and its records checked."""
+        if self.caller is None:
+            return cast_to_tool_call_result(result)
+        written = mark_tool_written_notes(
+            result,
+            tool_name=self.caller.tool_call["name"],
+            state=self.caller.state,
+        )
+        return cast_to_tool_call_result(check_returned_records(written, caller=self.caller))
 
 
-def check_tool_result(result: ToolCallResults, *, caller: ToolCaller) -> ToolCallResult:
-    """Return a tool's result with its messages relabelled and its records checked."""
-    written = mark_tool_written_notes(
-        result,
-        tool_name=caller.tool_call["name"],
-        state=caller.state,
-    )
-    return cast_to_tool_call_result(check_returned_records(written, caller=caller))
+@contextmanager
+def check_tool_call(request: ToolCallRequest, *, agent: str) -> Iterator[CheckedToolCall]:
+    """Hand on the call with its delegation, marked as checked while the rest of the stack runs it.
+
+    A call a monitor further out already checks is handed on as it is. A
+    `ParentCommand` the call raises is relabelled and checked, in place, on
+    its way out.
+    """
+    if is_checked_further_out(request):
+        yield CheckedToolCall(request=request, caller=None)
+        return
+    caller = read_tool_caller(request.state, agent=agent, tool_call=request.tool_call)
+    delegated = add_delegation(request, agent=agent)
+    with set_context_value(checked_tool_call, value=delegated):
+        try:
+            yield CheckedToolCall(request=delegated, caller=caller)
+        except ParentCommand as bubble:
+            relabel_parent_command(bubble, tool_name=caller.tool_call["name"], state=caller.state)
+            check_parent_command_records(bubble, caller=caller)
+            raise
 
 
 def run_tool_call(
@@ -97,13 +118,9 @@ def run_tool_call(
     agent: str,
 ) -> ToolCallResult:
     """Run a tool call under `invoke()`, handing on the delegation and checking what it writes."""
-    if is_checked_further_out(request):
-        return handler(request)
-    caller = read_tool_caller(request.state, agent=agent, tool_call=request.tool_call)
-    delegated = add_delegation(request, agent=agent)
-    with check_tool_call(delegated, caller=caller):
-        result = handler(delegated)
-    return check_tool_result(result, caller=caller)
+    with check_tool_call(request, agent=agent) as checked_call:
+        result = handler(checked_call.request)
+    return checked_call.check_result(result)
 
 
 async def arun_tool_call(
@@ -113,10 +130,6 @@ async def arun_tool_call(
     agent: str,
 ) -> ToolCallResult:
     """Run a tool call under `ainvoke()`, handing on the delegation and checking what it writes."""
-    if is_checked_further_out(request):
-        return await handler(request)
-    caller = read_tool_caller(request.state, agent=agent, tool_call=request.tool_call)
-    delegated = add_delegation(request, agent=agent)
-    with check_tool_call(delegated, caller=caller):
-        result = await handler(delegated)
-    return check_tool_result(result, caller=caller)
+    with check_tool_call(request, agent=agent) as checked_call:
+        result = await handler(checked_call.request)
+    return checked_call.check_result(result)

@@ -7,6 +7,7 @@ import math
 import os
 import warnings
 from pathlib import Path
+from types import FunctionType
 
 import pytest
 from langchain_core.language_models.fake_chat_models import FakeListChatModel
@@ -160,14 +161,19 @@ def test_the_uncalibrated_warning_names_the_default_and_says_how_to_calibrate() 
     ]
 
 
+def build_default_auto_mode() -> AutoMode:
+    return AutoMode()
+
+
 def test_the_warning_points_at_a_caller_whose_path_only_begins_like_the_library_s() -> None:
     # Arrange: a sibling package such as langchain_sync_monitors_extras is not this library
     sibling_file = os.path.join(LIBRARY_DIRECTORY.rstrip(os.sep) + "_extras", "protocols.py")
-    build_protocol = compile("AutoMode()", sibling_file, "exec")
+    code_in_sibling = build_default_auto_mode.__code__.replace(co_filename=sibling_file)
+    build_in_sibling = FunctionType(code_in_sibling, build_default_auto_mode.__globals__)
 
     # Act
     with pytest.warns(UncalibratedThresholdWarning) as record:
-        exec(build_protocol, {"AutoMode": AutoMode})
+        build_in_sibling()
 
     # Assert
     assert [warning.filename for warning in record] == [sibling_file]

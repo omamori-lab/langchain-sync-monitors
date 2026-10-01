@@ -11,6 +11,7 @@ from langchain.agents.middleware.types import InputAgentState
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, ToolMessage
 from langchain_core.runnables import Runnable, RunnableConfig
 from langchain_core.tools import BaseTool, tool
+from langgraph.pregel import Pregel
 
 from langchain_sync_monitors.contracts import StepRecord
 from langchain_sync_monitors.middleware import MonitorMiddleware
@@ -202,17 +203,45 @@ def stream_messages(
     return [message for message, _metadata in parts]
 
 
+def stream_v3_messages(
+    agent: Pregel[Any, Any, Any, Any],
+    *,
+    mode: RunMode,
+    config: RunnableConfig | None = None,
+) -> list[BaseMessage]:
+    """Return the message of every stream in the v3 event stream's `run.messages`, in order."""
+    payload = build_task_input()
+    if mode == "invoke":
+        run = agent.stream_events(payload, config, version="v3")
+        return [message_stream.output for message_stream in run.messages]
+
+    async def collect() -> list[BaseMessage]:
+        run = await agent.astream_events(payload, config, version="v3")
+        return [await message_stream.output async for message_stream in run.messages]
+
+    return asyncio.run(collect())
+
+
 def find_unanswered_tool_calls(messages: Sequence[BaseMessage]) -> list[str]:
-    """Return tool call ids with no result before the next AI turn, as providers reject them."""
+    """Return the ids of tool calls, malformed ones included, left unanswered.
+
+    A provider rejects a request in which a call is not answered before the
+    next message that is not a tool result, and OpenAI-compatible chat models
+    send a malformed call as an ordinary tool call.
+    """
     unanswered: list[str] = []
-    open_calls: set[str] = set()
+    open_calls: list[str] = []
     for message in messages:
+        if isinstance(message, ToolMessage):
+            if message.tool_call_id in open_calls:
+                open_calls.remove(message.tool_call_id)
+            continue
+        unanswered.extend(open_calls)
+        open_calls = []
         if isinstance(message, AIMessage):
-            unanswered.extend(sorted(open_calls))
-            open_calls = {call["id"] for call in message.tool_calls if call["id"]}
-        elif isinstance(message, ToolMessage):
-            open_calls.discard(message.tool_call_id)
-    return unanswered + sorted(open_calls)
+            calls = [*message.tool_calls, *message.invalid_tool_calls]
+            open_calls = [call["id"] or "" for call in calls]
+    return unanswered + open_calls
 
 
 def read_texts(messages: Sequence[BaseMessage]) -> list[str]:

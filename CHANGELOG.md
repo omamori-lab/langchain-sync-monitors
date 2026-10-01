@@ -118,8 +118,10 @@ change raises the minor version.
   the score it is compared with: one sample's score, or, for Defer to
   Resample's `audit_threshold` when `max_resamples` is above 0, the lowest
   score across a step's samples.
-- `ThresholdStatistic`, which `resolve_threshold` takes as `statistic` to name
-  the score a threshold is compared with.
+- `ThresholdStatistic`, which names the score a threshold is compared with.
+  `resolve_threshold` takes it as `statistic`, and
+  `DeferToResample.audit_statistic` gives the one that protocol's
+  `audit_threshold` is compared with.
 - A flag marks a step for audit and never blocks it.
 - `CachedResampleWarning`, raised when a response cache would turn resamples
   into copies of the first sample.

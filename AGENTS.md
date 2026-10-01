@@ -42,14 +42,50 @@ a lanorme finding.
 - Errors live in `errors.py` and derive from `MonitorError`. Diagnostics go
   through `logging.getLogger(__name__)`, never `print`.
 
+## How the code is designed
+
+Keep to these patterns; reviewers check them.
+
+- **Simple for the user, configurable for the expert.** A monitored agent is
+  one line, `MonitorMiddleware(monitor=..., protocol=...)`. Every behaviour
+  is an option with a sensible default (never a default model), checked when
+  the object is built, and anything beyond the options is an implementation
+  of a contract.
+- **Program to the contracts.** `contracts.py` defines the interfaces:
+  `Monitor`, `ControlProtocol`, `Fallback` and `PendingStep`, with
+  `DecisionModel` in `monitors/decision.py`. Code depends on these, not on
+  concrete classes, so any monitor works with any protocol.
+- **A strategy for every choice.** Behaviour that can vary is an object or an
+  enum passed in: a protocol, a fallback, a monitor, a decision model,
+  `GuardScoring`, `Combine`, `MonitorView`, `FeedbackVisibility`,
+  `SubagentHalt`, `Resampling`. No flag switches behaviour inside one class.
+- **Composition over inheritance.** Monitors compose: `RepeatedMonitor`,
+  `CalibratedMonitor` and `CascadeMonitor` are monitors that hold monitors.
+  Inherit only from a contract, or from a template with named hooks such as
+  `ChatModelMonitor`.
+- **A small core of functions, a thin shell.** The middleware wires
+  LangChain's hooks; the decisions live in small functions over typed records
+  (`halts.py`, `records.py`, `transcript.py`, `task_authorship.py`), each
+  testable on its own, and shared by the sync and async paths.
+- **One layer touches LangChain's untyped surfaces.** `_langchain.py` reads
+  and writes them; everything else sees typed values.
+- **Wrong states cannot be built.** Typed records, enums and frozen dataclasses
+  carry the data; external payloads are validated with pydantic where they
+  enter; a value the library cannot read fails closed.
+- **One source of truth.** Each state key is a named constant, gathered in
+  `state_keys.py`; the messages the monitor writes into a run, such as
+  `DEFAULT_HALT_MESSAGE` and `STANDING_HALT_MESSAGE`, are named constants; and
+  each documented fact lives on one page.
+
 ## Rules that the gates do not fully catch
 
 - **Every model is a parameter.** No monitor, protocol or example picks a model
   by default. Accept `str | BaseChatModel` and resolve strings with
   `init_chat_model`.
-- **Names.** A function is named for what it does, verb first (`build_`,
-  `render_`, `read_`, `is_`); modules and classes are nouns. Use full words: no
-  shorthands or abbreviations beyond standard ones such as `id` or `url`.
+- **Names.** Functions and methods are verbs, named for what they do, verb
+  first (`build_`, `render_`, `read_`, `is_`); classes, modules and packages
+  are nouns, named for what they are. Use full words: no shorthands or
+  abbreviations beyond standard ones such as `id` or `url`.
   LangChain's fixed hook names, such as `wrap_model_call`, `awrap_tool_call`
   and `aafter_model`, are the only exception.
 - **Keyword-only parameters** for every public constructor and function after
@@ -100,4 +136,7 @@ reference and explanation. Every page has one level-1 heading and opens with a
 line that starts "This page", "This tutorial", "This guide", "This reference",
 "This how-to" or "This explanation". Prose uses British spelling, no em dashes
 and no emoji. Docs state current truth only; history lives in `CHANGELOG.md`.
-Add a `## [Unreleased]` entry for anything a user would notice.
+Docs change with the code in the same pull request: a change to behaviour, an
+option, a name or a message updates every page, docstring, example and figure
+that states it. Add a `## [Unreleased]` entry for anything a user would
+notice.

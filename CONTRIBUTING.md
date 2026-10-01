@@ -19,6 +19,10 @@ change must pass, how to send a pull request and how to cut a release.
 
 ## Principles
 
+- **Simple to use, open to configure.** A monitored agent takes one line; every
+  behaviour is an option with a sensible default; anything beyond the options
+  is your own implementation of a contract in `contracts.py`. `AGENTS.md`
+  ("How the code is designed") lists the design patterns the code keeps to.
 - **Every model is a parameter.** The library never picks a model for you.
 - **Core dependencies stay small.** Providers sit behind extras.
 - **Types say what the data is.** No `Any` where the shape is known.

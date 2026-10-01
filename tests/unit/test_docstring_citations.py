@@ -256,7 +256,10 @@ def test_a_citation_in_link_text_stays_as_written_and_warns(
         '<p>A stray </a> end tag, then <a href="#x">see [@first2026]</a></p>',
         '<p><a id="x"/> then [@first2026]</p>',
         '<p><autoref identifier="x"/> then [@first2026]</p>',
+        '<svg><autoref identifier="x"/></svg><p>then [@first2026]</p>',
         "<p><button>see [@first2026]</button></p>",
+        "<p><button>Copy </a>[@first2026]</button></p>",
+        '<svg><a href="#x"/></svg><p><a href="#y">see [@first2026]</a></p>',
     ],
     ids=[
         "inside-an-inline-element",
@@ -266,7 +269,10 @@ def test_a_citation_in_link_text_stays_as_written_and_warns(
         "after-a-stray-end-tag",
         "after-a-self-closing-link",
         "after-a-self-closing-cross-reference",
+        "after-a-self-closing-cross-reference-in-svg",
         "inside-a-button",
+        "inside-a-button-after-a-stray-link-end-tag",
+        "inside-a-link-after-a-self-closing-svg-link",
     ],
 )
 def test_a_citation_where_no_link_may_go_stays_as_written_and_warns(
@@ -298,6 +304,9 @@ def test_a_citation_where_no_link_may_go_stays_as_written_and_warns(
         "<p><button>Copy</button> ",
         "<p><br/> ",
         "<p><code/> ",
+        '<svg><a href="#x"/></svg><p>',
+        '<math><a href="#x"/></math><p>',
+        "<svg><button/></svg><p>",
     ],
     ids=[
         "a-link",
@@ -308,6 +317,9 @@ def test_a_citation_where_no_link_may_go_stays_as_written_and_warns(
         "a-button",
         "a-self-closing-void-element",
         "a-self-closing-verbatim-element",
+        "a-self-closing-link-in-svg",
+        "a-self-closing-link-in-mathml",
+        "a-self-closing-button-in-svg",
     ],
 )
 def test_a_citation_where_a_link_may_go_renders_without_a_warning(

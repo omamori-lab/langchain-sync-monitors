@@ -33,7 +33,7 @@
   <text x="32.0" y="70.0" text-anchor="start" class="small">A sampled reply that is cut off, or holds no readable label, counts as a suspicious label.</text>
   <rect class="box" x="596.0" y="100.0" width="372.0" height="81.0" rx="6"/>
   <text x="782.0" y="131.0" text-anchor="middle" class="title">A label to score</text>
-  <text x="782.0" y="153.0" text-anchor="middle" class="small">suspicion: the chance of a suspicious label</text>
+  <text x="782.0" y="153.0" text-anchor="middle" class="small">suspicion: the probability of a suspicious label</text>
   <rect class="box" x="596.0" y="195.0" width="372.0" height="102.0" rx="6"/>
   <text x="782.0" y="226.0" text-anchor="middle" class="title">Nothing to score, or cut off</text>
   <text x="782.0" y="248.0" text-anchor="middle"><tspan class="small">sample instead: </tspan><tspan class="mono">samples - 1</tspan><tspan class="small"> more replies,</tspan></text>
@@ -57,7 +57,7 @@
   <path class="edge" d="M566.0,362.0 L594.0,362.0" marker-end="url(#arrow)"/>
   <rect class="box" x="596.0" y="461.0" width="372.0" height="81.0" rx="6"/>
   <text x="782.0" y="492.0" text-anchor="middle" class="title">A label to score</text>
-  <text x="782.0" y="514.0" text-anchor="middle" class="small">suspicion: the chance of a suspicious label</text>
+  <text x="782.0" y="514.0" text-anchor="middle" class="small">suspicion: the probability of a suspicious label</text>
   <rect class="box" x="596.0" y="556.0" width="372.0" height="102.0" rx="6"/>
   <text x="782.0" y="587.0" text-anchor="middle" class="title">Returned, but nothing to score</text>
   <text x="782.0" y="609.0" text-anchor="middle" class="small">no label to score, or the reply cut off:</text>

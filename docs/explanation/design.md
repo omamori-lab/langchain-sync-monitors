@@ -940,8 +940,11 @@ there raises `SynchronousRunError` instead of hanging, and so does one that
 starts asyncio work where no loop can run it, such as `asyncio.gather`
 outside a running loop, or a monitor whose `evaluate_sync` does. Inside a
 running loop, as when `invoke()` is called from a notebook, any task the
-protocol scheduled is cancelled before it starts, and once a step is over its
-pending step refuses to call the model. A timeout cannot limit a pending
+protocol scheduled is cancelled before it starts. Once a step is over, under
+either entry point, its pending step refuses to call the model or the
+monitor: a task a protocol started and did not await raises
+`SynchronousRunError` under `invoke()` and `MonitorError` under `ainvoke()`,
+rather than draw a sample nothing can use. A timeout cannot limit a pending
 step's call under `invoke()`
 ([protocols and configuration](#protocols-and-configuration)).
 
@@ -1002,7 +1005,7 @@ wrappers, `MonitorView`, the decision models, `monitor_subagents` and
 
 | Class | Raised or emitted when |
 |---|---|
-| `MonitorError` | The base class of the library's own errors. Also raised at run time for a malformed record in `monitor_log` or `monitor_subagent_returns`, and for a decision model's answer that is not a probability from 0 to 1. |
+| `MonitorError` | The base class of the library's own errors. Also raised at run time for a malformed record in `monitor_log` or `monitor_subagent_returns`, for a decision model's answer that is not a probability from 0 to 1, and for a pending step used after its step under `ainvoke()` ([sync and async](#sync-and-async)). |
 | `ConfigurationError` | An option cannot work. Also at run time: for an invalid `monitor_delegation` in an agent's input; for a guard model that returns no log-probabilities under `GuardScoring.LOG_PROBABILITIES`, or that rejects the request for them under `GuardScoring.AUTO` or `LOG_PROBABILITIES`; and for a tool call that reuses the id of the call that started its agent and returns records under that agent's name ([subagents and the thread total](#subagents-and-the-thread-total)). |
 | `MissingExtraError` | A feature needs an extra that is not installed; the message names the install command. It is a `ConfigurationError` and an `ImportError`. |
 | `SynchronousRunError` | A protocol or monitor needs an event loop under `invoke()` ([sync and async](#sync-and-async)). |

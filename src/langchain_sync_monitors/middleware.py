@@ -327,6 +327,10 @@ class MonitorMiddleware(AgentMiddleware[MonitorState, AgentContext, StructuredOu
                         middleware_name=self.name,
                     )
                     raise
+                finally:
+                    # A task the protocol started and left running may outlast the step.
+                    # Once closed, the step refuses it the model and the monitor.
+                    step.close()
             record = prepared.identity.build_record(decision)
             await trace_decision(traced_step, record=record)
             return commit_step(

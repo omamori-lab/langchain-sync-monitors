@@ -338,3 +338,53 @@ async def test_each_judged_sample_is_kept_on_the_step(
 
     # Assert
     assert step.judged_samples == [*first, *second]
+
+
+async def test_an_async_draw_the_step_outlasts_is_never_judged(
+    untrusted_model: ScriptedChatModel,
+    monitor: KeywordMonitor,
+) -> None:
+    # Arrange: the model call is still running when the step is closed
+    handler = RecordingHandler(delay=0.05)
+    step = AsyncPendingStep(
+        request=build_request(untrusted_model),
+        handler=handler.run_async,
+        monitor=monitor,
+        task_author=TaskAuthor.USER,
+    )
+    draw = asyncio.create_task(step.sample(count=1))
+    await asyncio.sleep(0.01)
+
+    # Act
+    step.close()
+    with pytest.raises(MonitorError, match="after its step was over"):
+        await draw
+
+    # Assert
+    assert len(handler.requests) == 1
+    assert monitor.inputs == []
+    assert step.judged_samples == []
+
+
+async def test_a_closed_async_step_refuses_every_call(
+    untrusted_model: ScriptedChatModel,
+    monitor: KeywordMonitor,
+) -> None:
+    # Arrange
+    handler = RecordingHandler()
+    step = AsyncPendingStep(
+        request=build_request(untrusted_model),
+        handler=handler.run_async,
+        monitor=monitor,
+        task_author=TaskAuthor.USER,
+    )
+    step.close()
+
+    # Act
+    with pytest.raises(MonitorError, match="after its step was over"):
+        await step.sample(count=2, concurrently=True)
+    with pytest.raises(MonitorError, match="after its step was over"):
+        await step.request_trusted_step(trusted_model=untrusted_model)
+
+    # Assert
+    assert handler.requests == []

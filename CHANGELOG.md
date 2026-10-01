@@ -404,5 +404,9 @@ change raises the minor version.
   judge asks again after an unreadable reply: the cache answered each with
   the first reply, so a guard's score became one label and a judge's retries
   failed closed, with no warning.
+- Under `ainvoke()`, a pending step refuses the model and the monitor once
+  its step is over, as it does under `invoke()`: a task a protocol started and
+  did not await raises `MonitorError`, where it used to call the model after
+  the step was committed.
 
 [Unreleased]: https://github.com/omamori-lab/langchain-sync-monitors/commits/main

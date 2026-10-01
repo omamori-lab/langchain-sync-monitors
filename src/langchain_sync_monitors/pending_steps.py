@@ -14,12 +14,10 @@ import functools
 import itertools
 import threading
 import warnings
-from collections.abc import Coroutine, Iterator, Sequence
+from collections.abc import Coroutine, Iterator
 from dataclasses import dataclass, field
-from typing import TypedDict, override
+from typing import ClassVar, TypedDict, override
 
-from langchain_core.caches import BaseCache
-from langchain_core.globals import get_llm_cache
 from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import AIMessage, BaseMessage
 
@@ -39,20 +37,23 @@ from langchain_sync_monitors.contracts import (
     MonitorInput,
     PendingStep,
     Sample,
+    SampleDrawing,
     StepDecision,
     StepRecord,
     TaskAuthor,
     Verdict,
 )
 from langchain_sync_monitors.errors import MonitorError, SynchronousRunError
-from langchain_sync_monitors.feedback import build_feedback_messages
+from langchain_sync_monitors.feedback import build_blocked_attempt_messages
+from langchain_sync_monitors.model_calls import CachedResampleWarning, is_response_cache_active
+from langchain_sync_monitors.options import check_enum_option
 from langchain_sync_monitors.run_inputs import RunInput, restore_run_inputs
 from langchain_sync_monitors.spans import (
     StepIdentity,
     build_judgement_span,
     build_verdict_outputs,
 )
-from langchain_sync_monitors.task_authorship import mark_context_notes
+from langchain_sync_monitors.task_authorship import tag_context_notes
 from langchain_sync_monitors.thresholds import LIBRARY_DIRECTORY
 
 SYNCHRONOUS_RUN_MESSAGE = (
@@ -61,7 +62,7 @@ SYNCHRONOUS_RUN_MESSAGE = (
     "run the agent with ainvoke() to use anything else."
 )
 MONITOR_EVENT_LOOP_MESSAGE = (
-    "The monitor {monitor_name} started asynchronous work in evaluate_sync, where no event "
+    "The monitor {monitor_class} started asynchronous work in evaluate_sync, where no event "
     "loop can run it, during a synchronous invoke(). A monitor's evaluate_sync must finish "
     "without an event loop; run the agent with ainvoke() to use asyncio."
 )
@@ -70,18 +71,14 @@ MISSING_EVENT_LOOP_MESSAGES = ("no running event loop", "no current event loop")
 
 CLOSED_STEP_MESSAGE = (
     "A pending step was used after its synchronous invoke() step was over, from a task a "
-    "control protocol scheduled on an event loop. Run the agent with ainvoke() to use asyncio."
+    "control protocol scheduled on an event loop. Under invoke() a protocol may await only "
+    "the pending step's own methods, and must await each one before it decides."
 )
-
-
-class CachedResampleWarning(UserWarning):
-    """A step is sampled more than once on the same request while a response cache is active.
-
-    LangChain answers an identical request from its cache [@langchaincore2026],
-    so every resample is a copy of the first sample and resampling can never
-    find a safer one: resampling helps less the more deterministic the model
-    is [@bhatt2025ctrlzpost], and a cached model is fully deterministic.
-    """
+CLOSED_ASYNC_STEP_MESSAGE = (
+    "A pending step was used after its step was over, from a task a control protocol started "
+    "and did not await. A protocol must await every call it makes on the pending step before "
+    "it returns its decision, since nothing can use a sample drawn after it."
+)
 
 
 def read_running_loop() -> asyncio.AbstractEventLoop | None:
@@ -125,7 +122,7 @@ def run_synchronously[ResultT](coroutine: Coroutine[object, object, ResultT]) ->
     monitor's `evaluate_sync`. Inside a running loop, as in a notebook, a call
     that ends in `SynchronousRunError` cancels every task the protocol
     scheduled before it starts. A call that returns, or raises another error,
-    leaves such a task scheduled: `SyncPendingStep.close()`, which the
+    leaves such a task scheduled: `MonitoredStep.close()`, which the
     middleware calls once the step is over, keeps it from reaching the model.
     """
     loop = read_running_loop()
@@ -161,35 +158,6 @@ def find_proposal(response: AgentModelResponse) -> AIMessage:
             return message
     error_message = "The model call returned no AI message, so the monitor has no step to judge."
     raise MonitorError(error_message)
-
-
-def build_sampling_conversation(
-    messages: Sequence[BaseMessage],
-    *,
-    blocked_attempts: tuple[BlockedAttempt, ...],
-) -> tuple[BaseMessage, ...]:
-    """Return the conversation a sample is drawn on: the request, then each blocked attempt.
-
-    Each blocked attempt adds its proposal and the feedback on it, so the agent
-    sees why its earlier try was blocked.
-    """
-    feedback = [
-        message
-        for attempt in blocked_attempts
-        for message in build_feedback_messages(attempt=attempt)
-    ]
-    return (*messages, *feedback)
-
-
-def is_response_cache_active(model: BaseChatModel) -> bool:
-    """Tell whether LangChain answers this model's calls from a response cache.
-
-    A model's own `cache` wins: an instance is used, `False` turns caching
-    off, and `True` or `None` use the global cache when one is set.
-    """
-    if isinstance(model.cache, BaseCache):
-        return True
-    return model.cache is not False and get_llm_cache() is not None
 
 
 @functools.cache
@@ -260,7 +228,16 @@ class MonitoredStep(PendingStep):
     step fails before it is committed. `sample_numbers` numbers the samples
     in the order their draws start, for the judgement spans. A pending step
     lives for one step only, so this is not state shared between runs.
+
+    Once the middleware has finished the step, under either entry point, it
+    calls `close`, and from then on the step refuses to call a model or the
+    monitor: a task a protocol started and left running cannot reach the
+    model after the step was committed. The refusal raises `closed_step_error`
+    with `closed_step_message`.
     """
+
+    closed_step_error: ClassVar[type[MonitorError]] = MonitorError
+    closed_step_message: ClassVar[str] = CLOSED_ASYNC_STEP_MESSAGE
 
     request: AgentModelRequest
     monitor: Monitor
@@ -275,13 +252,27 @@ class MonitoredStep(PendingStep):
     # The blocked attempts each draw of this step was shown, so a repeated request is spotted.
     sampled_attempts: list[tuple[BlockedAttempt, ...]] = field(default_factory=list)
     sample_numbers: Iterator[int] = field(default_factory=lambda: itertools.count(1))
+    closed: threading.Event = field(default_factory=threading.Event)
+
+    def close(self) -> None:
+        """Refuse every later call to the model or the monitor through this step."""
+        self.closed.set()
+
+    def check_open(self) -> None:
+        """Raise `closed_step_error` when the step is already over."""
+        if self.closed.is_set():
+            raise self.closed_step_error(self.closed_step_message)
 
     def build_conversation(
         self,
         blocked_attempts: tuple[BlockedAttempt, ...],
     ) -> tuple[BaseMessage, ...]:
-        """Return this step's conversation, followed by any blocked attempts and their feedback."""
-        return build_sampling_conversation(self.request.messages, blocked_attempts=blocked_attempts)
+        """Return the conversation a sample is drawn on: the request, then each blocked attempt.
+
+        Each blocked attempt adds its proposal and the feedback on it, so the
+        agent sees why its earlier try was blocked.
+        """
+        return (*self.request.messages, *build_blocked_attempt_messages(blocked_attempts))
 
     def build_sample_request(self, conversation: tuple[BaseMessage, ...]) -> AgentModelRequest:
         """Return this step's request with the conversation a sample is drawn on."""
@@ -305,12 +296,12 @@ class MonitoredStep(PendingStep):
         there verbatim, even one the request no longer holds. A turn put back
         carries its text alone, without any image it held.
         """
-        marked = mark_context_notes(conversation, task_message_ids=self.task_message_ids)
+        tagged = tag_context_notes(conversation, task_message_ids=self.task_message_ids)
         history = restore_run_inputs(
-            marked,
+            tagged,
             run_inputs=self.run_inputs,
             task_message_ids=self.task_message_ids,
-            rewritten_ids=self.rewritten_input_ids,
+            rewritten_input_ids=self.rewritten_input_ids,
         )
         return MonitorInput(history=history, proposal=proposal, task_author=self.task_author)
 
@@ -318,6 +309,26 @@ class MonitoredStep(PendingStep):
         """Remember a judged sample as evidence, and return it."""
         self.judged_samples.append(sample)
         return sample
+
+    def prepare_draws(
+        self,
+        *,
+        count: int,
+        blocked_attempts: tuple[BlockedAttempt, ...],
+        drawing: SampleDrawing,
+    ) -> tuple[BaseMessage, ...]:
+        """Check a call to `sample`, and return the conversation its samples are drawn on.
+
+        A closed step raises `closed_step_error`, and a `drawing` that is not
+        a `SampleDrawing` member raises `ConfigurationError` naming the
+        members. Both entry points check `drawing`, though `invoke()` draws
+        one after another whatever it says, so a protocol that passes a plain
+        string fails alike under both.
+        """
+        self.check_open()
+        check_enum_option(drawing, option_type=SampleDrawing, parameter_name="drawing")
+        self.warn_when_resamples_are_cached(count=count, blocked_attempts=blocked_attempts)
+        return self.build_conversation(blocked_attempts)
 
     def warn_when_resamples_are_cached(
         self,
@@ -351,16 +362,19 @@ class AsyncPendingStep(MonitoredStep):
         *,
         count: int,
         blocked_attempts: tuple[BlockedAttempt, ...] = (),
-        concurrently: bool = False,
+        drawing: SampleDrawing = SampleDrawing.SEQUENTIAL,
     ) -> tuple[Sample, ...]:
         """Draw `count` samples through the rest of the stack and have the monitor judge each.
 
-        With `concurrently`, the samples are drawn at once in a task group, so
-        one failed draw cancels the others.
+        With `SampleDrawing.CONCURRENT`, the samples are drawn at once in a
+        task group, so one failed draw cancels the others.
         """
-        self.warn_when_resamples_are_cached(count=count, blocked_attempts=blocked_attempts)
-        conversation = self.build_conversation(blocked_attempts)
-        if concurrently:
+        conversation = self.prepare_draws(
+            count=count,
+            blocked_attempts=blocked_attempts,
+            drawing=drawing,
+        )
+        if drawing is SampleDrawing.CONCURRENT:
             draws = (self.draw_sample(conversation) for _ in range(count))
             return tuple(await run_concurrently(draws))
         return tuple([await self.draw_sample(conversation) for _ in range(count)])
@@ -369,10 +383,14 @@ class AsyncPendingStep(MonitoredStep):
         """Call the untrusted model once on the conversation and judge its proposal.
 
         The sample's number is taken before the first await, so samples drawn
-        at once are numbered in the order their draws were started.
+        at once are numbered in the order their draws were started. The step
+        is checked open before the model call and again before the monitor's,
+        since either await can outlast the step.
         """
         sample_number = next(self.sample_numbers)
+        self.check_open()
         response = await self.handler(self.build_sample_request(conversation))
+        self.check_open()
         proposal = find_proposal(response)
         monitor_input = self.build_monitor_input(conversation=conversation, proposal=proposal)
         judgement_span = build_judgement_span(sample_number=sample_number, monitor=self.monitor)
@@ -386,6 +404,7 @@ class AsyncPendingStep(MonitoredStep):
     @override
     async def request_trusted_step(self, *, trusted_model: BaseChatModel) -> AgentModelResponse:
         """Have the trusted model write the step through the rest of the stack."""
+        self.check_open()
         return await self.handler(self.build_trusted_request(trusted_model))
 
 
@@ -395,23 +414,14 @@ class SyncPendingStep(MonitoredStep):
 
     Its methods call the synchronous `handler` and `Monitor.evaluate_sync`
     directly, so `run_synchronously` can drive any protocol written against
-    `PendingStep`. Once the middleware has finished the step it calls
-    `close`, and from then on the step refuses to call a model: a task that a
-    protocol scheduled on an event loop, and that runs after the step, cannot
-    reach the model.
+    `PendingStep`. A closed step raises `SynchronousRunError`: only a task a
+    protocol scheduled on an event loop, as in a notebook, can run after it.
     """
 
+    closed_step_error: ClassVar[type[MonitorError]] = SynchronousRunError
+    closed_step_message: ClassVar[str] = CLOSED_STEP_MESSAGE
+
     handler: ModelCallHandler
-    closed: threading.Event = field(default_factory=threading.Event)
-
-    def close(self) -> None:
-        """Refuse every later call to the model through this step."""
-        self.closed.set()
-
-    def check_open(self) -> None:
-        """Raise `SynchronousRunError` when the step is already over."""
-        if self.closed.is_set():
-            raise SynchronousRunError(CLOSED_STEP_MESSAGE)
 
     @override
     async def sample(
@@ -419,16 +429,18 @@ class SyncPendingStep(MonitoredStep):
         *,
         count: int,
         blocked_attempts: tuple[BlockedAttempt, ...] = (),
-        concurrently: bool = False,
+        drawing: SampleDrawing = SampleDrawing.SEQUENTIAL,
     ) -> tuple[Sample, ...]:
         """Draw `count` samples one after another and have the monitor judge each.
 
-        Without an event loop nothing can run at once, so `concurrently` draws
-        the same samples in sequence.
+        Without an event loop nothing can run at once, so
+        `SampleDrawing.CONCURRENT` draws the same samples in sequence.
         """
-        self.check_open()
-        self.warn_when_resamples_are_cached(count=count, blocked_attempts=blocked_attempts)
-        conversation = self.build_conversation(blocked_attempts)
+        conversation = self.prepare_draws(
+            count=count,
+            blocked_attempts=blocked_attempts,
+            drawing=drawing,
+        )
         return tuple(self.draw_sample(conversation) for _ in range(count))
 
     def draw_sample(self, conversation: tuple[BaseMessage, ...]) -> Sample:
@@ -457,8 +469,8 @@ class SyncPendingStep(MonitoredStep):
         except RuntimeError as error:
             if not is_missing_event_loop_error(error):
                 raise
-            monitor_name = type(self.monitor).__name__
-            message = MONITOR_EVENT_LOOP_MESSAGE.format(monitor_name=monitor_name)
+            monitor_class_name = type(self.monitor).__name__
+            message = MONITOR_EVENT_LOOP_MESSAGE.format(monitor_class=monitor_class_name)
             raise SynchronousRunError(message) from error
 
     @override

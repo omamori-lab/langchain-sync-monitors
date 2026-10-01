@@ -22,7 +22,8 @@ async def run_concurrently[ResultT](
 
     When one raises, the task group cancels the others, and the first failure
     is raised as it is, not wrapped in an `ExceptionGroup`, so a caller sees
-    the same error as from a single call. Any further failures are logged.
+    the same error as from a single call. Any further failures are logged by
+    their type alone, since an error's message or repr can quote the request.
     """
     first_failure: BaseException | None = None
     try:
@@ -31,7 +32,7 @@ async def run_concurrently[ResultT](
     except BaseExceptionGroup as failures:
         first_failure, *other_failures = failures.exceptions
         for other_failure in other_failures:
-            logger.warning("A concurrent call also failed: %r", other_failure)
+            logger.warning("A concurrent call also failed, with %s.", type(other_failure).__name__)
     # Raised outside the `except`, so the error is not chained onto the exception group.
     if first_failure is not None:
         raise first_failure

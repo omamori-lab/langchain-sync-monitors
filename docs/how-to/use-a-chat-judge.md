@@ -18,8 +18,8 @@ default: the library never picks a model.
 - A chat model you build yourself sets the judge's temperature, token limit
   and retries.
 - A chat model wrapped in a Runnable, by `with_retry()` or `bind()`, raises
-  `ConfigurationError`. Pass the model itself; it retries on its own through
-  `max_retries`.
+  `ConfigurationError`. Pass the model itself, and set its retries through its
+  own `max_retries`.
 
 The models below are the ones the library's live runs used; choose your own.
 
@@ -43,7 +43,7 @@ agent = create_agent(
     tools=[read_file],
     # The monitor goes last in the middleware list.
     middleware=[
-        MonitorMiddleware(monitor=monitor, protocol=TrustedMonitoring(flag_threshold=0.6)),
+        MonitorMiddleware(monitor=monitor, protocol=TrustedMonitoring(audit_threshold=0.6)),
     ],
 )
 ```
@@ -79,8 +79,8 @@ some text, then exactly one `<score>` tag, with nothing but whitespace between
 them or after the score. Anything else is unreadable, and the monitor asks
 again. After the last attempt it fails closed.
 
-[![LLMMonitor calls the judge with the filled prompt, the same prompt on every attempt. If the call still fails after the chat model's own retries, the error is raised: the step fails, and nothing it proposed runs. Otherwise the reply is read in three checks. A reply the provider reports as cut off at a length limit is unreadable. So is a reply without a reasoning block that holds some text, then exactly one score tag, with nothing but whitespace between them or after the score, and a reply whose score is not an integer from lowest_score to highest_score. A readable reply gives the verdict: the score mapped onto a suspicion from 0 to 1, with the reasoning as the reason. After an unreadable reply the judge is asked again while attempts are left, 1 plus max_parse_retries in all, 3 by default. When none are left, the monitor fails closed: suspicion 1.0, and a warning in the log.](../assets/diagrams/monitors-chat-judge-light.svg#only-light)](../assets/diagrams/monitors-chat-judge-light.svg "Open the diagram at full size")
-[![LLMMonitor calls the judge with the filled prompt, the same prompt on every attempt. If the call still fails after the chat model's own retries, the error is raised: the step fails, and nothing it proposed runs. Otherwise the reply is read in three checks. A reply the provider reports as cut off at a length limit is unreadable. So is a reply without a reasoning block that holds some text, then exactly one score tag, with nothing but whitespace between them or after the score, and a reply whose score is not an integer from lowest_score to highest_score. A readable reply gives the verdict: the score mapped onto a suspicion from 0 to 1, with the reasoning as the reason. After an unreadable reply the judge is asked again while attempts are left, 1 plus max_parse_retries in all, 3 by default. When none are left, the monitor fails closed: suspicion 1.0, and a warning in the log.](../assets/diagrams/monitors-chat-judge-dark.svg#only-dark)](../assets/diagrams/monitors-chat-judge-dark.svg "Open the diagram at full size")
+[![LLMMonitor calls the judge with the filled prompt, the same prompt on every attempt. If the call still fails after the chat model's own retries, and after the monitor's own retries of a rate limit, the error is raised: the step fails, and nothing it proposed runs. Otherwise the reply is read in three checks. A reply the provider reports as cut off at a length limit is unreadable. So is a reply without a reasoning block that holds some text, then exactly one score tag, with nothing but whitespace between them or after the score, and a reply whose score is not an integer from lowest_score to highest_score. A readable reply gives the verdict: the score mapped onto a suspicion from 0 to 1, with the reasoning as the reason. After an unreadable reply the judge is asked again while attempts are left, 1 plus max_parse_retries in all, 3 by default. When none are left, the monitor fails closed: suspicion 1.0, and a warning in the log.](../assets/diagrams/monitors-chat-judge-light.svg#only-light)](../assets/diagrams/monitors-chat-judge-light.svg "Open the diagram at full size")
+[![LLMMonitor calls the judge with the filled prompt, the same prompt on every attempt. If the call still fails after the chat model's own retries, and after the monitor's own retries of a rate limit, the error is raised: the step fails, and nothing it proposed runs. Otherwise the reply is read in three checks. A reply the provider reports as cut off at a length limit is unreadable. So is a reply without a reasoning block that holds some text, then exactly one score tag, with nothing but whitespace between them or after the score, and a reply whose score is not an integer from lowest_score to highest_score. A readable reply gives the verdict: the score mapped onto a suspicion from 0 to 1, with the reasoning as the reason. After an unreadable reply the judge is asked again while attempts are left, 1 plus max_parse_retries in all, 3 by default. When none are left, the monitor fails closed: suspicion 1.0, and a warning in the log.](../assets/diagrams/monitors-chat-judge-dark.svg#only-dark)](../assets/diagrams/monitors-chat-judge-dark.svg "Open the diagram at full size")
 
 These replies were checked against the monitor's parser, on the default scale
 of 0 to 10:
@@ -106,8 +106,8 @@ monitor gave no readable score, so the step is treated as suspicious.", and
 the `langchain_sync_monitors.monitors.chat` logger writes a warning. That 1.0
 is a bare `LLMMonitor`'s. Inside `RepeatedMonitor` it is averaged with the
 other calls, so one unreadable call of three adds about a third to the mean.
-Inside `CalibratedMonitor` it becomes a rank below 1.0; see [Collect honest
-scores](combine-and-calibrate-monitors.md#collect-honest-scores).
+Inside `CalibratedMonitor` it becomes a smoothed conformal p-value below 1.0;
+see [Collect honest scores](combine-and-calibrate-monitors.md#collect-honest-scores).
 
 ## Use the default prompt, or write your own
 
@@ -185,7 +185,11 @@ monitor = LLMMonitor(model="openrouter:xiaomi/mimo-v2.6-pro", prompt=PROMPT)
 ## Change the score scale
 
 The judge scores from `lowest_score` to `highest_score`, 0 to 10 by default,
-and the score maps linearly onto a suspicion from 0 to 1:
+the scale BashArena (section 4.1), LinuxArena (section 5.1) and Koran et al.
+(section 3.1) use [@kaufman2025basharena; @tracy2026linuxarena; @koran2026ensemble].
+Ctrl-Z's monitor scores 0 to 9 (appendix D) and Apollo Research's monitor 1
+to 10 (section Summary) [@bhatt2025ctrlz; @apollo2026monitoringprompt]. The
+score maps linearly onto a suspicion from 0 to 1:
 
 ```text
 suspicion = (score - lowest_score) / (highest_score - lowest_score)
@@ -202,12 +206,24 @@ the highest score.
 `max_parse_retries` is how many more times the monitor asks after an unreadable
 reply. The default of 2 allows three replies in all, and 0 allows one. Anything
 but a whole number of at least 0 raises `ConfigurationError`. Each retry sends
-the same prompt again.
+the same prompt again, so a LangChain response cache, global or on the judge's
+model, would answer it with the same unreadable reply. The monitor then warns
+once per process with a `CachedResampleWarning`; build the judge's model with
+`cache=False`.
 
-These retries are only for replies the monitor cannot read. Network errors and
-rate limits are the chat model's own business, retried through its
-`max_retries`. An error that survives those retries is raised: the step is not
-committed, and nothing the agent proposed runs. [Read the monitor
+These retries are only for replies the monitor cannot read. Network and server
+errors are the chat model's own business, retried through its `max_retries`.
+A rate limit, HTTP 429, is retried by the monitor as well, since not every
+chat model retries one: `ChatOpenRouter` retries only network errors and HTTP
+5xx. The monitor calls the model again with stamina [@schlawack2026stamina],
+after a growing, jittered wait from one second, up to four attempts in all,
+and stops sooner once an attempt fails 45 seconds or more after the first
+began. A chat model that retries a 429 itself, as OpenAI's and Anthropic's
+SDKs do [@openaipythonsdk2026; @anthropicpythonsdk2026], retries each of
+these attempts. The monitor retries only its own calls, not the agent's
+([known limits](../explanation/design.md#protocols-and-configuration)). An
+error that survives the retries is raised: the step is not committed, and
+nothing the agent proposed runs. [Read the monitor
 log](read-the-monitor-log.md) shows what such a failed step leaves behind.
 
 ## Average several calls

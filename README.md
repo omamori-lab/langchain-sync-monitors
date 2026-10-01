@@ -14,9 +14,11 @@ file, run a command. AI control research guards against this with a monitor,
 a second model that scores each step, and a protocol that acts on the score.
 This library brings those protocols, from AI Control, Ctrl-Z and Claude Code's
 auto mode, to `create_agent` and `create_deep_agent` as one middleware.
-"Sync" means synchronous in the control sense: a step waits for its verdict,
-so a suspicious step can be stopped before any of the agent's own tools run
-it.
+"Sync" means synchronous in the control sense of
+[Blocking live failures with synchronous monitors](https://blog.redwoodresearch.org/p/blocking-live-failures-with-synchronous)
+(Lucassen and Kaufman, Redwood Research, 2026): a step waits for its
+verdict, so a suspicious step can be stopped before any of the agent's own
+tools run it.
 
 ## Install
 
@@ -102,7 +104,7 @@ Monitors for [chat judges](docs/how-to/use-a-chat-judge.md), [guard models](docs
   <img alt="Every entry of the transcript belongs to one channel. The default view, Channel.ACTIONS, reads USER (every turn of the user, kept verbatim even after summarisation, context notes and feedback), TOOL_CALLS (tool calls and errors) and SUBAGENT_REPORTS (what subagents report), and leaves out REASONING, AGENT_TEXT and TOOL_RESULTS, each one flag away. The proposed step's tool calls are always shown, and its text when it is a final answer; the rest of the step follows the view's channels. A MonitorView chooses the channels, can keep only the most recent entries besides the user's turns, and names the tools whose results are subagent reports. The monitor reads the chosen entries as escaped, tagged text ending with the proposed step, then scores the step." src="docs/assets/diagrams/monitor-view-light.svg">
 </picture>
 
-What the judge reads by default, and each channel it leaves out: [Choose what the monitor reads](docs/how-to/choose-what-the-monitor-reads.md).
+What the monitor reads by default, and each channel it leaves out: [Choose what the monitor reads](docs/how-to/choose-what-the-monitor-reads.md).
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/assets/diagrams/subagents-dark.svg">
@@ -113,13 +115,13 @@ A monitor in every Deep Agents subagent: [Monitor Deep Agents subagents](docs/ho
 
 ## Limits
 
-- **Tools the provider runs.** A provider's built-in tools, such as
-  Anthropic's web search or OpenAI's code interpreter, run inside the model
-  call: they have run before the monitor sees the step, and run again for
-  every sample drawn. `ProviderToolWarning` warns about the known ones for
+- **Server tools.** Server-side tools, such as Anthropic's web search or
+  OpenAI's code interpreter, run inside the model call: they have run before
+  the monitor sees the step, and run again for every sample drawn.
+  `ServerToolWarning` warns about the known ones for
   Anthropic, OpenAI and Gemini when it can see them; it cannot see some, such
   as OpenRouter's web plugin.
-- **What the judge reads.** By default it reads the task, the tool calls, the
+- **What the monitor reads.** By default it reads the task, the tool calls, the
   subagent reports and a proposed final answer. It does not read the agent's
   reasoning, the text the agent writes beside a tool call, or raw tool
   output; each is one flag away.
@@ -137,10 +139,10 @@ A monitor in every Deep Agents subagent: [Monitor Deep Agents subagents](docs/ho
   every one of them at its next step. A subagent whose run raises returns no
   records unless the run is resumed.
 - **Time and graph steps.** Each step waits for its verdict and streams whole
-  once committed, not token by token. The monitor adds two graph steps per
-  agent step, however many samples or model calls it draws, and two per run:
-  N steps need a `recursion_limit` of 4N + 2, not 2N, and each further
-  monitor adds another 2N + 2.
+  once committed, not token by token. Each monitor adds two graph steps per
+  agent step and two per run, which count towards a `recursion_limit` you
+  set; see
+  [Allow for the graph steps](docs/how-to/read-the-monitor-log.md#allow-for-the-graph-steps).
 
 [Known limits and open paths](docs/explanation/design.md#known-limits-and-open-paths)
 explains each of these.

@@ -226,7 +226,7 @@ default when it reaches a block limit, or Defer to Resample's when you choose
 it. The parent's halt under `STOP_WHOLE_RUN` stands: until a later run brings
 new input from the user, every further step of the parent halts without a
 sample, and two paths through middleware listed before the monitor can lift
-it early; see [A halt stands](choose-a-protocol.md#a-halt-stands).
+it early; see [A halt stands](../explanation/design.md#a-halt-stands).
 
 Auto Mode's thread total acts under either value, whether or not the
 subagent was halted. When the parent runs Auto Mode, and blocks recorded
@@ -409,9 +409,9 @@ publisher_steps = [record for record in log if record["agent"] == "publisher"]
   every declarative subagent. When a model call overflows the context, it
   summarises and runs the rest of the stack again, so the whole monitored
   step runs again with fresh samples. The samples judged before the overflow
-  reach only the warning log line and the `monitor_step_failed` event, never
-  `monitor_log`. `check_monitor_placement` cannot see this middleware, since
-  Deep Agents adds it.
+  reach only the `monitor_step_failed` event, and their suspicions the
+  warning log line, never `monitor_log`. `check_monitor_placement` cannot see
+  this middleware, since Deep Agents adds it.
 - **Forked subagents cannot be monitored yet;** see
   [Forked subagents are refused](#forked-subagents-are-refused).
 

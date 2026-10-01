@@ -24,11 +24,11 @@ from langchain_core.runnables.config import ensure_config, var_child_runnable_co
 from langchain_sync_monitors._langchain import (
     TracedRun,
     TraceSpan,
-    label_monitor_spans,
+    add_step_metadata_to_spans,
     open_traced_run,
     open_traced_run_sync,
 )
-from tests.support.tracing import RecordingTracer, record_started_chain_names
+from tests.support.tracing import RecordedRun, RecordingTracer, record_started_chain_names
 
 type CallPath = Literal["sync", "async"]
 type SpanBody = Callable[[TracedRun], None]
@@ -78,35 +78,37 @@ def call_model(_: TracedRun) -> None:
     FakeListChatModel(responses=["ok"]).invoke("hello")
 
 
-@pytest.fixture
-def traced_model_call(call_path: CallPath) -> RecordingTracer:
-    """Return a tracer that heard a span, with one model call inside it, run in a node."""
+def trace_a_model_call_in_a_span(
+    *,
+    call_path: CallPath,
+) -> tuple[RecordingTracer, RecordedRun, RecordedRun]:
+    """Run a span with one model call inside it, in a node; return the tracer, span and call."""
     tracer = RecordingTracer()
     run_span_in_node(SPAN, call_path=call_path, body=call_model, callbacks=[tracer])
-    return tracer
+    [span] = tracer.find_runs("monitor step")
+    [model_call] = tracer.find_runs("FakeListChatModel")
+    return tracer, span, model_call
 
 
 def test_the_span_nests_under_the_node_and_the_calls_inside_it_nest_under_the_span(
-    traced_model_call: RecordingTracer,
+    call_path: CallPath,
 ) -> None:
     # Act
-    [span] = traced_model_call.find_runs("monitor step")
-    [model_call] = traced_model_call.find_runs("FakeListChatModel")
+    tracer, span, model_call = trace_a_model_call_in_a_span(call_path=call_path)
 
     # Assert
-    assert traced_model_call.find_parent(span).name == "node"
-    assert traced_model_call.find_parent(model_call) is span
+    assert tracer.find_parent(span).name == "node"
+    assert tracer.find_parent(model_call) is span
     assert (span.run_type, span.inputs, span.error) == ("chain", SPAN.inputs, None)
-    assert traced_model_call.find_unknown_parents() == []
-    assert traced_model_call.find_open_runs() == []
+    assert tracer.find_unknown_parents() == []
+    assert tracer.find_open_runs() == []
 
 
 def test_the_span_s_own_tags_and_metadata_stay_off_the_calls_inside_it(
-    traced_model_call: RecordingTracer,
+    call_path: CallPath,
 ) -> None:
     # Act
-    [span] = traced_model_call.find_runs("monitor step")
-    [model_call] = traced_model_call.find_runs("FakeListChatModel")
+    _, span, model_call = trace_a_model_call_in_a_span(call_path=call_path)
 
     # Assert
     assert span.tags == [NODE_TAG, "monitor"]
@@ -181,13 +183,18 @@ def test_the_given_run_id_names_the_span(call_path: CallPath) -> None:
     assert recorded.run_id == run_id
 
 
-def test_labels_reach_every_span_in_the_block_but_no_model_call(call_path: CallPath) -> None:
+def test_step_metadata_reaches_every_span_in_the_block_but_no_model_call(
+    call_path: CallPath,
+) -> None:
     # Arrange
     tracer = RecordingTracer()
     nested = TraceSpan(name="monitor judgement", metadata={"ls_agent_type": "middleware"})
 
     def open_nested_span(_: TracedRun) -> None:
-        with label_monitor_spans({"monitor_step_id": "step-1"}), open_traced_run_sync(nested):
+        with (
+            add_step_metadata_to_spans({"monitor_step_id": "step-1"}),
+            open_traced_run_sync(nested),
+        ):
             FakeListChatModel(responses=["ok"]).invoke("hello")
 
     # Act

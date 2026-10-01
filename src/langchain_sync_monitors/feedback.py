@@ -1,16 +1,19 @@
-"""Turn a blocked step and its feedback into messages the agent can read.
+"""Turn a blocked step and its feedback into messages the agent can read, and build halts.
 
 A blocked proposal is kept, answered by the feedback, so the conversation stays
 valid for every provider: each tool call, malformed ones included, gets its own
-error result, and a blocked final answer gets one tagged human message. Every
+error result, and a blocked final answer gets one tagged human message. A halt
+is a flagged decision whose one message is the monitor's final word. Every
 message inserted here gets a fresh id, because LangGraph merges messages that
 share an id and would leave tool results without their call.
 """
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from uuid import uuid4
 
+from langchain.agents.middleware.types import ModelResponse
 from langchain_core.messages import (
     AIMessage,
     BaseMessage,
@@ -20,7 +23,7 @@ from langchain_core.messages import (
     ToolMessage,
 )
 
-from langchain_sync_monitors.contracts import BlockedAttempt, StepDecision
+from langchain_sync_monitors.contracts import BlockedAttempt, Outcome, Sample, StepDecision
 from langchain_sync_monitors.transcript import MONITOR_FEEDBACK_SOURCE
 
 MONITOR_MESSAGE_NAME = "monitor"
@@ -30,6 +33,24 @@ MONITOR_MESSAGE_NAME = "monitor"
 def build_monitor_message_id() -> str:
     """Return a fresh id for a message the monitor inserts into a conversation."""
     return f"monitor-{uuid4()}"
+
+
+def build_halt_decision(
+    content: str,
+    *,
+    samples: tuple[Sample, ...] = (),
+    blocked_attempts: tuple[BlockedAttempt, ...] = (),
+) -> StepDecision:
+    """Return a flagged halt whose final message is `content`, with a fresh id and no tool calls."""
+    message = AIMessage(content=content, id=build_monitor_message_id())
+    return StepDecision(
+        outcome=Outcome.HALTED,
+        response=ModelResponse(result=[message]),
+        samples=samples,
+        executed_sample=None,
+        flagged=True,
+        blocked_attempts=blocked_attempts,
+    )
 
 
 def build_tool_call_rejection(
@@ -93,10 +114,6 @@ def build_feedback_messages(*, attempt: BlockedAttempt) -> list[BaseMessage]:
     return [blocked, *rejections]
 
 
-def build_blocked_attempt_messages(*, decision: StepDecision) -> list[BaseMessage]:
+def build_blocked_attempt_messages(attempts: Sequence[BlockedAttempt]) -> list[BaseMessage]:
     """Return the messages of every blocked attempt of a step, in the order they happened."""
-    return [
-        message
-        for attempt in decision.blocked_attempts
-        for message in build_feedback_messages(attempt=attempt)
-    ]
+    return [message for attempt in attempts for message in build_feedback_messages(attempt=attempt)]

@@ -14,12 +14,11 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 
-from langchain.agents.middleware.types import ModelResponse, ToolCallRequest
-from langchain_core.messages import AIMessage
+from langchain.agents.middleware.types import ToolCallRequest
 
 from langchain_sync_monitors._langchain import build_tool_request_with_delegation, read_delegation
-from langchain_sync_monitors.contracts import Delegation, Outcome, StepDecision
-from langchain_sync_monitors.feedback import build_monitor_message_id
+from langchain_sync_monitors.contracts import Delegation, StepDecision
+from langchain_sync_monitors.feedback import build_halt_decision
 from langchain_sync_monitors.records import count_blocks, count_blocks_by_monitor, read_step_records
 
 
@@ -72,17 +71,7 @@ def build_subagent_halt_decision(*, subagent_names: Sequence[str]) -> StepDecisi
     """Return the decision that ends the run because a subagent was halted."""
     distinct_names = sorted(set(subagent_names))
     subject = "subagent" if len(distinct_names) == 1 else "subagents"
-    message = AIMessage(
-        content=(
-            f"[Safety monitor] Stopped: the safety monitor halted the {subject} "
-            f"{', '.join(distinct_names)}, so this agent stops too."
-        ),
-        id=build_monitor_message_id(),
-    )
-    return StepDecision(
-        outcome=Outcome.HALTED,
-        response=ModelResponse(result=[message]),
-        samples=(),
-        executed_sample=None,
-        flagged=True,
+    return build_halt_decision(
+        f"[Safety monitor] Stopped: the safety monitor halted the {subject} "
+        f"{', '.join(distinct_names)}, so this agent stops too."
     )

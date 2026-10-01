@@ -25,9 +25,10 @@ htmlcov/
 .vscode/
 .DS_Store
 
-# Local agent notes and docs builds
+# Local agent notes, docs builds and live run reports
 CLAUDE.local.md
 site/
+live-reports/
 
 # Browser tool logs
 .playwright-mcp/

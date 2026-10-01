@@ -3,51 +3,108 @@
 from __future__ import annotations
 
 import asyncio
+import time
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, override
 
 import pytest
 from langchain.agents.middleware.types import ModelRequest, ModelResponse
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, ToolMessage
 
-from langchain_sync_monitors.contracts import BlockedAttempt, StepRecord, TaskAuthor
-from langchain_sync_monitors.errors import MonitorError
+from langchain_sync_monitors.contracts import (
+    BlockedAttempt,
+    MonitorInput,
+    Sample,
+    SampleDrawing,
+    TaskAuthor,
+    Verdict,
+)
+from langchain_sync_monitors.errors import ConfigurationError, MonitorError
 from langchain_sync_monitors.pending_steps import (
     AsyncPendingStep,
     SyncPendingStep,
     run_synchronously,
 )
+from tests.support.agents import RunMode
 from tests.support.chat_models import ScriptedChatModel
 from tests.support.flaky_models import FlakyChatModel
-from tests.support.monitors import KeywordMonitor
+from tests.support.monitors import GatedMonitor, KeywordMonitor
 
 TASK = HumanMessage("Summarise the report.", id="task")
 
 
 @dataclass
 class RecordingHandler:
-    """Runs the request's model, recording each request and how many ran at once."""
+    """Runs the request's model, recording each request and how many ran at once.
+
+    Each call notes "model call" in `events` as it starts, before the model
+    runs, so a log shared with a monitor shows what ran before each draw.
+    """
 
     delay: float = 0.0
     requests: list[ModelRequest[Any]] = field(default_factory=list)
+    events: list[str] = field(default_factory=list)
     running: int = 0
     most_at_once: int = 0
 
     def __call__(self, request: ModelRequest[Any]) -> ModelResponse[Any]:
         self.requests.append(request)
-        return ModelResponse(result=[request.model.invoke(request.messages)])
+        self.events.append("model call")
+        self.running += 1
+        self.most_at_once = max(self.most_at_once, self.running)
+        try:
+            time.sleep(self.delay)
+            return ModelResponse(result=[request.model.invoke(request.messages)])
+        finally:
+            self.running -= 1
 
     async def run_async(self, request: ModelRequest[Any]) -> ModelResponse[Any]:
         self.requests.append(request)
+        self.events.append("model call")
         self.running += 1
         self.most_at_once = max(self.most_at_once, self.running)
-        await asyncio.sleep(self.delay)
-        self.running -= 1
+        try:
+            await asyncio.sleep(self.delay)
+        finally:
+            self.running -= 1
         return ModelResponse(result=[await request.model.ainvoke(request.messages)])
+
+
+@dataclass(kw_only=True)
+class EventRecordingMonitor(KeywordMonitor):
+    """Scores as `KeywordMonitor` does, noting each judgement in a log shared with the handler."""
+
+    events: list[str]
+
+    @override
+    def score(self, monitor_input: MonitorInput) -> Verdict:
+        self.events.append(f"judgement of {monitor_input.proposal.text}")
+        return super().score(monitor_input)
 
 
 def build_request(model: ScriptedChatModel) -> ModelRequest[Any]:
     return ModelRequest(model=model, messages=[TASK], state={"messages": [TASK]})
+
+
+def draw_samples(
+    model: ScriptedChatModel,
+    *,
+    mode: RunMode,
+    handler: RecordingHandler,
+    monitor: KeywordMonitor,
+    sample_options: dict[str, Any],
+) -> tuple[Sample, ...]:
+    """Draw samples through the pending step that `invoke()` or `ainvoke()` builds."""
+    request = build_request(model)
+    if mode == "invoke":
+        step = SyncPendingStep(
+            request=request, handler=handler, monitor=monitor, task_author=TaskAuthor.USER
+        )
+        return run_synchronously(step.sample(**sample_options))
+    async_step = AsyncPendingStep(
+        request=request, handler=handler.run_async, monitor=monitor, task_author=TaskAuthor.USER
+    )
+    return asyncio.run(async_step.sample(**sample_options))
 
 
 @pytest.fixture
@@ -120,11 +177,20 @@ async def test_async_samples_see_each_blocked_attempt_and_its_feedback(
     assert sample.verdict.suspicion == pytest.approx(0.1)
 
 
-@pytest.mark.parametrize(("concurrently", "expected_overlap"), [(True, 3), (False, 1)])
+@pytest.mark.parametrize(
+    ("drawing", "count", "expected_overlap"),
+    [
+        (SampleDrawing.CONCURRENT, 3, 3),
+        (SampleDrawing.SEQUENTIAL, 3, 1),
+        (SampleDrawing.CONCURRENT, 1, 1),
+        (SampleDrawing.CONCURRENT, 0, 0),
+    ],
+)
 async def test_async_samples_overlap_only_when_drawn_concurrently(
     untrusted_model: ScriptedChatModel,
     monitor: KeywordMonitor,
-    concurrently: bool,
+    drawing: SampleDrawing,
+    count: int,
     expected_overlap: int,
 ) -> None:
     # Arrange
@@ -137,23 +203,27 @@ async def test_async_samples_overlap_only_when_drawn_concurrently(
     )
 
     # Act
-    samples = await step.sample(count=3, concurrently=concurrently)
+    samples = await step.sample(count=count, drawing=drawing)
 
-    # Assert
+    # Assert: every draw is judged, and a call returns all the samples it asked for
     assert handler.most_at_once == expected_overlap
+    assert len(monitor.inputs) == count
     assert sorted(sample.proposal.text for sample in samples) == [
-        "sample 0",
-        "sample 1",
-        "sample 2",
+        f"sample {index}" for index in range(count)
     ]
 
 
-def test_sync_step_draws_concurrent_samples_one_after_another(
+@pytest.mark.parametrize("drawing", [SampleDrawing.CONCURRENT, SampleDrawing.SEQUENTIAL])
+@pytest.mark.parametrize(("count", "expected_overlap"), [(3, 1), (1, 1), (0, 0)])
+def test_sync_step_draws_samples_one_after_another_however_asked(
     untrusted_model: ScriptedChatModel,
     monitor: KeywordMonitor,
+    drawing: SampleDrawing,
+    count: int,
+    expected_overlap: int,
 ) -> None:
-    # Arrange
-    handler = RecordingHandler()
+    # Arrange: each call holds the model a moment, so draws run on threads would overlap
+    handler = RecordingHandler(delay=0.01)
     step = SyncPendingStep(
         request=build_request(untrusted_model),
         handler=handler,
@@ -162,11 +232,76 @@ def test_sync_step_draws_concurrent_samples_one_after_another(
     )
 
     # Act
-    samples = run_synchronously(step.sample(count=3, concurrently=True))
+    samples = run_synchronously(step.sample(count=count, drawing=drawing))
 
-    # Assert
-    assert [sample.proposal.text for sample in samples] == ["sample 0", "sample 1", "sample 2"]
-    assert len(monitor.inputs) == 3
+    # Assert: in the order they were asked for, and never two at once
+    assert handler.most_at_once == expected_overlap
+    assert [sample.proposal.text for sample in samples] == [
+        f"sample {index}" for index in range(count)
+    ]
+    assert [monitor_input.proposal.text for monitor_input in monitor.inputs] == [
+        f"sample {index}" for index in range(count)
+    ]
+
+
+def test_a_sequential_draw_judges_each_sample_before_the_next_model_call(
+    run_mode: RunMode,
+    untrusted_model: ScriptedChatModel,
+) -> None:
+    # Arrange: the handler and the monitor note what they do in one shared log
+    events: list[str] = []
+    handler = RecordingHandler(events=events)
+    monitor = EventRecordingMonitor(events=events)
+    sample_options: dict[str, Any] = {"count": 3, "drawing": SampleDrawing.SEQUENTIAL}
+
+    # Act
+    draw_samples(
+        untrusted_model,
+        mode=run_mode,
+        handler=handler,
+        monitor=monitor,
+        sample_options=sample_options,
+    )
+
+    # Assert: no model call starts before the previous sample's judgement has ended
+    assert events == [
+        "model call",
+        "judgement of sample 0",
+        "model call",
+        "judgement of sample 1",
+        "model call",
+        "judgement of sample 2",
+    ]
+
+
+@pytest.mark.parametrize("drawing", ["concurrent", True])
+def test_a_drawing_that_is_not_a_member_is_refused_before_any_draw(
+    run_mode: RunMode,
+    untrusted_model: ScriptedChatModel,
+    monitor: KeywordMonitor,
+    drawing: object,
+) -> None:
+    # Arrange
+    handler = RecordingHandler()
+    sample_options: dict[str, Any] = {"count": 2, "drawing": drawing}
+
+    # Act
+    with pytest.raises(ConfigurationError) as refusal:
+        draw_samples(
+            untrusted_model,
+            mode=run_mode,
+            handler=handler,
+            monitor=monitor,
+            sample_options=sample_options,
+        )
+
+    # Assert: unrefused, a plain string would match no member by identity and draw in sequence
+    assert str(refusal.value) == (
+        "drawing must be one of SampleDrawing.SEQUENTIAL, SampleDrawing.CONCURRENT, "
+        f"got {drawing!r}. Convert a string with SampleDrawing(value)."
+    )
+    assert handler.requests == []
+    assert monitor.inputs == []
 
 
 def test_sync_samples_see_blocked_attempts_too(
@@ -264,34 +399,14 @@ def test_a_response_without_an_ai_message_raises(monitor: KeywordMonitor) -> Non
         task_author=TaskAuthor.USER,
     )
 
-    # Act / Assert
-    with pytest.raises(MonitorError, match="no AI message"):
+    # Act
+    with pytest.raises(MonitorError) as raised:
         run_synchronously(step.sample(count=1))
 
-
-def test_previous_records_are_the_ones_given(monitor: KeywordMonitor) -> None:
-    # Arrange
-    record = StepRecord(
-        agent="main",
-        monitor="monitor",
-        step_number=1,
-        outcome="allowed",
-        flagged=False,
-        blocked_count=0,
-        samples=[],
-    )
-
-    # Act
-    step = SyncPendingStep(
-        request=build_request(ScriptedChatModel(responses=[])),
-        handler=RecordingHandler(),
-        monitor=monitor,
-        task_author=TaskAuthor.USER,
-        previous_records=(record,),
-    )
-
     # Assert
-    assert step.previous_records == (record,)
+    assert str(raised.value) == (
+        "The model call returned no AI message, so the monitor has no step to judge."
+    )
 
 
 async def test_a_failed_concurrent_draw_cancels_the_others_and_raises_its_own_error(
@@ -311,7 +426,7 @@ async def test_a_failed_concurrent_draw_cancels_the_others_and_raises_its_own_er
 
     # Act
     with pytest.raises(RuntimeError, match="429 rate limited"):
-        await step.sample(count=3, concurrently=True)
+        await step.sample(count=3, drawing=SampleDrawing.CONCURRENT)
     await asyncio.sleep(0.3)
 
     # Assert
@@ -338,3 +453,79 @@ async def test_each_judged_sample_is_kept_on_the_step(
 
     # Assert
     assert step.judged_samples == [*first, *second]
+
+
+async def test_an_async_draw_the_step_outlasts_is_never_judged(
+    untrusted_model: ScriptedChatModel,
+    monitor: KeywordMonitor,
+) -> None:
+    # Arrange: the model call is still running when the step is closed
+    handler = RecordingHandler(delay=0.05)
+    step = AsyncPendingStep(
+        request=build_request(untrusted_model),
+        handler=handler.run_async,
+        monitor=monitor,
+        task_author=TaskAuthor.USER,
+    )
+    draw = asyncio.create_task(step.sample(count=1))
+    await asyncio.sleep(0.01)
+
+    # Act
+    step.close()
+    with pytest.raises(MonitorError, match="after its step was over"):
+        await draw
+
+    # Assert
+    assert len(handler.requests) == 1
+    assert monitor.inputs == []
+    assert step.judged_samples == []
+
+
+async def test_an_async_draw_after_its_step_closed_never_calls_the_model(
+    untrusted_model: ScriptedChatModel,
+) -> None:
+    # Arrange: the step is closed while the monitor judges the first of two samples
+    handler = RecordingHandler()
+    monitor = GatedMonitor()
+    step = AsyncPendingStep(
+        request=build_request(untrusted_model),
+        handler=handler.run_async,
+        monitor=monitor,
+        task_author=TaskAuthor.USER,
+    )
+    draws = asyncio.create_task(step.sample(count=2))
+    await monitor.judging.wait()
+
+    # Act
+    step.close()
+    monitor.release.set()
+    with pytest.raises(MonitorError, match="after its step was over"):
+        await draws
+
+    # Assert: the first sample was judged, and the second was refused before its model call
+    assert len(handler.requests) == 1
+    assert len(step.judged_samples) == 1
+
+
+async def test_a_closed_async_step_refuses_every_call(
+    untrusted_model: ScriptedChatModel,
+    monitor: KeywordMonitor,
+) -> None:
+    # Arrange
+    handler = RecordingHandler()
+    step = AsyncPendingStep(
+        request=build_request(untrusted_model),
+        handler=handler.run_async,
+        monitor=monitor,
+        task_author=TaskAuthor.USER,
+    )
+    step.close()
+
+    # Act
+    with pytest.raises(MonitorError, match="after its step was over"):
+        await step.sample(count=2, drawing=SampleDrawing.CONCURRENT)
+    with pytest.raises(MonitorError, match="after its step was over"):
+        await step.request_trusted_step(trusted_model=untrusted_model)
+
+    # Assert
+    assert handler.requests == []

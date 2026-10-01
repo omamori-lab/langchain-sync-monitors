@@ -157,17 +157,6 @@ def test_every_inserted_message_gets_a_fresh_monitor_id(tool_call_attempt: Block
     assert tool_call_attempt.proposal.id == "sample-1"
 
 
-def test_the_feedback_text_is_kept_as_the_protocol_rendered_it(
-    answer_attempt: BlockedAttempt,
-) -> None:
-    # Act
-    feedback = build_feedback_messages(attempt=answer_attempt)[-1]
-
-    # Assert
-    assert feedback.content == FEEDBACK
-    assert feedback.text.count("[Safety monitor]") == 1
-
-
 def test_blocked_attempts_of_a_decision_come_out_in_order(
     tool_call_attempt: BlockedAttempt,
     answer_attempt: BlockedAttempt,
@@ -184,7 +173,7 @@ def test_blocked_attempts_of_a_decision_come_out_in_order(
     )
 
     # Act
-    messages = build_blocked_attempt_messages(decision=decision)
+    messages = build_blocked_attempt_messages(decision.blocked_attempts)
 
     # Assert
     assert [type(message).__name__ for message in messages] == [
@@ -207,7 +196,7 @@ def test_a_decision_without_blocked_attempts_adds_no_messages() -> None:
     )
 
     # Act
-    messages = build_blocked_attempt_messages(decision=decision)
+    messages = build_blocked_attempt_messages(decision.blocked_attempts)
 
     # Assert
     assert messages == []

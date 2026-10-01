@@ -16,7 +16,8 @@ LangGraph accepts and in a `ParentCommand`, before LangGraph writes it:
 - A record that is not a whole `StepRecord` with counts of zero or more is
   kept out of the log, where it would make every later step raise, and the
   call counts as a halted subagent, so a halt the monitor cannot read still
-  counts. A warning names the record.
+  counts. A warning names the record by the fields that identify it, never
+  by the text its samples hold.
 - A record that claims to be a step of the calling agent itself, with its
   name and its delegation, is kept out of the log with a warning: only the
   agent's own monitor records its steps. A subagent that received no
@@ -312,7 +313,7 @@ def check_result_records(result: ToolCallResult, *, caller: ToolCaller) -> ToolC
     return result
 
 
-def check_parent_command_records(bubble: ParentCommand, *, caller: ToolCaller) -> None:
+def check_parent_command_records(parent_command: ParentCommand, *, caller: ToolCaller) -> None:
     """Check, in place, the records the command in a `ParentCommand` a tool call raises writes."""
-    [command] = bubble.args
-    bubble.args = (check_command_records(command, caller=caller),)
+    [command] = parent_command.args
+    parent_command.args = (check_command_records(command, caller=caller),)

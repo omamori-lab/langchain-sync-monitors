@@ -49,7 +49,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-deepagents = ["deepagents>=0.7.12"]
+deepagents = ["deepagents>=0.7.13"]
 openrouter = ["langchain-openrouter>=0.2.1"]
 typesafe = ["langchain-typesafe>=0.0.1a3"]
 
@@ -127,7 +127,10 @@ select = ["E", "W", "F", "I", "UP", "B", "SIM", "C90", "ANN", "PT", "RUF", "COM"
 ignore = ["COM812"]
 
 [tool.ruff.lint.mccabe]
-max-complexity = 10
+# The highest complexity lanorme's complexity_error allows, so tests, which lanorme skips,
+# keep to the same number. Ruff leaves out `with`, `assert` and each extra boolean operand,
+# which lanorme counts, so here the same number is a looser limit.
+max-complexity = 6
 
 [tool.ruff.lint.per-file-ignores]
 "tests/**" = ["ANN401"]
@@ -151,16 +154,33 @@ asyncio_default_fixture_loop_scope = "function"
 markers = ["live: calls real model providers; needs OPENROUTER_API_KEY and spends credits"]
 addopts = "-m 'not live'"
 
+# The limits below are a ratchet: lower them as the code allows, and raise one only in a
+# reviewed change that says why.
 [tool.lanorme]
+# lanorme takes the outermost directory with a config as the project root. In an agent
+# worktree under .claude/worktrees that is the main checkout, whose exclude then drops
+# every file of the worktree. `root = true` makes each checkout its own project, and the
+# main checkout excludes only the worktrees, so the tracked .claude files are checked.
+# lanorme does not read .gitignore, so a local run also checks untracked files that CI
+# never sees, such as notes under .claude or CLAUDE.local.md.
+root = true
 ignore = ["LAYER", "PORT", "TERM"]
-promote = ["NAMING-006", "NAMING-007", "NAMING-008", "NAMING-011"]
-exclude = [".venv/*", ".claude/*", "dist/*", "site/*", "docs/plans/*"]
+promote = ["NAMING-006", "NAMING-007", "NAMING-008", "NAMING-011", "SIMILAR-001"]
+exclude = [
+    ".venv/*",
+    ".claude/worktrees",
+    ".claude/worktrees/*",
+    "dist/*",
+    "site/*",
+    "docs/plans/*",
+]
 
 [tool.lanorme.file_limits]
 func_warn_lines = 40
 func_error_lines = 60
 complexity_warn = 6
-complexity_error = 10
+# One above the most complex function today.
+complexity_error = 7
 param_warn = 5
 param_error = 8
 
@@ -185,6 +205,14 @@ enabled = true
 
 [tool.lanorme.similarity]
 enabled = true
+
+# Each inline ignore of a lanorme rule counts, as `# lanorme: ignore[...]` or `# noqa`.
+[tool.lanorme.suppressions]
+enabled = true
+max_total = 20
+
+# The restating check (CMT-005) stays off: it reads each test's required `# Assert` marker
+# as a comment that restates the `assert` below it.
 
 [tool.lanorme.docs]
 enabled = true

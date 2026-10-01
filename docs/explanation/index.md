@@ -4,7 +4,7 @@ This page lists the explanations, which cover why the library is built the way
 it is.
 
 - [How the library is built](design.md) walks through one monitored step, the
-  protocols and their outcomes, what the judge reads, how each monitor scores,
+  protocols and their outcomes, what the monitor reads, how each monitor scores,
   task authorship, halts, subagents, records, streams and traces, graph steps
   and errors, and ends with every known limit.
 - [Where the ideas come from](background.md) credits every paper and codebase

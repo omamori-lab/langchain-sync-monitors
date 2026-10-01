@@ -25,8 +25,14 @@ change raises the minor version.
 - `AutoMode` blocks a suspicious step and tells the agent why. After three
   blocks in one step, or twenty in the thread, its fallback halts the run by
   default.
-- Default thresholds, 0.6 to defer, block or flag and 0.9 to audit, which raise
-  `UncalibratedThresholdWarning` until you set your own.
+- Default thresholds, 0.6 for `defer_threshold`, `block_threshold` and Trusted
+  Monitoring's `audit_threshold`, and 0.9 for the `audit_threshold` of Defer to
+  Trusted and Defer to Resample, which raise `UncalibratedThresholdWarning`
+  until you set your own.
+- `ControlProtocol` and `PendingStep`, for a protocol of your own, with
+  `SampleDrawing` to draw a step's samples one after another or at once, and
+  `resolve_threshold` and `ThresholdStatistic` to warn about a default
+  threshold and name the score it is calibrated on.
 - Monitors for three model families: `LLMMonitor` for chat judges,
   `GuardModelMonitor` for guard models and `DecisionModelMonitor` for decision
   models.
@@ -52,19 +58,20 @@ change raises the minor version.
   subagents included.
 - `check_monitor_placement`, which warns with a `MonitorPlacementWarning` about
   middleware or stacked monitors placed where they undermine the monitor.
-- `ProviderToolWarning`, `CachedResampleWarning` and `HardLabelWarning`, for a
-  known tool the provider runs itself, a cache that copies resamples, and a
-  guard that scores with hard labels.
+- `ServerToolWarning`, `CachedResampleWarning` and `HardLabelWarning`, for a
+  known server tool the provider runs itself, a cache that copies resamples,
+  and a guard that scores with hard labels.
 - Named spans in any LangChain tracer, LangSmith and Langfuse among them, and
   the built-in monitors' own model calls named `monitor call`.
+- The library's own log lines and errors never quote the transcript.
 - A judge's or guard's reply that cannot be read fails closed, and a decision
   model's invalid answer raises `MonitorError`.
 - Protocols, fallbacks, monitors and the middleware raise `ConfigurationError`
   for an option of the wrong type.
 - `MonitorError` and its subclasses `ConfigurationError`, `MissingExtraError`,
   `SynchronousRunError` and `InvalidSuspicionError`.
-- Packaging for Python 3.12, 3.13 and 3.14, with the `deepagents`,
-  `openrouter` and `typesafe` extras.
+- Packaging for Python 3.12, 3.13 and 3.14, with the `deepagents` (0.7.13 or
+  newer), `openrouter` and `typesafe` extras.
 - A [documentation site](https://omamori-lab.github.io/langchain-sync-monitors/)
   with a tutorial, how-to guides, the API reference and explanation pages.
 - A bibliography of every paper, post and code base the library draws on,
@@ -76,8 +83,8 @@ change raises the minor version.
 
 ### Known limits
 
-- A provider's built-in tools, such as web search, run inside the model call,
-  before the monitor judges the step, and again for every sample.
+- Server tools, such as web search, run inside the model call, before the
+  monitor judges the step, and again for every sample.
 - A subagent whose run raises returns no records, so its steps and blocks reach
   the parent only if the run is resumed.
 - Subagents that run in parallel do not see each other's blocks, so together

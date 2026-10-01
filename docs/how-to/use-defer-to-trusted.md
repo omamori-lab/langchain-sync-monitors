@@ -8,10 +8,12 @@ to a trusted model.
 Use it when a capable trusted model exists and you want the simplest
 intervention. The agent's own model proposes each step. When the monitor finds the proposal
 suspicious, a model you trust writes the step instead, from the same request.
-The protocol comes from the AI control paper [@greenblatt2023aicontrol], where
-the trusted model is weaker than the untrusted one but trusted not to work
-against you, and a person also reviews the most suspicious code before it is
-used. Here that review is a flag on the step's record, read after the step.
+The protocol comes from the AI control paper (section 3.3)
+[@greenblatt2023aicontrol], where the trusted model is weaker than the
+untrusted one but trusted not to work against you (section 2), and a person
+also reviews the most suspicious code before it is used (section 1)
+[@greenblatt2023aicontrol]. Here that review is a flag on the step's record,
+read after the step.
 
 ## How it works
 
@@ -19,9 +21,8 @@ used. Here that review is a flag on the step's record, read after the step.
 [![The agent's model proposes one step, and the monitor, drawn as an omamori charm, reads it through its view and scores it from 0 to 1. Below defer_threshold, the proposal runs and the outcome is allowed. At or above defer_threshold, the trusted model writes the step instead, from the same request, and the outcome is deferred_to_trusted; the proposal's tool calls never run. Either way one record joins monitor_log, flagged for review when the score is at or above audit_threshold.](../assets/diagrams/protocol-defer-to-trusted-dark.svg#only-dark)](../assets/diagrams/protocol-defer-to-trusted-dark.svg "Open the diagram at full size")
 
 A rejected proposal's tool calls never run, and neither the agent nor the
-trusted model sees it. A provider's built-in tools in it, such as a web fetch,
-already ran inside the model call that drew it. The record keeps it as
-evidence.
+trusted model sees it. Server-side tools in it, such as a web fetch, already
+ran inside the model call that drew it. The record keeps it as evidence.
 
 ## A complete example
 
@@ -73,7 +74,7 @@ places: pass a provider string, or a chat model object you built.
 
 | Option | Default | What it does |
 |---|---|---|
-| `trusted_model` | Required | The model that writes a deferred step: a chat model, or a provider string resolved once, when the protocol is built. A model wrapped in a Runnable, such as one from `with_retry()`, raises `ConfigurationError`. |
+| `trusted_model` | Required | The model that writes a deferred step: a chat model, or a provider string resolved once, when the protocol is built. A model wrapped in a Runnable, such as one from `with_retry()`, raises `ConfigurationError`. Its call is the agent's, so the monitor does not retry it after a rate limit ([known limits](../explanation/design.md#protocols-and-configuration)). |
 | `defer_threshold` | 0.6, with a warning | A proposal whose suspicion is at or above this value is replaced by the trusted model's step. |
 | `audit_threshold` | 0.9, with a warning | A step whose suspicion is at or above this value is flagged for review. `None` turns flagging off. |
 
@@ -112,7 +113,7 @@ channel, but not the trusted model's step, which is in the agent's messages
 like any other step. A halt under `STOP_WHOLE_RUN` stands: until a later run
 brings new input from the user, every further step halts without a sample,
 and two paths through middleware listed before the monitor can lift it early;
-see [A halt stands](choose-a-protocol.md#a-halt-stands).
+see [A halt stands](../explanation/design.md#a-halt-stands).
 
 To see what the trusted model replaced:
 
@@ -131,8 +132,11 @@ for record in result["monitor_log"]:
   only; whatever the trusted model writes runs as it is. That is what trusting
   it means.
 - **The agent may notice a deferral.** The trusted step joins the agent's
-  messages as if it were its own, and a step it would not have written tells
-  it that a proposal was replaced, as Ctrl-Z notes [@bhatt2025ctrlz].
+  messages as if it were its own. A step the agent would not have written can
+  tell it that a proposal was replaced. Ctrl-Z describes an attacker that
+  stops its attack on seeing that, and finds it useful only at high defer
+  thresholds (appendix H, "Red Team Response: Stop after deferral")
+  [@bhatt2025ctrlz].
 - **A flag never blocks.** Deferral is what stops a step. The flag only marks
   the record for a person to read afterwards.
 - **Put the monitor last** in the `create_agent` middleware list, so no other
@@ -140,14 +144,15 @@ for record in result["monitor_log"]:
   about a list that does not. A second monitor inside this one loses its
   judgement of every step that is deferred; see
   [Two monitors in one agent](../explanation/design.md#two-monitors-in-one-agent).
-- **A provider's built-in tools run before the judgement.** A rejected
-  proposal's web search or code execution has already run at the provider;
-  see
-  [Tools the provider runs itself](choose-a-protocol.md#tools-the-provider-runs-itself).
+- **Server tools run before the judgement.** A rejected proposal's web
+  search or code execution has already run at the provider; see
+  [Server tools](choose-a-protocol.md#server-tools).
 - **The graph takes more steps.** The monitor adds two graph steps per agent
-  step, however many samples it draws, and two per run; see
-  [Graph steps, streams and failures](choose-a-protocol.md#graph-steps-streams-and-failures),
-  which also covers a step that fails.
+  step, however many model calls the step makes, and two per run;
+  [Allow for the graph steps](read-the-monitor-log.md#allow-for-the-graph-steps)
+  gives the `recursion_limit` a run needs, and
+  [Graph steps, streams and failures](choose-a-protocol.md#graph-steps-streams-and-failures)
+  covers a step that fails.
 
 ## Related guides
 

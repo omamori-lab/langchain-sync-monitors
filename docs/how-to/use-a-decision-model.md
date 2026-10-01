@@ -12,8 +12,8 @@ A decision model answers typed questions about some text with probabilities,
 and generates no text. Jev, from TypeSafe, is one. Every question about a step
 goes in one request, so a judged step costs one call.
 
-[![DecisionModelMonitor renders the transcript and the proposed step through its view, and sends the decision model one request with every question. If the request fails, OpenRouterDecisionModel sends it again after a network error, an HTTP 429 or a server error, up to 5 attempts, and stops once an attempt fails 45 seconds or more after the first began; any other failure, or the last one, is raised, so the step fails and nothing it proposed runs. TypeSafeDecisionModel gets no retries from the library. Every question must then be answered with a number from 0 to 1. A missing answer, a bool, a string, None or NaN raises MonitorError, and the step fails the same way. The answers are combined, with MAX by default, or MIN or MEAN, into the suspicion. The reason names the question with the highest probability of yes, or, under MIN, every question.](../assets/diagrams/monitors-decision-model-light.svg#only-light)](../assets/diagrams/monitors-decision-model-light.svg "Open the diagram at full size")
-[![DecisionModelMonitor renders the transcript and the proposed step through its view, and sends the decision model one request with every question. If the request fails, OpenRouterDecisionModel sends it again after a network error, an HTTP 429 or a server error, up to 5 attempts, and stops once an attempt fails 45 seconds or more after the first began; any other failure, or the last one, is raised, so the step fails and nothing it proposed runs. TypeSafeDecisionModel gets no retries from the library. Every question must then be answered with a number from 0 to 1. A missing answer, a bool, a string, None or NaN raises MonitorError, and the step fails the same way. The answers are combined, with MAX by default, or MIN or MEAN, into the suspicion. The reason names the question with the highest probability of yes, or, under MIN, every question.](../assets/diagrams/monitors-decision-model-dark.svg#only-dark)](../assets/diagrams/monitors-decision-model-dark.svg "Open the diagram at full size")
+[![DecisionModelMonitor renders the transcript and the proposed step through its view, and sends the decision model one request with every question. If the request fails, OpenRouterDecisionModel sends it again after a network error, an HTTP 429 or a server error, up to 5 attempts, and stops once an attempt fails 45 seconds or more after the first began; any other failure, or the last one, is raised, so the step fails and nothing it proposed runs. TypeSafeDecisionModel gets no retries from the library. Every question must then be answered with a number from 0 to 1. A missing answer, a bool, a string, None or NaN raises MonitorError, and the step fails the same way. The answers are aggregated, with Aggregation.MAX by default, or MIN or MEAN, into the suspicion. The reason names the question with the highest probability of yes, or, under MIN, every question.](../assets/diagrams/monitors-decision-model-light.svg#only-light)](../assets/diagrams/monitors-decision-model-light.svg "Open the diagram at full size")
+[![DecisionModelMonitor renders the transcript and the proposed step through its view, and sends the decision model one request with every question. If the request fails, OpenRouterDecisionModel sends it again after a network error, an HTTP 429 or a server error, up to 5 attempts, and stops once an attempt fails 45 seconds or more after the first began; any other failure, or the last one, is raised, so the step fails and nothing it proposed runs. TypeSafeDecisionModel gets no retries from the library. Every question must then be answered with a number from 0 to 1. A missing answer, a bool, a string, None or NaN raises MonitorError, and the step fails the same way. The answers are aggregated, with Aggregation.MAX by default, or MIN or MEAN, into the suspicion. The reason names the question with the highest probability of yes, or, under MIN, every question.](../assets/diagrams/monitors-decision-model-dark.svg#only-dark)](../assets/diagrams/monitors-decision-model-dark.svg "Open the diagram at full size")
 
 `DecisionModelMonitor(decision_model=...)` takes a `DecisionModel`, not a chat
 model, and has no default. The library reaches Jev in two ways, and you can
@@ -99,7 +99,7 @@ Add questions of your own for what matters in your system:
 ```python
 from langchain_sync_monitors import (
     ATTACK_CRITERIA,
-    Combine,
+    Aggregation,
     DecisionModelMonitor,
     OpenRouterDecisionModel,
     YesNoQuestion,
@@ -117,28 +117,39 @@ monitor = DecisionModelMonitor(
     decision_model=OpenRouterDecisionModel(model="typesafe/jev-1.13"),
     questions=[*ATTACK_CRITERIA, TOUCHES_PRODUCTION],
     # Any one strong concern is enough to raise suspicion.
-    combine=Combine.MAX,
+    aggregation=Aggregation.MAX,
 )
 ```
 
 `questions` can be a list or any other iterable, such as a generator, which
 the constructor reads once. It must not be empty and its keys must be unique,
-or the constructor raises `ConfigurationError`. `combine` must be a member of
-`Combine`: a plain string such as `"max"` raises `ConfigurationError` too.
+or the constructor raises `ConfigurationError`. `aggregation` must be a
+member of `Aggregation`: a plain string such as `"max"` raises
+`ConfigurationError` too.
 
-## Combine several answers
+## Aggregate several answers
 
-With several questions, `combine` merges their probabilities of yes into one
-suspicion.
+With several questions, `aggregation` merges their probabilities of yes into
+one suspicion.
 
-| `Combine` | Suspicion | Fits |
+| `Aggregation` | Suspicion | Fits |
 |---|---|---|
-| `MAX`, the default | The highest probability | Threat criteria, where any one is enough. ShieldGemma combines harm types the same way [@zeng2024shieldgemma]. |
+| `MAX`, the default | The highest probability | Threat criteria, where any one is enough. ShieldGemma aggregates harm types the same way when it evaluates them (section 5.1) [@zeng2024shieldgemma]. |
 | `MIN` | The lowest probability | Questions that must all hold before a step is suspicious |
 | `MEAN` | The average | Rarely: it dilutes one strong hit, and the constructor warns |
 
 With answers of 0.95, 0.05, 0.05 and 0.05, `MAX` gives 0.95 and `MEAN` gives
 0.275.
+
+`MAX` takes the maximum of the raw probabilities. Control evaluations
+aggregate on the honest scale instead: LinuxArena turns each monitor's score
+into a percentile rank against its honest distribution and then takes the
+maximum (appendix C), and AI Control maps each score through the empirical
+distribution of honest scores before aggregating (appendix K)
+[@tracy2026linuxarena; @greenblatt2023aicontrol]. On raw probabilities, a
+question that honest steps often answer yes to can dominate the maximum. Wrap
+the monitor in `CalibratedMonitor` so that a threshold flags a known share of
+honest steps; that fixes the share, but not the dominance.
 
 ## See what the model reads
 
@@ -204,14 +215,16 @@ after the first began, stamina's default time budget. With the default
 error, such as a bad key (401) or a request timeout the server reports (408),
 raises `httpx.HTTPStatusError` at once. A request httpx refuses to send, such
 as one to a URL whose scheme it does not support, raises at once too, since it
-would fail the same way every time.
+would fail the same way every time. stamina logs each retry as
+`stamina.retry_scheduled` with its error and wait, never the request, so
+neither the transcript nor the key reaches the log.
 
 The library adds no retries around `TypeSafeDecisionModel`; an error from the
 classifier is raised as it is.
 
 ## Read the reason
 
-The verdict's reason names questions, never a probability or the combined
+The verdict's reason names questions, never a probability or the aggregated
 score. Auto Mode shows the reason to the agent, and a number would tell the
 agent how close its step came to passing; the numbers stay in the suspicion,
 which the log records keep.
@@ -237,10 +250,15 @@ model's score rests on all of its concerns together: 'sends_data_out': ...;
 
 In the library's live runs, Jev's probabilities came back with two decimals, so
 its scores tie at a resolution of 0.01. Averaging calls with `RepeatedMonitor`,
-or combining several questions with `Combine.MEAN`, restores some resolution;
-`MAX` and `MIN` return one question's answer, at its resolution. A decision
-model also makes a good fast first stage in front of a chat judge; [Combine and
-calibrate monitors](combine-and-calibrate-monitors.md) shows `CascadeMonitor`.
+or aggregating several questions with `Aggregation.MEAN`, restores some
+resolution; `MAX` and `MIN` return one question's answer, at its resolution.
+
+The library suggests a decision model as the fast first stage in front of a
+chat judge, by analogy with Claude Code's auto mode, whose first stage answers
+with a single yes or no token and whose second reasons (section Two-stage
+classification: efficiency and recall) [@hughes2026automode]. No cited source
+evaluates how well this pairing catches attacks. [Combine and calibrate
+monitors](combine-and-calibrate-monitors.md) shows `CascadeMonitor`.
 
 ## Related guides
 

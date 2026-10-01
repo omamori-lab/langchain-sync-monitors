@@ -55,6 +55,11 @@ from typing import TypedDict
 from langchain_core.messages import BaseMessage, HumanMessage
 
 from langchain_sync_monitors._langchain import AgentStateUpdate
+from langchain_sync_monitors.message_ids import (
+    assign_human_message_ids,
+    build_assigned_ids_update,
+    replace_state_messages,
+)
 from langchain_sync_monitors.state_keys import RUN_INPUTS_KEY
 from langchain_sync_monitors.task_authorship import (
     UNCONFIRMED_INPUT_SOURCE,
@@ -66,7 +71,7 @@ from langchain_sync_monitors.task_authorship import (
 )
 from langchain_sync_monitors.transcript import read_message_source
 
-ANCHOR_COUNT = 3
+PREVIOUS_MESSAGE_COUNT = 3
 """How many of the messages before an input are kept as the places it can go back to."""
 
 
@@ -74,7 +79,7 @@ class RunInput(TypedDict):
     """The kept copy of one human message a run received as its input.
 
     `text` is what the judge reads. `previous_message_ids` holds the ids of up
-    to `ANCHOR_COUNT` messages before it when recorded, nearest first.
+    to `PREVIOUS_MESSAGE_COUNT` messages before it when recorded, nearest first.
     `confirmed` is false for input a run could not confirm, which goes back as
     a note from `unconfirmed_input`.
     """
@@ -158,7 +163,7 @@ def build_kept_inputs(
     for index, message in enumerate(messages):
         if not message.id or message.id not in input_ids:
             continue
-        earlier = messages[max(0, index - ANCHOR_COUNT) : index]
+        earlier = messages[max(0, index - PREVIOUS_MESSAGE_COUNT) : index]
         kept.append(
             RunInput(
                 id=message.id,
@@ -183,14 +188,7 @@ def refresh_run_inputs(
         text = entry["text"]
         if message is not None and is_rendered_form(message, entry=entry):
             text = message.text
-        refreshed.append(
-            RunInput(
-                id=entry["id"],
-                text=text,
-                previous_message_ids=entry["previous_message_ids"],
-                confirmed=entry["confirmed"],
-            ),
-        )
+        refreshed.append({**entry, "text": text})
     return refreshed
 
 
@@ -216,8 +214,13 @@ def build_run_start_update(state: object) -> AgentStateUpdate:
     """Return the update a run starts with: its input recorded, and the text of each input kept.
 
     After a run that stopped early, the new input is kept unconfirmed, to go
-    back as a note.
+    back as a note. Input that reached the state without an id, as a string
+    or a `(role, text)` tuple does in a Deep Agent, is first given one, and
+    the history is written back with it, as `assign_human_message_ids` says.
     """
+    messages_with_ids = assign_human_message_ids(state, as_notes=False)
+    if messages_with_ids is not None:
+        state = replace_state_messages(state, messages=messages_with_ids)
     update = build_run_input_update(state)
     new_inputs = build_kept_inputs(
         read_state_messages(state),
@@ -225,7 +228,10 @@ def build_run_start_update(state: object) -> AgentStateUpdate:
         confirmed=not is_run_open(state),
     )
     kept = [*find_changed_inputs(state), *new_inputs]
-    return {**update, RUN_INPUTS_KEY: kept} if kept else update
+    update = {**update, RUN_INPUTS_KEY: kept} if kept else update
+    if messages_with_ids is None:
+        return update
+    return build_assigned_ids_update(messages_with_ids, update=update)
 
 
 def build_input_message(entry: RunInput) -> HumanMessage:
@@ -240,11 +246,11 @@ def build_input_message(entry: RunInput) -> HumanMessage:
     return tag_as_context_note(message, source=UNCONFIRMED_INPUT_SOURCE)
 
 
-def find_input_slot(
+def find_input_insertion_point(
     entry: RunInput,
     *,
     index_by_id: Mapping[str, int],
-    rewritten_ids: Collection[str],
+    rewritten_input_ids: Collection[str],
 ) -> int:
     """Return where a missing input goes, as the index of the message it goes before.
 
@@ -255,15 +261,15 @@ def find_input_slot(
     for previous_id in entry["previous_message_ids"]:
         if previous_id in index_by_id:
             return index_by_id[previous_id] + 1
-    return 0 if entry["id"] in rewritten_ids else index_by_id.get(entry["id"], 0)
+    return 0 if entry["id"] in rewritten_input_ids else index_by_id.get(entry["id"], 0)
 
 
-def find_missing_input_slots(
+def find_missing_input_insertion_points(
     inputs: Sequence[RunInput],
     *,
     history: Sequence[BaseMessage],
     present_ids: Collection[str],
-    rewritten_ids: Collection[str],
+    rewritten_input_ids: Collection[str],
 ) -> dict[str, int]:
     """Return, for each input the history lacks, the index of the message it goes before.
 
@@ -273,7 +279,7 @@ def find_missing_input_slots(
     keep their order among themselves and with the ones the history holds.
     """
     index_by_id = {message.id: index for index, message in enumerate(history) if message.id}
-    slots: dict[str, int] = {}
+    insertion_points: dict[str, int] = {}
     lowest = 0
     for position, entry in enumerate(inputs):
         if entry["id"] in present_ids:
@@ -286,11 +292,13 @@ def find_missing_input_slots(
         ]
         # A message under its id came after it.
         highest = min([*later_present, index_by_id.get(entry["id"], len(history))])
-        candidate = find_input_slot(entry, index_by_id=index_by_id, rewritten_ids=rewritten_ids)
-        slot = max(min(candidate, highest), lowest)
-        slots[entry["id"]] = slot
-        lowest = slot
-    return slots
+        candidate = find_input_insertion_point(
+            entry, index_by_id=index_by_id, rewritten_input_ids=rewritten_input_ids
+        )
+        insertion_point = max(min(candidate, highest), lowest)
+        insertion_points[entry["id"]] = insertion_point
+        lowest = insertion_point
+    return insertion_points
 
 
 def replace_changed_inputs(
@@ -329,7 +337,7 @@ def restore_run_inputs(
     *,
     run_inputs: Sequence[RunInput],
     task_message_ids: Collection[str],
-    rewritten_ids: Collection[str] = frozenset(),
+    rewritten_input_ids: Collection[str] = frozenset(),
 ) -> tuple[BaseMessage, ...]:
     """Return the monitor's copy of a conversation with every kept input in it, verbatim.
 
@@ -343,13 +351,15 @@ def restore_run_inputs(
     ]
     replaced = replace_changed_inputs(history, inputs=inputs)
     present_ids = find_present_input_ids(replaced, inputs=inputs)
-    slots = find_missing_input_slots(
-        inputs, history=replaced, present_ids=present_ids, rewritten_ids=rewritten_ids
+    insertion_points = find_missing_input_insertion_points(
+        inputs, history=replaced, present_ids=present_ids, rewritten_input_ids=rewritten_input_ids
     )
     restored: list[BaseMessage] = []
     for index in range(len(replaced) + 1):
         restored.extend(
-            build_input_message(entry) for entry in inputs if slots.get(entry["id"]) == index
+            build_input_message(entry)
+            for entry in inputs
+            if insertion_points.get(entry["id"]) == index
         )
         restored.extend(replaced[index : index + 1])
     return tuple(restored)

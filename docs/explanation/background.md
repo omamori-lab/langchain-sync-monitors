@@ -16,62 +16,73 @@ with the same keys.
 | `AutoMode`, the default view, `CascadeMonitor` | Block and continue, the limits of three and twenty, a classifier that does not read the agent's own messages, two stages | Claude Code's auto mode [@hughes2026automode] |
 | `DEFAULT_MONITOR_PROMPT` | Reasoning before the score, on an anchored scale | Apollo Research [@apollo2026monitoringprompt] |
 | Verdicts read only where the format puts them | The threat of prompt injections aimed at the monitor | Terekhov et al. [@terekhov2025adaptive] |
-| `RepeatedMonitor`, `CalibratedMonitor` | Averaged calls, conformal ranks and random tie-breaking | [Thresholds and scores](#thresholds-and-scores) |
+| `RepeatedMonitor`, `CalibratedMonitor` | Averaged calls, smoothed conformal p-values and random tie-breaking | [Thresholds and scores](#thresholds-and-scores) |
 | `GuardModelMonitor` | The probability of the unsafe label, or the share of samples that carry it | [Guard models](#guard-models) |
 | `DecisionModelMonitor` | Yes or no probabilities from Jev | [Decision models](#decision-models) |
 
 ## Control protocols
 
 Trusted Monitoring and Defer to Trusted come from the original AI control
-paper [@greenblatt2023aicontrol]: an untrusted model does the work, a trusted
-model rates how suspicious each output is, and suspicious outputs are either
-audited or replaced by the trusted model's own output.
+paper (sections 3.2 and 3.3) [@greenblatt2023aicontrol]: an untrusted model
+does the work, a trusted model rates how suspicious each output is, and
+suspicious outputs are either audited or replaced by the trusted model's own
+output.
 
-Defer to Resample comes from Ctrl-Z [@bhatt2025ctrlz]. When a step looks
-suspicious, the protocol draws up to two more samples of it, runs the least
-suspicious one below the threshold, and falls back to the trusted model when
-every sample looks suspicious. The paper flags a step for audit on the lowest
-score across its samples, and finds that several samples of a step help tell
-an attack from honest work, which is why the library keeps every sample in
-the record. The authors' post stresses that resampling is stateless, so the
-model does not know it is being resampled, and that the more deterministic
-the models are, the less resampling helps [@bhatt2025ctrlzpost].
+Defer to Resample comes from Ctrl-Z (section 3.2) [@bhatt2025ctrlz]. When a
+step looks suspicious, the protocol draws up to two more samples of it, runs
+the least suspicious one below the threshold, and falls back to the trusted
+model when every sample looks suspicious. The paper flags a step for audit on
+the lowest score across its samples (section 3.2, footnote 6)
+[@bhatt2025ctrlz], and finds that several samples of a step help tell an
+attack from honest work (section 3.2.1; figure 4) [@bhatt2025ctrlz], which is
+why the library keeps every sample in the record. The authors' post stresses
+that resampling is stateless, so a model that keeps no state between calls
+does not know it is being resampled (note "Note on statelessness")
+[@bhatt2025ctrlzpost], and that the more deterministic the models are, the
+less resampling helps (section "Important Limitations")
+[@bhatt2025ctrlzpost].
 
 The agent writes the steps its monitor reads, so it can aim a prompt
 injection at the monitor. Terekhov et al. show that injections embedded in
 the model's outputs let frontier models evade diverse monitors, and that
 Defer to Resample backfires: its resampling amplifies the injection into a
-best-of-n attack [@terekhov2025adaptive]. The same threat is why the default
-prompt tells the monitor to read everything as data, and why a chat judge's
-score and a guard's label are read only where the reply's format puts them.
+best-of-n attack (abstract; sections 4.2 and 6) [@terekhov2025adaptive]. The
+same threat is why the default prompt tells the monitor to read everything as
+data, and why a chat judge's score and a guard's label are read only where
+the reply's format puts them.
 
 ## Claude Code's auto mode
 
 Claude Code's auto mode reviews each action with a transcript classifier
-before the action runs [@hughes2026automode]. The library takes four things
-from Hughes's account of it:
+before the action runs (section "How it works") [@hughes2026automode]. The
+library takes four things from Hughes's account of it:
 
 - **What the classifier reads.** It sees the user's messages and the executable
   payload of the agent's tool calls. The agent's own messages, tool-call
   descriptions and all tool outputs are stripped, which makes it
-  reasoning-blind by design. `Channel.ACTIONS`, the library's default view,
-  follows it, with differences: it shows a call's name and all its arguments,
-  and it also reads `<tool_error>` entries, subagent reports and the text of a
-  final answer. When a subagent returns, the post's classifier reviews its
-  whole action history, and a flag only adds a warning; the library shows the
-  report to the parent's monitor as a `<subagent_report>`.
+  reasoning-blind by design (section "Why we strip assistant text and tool
+  results"; figure 3) [@hughes2026automode]. `Channel.ACTIONS`, the
+  library's default view, follows it, with differences: it shows a call's
+  name and all its arguments, and it also reads `<tool_error>` entries,
+  subagent reports and the text of a final answer. When a subagent returns,
+  the post's classifier reviews its whole action history, and a flag only
+  adds a warning (section "Multi-agent handoffs") [@hughes2026automode]; the
+  library shows the report to the parent's monitor as a `<subagent_report>`.
 - **Deny and continue.** A denied action comes back to the agent with the
   reason and an instruction to find a safer path rather than route around
-  the block. `AutoMode` does the same with its `FeedbackTemplate`.
+  the block (section "Deny-and-continue"; figure 4) [@hughes2026automode].
+  `AutoMode` does the same with its `FeedbackTemplate`.
 - **The limits.** After three consecutive denials or twenty in all within a
   session, Claude Code stops the model and escalates to a person, or ends the
-  process when there is no one to ask. `AutoMode` uses the same numbers; here
-  the three count within one step, a session is a conversation thread, and
-  the twenty include the blocks inside its subagents.
+  process when there is no one to ask (section "Deny-and-continue")
+  [@hughes2026automode]. `AutoMode` uses the same numbers; here the three
+  count within one step, a session is a conversation thread, and the twenty
+  include the blocks inside its subagents.
 - **Two stages.** A fast single-token filter runs first, and reasoning
-  follows only when it flags the action. `CascadeMonitor` runs a fast monitor
-  on every step and a careful one on the steps the fast one finds
-  suspicious.
+  follows only when it flags the action (section "Two-stage classification:
+  efficiency and recall") [@hughes2026automode]. `CascadeMonitor` runs a
+  fast monitor on every step and a careful one on the steps the fast one
+  finds suspicious.
 
 The rule that everything the agent chooses on its own is unauthorised until
 the user asks for it comes from the same post, and `DEFAULT_MONITOR_PROMPT`
@@ -102,22 +113,29 @@ ranking [@apollo2026monitoringprompt].
 
 ### Thresholds and scores
 
-Control settings set thresholds as percentiles of the scores a monitor gives to
-honest runs, so a 1% audit budget means flagging the top 1% of honest steps.
-BashArena shows that averaging a few calls of a monitor raises its resolution
-at low false-positive rates [@kaufman2025basharena], and LinuxArena averages
-two calls per action [@tracy2026linuxarena]. Koran et al. note that integer
-scores from 0 to 10 leave a sparse threshold space, and find the plain mean as
-good a way to combine monitors' scores as the other aggregators they tried
-[@koran2026ensemble].
+Control evaluations set thresholds as percentiles of the scores a monitor
+gives to honest runs, so an audit budget of 1% means flagging for review the
+top 1% of honest steps. LinuxArena puts its 1% budget at the 99th percentile
+of honest scores (section 5.1) [@tracy2026linuxarena], and
+[Combine and calibrate monitors](../how-to/combine-and-calibrate-monitors.md)
+gives the budgets of AI Control and Ctrl-Z.
 
-`CalibratedMonitor` reports a step's smoothed conformal rank among honest
-scores [@vovk2005algorithmic], and breaks the remaining ties at random, as
-Makins et al. and LinuxArena do [@makins2026multiagent; @tracy2026linuxarena].
+`RepeatedMonitor` draws on BashArena, LinuxArena, Ctrl-Z and Koran et al.
+[@kaufman2025basharena; @tracy2026linuxarena; @bhatt2025ctrlz; @koran2026ensemble];
+[Average repeated calls](../how-to/combine-and-calibrate-monitors.md#average-repeated-calls)
+says what each contributed. `CalibratedMonitor`, which reports a step's
+smoothed conformal p-value against honest scores and breaks the remaining ties
+at random, draws on Vovk et al., Makins et al. and LinuxArena
+[@vovk2016criteria; @makins2026multiagent; @tracy2026linuxarena];
+[What a calibrated threshold means](../how-to/combine-and-calibrate-monitors.md#what-a-calibrated-threshold-means)
+defines the p-value and says what each contributed.
+
 Hua et al. combine monitors under a cost budget, and their best two-monitor
 protocol calls the expensive monitor only when the cheap score falls in an
-uncertain band [@hua2025combining]. `CascadeMonitor` uses a simpler rule, one
-threshold on the cheap score.
+uncertain band (section 6) [@hua2025combining]. `CascadeMonitor` uses a
+simpler rule, one threshold on the cheap score, which is the multi-stage
+classifier of Cunningham et al. (section Multi-stage classifiers)
+[@cunningham2025cheapmonitors].
 
 Weighting a judge's score by the probabilities of its levels gives a finer,
 continuous score [@liu2023geval], and taking the mean of the judgement
@@ -131,15 +149,14 @@ Guard models such as Llama Guard [@inan2023llamaguard], ShieldGemma
 with the probability of the label that marks content unsafe, `unsafe` for Llama
 Guard and `Yes` for the other two, and Llama Guard 3's model card takes the
 probability of the first generated token as the unsafe class's
-[@meta2024llamaguard3]. Guard models are overconfident, and markedly
-miscalibrated under jailbreak prompts [@liu2025guardcalibration].
+[@meta2024llamaguard3].
 
 When a provider returns no log-probabilities, the share of several samples
-that carry the unsafe label estimates the same probability. The evidence for
-sampling comes from studies of confidence in question answering, not of
-guards: Xiong et al. see its gains converge as samples grow, and Lyu et al.
-see them saturate after 15 to 20 samples
-[@xiong2024uncertainty; @lyu2025sampleconsistency].
+that carry the unsafe label estimates the same probability.
+[Choose how labels become a score](../how-to/use-a-guard-model.md#choose-how-labels-become-a-score)
+gives the evidence on how many samples to draw, from Lyu et al., Xiong et al.
+and Tian et al., and on how guard models are calibrated, from Liu et al.
+[@lyu2025sampleconsistency; @xiong2024uncertainty; @tian2023justask; @liu2025guardcalibration].
 
 Llama Guard 3 writes its label on the first line and, for unsafe content, the
 codes of the violated categories on the next [@meta2024llamaguard3format].

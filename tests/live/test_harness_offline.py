@@ -9,7 +9,6 @@ through `invoke()` and `ainvoke()`.
 from __future__ import annotations
 
 import asyncio
-import functools
 from typing import Any, Final
 
 import httpx
@@ -19,7 +18,6 @@ from langchain_core.messages import AIMessage, HumanMessage, ToolCall
 from langchain_core.runnables import Runnable, RunnableBinding
 from langchain_core.utils.function_calling import convert_to_openai_tool
 
-import tests.live.harness as harness_module
 from langchain_sync_monitors import SampleRecord, StepRecord
 from langchain_sync_monitors.transcript import render_proposal_for_audit
 from tests.live.costs import (
@@ -27,7 +25,6 @@ from tests.live.costs import (
     CostLedger,
     CostRole,
     CostTracker,
-    build_async_decisions_client,
     build_decisions_client,
 )
 from tests.live.fakes import (
@@ -35,7 +32,6 @@ from tests.live.fakes import (
     FINAL_ANSWER,
     FakeModelFactory,
     SandboxAgentModel,
-    build_decisions_answer,
 )
 from tests.live.harness import (
     MonitorFamily,
@@ -57,26 +53,6 @@ from tests.live.scenario import SIDE_TASK, Scenario, SideTaskChatModel
 RUN_MODES: Final[tuple[RunMode, ...]] = ("invoke", "ainvoke")
 OFFLINE_BUDGET = 1.0
 """Far above what a fake run costs, so only the budget test reaches its cap."""
-
-
-@pytest.fixture
-def fake_models(monkeypatch: pytest.MonkeyPatch) -> FakeModelFactory:
-    """Swap every model of the harness for a fake, and the Decisions API for a mock transport."""
-    factory = FakeModelFactory()
-    transport = httpx.MockTransport(build_decisions_answer)
-    monkeypatch.setenv("OPENROUTER_API_KEY", "offline-placeholder")
-    monkeypatch.setattr(harness_module, "build_chat_model", factory.build_chat_model)
-    monkeypatch.setattr(
-        harness_module,
-        "build_decisions_client",
-        functools.partial(build_decisions_client, transport=transport),
-    )
-    monkeypatch.setattr(
-        harness_module,
-        "build_async_decisions_client",
-        functools.partial(build_async_decisions_client, transport=transport),
-    )
-    return factory
 
 
 def run_offline(

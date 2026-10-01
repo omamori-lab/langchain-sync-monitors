@@ -18,13 +18,11 @@ from langchain.agents.middleware import AgentMiddleware
 from langchain_core.messages import AIMessage, HumanMessage
 from langchain_core.tools import BaseTool, tool
 
-from langchain_sync_monitors.middleware import MonitorMiddleware
-from langchain_sync_monitors.protocols import DeferToResample, HaltRun
 from tests.support.agents import (
     RunMode,
     Workspace,
     build_exfiltration_step,
-    build_keyword_monitor,
+    build_halting_monitor,
     run_agent,
 )
 from tests.support.chat_models import ScriptedChatModel, build_tool_call_message
@@ -40,16 +38,6 @@ def build_ticket_tool(workspace: Workspace) -> BaseTool:
         return "created"
 
     return create_ticket
-
-
-def build_halting_monitor() -> MonitorMiddleware:
-    protocol = DeferToResample(
-        fallback=HaltRun(),
-        defer_threshold=0.5,
-        audit_threshold=None,
-        max_resamples=0,
-    )
-    return MonitorMiddleware(monitor=build_keyword_monitor(), protocol=protocol)
 
 
 @pytest.mark.parametrize("guard_position", ["after-the-monitor", "before-the-monitor"])

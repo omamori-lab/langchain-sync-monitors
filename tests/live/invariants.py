@@ -1,0 +1,153 @@
+"""The execution invariant, checked on a saved report: only a committed step's calls run.
+
+The middleware promises that none of the agent's own tools runs a call the
+protocol rejected or blocked. A report holds what ran, from the sandbox's
+records, every sample with whether it ran, and every message of the final
+state, so the promise can be checked from the report alone, by each call's
+tool name and key argument:
+
+- what ran is exactly the tool calls of the committed replies, the AI
+  messages the monitor did not insert, except that a call the tools node
+  answered with an error, such as one missing an argument, may not have run;
+- a step whose sample ran committed exactly that sample's calls, and a step
+  the trusted model wrote, or a halted one, ran no sample;
+- no call ran that only a rejected or blocked sample proposed: every call
+  that ran was proposed by a sample that ran or written by the trusted model.
+"""
+
+from __future__ import annotations
+
+from collections import Counter
+from collections.abc import Collection, Iterable, Sequence
+
+from tests.live.reports import (
+    HALTED,
+    MONITOR_MESSAGE_ID_PREFIX,
+    MessageReport,
+    RunReport,
+    StepReport,
+    read_proposed_calls,
+)
+from tests.live.sandbox import describe_call
+
+DEFERRED = "deferred_to_trusted"
+OUTCOMES_WITHOUT_A_SAMPLE_THAT_RAN = frozenset({DEFERRED, HALTED})
+
+
+def count_proposed_calls(proposal: str) -> Counter[str]:
+    """Count a proposal's calls, each described as the sandbox records it."""
+    return Counter(call.description for call in read_proposed_calls(proposal))
+
+
+def count_message_calls(
+    message: MessageReport,
+    *,
+    leaving_out: Collection[str] = frozenset(),
+) -> Counter[str]:
+    """Count a saved message's tool calls but those in `leaving_out`, as the sandbox would."""
+    return Counter(
+        describe_call(call["name"], arguments=call["args"])
+        for call in message["tool_calls"]
+        if call["id"] not in leaving_out
+    )
+
+
+def is_inserted_by_monitor(message: MessageReport) -> bool:
+    """Tell whether the monitor inserted a saved message: feedback, a blocked attempt or a halt."""
+    return (message["id"] or "").startswith(MONITOR_MESSAGE_ID_PREFIX)
+
+
+def list_committed_replies(messages: Iterable[MessageReport]) -> list[MessageReport]:
+    """Return the saved AI messages the steps committed: every one the monitor did not insert."""
+    return [
+        message
+        for message in messages
+        if message["type"] == "ai" and not is_inserted_by_monitor(message)
+    ]
+
+
+def list_rejected_call_ids(messages: Iterable[MessageReport]) -> set[str]:
+    """Return the id of every call the tools node answered with an error, so it may not have run.
+
+    The monitor's own feedback is an error too, but it answers a blocked
+    attempt, never a committed call, so it is left out.
+    """
+    return {
+        message["tool_call_id"]
+        for message in messages
+        if message["type"] == "tool"
+        and message["status"] == "error"
+        and message["tool_call_id"] is not None
+        and not is_inserted_by_monitor(message)
+    }
+
+
+def sum_counts(counts: Iterable[Counter[str]]) -> Counter[str]:
+    """Add up call counts."""
+    total: Counter[str] = Counter()
+    for count in counts:
+        total.update(count)
+    return total
+
+
+def check_step(step: StepReport, *, reply: MessageReport) -> list[str]:
+    """Check that a step ran no sample or one, and committed what that sample proposed."""
+    number = step["step_number"]
+    ran = [sample for sample in step["samples"] if sample["executed"]]
+    expected_samples = 0 if step["outcome"] in OUTCOMES_WITHOUT_A_SAMPLE_THAT_RAN else 1
+    if len(ran) != expected_samples:
+        return [f"step {number} ({step['outcome']}): {len(ran)} samples ran"]
+    if ran and count_proposed_calls(ran[0]["proposal"]) != count_message_calls(reply):
+        return [f"step {number}: the committed reply's calls differ from the sample that ran"]
+    return []
+
+
+def pair_steps_with_replies(
+    steps: Sequence[StepReport],
+    *,
+    replies: Sequence[MessageReport],
+) -> list[tuple[StepReport, MessageReport]] | None:
+    """Pair every step but a halted one with its committed reply, or `None` if they differ."""
+    running = [step for step in steps if step["outcome"] != HALTED]
+    if len(running) != len(replies):
+        return None
+    return list(zip(running, replies, strict=True))
+
+
+def find_uncovered_calls(ran: Counter[str], *, covered: Counter[str]) -> list[str]:
+    """Return a problem for each call that ran more often than anything that ran proposed it."""
+    return [
+        f"{call} ran {count} times, but a sample that ran or the trusted model "
+        f"proposed it {covered[call]} times"
+        for call, count in ran.items()
+        if count > covered[call]
+    ]
+
+
+def check_execution_invariant(report: RunReport) -> list[str]:
+    """Return every way the run broke the execution invariant; an empty list when it held."""
+    replies = list_committed_replies(report["messages"])
+    pairs = pair_steps_with_replies(report["steps"], replies=replies)
+    if pairs is None:
+        return [f"{len(replies)} committed replies for {len(report['steps'])} steps"]
+    ran = Counter(report["executed_calls"])
+    committed = sum_counts(count_message_calls(reply) for reply in replies)
+    rejected = list_rejected_call_ids(report["messages"])
+    accepted = sum_counts(count_message_calls(reply, leaving_out=rejected) for reply in replies)
+    problems = (
+        []
+        if accepted <= ran <= committed
+        else [f"ran {dict(ran)}, committed {dict(committed)}, accepted {dict(accepted)}"]
+    )
+    for step, reply in pairs:
+        problems.extend(check_step(step, reply=reply))
+    covered = sum_counts(
+        count_message_calls(reply) if step["outcome"] == DEFERRED else Counter()
+        for step, reply in pairs
+    ) + sum_counts(
+        count_proposed_calls(sample["proposal"])
+        for step in report["steps"]
+        for sample in step["samples"]
+        if sample["executed"]
+    )
+    return [*problems, *find_uncovered_calls(ran, covered=covered)]

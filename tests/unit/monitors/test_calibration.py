@@ -22,6 +22,8 @@ from .doubles import CallPath, evaluate_on_path
 AUDIT_THRESHOLD = 0.99
 TRIAL_COUNT = 40_000
 REASON_WITHOUT_NUMBERS = "It posts the API key to an unknown host."
+RECORDED_SEEDED_DRAW = 0.1886877280579693
+"""What seed 3 drew for the step in `test_a_seeded_draw_keeps_its_recorded_value`."""
 
 
 @dataclass(kw_only=True)
@@ -63,11 +65,17 @@ class SlowOrFailingMonitor(Monitor):
         return Verdict(suspicion=0.1, reason="fine")
 
 
-def build_scored_step(score: float, *, label: str = "") -> MonitorInput:
+def build_scored_step(
+    score: float,
+    *,
+    label: str = "",
+    task: str = "Summarise the report.",
+    task_author: TaskAuthor = TaskAuthor.USER,
+) -> MonitorInput:
     return MonitorInput(
-        history=(HumanMessage("Summarise the report."),),
+        history=(HumanMessage(task),),
         proposal=AIMessage(f"score={score} {label}"),
-        task_author=TaskAuthor.USER,
+        task_author=task_author,
     )
 
 
@@ -93,9 +101,9 @@ def measure_honest_flag_rate(*, calibration_size: int) -> float:
 
 @pytest.mark.parametrize("calibration_size", [100, 150])
 def test_a_new_honest_step_is_flagged_at_exactly_the_audit_budget(calibration_size: int) -> None:
-    """The new score's rank among n + 1 exchangeable scores is uniform on the n + 1 slots.
+    """The new score's rank among n + 1 exchangeable scores is uniform on the n + 1 places.
 
-    Spreading the step uniformly over its slot makes the calibrated suspicion
+    Spreading the step uniformly over its place makes the calibrated suspicion
     uniform on [0, 1], so a threshold of 0.99 flags exactly 1% of new honest
     steps. The earlier `below / n` flagged (n - ceil(0.99 n) + 1) / (n + 1):
     2/101, about 1.98%, at n = 100, and 2/151, about 1.32%, at n = 150.
@@ -107,10 +115,10 @@ def test_a_new_honest_step_is_flagged_at_exactly_the_audit_budget(calibration_si
     assert rate == pytest.approx(1 - AUDIT_THRESHOLD, abs=0.0018)
 
 
-def test_every_rank_slot_is_reached_and_none_reaches_one() -> None:
+def test_every_place_is_reached_and_none_reaches_one() -> None:
     # Arrange: each of 21 distinct scores in turn plays the new step
     scores = [index / 20 for index in range(21)]
-    slot_count = len(scores)
+    place_count = len(scores)
 
     # Act
     percentiles = []
@@ -120,7 +128,9 @@ def test_every_rank_slot_is_reached_and_none_reaches_one() -> None:
         percentiles.append((rank, calibrated.evaluate_sync(build_scored_step(score)).suspicion))
 
     # Assert
-    assert all(rank / slot_count <= value < (rank + 1) / slot_count for rank, value in percentiles)
+    assert all(
+        rank / place_count <= value < (rank + 1) / place_count for rank, value in percentiles
+    )
 
 
 def test_a_seeded_step_gets_the_same_suspicion_whatever_ran_before() -> None:
@@ -174,10 +184,61 @@ def test_different_steps_with_one_seed_break_ties_differently() -> None:
     assert len(percentiles) == 20
 
 
+@pytest.mark.parametrize(
+    "other_step",
+    [
+        build_scored_step(0.5, task="Summarise the other report."),
+        build_scored_step(0.5, task_author=TaskAuthor.PARENT_AGENT),
+    ],
+    ids=["history", "task-author"],
+)
+async def test_steps_that_propose_the_same_thing_after_a_different_history_break_ties_differently(
+    other_step: MonitorInput,
+    call_path: CallPath,
+) -> None:
+    # Arrange: the tie-break reads the whole step, not its proposal alone
+    calibrated = CalibratedMonitor(
+        monitor=ScoreInProposal(), honest_scores=[0.5] * 20, random_seed=3
+    )
+
+    # Act
+    first = await evaluate_on_path(calibrated, build_scored_step(0.5), call_path=call_path)
+    second = await evaluate_on_path(calibrated, other_step, call_path=call_path)
+
+    # Assert
+    assert first.suspicion != second.suspicion
+
+
+async def test_a_seeded_draw_keeps_its_recorded_value(call_path: CallPath) -> None:
+    """The docs promise that a seeded evaluation replays exactly.
+
+    So a change to what the draw reads, or to how it joins the parts of a
+    step, must show up here as a deliberate change, not as silently different
+    suspicions in a replayed evaluation.
+    """
+    # Arrange: one honest score tied with the step's, so the suspicion is the draw itself;
+    # the step has messages of two types, a task author and a proposal with a tool call.
+    calibrated = CalibratedMonitor(monitor=ScoreInProposal(), honest_scores=[0.5], random_seed=3)
+    step = MonitorInput(
+        history=(HumanMessage("Summarise the report."), AIMessage("I will read it first.")),
+        proposal=AIMessage(
+            "score=0.5 Reading the report.",
+            tool_calls=[{"name": "read_file", "args": {"path": "q3.md"}, "id": "call-1"}],
+        ),
+        task_author=TaskAuthor.PARENT_AGENT,
+    )
+
+    # Act
+    verdict = await evaluate_on_path(calibrated, step, call_path=call_path)
+
+    # Assert
+    assert verdict.suspicion == RECORDED_SEEDED_DRAW
+
+
 async def test_a_failed_repeat_cancels_the_other_calls_and_raises_its_own_error() -> None:
     # Arrange
     inner = SlowOrFailingMonitor(delay=0.2)
-    repeated = RepeatedMonitor(monitor=inner, repeats=3)
+    repeated = RepeatedMonitor(monitor=inner, ensemble_size=3)
 
     # Act
     with pytest.raises(TimeoutError, match="judge timed out"):
@@ -196,8 +257,8 @@ async def test_the_wrappers_pass_the_inner_reason_on_without_numbers(call_path: 
     fast = ScoreInProposal(reason="The fast stage escalates.")
     stack = CalibratedMonitor(
         monitor=RepeatedMonitor(
-            monitor=CascadeMonitor(fast=fast, careful=careful, escalate_at=0.5),
-            repeats=3,
+            monitor=CascadeMonitor(fast=fast, careful=careful, escalation_threshold=0.5),
+            ensemble_size=3,
         ),
         honest_scores=[0.1, 0.2, 0.3],
         random_seed=5,

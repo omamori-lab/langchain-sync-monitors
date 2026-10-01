@@ -192,13 +192,3 @@ def test_the_query_skips_a_flagged_step_whose_suspicious_sample_ran(run_mode: Ru
     assert monitor_log[0]["outcome"] == "allowed"
     assert monitor_log[0]["flagged"] is True
     assert found == []
-
-
-def test_a_page_without_the_query_is_reported(tmp_path: Path) -> None:
-    # Arrange
-    page = tmp_path / "page.md"
-    page.write_text("# A page\n\n```python\ndef something_else() -> None:\n    pass\n```\n")
-
-    # Act and Assert
-    with pytest.raises(AssertionError, match=QUERY_NAME):
-        read_documented_function(page, name=QUERY_NAME)

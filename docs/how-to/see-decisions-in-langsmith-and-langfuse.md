@@ -33,7 +33,10 @@ model
   once, when the protocol has decided.
 - **Judgements.** The chat judges, the guards and `TypeSafeDecisionModel` make
   model calls, each named `monitor call`, which nest in the judgement. The
-  model still shows as the call's model and in `ls_model_name`.
+  model still shows as the call's model and in `ls_model_name`. A call the
+  monitor makes again after HTTP 429 adds one more `monitor call`, and the
+  one before it ends with the rate-limit error, inside a judgement that
+  succeeds.
   `OpenRouterDecisionModel` sends its request without LangChain, so its
   judgement holds a `monitor classifier` span instead.
 - **Errors.** A halt is a decision like any other, so it never marks a span as
@@ -70,7 +73,7 @@ middleware hook [@langchain2026]:
 | Span | Inputs | Outputs | Tags |
 |---|---|---|---|
 | `monitor step` | `step_number`, and `proposed_step`, the step first proposed, added when the span ends | `outcome`, `flagged`, `blocked_count`, `max_suspicion`, and each sample's `suspicion`, `reason` and `executed` | `monitor` |
-| `monitor judgement` | `sample_number`, and `monitor`, the monitor's class name | `suspicion` and `reason` | `monitor` |
+| `monitor judgement` | `sample_number`, and `monitor_class`, the monitor's class name | `suspicion` and `reason` | `monitor` |
 | `monitor classifier` | `model`, and `questions`, each question's text by its key | `answers`, the probability of yes to each question; one span covers a request and all its retries | `monitor` |
 | `monitor decision` | Empty | `outcome`, `flagged` and `max_suspicion` | `monitor`, `monitor:<outcome>`, and `monitor:flagged` when the step is flagged |
 
@@ -89,7 +92,7 @@ Every monitor span of a step carries flat metadata keys that name the step:
 
 | Metadata key | Holds | On |
 |---|---|---|
-| `monitor_name` | The monitor's `label` | Every monitor span |
+| `monitor_label` | The monitor's `label` | Every monitor span |
 | `monitor_agent` | The agent: `main`, or a subagent's name | Every monitor span |
 | `monitor_step_number` | The step's number, as in `monitor_log` | Every monitor span |
 | `monitor_protocol` | The protocol's class, such as `AutoMode` | Every monitor span |
@@ -99,8 +102,10 @@ Every monitor span of a step carries flat metadata keys that name the step:
 | `monitor_max_suspicion` | The highest suspicion among the step's samples | `monitor decision`, when the step judged a sample |
 | `ls_agent_type`, set to `middleware` | Keeps the span out of LangSmith's Trajectory view, except inside a Deep Agents subagent; see [Limits](#limits) | `monitor judgement`, `monitor classifier` and `monitor decision` |
 
-`monitor_name`, `monitor_agent`, `monitor_step_number` and, inside a subagent,
-`monitor_delegation_id` match a span to its `StepRecord` in `monitor_log`.
+`monitor_label`, `monitor_agent`, `monitor_step_number` and, inside a subagent,
+`monitor_delegation_id` match a span to its `StepRecord` in `monitor_log`,
+whose `monitor`, `agent`, `step_number` and `delegation_id` hold the same
+values.
 `monitor_step_id` is the same on every monitor span of a step, so one filter
 on it gathers the step's spans. In LangSmith it is also the step span's own
 id; Langfuse does not keep LangChain's run ids, and gives each observation an
@@ -157,7 +162,7 @@ agent = create_agent(
     middleware=[
         MonitorMiddleware(
             monitor=LLMMonitor(model="openrouter:xiaomi/mimo-v2.6-pro"),
-            protocol=TrustedMonitoring(flag_threshold=0.6),
+            protocol=TrustedMonitoring(audit_threshold=0.6),
         ),
     ],
 )
@@ -226,9 +231,10 @@ negate a tag, so leave the monitor's spans out by name. Langfuse keeps a
 span's tags only in its metadata, so filter on `monitor_outcome` and
 `monitor_flagged` there.
 
-The monitor's own model calls carry no `monitor` tag, but each one is named
-`monitor call`, whatever its model: the calls of the chat judges and the
-guards, and the classifier call of `TypeSafeDecisionModel`. The fixed name
+The monitor's own model calls carry no `monitor` tag, but each one it makes
+through LangChain is named `monitor call`, whatever its model: the calls of
+the chat judges and the guards, and the classifier call of
+`TypeSafeDecisionModel`. The fixed name
 replaces any name you gave the model, so a judge built with
 `name="security judge"` shows as `monitor call` too. The model still shows as
 the call's model and in its `ls_model_name` metadata, and the judgement span
@@ -339,7 +345,7 @@ async def print_decisions() -> None:
 asyncio.run(print_decisions())
 ```
 
-A scripted run with the same protocol, Trusted Monitoring with a flag
+A scripted run with the same protocol, Trusted Monitoring with an audit
 threshold of 0.6, in which the judge scored the first step 0.9 and the second
 0.1, printed:
 

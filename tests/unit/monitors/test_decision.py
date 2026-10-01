@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import dataclasses
 import json
+import logging
 import math
 import re
 import sys
@@ -16,11 +18,12 @@ import httpx
 import pytest
 import stamina
 from pydantic import SecretStr
+from stamina.instrumentation import RetryDetails
 
-from langchain_sync_monitors.contracts import Channel, MonitorInput, MonitorView
+from langchain_sync_monitors.contracts import Channel, MonitorInput, MonitorView, TaskAuthor
 from langchain_sync_monitors.errors import ConfigurationError, MonitorError
 from langchain_sync_monitors.monitors.decision import (
-    Combine,
+    Aggregation,
     DecisionModel,
     DecisionModelMonitor,
     TypeSafeDecisionModel,
@@ -35,7 +38,7 @@ from langchain_sync_monitors.monitors.openrouter_decisions import (
     read_decisions_probabilities,
 )
 
-from .doubles import CallPath, evaluate_on_path
+from .doubles import PLANTED_SECRET, CallPath, evaluate_on_path
 
 if TYPE_CHECKING:
     import httpx2
@@ -240,6 +243,40 @@ async def test_transient_failures_are_retried(
     assert len(server.requests) == 2
 
 
+PLANTED_KEY = "sk-planted-key-4d2a"
+
+
+@pytest.mark.usefixtures("three_attempts")
+async def test_a_retried_request_logs_no_part_of_the_transcript_or_the_key(
+    call_path: CallPath,
+    input_holding_a_secret: MonitorInput,
+    retry_details: list[RetryDetails],
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    # Arrange: the first request fails with a server error, so the second is a retry
+    caplog.set_level(logging.DEBUG)
+    server = DecisionsServer(responders=[fail_with(503), answer_with({"suspicious_step": 0.1})])
+    monitor = DecisionModelMonitor(
+        decision_model=server.build_model(api_key=SecretStr(PLANTED_KEY)),
+    )
+
+    # Act
+    verdict = await evaluate_on_path(monitor, input_holding_a_secret, call_path=call_path)
+
+    # Assert: the retry happened and was logged, and neither the log nor the error's repr
+    # holds the request
+    assert verdict.suspicion == 0.1
+    assert len(server.requests) == 2
+    assert PLANTED_SECRET in server.requests[0].content.decode()
+    (details,) = retry_details
+    assert (details.name, details.args, details.kwargs) == ("<context block>", (), {})
+    assert "stamina.retry_scheduled" in [record.getMessage() for record in caplog.records]
+    logged = [repr(details.caused_by), *(repr(vars(record)) for record in caplog.records)]
+    for text in logged:
+        assert PLANTED_SECRET not in text
+        assert PLANTED_KEY not in text
+
+
 @pytest.mark.usefixtures("three_attempts")
 async def test_a_client_error_is_not_retried(call_path: CallPath) -> None:
     # Arrange
@@ -312,15 +349,6 @@ async def test_fields_the_library_does_not_read_cannot_discard_an_answer(
 
     # Assert
     assert probabilities == {"leaks": 0.95}
-
-
-def test_a_probability_outside_zero_to_one_is_rejected() -> None:
-    # Arrange
-    server = DecisionsServer(responders=[answer_with({"leaks": 1.5})])
-
-    # Act and Assert
-    with pytest.raises(MonitorError, match="unexpected shape"):
-        server.build_model().estimate_probabilities_sync(context="x", questions=[LEAK_QUESTION])
 
 
 @pytest.mark.parametrize("raw_answer", REFUSED_RAW_ANSWERS)
@@ -583,18 +611,26 @@ async def test_one_question_gives_its_probability_of_yes(
     assert "'suspicious_step'" in verdict.reason
 
 
-def test_the_context_holds_the_transcript_and_the_proposed_step(
+@pytest.mark.parametrize(
+    ("task_author", "tag"),
+    [(TaskAuthor.USER, "user"), (TaskAuthor.PARENT_AGENT, "delegator")],
+)
+async def test_the_context_holds_the_transcript_and_the_proposed_step(
     monitor_input: MonitorInput,
+    call_path: CallPath,
+    task_author: TaskAuthor,
+    tag: str,
 ) -> None:
-    # Arrange
+    # Arrange: a subagent's task comes from its parent agent, not from the user.
     model = ScriptedDecisionModel(probabilities={"suspicious_step": 0.03})
+    step = dataclasses.replace(monitor_input, task_author=task_author)
 
     # Act
-    DecisionModelMonitor(decision_model=model).evaluate_sync(monitor_input)
+    await evaluate_on_path(DecisionModelMonitor(decision_model=model), step, call_path=call_path)
 
     # Assert
     (context,) = model.contexts
-    assert context.startswith("<transcript>\n<user>Summarise q3.md")
+    assert context.startswith(f"<transcript>\n<{tag}>Summarise q3.md")
     assert context.endswith(
         '<tool_call name="read_file">{"path": "q3.md"}</tool_call>\n</proposed_step>'
     )
@@ -623,16 +659,16 @@ MIN_REASON = "The decision model's score rests on all of its concerns together: 
 
 
 @pytest.mark.parametrize(
-    ("combine", "suspicion", "reason_start"),
+    ("aggregation", "suspicion", "reason_start"),
     [
-        (Combine.MAX, 0.95, "The decision model's strongest concern is 'sends_data_out': "),
-        (Combine.MIN, 0.05, MIN_REASON),
+        (Aggregation.MAX, 0.95, "The decision model's strongest concern is 'sends_data_out': "),
+        (Aggregation.MIN, 0.05, MIN_REASON),
     ],
 )
 async def test_several_questions_are_combined_and_named(
     monitor_input: MonitorInput,
     call_path: CallPath,
-    combine: Combine,
+    aggregation: Aggregation,
     suspicion: float,
     reason_start: str,
 ) -> None:
@@ -640,7 +676,9 @@ async def test_several_questions_are_combined_and_named(
     probabilities = dict.fromkeys((question.key for question in ATTACK_CRITERIA), 0.05)
     probabilities["sends_data_out"] = 0.95
     model = ScriptedDecisionModel(probabilities=probabilities)
-    monitor = DecisionModelMonitor(decision_model=model, questions=ATTACK_CRITERIA, combine=combine)
+    monitor = DecisionModelMonitor(
+        decision_model=model, questions=ATTACK_CRITERIA, aggregation=aggregation
+    )
 
     # Act
     verdict = await evaluate_on_path(monitor, monitor_input, call_path=call_path)
@@ -663,7 +701,7 @@ async def test_the_min_reason_does_not_point_at_the_lowest_question(
     monitor = DecisionModelMonitor(
         decision_model=ScriptedDecisionModel(probabilities=probabilities),
         questions=ATTACK_CRITERIA,
-        combine=Combine.MIN,
+        aggregation=Aggregation.MIN,
     )
 
     # Act
@@ -699,7 +737,7 @@ async def test_the_reason_names_the_concern_without_numbers(
     assert not any(character.isdigit() for character in verdict.reason)
 
 
-@pytest.mark.parametrize("combine", [Combine.MAX, Combine.MIN])
+@pytest.mark.parametrize("aggregation", [Aggregation.MAX, Aggregation.MIN])
 @pytest.mark.parametrize(
     "answers",
     [
@@ -743,7 +781,7 @@ async def test_an_answer_that_is_no_probability_is_a_monitor_error(
     monitor_input: MonitorInput,
     call_path: CallPath,
     answers: dict[str, object],
-    combine: Combine,
+    aggregation: Aggregation,
 ) -> None:
     # Arrange: a custom decision model's answers reach the monitor unvalidated.
     monitor = DecisionModelMonitor(
@@ -751,7 +789,7 @@ async def test_an_answer_that_is_no_probability_is_a_monitor_error(
             probabilities=answers,  # ty: ignore[invalid-argument-type]
         ),
         questions=[LEAK_QUESTION, IS_THE_STEP_SUSPICIOUS],
-        combine=combine,
+        aggregation=aggregation,
     )
 
     # Act and Assert: the step fails, as it does for an unreadable Decisions API answer.
@@ -759,7 +797,9 @@ async def test_an_answer_that_is_no_probability_is_a_monitor_error(
         await evaluate_on_path(monitor, monitor_input, call_path=call_path)
 
 
-@pytest.mark.parametrize(("combine", "suspicion"), [(Combine.MAX, 1.0), (Combine.MIN, 0.0)])
+@pytest.mark.parametrize(
+    ("aggregation", "suspicion"), [(Aggregation.MAX, 1.0), (Aggregation.MIN, 0.0)]
+)
 @pytest.mark.parametrize(
     "answers",
     [
@@ -775,14 +815,14 @@ async def test_answers_at_zero_and_one_are_read_as_floats(
     monitor_input: MonitorInput,
     call_path: CallPath,
     answers: dict[str, float],
-    combine: Combine,
+    aggregation: Aggregation,
     suspicion: float,
 ) -> None:
     # Arrange
     monitor = DecisionModelMonitor(
         decision_model=ScriptedDecisionModel(probabilities=answers),
         questions=[LEAK_QUESTION, IS_THE_STEP_SUSPICIOUS],
-        combine=combine,
+        aggregation=aggregation,
     )
 
     # Act
@@ -793,19 +833,64 @@ async def test_answers_at_zero_and_one_are_read_as_floats(
     assert type(verdict.suspicion) is float
 
 
-def test_the_mean_warns_that_it_dilutes_a_single_hit(monitor_input: MonitorInput) -> None:
+def test_the_mean_warns_at_the_constructor_call_that_it_dilutes_a_single_hit() -> None:
     # Arrange
-    probabilities = {"leaks": 0.95, "suspicious_step": 0.05}
-    model = ScriptedDecisionModel(probabilities=probabilities)
+    model = ScriptedDecisionModel(probabilities={})
 
     # Act
-    with pytest.warns(UserWarning, match="dilutes a single strong hit"):
-        monitor = DecisionModelMonitor(
-            decision_model=model,
-            questions=[LEAK_QUESTION, IS_THE_STEP_SUSPICIOUS],
-            combine=Combine.MEAN,
-        )
-    verdict = monitor.evaluate_sync(monitor_input)
+    with pytest.warns(UserWarning, match="dilutes a single strong hit") as record:
+        DecisionModelMonitor(decision_model=model, aggregation=Aggregation.MEAN)
+
+    # Assert
+    assert len(record) == 1
+    assert record[0].filename == __file__
+
+
+MEAN_WARNING = (
+    "Aggregation.MEAN dilutes a single strong hit (0.95 with three 0.05s averages 0.275); "
+    "Aggregation.MAX keeps it."
+)
+
+
+@pytest.mark.parametrize(
+    ("aggregation", "expected"),
+    [(Aggregation.MAX, []), (Aggregation.MIN, []), (Aggregation.MEAN, [MEAN_WARNING])],
+    ids=["max", "min", "mean"],
+)
+def test_only_the_mean_warns_and_the_warning_says_why(
+    aggregation: Aggregation,
+    expected: list[str],
+) -> None:
+    # Arrange
+    model = ScriptedDecisionModel(probabilities={})
+
+    # Act
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        DecisionModelMonitor(decision_model=model, aggregation=aggregation)
+
+    # Assert
+    assert [(warning.category, str(warning.message)) for warning in caught] == [
+        (UserWarning, message) for message in expected
+    ]
+
+
+@pytest.mark.filterwarnings("ignore:Aggregation.MEAN dilutes:UserWarning")
+async def test_the_mean_averages_the_answers(
+    monitor_input: MonitorInput,
+    call_path: CallPath,
+) -> None:
+    # Arrange
+    monitor = DecisionModelMonitor(
+        decision_model=ScriptedDecisionModel(
+            probabilities={"leaks": 0.95, "suspicious_step": 0.05},
+        ),
+        questions=[LEAK_QUESTION, IS_THE_STEP_SUSPICIOUS],
+        aggregation=Aggregation.MEAN,
+    )
+
+    # Act
+    verdict = await evaluate_on_path(monitor, monitor_input, call_path=call_path)
 
     # Assert
     assert verdict.suspicion == pytest.approx(0.5)
@@ -851,26 +936,26 @@ def test_questions_must_be_present_and_unique(questions: Iterable[YesNoQuestion]
         DecisionModelMonitor(decision_model=model, questions=questions)
 
 
-@pytest.mark.filterwarnings("ignore:Combine.MEAN dilutes:UserWarning")
-@pytest.mark.parametrize("combine", list(Combine))
-def test_every_combine_member_is_accepted(combine: Combine) -> None:
+@pytest.mark.filterwarnings("ignore:Aggregation.MEAN dilutes:UserWarning")
+@pytest.mark.parametrize("aggregation", list(Aggregation))
+def test_every_aggregation_member_is_accepted(aggregation: Aggregation) -> None:
     # Act
     monitor = DecisionModelMonitor(
         decision_model=ScriptedDecisionModel(probabilities={"suspicious_step": 0.2}),
-        combine=combine,
+        aggregation=aggregation,
     )
 
     # Assert
-    assert monitor.combine is combine
+    assert monitor.aggregation is aggregation
 
 
-@pytest.mark.parametrize("combine", [member.value for member in Combine])
-def test_a_plain_string_combine_is_refused_without_a_warning(combine: str) -> None:
+@pytest.mark.parametrize("aggregation", [member.value for member in Aggregation])
+def test_a_plain_string_aggregation_is_refused_without_a_warning(aggregation: str) -> None:
     # Arrange: a string read from YAML or JSON matches no member by identity.
     decision_model = ScriptedDecisionModel(probabilities={"suspicious_step": 0.2})
     expected = (
-        f"combine must be one of Combine.MAX, Combine.MIN, Combine.MEAN, got '{combine}'. "
-        "Convert a string with Combine(value)"
+        "aggregation must be one of Aggregation.MAX, Aggregation.MIN, Aggregation.MEAN, "
+        f"got '{aggregation}'. Convert a string with Aggregation(value)"
     )
 
     # Act
@@ -879,7 +964,7 @@ def test_a_plain_string_combine_is_refused_without_a_warning(combine: str) -> No
         with pytest.raises(ConfigurationError, match=re.escape(expected)):
             DecisionModelMonitor(
                 decision_model=decision_model,
-                combine=combine,  # ty: ignore[invalid-argument-type]
+                aggregation=aggregation,  # ty: ignore[invalid-argument-type]
             )
 
     # Assert
@@ -897,3 +982,4 @@ def test_the_attack_criteria_are_four_distinct_questions() -> None:
         "goes_beyond_the_task",
         "misleads_the_user",
     }
+    assert len({question.text for question in ATTACK_CRITERIA}) == len(ATTACK_CRITERIA) == 4

@@ -22,6 +22,7 @@ from langchain_core.messages import (
     AnyMessage,
     BaseMessage,
     HumanMessage,
+    RemoveMessage,
     ToolMessage,
 )
 from langchain_core.runnables import RunnableConfig
@@ -349,12 +350,10 @@ def test_giving_the_input_an_id_streams_no_message(run_mode: RunMode) -> None:
 
         parts = asyncio.run(collect())
 
-    # Assert: only the committed steps and the tool's result stream
-    assert [type(message).__name__ for message, _ in parts] == [
-        "AIMessage",
-        "ToolMessage",
-        "AIMessage",
-    ]
+    # Assert: the history written back streams nothing, neither the input nor a removal
+    streamed = [message for message, _ in parts]
+    assert not any(isinstance(message, HumanMessage | RemoveMessage) for message in streamed)
+    assert [message.text for message in streamed if isinstance(message, AIMessage)][-1] == "Done."
 
 
 def test_input_with_an_id_is_never_written_back(run_mode: RunMode) -> None:

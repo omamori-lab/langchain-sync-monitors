@@ -82,10 +82,11 @@ Control evaluations set thresholds at percentiles of the scores the monitor
 gives on honest runs [@greenblatt2023aicontrol; @bhatt2025ctrlz];
 [Set every threshold yourself](combine-and-calibrate-monitors.md#set-every-threshold-yourself)
 gives the percentiles they use. Trusted Monitoring never changes a run, so it
-is the protocol to collect them with for a threshold compared with one
-sample's score: Trusted Monitoring's own, `defer_threshold` and
-`block_threshold`. Defer to Resample's `audit_threshold` is compared with
-the lowest score across a step's samples instead, and
+is the protocol to collect them with for a protocol threshold compared with
+one sample's score: Trusted Monitoring's own, `defer_threshold`,
+`block_threshold` and Defer to Trusted's `audit_threshold`. Defer to
+Resample's `audit_threshold` is compared with the lowest score across a
+step's samples instead, and
 [Calibrate the audit threshold](use-defer-to-resample.md#calibrate-the-audit-threshold)
 sets it. Run the agent on tasks you know to be honest, then take a
 percentile:

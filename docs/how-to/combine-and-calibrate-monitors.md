@@ -24,9 +24,10 @@ budget: 2% of honest solutions in AI Control [@greenblatt2023aicontrol]
 (section 3.2), and 1% of honest actions in Ctrl-Z [@bhatt2025ctrlz]
 (section 2.2; appendix C). A defer threshold is a percentile of the same
 scores, but it trades usefulness for safety rather than spending a budget, so
-it can sit much lower, as Ctrl-Z notes (section 3.1.3). AI Control defers the
-top 5 to 50% of solutions (table 3), and Ctrl-Z tries defer thresholds from
-the 50th to the 99th percentile (figure 3; appendix H).
+it can sit much lower, as Ctrl-Z notes (section 3.1.3). AI Control sets its
+defer thresholds at the top 5 to 50% of honest suspicion scores (table 3),
+and Ctrl-Z tries defer thresholds from the 50th to the 99th percentile
+(figure 3; appendix H).
 
 A threshold may be any real number from 0 to 1, a `Fraction` or a `Decimal`
 included. It is checked exactly, before it becomes a float, so a `Decimal`

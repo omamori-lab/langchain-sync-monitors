@@ -270,22 +270,27 @@ subvert the maximum too (appendix A).
   the least suspicious acceptable sample, so an agent that plants text aimed
   at the monitor gets several tries at fooling it, a best-of-n attack
   [@terekhov2025adaptive] (sections 4.2 and 6). An injection that passes one
-  sample in five gets through about half the time across three samples. The
-  default view leaves out the text the agent writes beside its tool calls,
-  which could talk the monitor into a bad call, and tool outputs, where
-  injected text arrives [@hughes2026automode] (section "Why we strip
-  assistant text and tool results"). It still shows every argument of every
-  tool call, and that is where Terekhov et al. put their injection, as a
-  comment in the submitted code [@terekhov2025adaptive] (section 3.4). Treat
-  a resampled step whose rejected samples scored high as worth an audit.
+  sample in five gets through about half the time across three samples.
+  Whatever the view, the monitor reads every argument of the judged step's
+  tool calls, and that is where Terekhov et al. put their injection, as a
+  comment in the submitted code [@terekhov2025adaptive] (section 3.4). Text
+  the agent read can reach the monitor too, through what the view shows of
+  the history; see
+  [Start from the default](choose-what-the-monitor-reads.md#start-from-the-default).
+  Treat a resampled step whose rejected samples scored high as worth an
+  audit.
 - **The lowest score says less as samples grow.** Ctrl-Z's authors find that
   the 25th percentile and the mean work about as well as the minimum, and
   that under enough resamples the minimum drifts towards zero whatever the
   model does [@bhatt2025ctrlzpost] (note "Notes on aggregating monitor
-  scores"). On APPS, Terekhov et al. find that the minimum tells attacks from
-  honest work less well than the single score the other protocols audit on
-  [@terekhov2025adaptive] (section 4.2). A much larger `max_resamples`
-  therefore makes the flag less informative.
+  scores"). A much larger `max_resamples` therefore makes the flag less
+  informative.
+- **The lowest score can be the weaker audit signal.** Terekhov et al.
+  [@terekhov2025adaptive] find on APPS, with three samples per step
+  (appendix D.1), that the minimum tells attacks from honest work less well
+  than the single score Defer to Trusted audits on. They put down to it that
+  Ctrl-Z's result for Defer to Resample on BashBench does not carry over to
+  APPS (section 4.2; figure 3, left panel).
 - **The least suspicious acceptable sample runs, not the first.** Under
   sequential resampling they are the same, because drawing stops at the first
   acceptable sample. Under parallel resampling, any resample may win.

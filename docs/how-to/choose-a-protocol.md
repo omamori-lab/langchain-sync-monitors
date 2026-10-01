@@ -80,8 +80,7 @@ once a subagent was halted, and records a flagged step with no samples; see
 - **Trusted Monitoring** and **Defer to Trusted** come from the AI control
   paper [@greenblatt2023aicontrol] (sections 3.2 and 3.3). There an untrusted
   model writes code, a weaker trusted model rates how suspicious it looks, and
-  the most suspicious 2% is shown to a person before it is used; a backdoor
-  the person finds shuts the untrusted model down (section 1). Defer to
+  the most suspicious 2% is shown to a person before it is used. Defer to
   Trusted also submits code the trusted model writes when the untrusted
   model's code scores above a deferral threshold but outside the audited 2%
   (table 2). Here nothing waits for a person: a flag marks the step's record,
@@ -101,9 +100,9 @@ once a subagent was halted, and records a flagged step with no samples; see
   With stronger models, and attacks the untrusted model designs itself,
   Terekhov et al. found that Defer to Resample did about as well as Defer to
   Trusted on BashBench even without prompt injection
-  [@terekhov2025adaptive] (section 4.3), and that on APPS it does not hold
-  up, because its minimum-based audit score underperforms (section 4.2). They
-  also argue that resampling gives text aimed at the monitor several tries,
+  [@terekhov2025adaptive] (section 4.3); their result on APPS is among
+  [Defer to Resample's limits](use-defer-to-resample.md#limits). They also
+  argue that resampling gives text aimed at the monitor several tries,
   which turns an injection that works only sometimes into a best-of-n attack
   (sections 4.2 and 6).
 - **Auto Mode** follows Claude Code's auto mode [@hughes2026automode]. There a

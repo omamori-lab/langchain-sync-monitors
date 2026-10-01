@@ -310,6 +310,43 @@ def test_records_that_start_with_part_of_the_log_are_all_checked() -> None:
     assert read_entry(checked)["halted_subagents"] == ["worker"]
 
 
+def test_an_overwrite_that_writes_the_log_back_adds_only_the_records_after_it() -> None:
+    # Arrange
+    log = [OWN_STEP, build_record(outcome="halted", delegation_id="call-earlier")]
+    new = build_record(blocked_count=1)
+
+    # Act
+    checked = check({"monitor_log": Overwrite([*log, new])}, state=build_state(log=log))
+
+    # Assert: the earlier halt is not counted again
+    assert read_written(checked, key="monitor_log") == [[new]]
+    assert read_entry(checked)["halted_subagents"] == []
+
+
+def test_the_log_written_back_out_of_order_is_added_again_and_counts_twice() -> None:
+    # Arrange: only a write that starts with the whole log is taken for a write-back
+    earlier_halt = build_record(outcome="halted", delegation_id="call-earlier")
+    log = [OWN_STEP, earlier_halt]
+
+    # Act
+    checked = check({"monitor_log": [earlier_halt, OWN_STEP]}, state=build_state(log=log))
+
+    # Assert: the caller's own step is kept out, and the earlier halt counts again
+    assert read_written(checked, key="monitor_log") == [[earlier_halt]]
+    assert read_entry(checked)["halted_subagents"] == ["worker"]
+
+
+def test_a_same_named_halt_nested_deeper_is_named_by_its_own_call() -> None:
+    # Arrange: the root's call started middle, whose own call started the halted subagent
+    nested_halt = build_record(agent="main", outcome="halted", delegation_id="call-middle")
+
+    # Act
+    checked = check({"monitor_log": [nested_halt]}, call_id="call-root", subagent_type="middle")
+
+    # Assert
+    assert read_entry(checked)["halted_subagents"] == ["main that the call call-middle started"]
+
+
 @dataclasses.dataclass
 class RecordsUpdate:
     """An update as a dataclass, which LangGraph reads as pairs."""

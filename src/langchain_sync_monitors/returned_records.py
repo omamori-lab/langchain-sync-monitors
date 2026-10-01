@@ -8,9 +8,11 @@ LangGraph accepts and in a `ParentCommand`, before LangGraph writes it:
 - A write that replaces the log, an `Overwrite` in any of its forms, would
   erase the thread's blocks and its audit evidence. It is read as an append
   of the records it holds, with a warning.
-- The records the log already holds, written back as the first records of
-  the write, change nothing and are left out, as when a tool writes the
-  whole state back.
+- A write that starts with the whole log the state holds, as when a tool
+  writes the whole state back, has that log left out, since its records
+  are there already. Records of the log written back any other way, in
+  part or out of order, are added again, so their blocks and halts count
+  twice, which fails closed.
 - A record that is not a whole `StepRecord` with counts of zero or more is
   kept out of the log, where it would make every later step raise, and the
   call counts as a halted subagent, so a halt the monitor cannot read still
@@ -97,8 +99,18 @@ class ToolCaller:
         return f"that the {self.tool_call['name']} call {self.tool_call['id']} started"
 
     def name_halted_subagent(self, record: StepRecord) -> str:
-        """Name a halted record's subagent by the record, unless it carries this agent's name."""
-        return record["agent"] if record["agent"] != self.agent else self.describe_subagent()
+        """Name a halted record's subagent by the record, unless it carries this agent's name.
+
+        Such a record is the subagent's that the call started, named by the
+        call, or, when it names another delegation, that of a subagent nested
+        deeper, named by its own name and the call that started it.
+        """
+        if record["agent"] != self.agent:
+            return record["agent"]
+        delegation_id = record.get("delegation_id")
+        if delegation_id is None or delegation_id == self.tool_call["id"]:
+            return self.describe_subagent()
+        return f"{record['agent']} that the call {delegation_id} started"
 
     def is_caller_record(self, record: StepRecord) -> bool:
         """Tell whether a record claims to be a step of the calling agent itself."""

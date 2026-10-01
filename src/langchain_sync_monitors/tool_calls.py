@@ -10,12 +10,13 @@ checks the records and stores the halts and blocks they hold.
 Only the outermost monitor of an agent does this. A monitor inside it passes
 the call on as it is: the outer monitor's guard would drop what the inner one
 added to the result, and take it for a tool's write. A context variable
-holds the request the outermost monitor is running, and each task and thread
+holds the request the outermost monitor handed on, and each task and thread
 the call starts copies it [@langchain2026]. A monitor further in knows the
-call as the same tool call, or as a call with the same id in the same agent
-state, should a middleware between the two have copied the tool call. A
-subagent's own calls run in a state of their own, so the subagent's monitor
-checks them.
+call by the tool runtime in that request, which a middleware between the two
+keeps even when it copies the tool call or the state; failing that, as the
+same tool call, or as a call with the same id in the same agent state. A
+subagent's own calls run with a runtime and a state of their own, so the
+subagent's monitor checks them.
 """
 
 from __future__ import annotations
@@ -55,6 +56,8 @@ def is_checked_further_out(request: ToolCallRequest) -> bool:
     checked = checked_tool_call.get()
     if checked is None:
         return False
+    if checked.runtime is not None and checked.runtime is request.runtime:
+        return True
     return checked.tool_call is request.tool_call or (
         checked.state is request.state and checked.tool_call["id"] == request.tool_call["id"]
     )
@@ -62,7 +65,7 @@ def is_checked_further_out(request: ToolCallRequest) -> bool:
 
 @contextmanager
 def check_tool_call(request: ToolCallRequest) -> Iterator[None]:
-    """Mark the call as checked by this monitor while the rest of the stack runs it."""
+    """Mark the request this monitor hands on as checked while the rest of the stack runs it."""
     token = checked_tool_call.set(request)
     try:
         yield
@@ -96,9 +99,10 @@ def run_tool_call(
     if is_checked_further_out(request):
         return handler(request)
     caller = read_tool_caller(request.state, agent=agent, tool_call=request.tool_call)
-    with check_tool_call(request):
+    delegated = add_delegation(request, agent=agent)
+    with check_tool_call(delegated):
         try:
-            result = handler(add_delegation(request, agent=agent))
+            result = handler(delegated)
         except ParentCommand as bubble:
             check_parent_command(bubble, caller=caller)
             raise
@@ -115,9 +119,10 @@ async def arun_tool_call(
     if is_checked_further_out(request):
         return await handler(request)
     caller = read_tool_caller(request.state, agent=agent, tool_call=request.tool_call)
-    with check_tool_call(request):
+    delegated = add_delegation(request, agent=agent)
+    with check_tool_call(delegated):
         try:
-            result = await handler(add_delegation(request, agent=agent))
+            result = await handler(delegated)
         except ParentCommand as bubble:
             check_parent_command(bubble, caller=caller)
             raise

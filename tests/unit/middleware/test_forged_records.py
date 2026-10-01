@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 import asyncio
+import dataclasses
 import logging
-from typing import Annotated, Any
+from typing import Annotated, Any, Literal
 
 import pytest
 from langchain.agents import create_agent
@@ -256,18 +257,42 @@ def test_a_record_written_by_update_state_that_is_malformed_raises_on_the_next_s
         send(agent, mode=run_mode, text="Now read q3.md.", message_id="u2", thread_id="t")
 
 
+type Copied = Literal["call", "state", "both", "runtime", "runtime-and-call"]
+"""What a copier copies; the inner monitor knows the call by whatever it keeps."""
+
+
 class CopyingToolCallMiddleware(AgentMiddleware[Any, Any, Any]):
-    """Hands the rest of the stack a copy of each tool call, as one that edits calls would."""
+    """Hands the rest of the stack a copy of a tool call's parts, as an editing middleware would."""
+
+    def __init__(self, *, copied: Copied) -> None:
+        super().__init__()
+        self.copied = copied
+
+    @property
+    def name(self) -> str:
+        return f"copier[{self.copied}]"
+
+    def copy_request(self, request: ToolCallRequest) -> ToolCallRequest:
+        changes: dict[str, Any] = {}
+        if self.copied in {"call", "both", "runtime-and-call"}:
+            changes["tool_call"] = {**request.tool_call}
+        if self.copied in {"state", "both"}:
+            changes["state"] = {**request.state}
+        if self.copied in {"runtime", "runtime-and-call"}:
+            changes["runtime"] = dataclasses.replace(request.runtime)
+        return request.override(**changes)
 
     def wrap_tool_call(self, request: ToolCallRequest, handler: Any) -> Any:
-        return handler(request.override(tool_call={**request.tool_call}))
+        return handler(self.copy_request(request))
 
     async def awrap_tool_call(self, request: ToolCallRequest, handler: Any) -> Any:
-        return await handler(request.override(tool_call={**request.tool_call}))
+        return await handler(self.copy_request(request))
 
 
+@pytest.mark.parametrize("copied", ["call", "state", "both", "runtime", "runtime-and-call"])
 def test_an_unreadable_record_halts_an_inner_monitor_behind_a_middleware_that_copies_calls(
     run_mode: RunMode,
+    copied: Copied,
     caplog: pytest.LogCaptureFixture,
 ) -> None:
     # Arrange: only the outer monitor checks the call, so what it stores is not lost
@@ -287,7 +312,8 @@ def test_an_unreadable_record_halts_an_inner_monitor_behind_a_middleware_that_co
         protocol=TrustedMonitoring(flag_threshold=0.6),
         when_subagent_halts=SubagentHalt.STOP_WHOLE_RUN,
     )
-    middleware: list[AgentMiddleware[Any, Any, Any]] = [outer, CopyingToolCallMiddleware(), inner]
+    copier = CopyingToolCallMiddleware(copied=copied)
+    middleware: list[AgentMiddleware[Any, Any, Any]] = [outer, copier, inner]
     agent = create_agent(
         model,
         tools=[build_tidy_tool([build_record(blocked_count=-1)])],

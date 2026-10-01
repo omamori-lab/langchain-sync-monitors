@@ -21,7 +21,7 @@ from __future__ import annotations
 from collections import Counter
 from collections.abc import Iterable, Mapping
 
-from pydantic import TypeAdapter
+from pydantic import TypeAdapter, ValidationError
 
 from langchain_sync_monitors._langchain import MONITOR_LOG_KEY
 from langchain_sync_monitors.contracts import (
@@ -56,9 +56,12 @@ def build_sample_record(sample: Sample, *, executed: bool) -> SampleRecord:
 
     The rendering holds every channel, malformed tool calls included, so a
     call that could not run still leaves evidence of what the agent tried.
+    The suspicion is stored as a plain `float`, since a monitor may score
+    with a number of another type, such as numpy's `float32`, which a
+    checkpointer may not store and a strict read refuses.
     """
     return SampleRecord(
-        suspicion=sample.verdict.suspicion,
+        suspicion=float(sample.verdict.suspicion),
         reason=sample.verdict.reason,
         proposal=render_proposal_for_audit(sample.proposal),
         executed=executed,
@@ -77,14 +80,16 @@ def build_step_record(
 
     A sample is marked executed only when it is the very sample the decision
     runs, so a rejected sample that happens to equal it is not. A subagent's
-    record also names its delegation, the tool call that started it.
+    record also names its delegation, the tool call that started it. The
+    flag is stored as a plain `bool`: a protocol that compares a numpy score
+    with its threshold gets numpy's `bool`, which is not one.
     """
     record = StepRecord(
         agent=agent,
         monitor=monitor,
         step_number=step_number,
         outcome=OUTCOME_NAMES[decision.outcome],
-        flagged=decision.flagged,
+        flagged=bool(decision.flagged),
         blocked_count=len(decision.blocked_attempts),
         samples=[
             build_sample_record(sample, executed=sample is decision.executed_sample)
@@ -167,10 +172,9 @@ def read_stored_record(item: object, *, position: int) -> StepRecord:
         return validate_step_record(item)
     except ValueError as error:
         message = (
-            f"{MONITOR_LOG_KEY}[{position}] is not a step record the monitor can read: "
-            f"{render_value(item)}. The monitor checks the records a tool returns before "
-            "they reach the log, so this one was written some other way, such as by "
-            "update_state or in an older checkpoint. Repair or remove it."
+            f"{MONITOR_LOG_KEY}[{position}] is not a step record the monitor can read "
+            f"({describe_record_error(error)}): {render_value(item)}. The monitor skips no "
+            "record, since that could hide a halt; repair or remove it, with update_state."
         )
         raise MonitorError(message) from error
 
@@ -190,3 +194,14 @@ def count_blocks_by_monitor(
     for record in records:
         blocks[record["monitor"]] += record["blocked_count"]
     return dict(blocks)
+
+
+def describe_record_error(error: ValueError) -> str:
+    """Name what makes a record unreadable: the first fields that fail, or the rule it breaks."""
+    if isinstance(error, ValidationError):
+        problems = [
+            f"{'.'.join(str(part) for part in problem['loc']) or 'record'}: {problem['msg']}"
+            for problem in error.errors()[:3]
+        ]
+        return "; ".join(problems)
+    return str(error)

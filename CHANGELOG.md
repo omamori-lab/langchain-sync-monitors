@@ -424,9 +424,9 @@ change raises the minor version.
   with its judged samples. It used to stream a `monitor_step` record and then
   raise `AttributeError`, with no samples reported; a commit now streams its
   record last.
-- A chat judge's reply of many `<reasoning>` openers and no closer is read in
-  linear time; the search for its reasoning block took time quadratic in its
-  length, over two seconds at 100,000 characters, on the event loop under
+- A chat judge's reply of many `<reasoning>` start tags and no end tag is read
+  in linear time; the search for its reasoning block took time quadratic in
+  its length, over two seconds at 100,000 characters, on the event loop under
   `ainvoke()`.
 - An option refused with a number Python will not write out, such as
   `10**5000`, raises `ConfigurationError` naming the number by its kind,

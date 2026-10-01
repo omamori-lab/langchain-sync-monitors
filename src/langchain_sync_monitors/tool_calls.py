@@ -111,7 +111,7 @@ def check_tool_call(request: ToolCallRequest, *, agent: str) -> Iterator[Checked
             raise
 
 
-def run_tool_call(
+def run_tool_call_sync(
     request: ToolCallRequest,
     *,
     handler: ToolCallHandler,

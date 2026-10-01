@@ -98,7 +98,7 @@ from langchain_sync_monitors.task_authorship import (
     build_step_start_update,
     read_message_ids,
 )
-from langchain_sync_monitors.tool_calls import arun_tool_call, run_tool_call
+from langchain_sync_monitors.tool_calls import arun_tool_call, run_tool_call_sync
 
 
 @dataclass(frozen=True, kw_only=True, eq=False)
@@ -345,7 +345,7 @@ class MonitorMiddleware(AgentMiddleware[MonitorState, AgentContext, StructuredOu
         messages as `mark_tool_written_notes` says, and its records as
         `returned_records` says. `tool_calls` has the rule.
         """
-        return run_tool_call(request, handler=handler, agent=self.agent_name)
+        return run_tool_call_sync(request, handler=handler, agent=self.agent_name)
 
     @override
     async def awrap_tool_call(

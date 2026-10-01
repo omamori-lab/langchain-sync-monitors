@@ -218,6 +218,8 @@ change raises the minor version.
   `openrouter` included.
 - Packaging for Python 3.12, 3.13 and 3.14, with the `deepagents`,
   `openrouter` and `typesafe` extras.
+- The `deepagents` extra needs deepagents 0.7.13 or newer, the first release
+  that accepts the `mode="isolated"` the fork refusal advises.
 - The gate script, pre-commit hooks, and CI that also runs the offline suite at
   the lowest allowed dependency versions and without any extra.
 - A visual README, and a tutorial that monitors a first agent, with or without

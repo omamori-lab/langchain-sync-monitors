@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import pytest
 from deepagents import AsyncSubAgent, CompiledSubAgent, SubAgent, create_deep_agent
+from deepagents.middleware.subagents import GENERAL_PURPOSE_SUBAGENT
 from langchain.agents import create_agent
 from langchain.agents.middleware import HumanInTheLoopMiddleware
 
@@ -12,6 +13,7 @@ from langchain_sync_monitors.deepagents import monitor_subagents
 from langchain_sync_monitors.errors import ConfigurationError
 from langchain_sync_monitors.middleware import MonitorMiddleware
 from tests.support.chat_models import ScriptedChatModel
+from tests.support.deep_agents import read_monitor
 from tests.support.monitors import KeywordMonitor
 from tests.support.protocols import AcceptFirst, HaltAfterOneSample
 
@@ -24,12 +26,6 @@ def middleware() -> MonitorMiddleware:
 @pytest.fixture
 def researcher() -> SubAgent:
     return SubAgent(name="researcher", description="Finds sources.", system_prompt="Research.")
-
-
-def read_monitor(spec: SubAgent) -> MonitorMiddleware:
-    monitor = spec.get("middleware", [])[-1]
-    assert isinstance(monitor, MonitorMiddleware)
-    return monitor
 
 
 def test_every_subagent_and_the_general_purpose_one_get_a_monitor(
@@ -79,6 +75,7 @@ def test_skills_go_to_the_general_purpose_subagent_only(
     assert general_purpose.get("skills") == ["/skills/"]
     assert general_purpose.get("skills") is not skills
     assert "skills" not in monitored_researcher
+    assert "skills" not in GENERAL_PURPOSE_SUBAGENT
 
 
 def test_without_skills_the_general_purpose_subagent_names_none(
@@ -215,8 +212,8 @@ def test_compiled_subagents_are_refused(middleware: MonitorMiddleware) -> None:
 
 def test_remote_subagents_are_refused(middleware: MonitorMiddleware) -> None:
     # Arrange
-    remote = AsyncSubAgent(name="remote", description="Remote.", graph_id="research_agent")
+    remote = AsyncSubAgent(name="analyst", description="Remote.", graph_id="research_agent")
 
     # Act / Assert
-    with pytest.raises(ConfigurationError, match="remote"):
+    with pytest.raises(ConfigurationError, match=r"compiled or remote.*own create_agent"):
         monitor_subagents(middleware=middleware, subagents=[remote])

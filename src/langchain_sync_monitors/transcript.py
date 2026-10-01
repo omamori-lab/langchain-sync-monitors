@@ -3,8 +3,9 @@
 Each transcript entry belongs to one `Channel`, and a monitor only receives the
 entries whose channel is in its `MonitorView`. Entries are wrapped in tags, and
 their content is HTML-escaped, so text inside a tool result cannot close a tag
-and pose as another entry. The built-in tools a model provider runs inside the
-model call are rendered too, with the tool calls and the tool results.
+and pose as another entry. Server-side tools, which a model provider runs
+inside the model call, are rendered too, with the tool calls and the tool
+results.
 
 Only a human message without an `lc_source` tag is rendered as the task
 author's words. LangChain and Deep Agents tag some of the human messages their
@@ -56,11 +57,11 @@ OpenAI gives a refusal as a `refusal` item, which LangChain keeps as a block it 
 """
 
 GROUNDING_QUERY_KEYS = ("web_search_queries", "image_search_queries")
-"""The keys of Gemini's `grounding_metadata` that hold the searches its built-in tools ran."""
+"""The keys of Gemini's `grounding_metadata` that hold the searches its server tools ran."""
 
 
-class ProviderToolCallDetails(TypedDict):
-    """What the entry of a provider's built-in tool call shows.
+class ServerToolCallDetails(TypedDict):
+    """What the entry of a server tool call shows.
 
     `args` is a dictionary once the call is complete; a streamed part of a
     call holds its arguments as a JSON fragment.
@@ -155,30 +156,30 @@ def render_malformed_tool_call(tool_call: InvalidToolCall) -> str:
     )
 
 
-def is_provider_tool_call(block: ContentBlock) -> TypeGuard[ServerToolCall | ServerToolCallChunk]:
-    """Tell whether a content block is a built-in tool call the provider ran, whole or streamed."""
+def is_server_tool_call(block: ContentBlock) -> TypeGuard[ServerToolCall | ServerToolCallChunk]:
+    """Tell whether a content block is a server tool call the provider ran, whole or streamed."""
     return block["type"] == "server_tool_call" or block["type"] == "server_tool_call_chunk"
 
 
-def render_provider_tool_call(block: ServerToolCall | ServerToolCallChunk) -> str:
-    """Render a built-in tool call that the model provider ran inside the model call.
+def render_server_tool_call(block: ServerToolCall | ServerToolCallChunk) -> str:
+    """Render a server tool call that the model provider ran inside the model call.
 
     The content holds the call's arguments and, when the block has them, its
     provider `extras`, where a remote MCP call keeps the name of the tool it
     ran and any arguments that could not be parsed.
     """
-    details = ProviderToolCallDetails(args=block.get("args", {}))
+    details = ServerToolCallDetails(args=block.get("args", {}))
     if "extras" in block:
         details["extras"] = block["extras"]
     return wrap_in_tag(
-        tag="provider_tool_call",
+        tag="server_tool_call",
         content=render_json(details),
         name=block.get("name"),
     )
 
 
-def render_provider_tool_result(block: ServerToolResult, *, tool_name: str) -> str:
-    """Render what a provider's built-in tool returned: its output as text, or else as JSON."""
+def render_server_tool_result(block: ServerToolResult, *, tool_name: str) -> str:
+    """Render what a server tool returned: its output as text, or else as JSON."""
     output = block.get("output")
     if output is None:
         content = ""
@@ -186,7 +187,7 @@ def render_provider_tool_result(block: ServerToolResult, *, tool_name: str) -> s
         content = output
     else:
         content = render_json(output)
-    return wrap_in_tag(tag="provider_tool_result", content=content, name=tool_name)
+    return wrap_in_tag(tag="server_tool_result", content=content, name=tool_name)
 
 
 def read_unrecognised_block_value(block: NonStandardContentBlock) -> Mapping[str, object]:
@@ -238,13 +239,13 @@ def build_unrecognised_block_entry(
     return TranscriptEntry(channel=channel, text=text)
 
 
-def build_provider_tool_entries(
+def build_server_tool_entries(
     blocks: Sequence[ContentBlock],
     *,
     tool_names_by_call: Mapping[str, str],
     known_call_ids: Collection[str] = frozenset(),
 ) -> Iterator[TranscriptEntry]:
-    """Yield the built-in tool calls the provider ran inside a model call, and their results.
+    """Yield the server tool calls the provider ran inside a model call, and their results.
 
     Tools such as Anthropic's web fetch or OpenAI's web search run at the
     provider, before the reply reaches the monitor. LangChain's translators
@@ -256,16 +257,16 @@ def build_provider_tool_entries(
     with the tool calls too, so it is never dropped unseen.
     """
     for block in blocks:
-        if is_provider_tool_call(block):
+        if is_server_tool_call(block):
             yield TranscriptEntry(
                 channel=Channel.TOOL_CALLS,
-                text=render_provider_tool_call(block),
+                text=render_server_tool_call(block),
             )
         elif block["type"] == "server_tool_result":
             tool_name = tool_names_by_call.get(block.get("tool_call_id", ""), "unknown")
             yield TranscriptEntry(
                 channel=Channel.TOOL_RESULTS,
-                text=render_provider_tool_result(block, tool_name=tool_name),
+                text=render_server_tool_result(block, tool_name=tool_name),
             )
         elif block["type"] == "non_standard":
             entry = build_unrecognised_block_entry(block, known_call_ids=known_call_ids)
@@ -274,7 +275,7 @@ def build_provider_tool_entries(
 
 
 def build_grounding_entries(message: AIMessage) -> Iterator[TranscriptEntry]:
-    """Yield the searches of Gemini's built-in grounding tools as a provider tool call and result.
+    """Yield the searches of Gemini's grounding tools as a server tool call and result.
 
     langchain-google-genai keeps the queries of Gemini's Google Search only
     in the reply's `grounding_metadata`, which LangChain's Gemini translator
@@ -286,11 +287,11 @@ def build_grounding_entries(message: AIMessage) -> Iterator[TranscriptEntry]:
         return
     queries = {key: metadata[key] for key in GROUNDING_QUERY_KEYS if metadata.get(key)}
     if queries:
-        details = ProviderToolCallDetails(args=queries)
+        details = ServerToolCallDetails(args=queries)
         yield TranscriptEntry(
             channel=Channel.TOOL_CALLS,
             text=wrap_in_tag(
-                tag="provider_tool_call", content=render_json(details), name="grounding"
+                tag="server_tool_call", content=render_json(details), name="grounding"
             ),
         )
     sources = metadata.get("grounding_chunks")
@@ -298,7 +299,7 @@ def build_grounding_entries(message: AIMessage) -> Iterator[TranscriptEntry]:
         yield TranscriptEntry(
             channel=Channel.TOOL_RESULTS,
             text=wrap_in_tag(
-                tag="provider_tool_result", content=render_json(sources), name="grounding"
+                tag="server_tool_result", content=render_json(sources), name="grounding"
             ),
         )
 
@@ -308,9 +309,9 @@ def build_agent_entries(
     *,
     tool_names_by_call: Mapping[str, str],
 ) -> Iterator[TranscriptEntry]:
-    """Yield the reasoning, provider tools, text, tool calls and malformed calls of a message.
+    """Yield the reasoning, server tools, text, tool calls and malformed calls of a message.
 
-    `tool_names_by_call` names the provider tool call that each provider tool
+    `tool_names_by_call` names the server tool call that each server tool
     result answers.
     """
     reasoning = extract_reasoning_text(message)
@@ -320,7 +321,7 @@ def build_agent_entries(
             text=wrap_in_tag(tag="agent_reasoning", content=reasoning),
         )
     calls: list[ToolCall | InvalidToolCall] = [*message.tool_calls, *message.invalid_tool_calls]
-    yield from build_provider_tool_entries(
+    yield from build_server_tool_entries(
         message.content_blocks,
         tool_names_by_call=tool_names_by_call,
         known_call_ids={call["id"] for call in calls if call["id"]},
@@ -442,11 +443,11 @@ def build_message_entries(
     return []
 
 
-def read_provider_tool_names_by_call(message: AIMessage) -> dict[str, str]:
-    """Return the name of each built-in tool call the provider ran in a message, by id."""
+def read_server_tool_names_by_call(message: AIMessage) -> dict[str, str]:
+    """Return the name of each server tool call the provider ran in a message, by id."""
     names: dict[str, str] = {}
     for block in message.content_blocks:
-        if is_provider_tool_call(block):
+        if is_server_tool_call(block):
             call_id = block.get("id")
             name = block.get("name")
             if call_id and name:
@@ -457,11 +458,11 @@ def read_provider_tool_names_by_call(message: AIMessage) -> dict[str, str]:
 def read_tool_names_by_call(message: AIMessage) -> dict[str, str]:
     """Return the tool name of each call in an agent message by id.
 
-    Malformed calls and the provider's built-in tool calls are included.
+    Malformed calls and server tool calls are included.
     """
     calls: list[ToolCall | InvalidToolCall] = [*message.tool_calls, *message.invalid_tool_calls]
     names = {call["id"]: call["name"] for call in calls if call["id"] and call["name"]}
-    return {**names, **read_provider_tool_names_by_call(message)}
+    return {**names, **read_server_tool_names_by_call(message)}
 
 
 def build_transcript_entries(
@@ -524,8 +525,8 @@ def render_proposed_step(proposal: AIMessage, *, view: MonitorView) -> str:
     """Render the step the agent proposes, wrapped in a `proposed_step` tag.
 
     The view decides what the monitor reads of the history, not of the step it
-    judges: the step's tool calls, malformed ones and the provider's built-in
-    ones included, are its action, so they are shown whatever the view. A
+    judges: the step's tool calls, malformed ones and server tool calls
+    included, are its action, so they are shown whatever the view. A
     proposal without tool calls is a final answer, and the answer is then the
     step's action, so its text is shown even when the view leaves out agent
     prose. A proposal whose calls are all malformed is a final answer too,
@@ -539,7 +540,7 @@ def render_proposed_step(proposal: AIMessage, *, view: MonitorView) -> str:
         channels |= Channel.AGENT_TEXT
     entries = build_agent_entries(
         proposal,
-        tool_names_by_call=read_provider_tool_names_by_call(proposal),
+        tool_names_by_call=read_server_tool_names_by_call(proposal),
     )
     parts = [entry.text for entry in entries if entry.channel in channels]
     return "<proposed_step>\n" + "\n".join(parts) + "\n</proposed_step>"
@@ -549,7 +550,7 @@ def render_proposal_for_audit(proposal: AIMessage) -> str:
     """Render a proposal with every channel, for the human auditors reading `monitor_log`.
 
     Malformed tool calls are included, so the record keeps what the agent
-    tried even though nothing ran, and so are the provider's built-in tool
-    calls and their full results, which ran before the monitor judged.
+    tried even though nothing ran, and so are server tool calls and their
+    full results, which ran before the monitor judged.
     """
     return render_proposed_step(proposal, view=MonitorView(channels=Channel.ALL))

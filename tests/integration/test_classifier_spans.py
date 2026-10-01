@@ -131,7 +131,7 @@ def test_retries_stay_inside_one_classifier_span(run_mode: RunMode) -> None:
     server = DecisionsServer(failures=[503])
     agent = build_agent(
         server,
-        protocol=TrustedMonitoring(flag_threshold=0.8),
+        protocol=TrustedMonitoring(audit_threshold=0.8),
         untrusted_steps=[build_read_step(), AIMessage(FINAL_ANSWER)],
     )
 
@@ -152,7 +152,7 @@ def test_a_request_that_fails_ends_the_classifier_its_judgement_and_the_step(
     tracer = RecordingTracer()
     agent = build_agent(
         DecisionsServer(failures=[400]),
-        protocol=TrustedMonitoring(flag_threshold=0.8),
+        protocol=TrustedMonitoring(audit_threshold=0.8),
         untrusted_steps=[build_read_step()],
     )
 

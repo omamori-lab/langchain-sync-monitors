@@ -1,4 +1,4 @@
-"""The provider tool warning marks each middleware once, without hashing it.
+"""The server tool warning marks each middleware once, without hashing it.
 
 A user's subclass declared as a dataclass with the default `eq=True` hashes its
 fields, so a middleware whose monitor is a plain dataclass is unhashable. The
@@ -22,9 +22,9 @@ from langchain_core.messages import AIMessage
 from langchain_core.runnables import Runnable
 from langchain_core.tools import BaseTool
 
-from langchain_sync_monitors.errors import ProviderToolWarning
+from langchain_sync_monitors.errors import ServerToolWarning
 from langchain_sync_monitors.middleware import MonitorMiddleware
-from langchain_sync_monitors.provider_tools import warned_middleware_ids
+from langchain_sync_monitors.server_tools import warned_middleware_ids
 from tests.support.agents import (
     RunMode,
     Workspace,
@@ -45,8 +45,8 @@ class TeamMonitorMiddleware(MonitorMiddleware):
     team: str = "platform"
 
 
-class ProviderToolChatModel(ScriptedChatModel):
-    """A scripted model that accepts provider tool dictionaries, as provider models do."""
+class ServerToolChatModel(ScriptedChatModel):
+    """A scripted model that accepts server tool dictionaries, as provider models do."""
 
     def bind_tools(
         self,
@@ -79,8 +79,8 @@ class SecondCallToolMiddleware(AgentMiddleware[Any, Any, Any]):
         return request.override(tools=[*request.tools, WEB_SEARCH])
 
 
-def read_provider_warnings(caught: list[warnings.WarningMessage]) -> list[str]:
-    return [str(item.message) for item in caught if item.category is ProviderToolWarning]
+def read_server_tool_warnings(caught: list[warnings.WarningMessage]) -> list[str]:
+    return [str(item.message) for item in caught if item.category is ServerToolWarning]
 
 
 @pytest.mark.parametrize("tools", [[], [WEB_SEARCH]], ids=["own-tools", "server-tool"])
@@ -90,7 +90,7 @@ def test_an_unhashable_middleware_subclass_runs_and_warns_once(
 ) -> None:
     # Arrange: the tests' keyword monitor is a plain dataclass, so the subclass is unhashable
     middleware = TeamMonitorMiddleware(monitor=build_keyword_monitor(), protocol=AcceptFirst())
-    model = ProviderToolChatModel(responses=[AIMessage("First."), AIMessage("Second.")])
+    model = ServerToolChatModel(responses=[AIMessage("First."), AIMessage("Second.")])
     agent = create_agent(model, tools=tools, middleware=[middleware])
 
     # Act
@@ -101,16 +101,16 @@ def test_an_unhashable_middleware_subclass_runs_and_warns_once(
 
     # Assert
     assert [record["outcome"] for record in first["monitor_log"]] == ["allowed"]
-    assert len(read_provider_warnings(caught)) == len(tools)
+    assert len(read_server_tool_warnings(caught)) == len(tools)
 
 
 def test_a_collected_middleware_s_mark_is_forgotten(run_mode: RunMode) -> None:
     # Arrange: a middleware that warned, so its id is marked
     middleware = MonitorMiddleware(monitor=build_keyword_monitor(), protocol=AcceptFirst())
-    model = ProviderToolChatModel(responses=[AIMessage("First.")])
+    model = ServerToolChatModel(responses=[AIMessage("First.")])
     agent = create_agent(model, tools=[WEB_SEARCH], middleware=[middleware])
     with warnings.catch_warnings():
-        warnings.simplefilter("ignore", ProviderToolWarning)
+        warnings.simplefilter("ignore", ServerToolWarning)
         run_agent(agent, mode=run_mode)
     key = id(middleware)
     assert key in warned_middleware_ids
@@ -128,7 +128,7 @@ def test_a_middleware_whose_first_request_has_no_server_tool_warns_at_the_next(
 ) -> None:
     # Arrange: the server tool joins the request only from the second model call on
     workspace = Workspace()
-    model = ProviderToolChatModel(responses=[build_read_step(), AIMessage("Done.")])
+    model = ServerToolChatModel(responses=[build_read_step(), AIMessage("Done.")])
     monitor = MonitorMiddleware(monitor=build_keyword_monitor(), protocol=AcceptFirst())
     stack: list[AgentMiddleware[Any, Any, Any]] = [SecondCallToolMiddleware(), monitor]
     agent = create_agent(model, tools=workspace.build_tools(), middleware=stack)
@@ -139,4 +139,4 @@ def test_a_middleware_whose_first_request_has_no_server_tool_warns_at_the_next(
         run_agent(agent, mode=run_mode)
 
     # Assert
-    assert len(read_provider_warnings(caught)) == 1
+    assert len(read_server_tool_warnings(caught)) == 1

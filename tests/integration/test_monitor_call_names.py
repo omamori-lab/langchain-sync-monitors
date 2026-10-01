@@ -73,7 +73,7 @@ def build_agent(*, monitor: Monitor, protocol: ControlProtocol | None = None) ->
         middleware=[
             MonitorMiddleware(
                 monitor=monitor,
-                protocol=protocol or TrustedMonitoring(flag_threshold=0.8),
+                protocol=protocol or TrustedMonitoring(audit_threshold=0.8),
             ),
         ],
     )
@@ -145,7 +145,7 @@ def test_a_judge_s_own_name_gives_way_to_the_fixed_name(run_mode: RunMode) -> No
     assert len(calls) == 2
     assert all(call.metadata["ls_model_name"] == JUDGE_MODEL_NAME for call in calls)
     judgements = tracer.find_runs(JUDGEMENT)
-    assert all(judgement.inputs["monitor"] == "LLMMonitor" for judgement in judgements)
+    assert all(judgement.inputs["monitor_class"] == "LLMMonitor" for judgement in judgements)
 
 
 def test_a_guard_s_calls_are_named_monitor_call_on_both_its_paths(run_mode: RunMode) -> None:

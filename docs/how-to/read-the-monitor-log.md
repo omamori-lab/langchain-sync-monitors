@@ -21,7 +21,7 @@ agent = create_agent(
     middleware=[
         MonitorMiddleware(
             monitor=LLMMonitor(model="openrouter:xiaomi/mimo-v2.6-pro"),
-            protocol=TrustedMonitoring(flag_threshold=0.6),
+            protocol=TrustedMonitoring(audit_threshold=0.6),
         ),
     ],
 )
@@ -99,8 +99,8 @@ A `SampleRecord` describes one sample:
 |---|---|---|
 | `suspicion` | `float` | The monitor's suspicion, from 0 to 1 |
 | `reason` | `str` | The monitor's reason, as the protocol saw it |
-| `proposal` | `str` | The sample rendered with every channel, whatever the monitor read: reasoning, prose, tool calls, malformed tool calls, and a provider's built-in tool calls with their full results |
-| `executed` | `bool` | Whether this is the sample whose tool calls ran; at most one per step. A provider's built-in tools ran in every sample drawn. For a monitor inside another, it marks the sample this monitor's protocol chose; when the outer monitor halts the step, nothing ran, and only the outer record says so ([Two monitors in one agent](../explanation/design.md#two-monitors-in-one-agent)) |
+| `proposal` | `str` | The sample rendered with every channel, whatever the monitor read: reasoning, prose, tool calls, malformed tool calls, and server-side tool calls with their full results |
+| `executed` | `bool` | Whether this is the sample whose tool calls ran; at most one per step. Server tools ran in every sample drawn. For a monitor inside another, it marks the sample this monitor's protocol chose; when the outer monitor halts the step, nothing ran, and only the outer record says so ([Two monitors in one agent](../explanation/design.md#two-monitors-in-one-agent)) |
 
 Records hold plain values only, so they pass through checkpointers and
 `json.dumps` unchanged.
@@ -153,7 +153,7 @@ the step: by the time anyone reads the log, the step has run or been
 replaced. Each protocol flags its own way:
 
 - **Trusted Monitoring** flags a step whose suspicion is at or above
-  `flag_threshold`.
+  `audit_threshold`.
 - **Defer to Trusted and Defer to Resample** flag a step when even the least
   suspicious of its samples is at or above `audit_threshold`.
   `audit_threshold=None` turns this off.
@@ -188,10 +188,10 @@ main, step 1: steered
 ```
 
 "Did not run" means none of the agent's own tools ran the sample's tool
-calls. A provider's built-in tool in it, such as a web fetch, already ran when
+calls. A server tool in it, such as a web fetch, already ran when
 the sample was drawn. Each sample's `proposal` shows every channel, the
 agent's reasoning included, even when the monitor did not read it. It also
-holds each provider tool result in full, once per sample drawn, so a large
+holds each server tool result in full, once per sample drawn, so a large
 fetched page makes every record of that step large.
 
 ## Follow steps as they are committed
@@ -370,7 +370,7 @@ A malformed record read from `monitor_log` raises `MonitorError` naming its
 position, the record and the fields at fault; the monitor skips no record,
 since that could hide a halt.
 
-Warnings about configuration, such as `ProviderToolWarning` and
+Warnings about configuration, such as `ServerToolWarning` and
 `UncalibratedThresholdWarning`, go through Python's `warnings` module instead.
 
 ```python

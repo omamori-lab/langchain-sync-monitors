@@ -394,7 +394,7 @@ def test_an_outer_monitor_s_halt_stands_on_its_own_latest_count(run_mode: RunMod
     outer = build_halting_monitor(label="guard")
     inner = MonitorMiddleware(
         monitor=build_keyword_monitor(),
-        protocol=TrustedMonitoring(flag_threshold=0.5),
+        protocol=TrustedMonitoring(audit_threshold=0.5),
         label="inner",
     )
     agent = build_agent(model, workspace=workspace, middleware=[outer, inner])
@@ -419,19 +419,19 @@ def test_an_outer_monitor_s_halt_stands_on_its_own_latest_count(run_mode: RunMod
 def test_each_monitor_reads_the_count_of_its_own_latest_halt() -> None:
     # Arrange: stacked monitors halted at different counts, and the guard halted twice
     recorded = [
-        InputsAtHalt(monitor="guard[main]", run_inputs=1),
-        InputsAtHalt(monitor="monitor[main]", run_inputs=2),
+        InputsAtHalt(middleware_name="guard[main]", run_inputs=1),
+        InputsAtHalt(middleware_name="monitor[main]", run_inputs=2),
     ]
-    new = [InputsAtHalt(monitor="guard[main]", run_inputs=3)]
+    new = [InputsAtHalt(middleware_name="guard[main]", run_inputs=3)]
 
     # Act
     merged = merge_inputs_at_halt(recorded, new)
     state = {INPUTS_AT_HALT_KEY: merged}
 
     # Assert
-    assert read_run_inputs_at_halt(state, monitor="guard[main]") == 3
-    assert read_run_inputs_at_halt(state, monitor="monitor[main]") == 2
-    assert read_run_inputs_at_halt(state, monitor="other[main]") is None
+    assert read_run_inputs_at_halt(state, middleware_name="guard[main]") == 3
+    assert read_run_inputs_at_halt(state, middleware_name="monitor[main]") == 2
+    assert read_run_inputs_at_halt(state, middleware_name="other[main]") is None
     assert len(merged) == 2
 
 
@@ -442,7 +442,7 @@ def test_each_monitor_reads_the_count_of_its_own_latest_halt() -> None:
 )
 def test_a_state_without_a_list_of_counts_reads_no_count(state: dict[str, object]) -> None:
     # Act: a missing count must read as none, so that the halt it belongs to stands
-    count = read_run_inputs_at_halt(state, monitor="monitor[main]")
+    count = read_run_inputs_at_halt(state, middleware_name="monitor[main]")
 
     # Assert
     assert count is None
@@ -462,7 +462,7 @@ def test_a_halt_whose_count_is_no_integer_stands_after_new_run_inputs(count: obj
     )
     state = {
         TASK_MESSAGES_KEY: ["input-1", "input-2"],
-        INPUTS_AT_HALT_KEY: [{"monitor": "monitor[main]", "run_inputs": count}],
+        INPUTS_AT_HALT_KEY: [{"middleware_name": "monitor[main]", "run_inputs": count}],
     }
 
     # Act
@@ -470,7 +470,7 @@ def test_a_halt_whose_count_is_no_integer_stands_after_new_run_inputs(count: obj
         state,
         previous_records=[halt],
         returns=[],
-        monitor="monitor[main]",
+        middleware_name="monitor[main]",
         when_subagent_halts=SubagentHalt.STOP_SUBAGENT_ONLY,
     )
 

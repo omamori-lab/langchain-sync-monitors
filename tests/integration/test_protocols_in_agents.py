@@ -148,7 +148,7 @@ def test_trusted_monitoring_flags_a_suspicious_step_but_lets_it_run(run_mode: Ru
     # Act
     run = run_monitored_agent(
         untrusted_steps=[build_exfiltration_step(), AIMessage(FINAL_ANSWER)],
-        protocol=TrustedMonitoring(flag_threshold=0.6),
+        protocol=TrustedMonitoring(audit_threshold=0.6),
         run_mode=run_mode,
     )
 

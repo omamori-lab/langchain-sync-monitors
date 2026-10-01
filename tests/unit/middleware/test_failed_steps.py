@@ -219,12 +219,11 @@ def test_a_step_stopped_by_an_interrupt_or_a_cancellation_still_warns_of_its_sam
     run_mode: RunMode,
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    # Arrange: neither error is an `Exception`, yet the judged sample must not vanish
+    # Arrange: neither error is an `Exception`, yet the judged sample must not vanish.
+    # Under `ainvoke()` the resample is an ordinary reply that only waits to be cancelled.
     caplog.set_level(logging.WARNING, logger=MIDDLEWARE_LOGGER)
-    model = FlakyChatModel(
-        replies=[build_exfiltration_step(), KeyboardInterrupt()],
-        delays=[0.0, 30.0],
-    )
+    resample = KeyboardInterrupt() if run_mode == "invoke" else build_read_step()
+    model = FlakyChatModel(replies=[build_exfiltration_step(), resample], delays=[0.0, 30.0])
     agent = build_agent(model, protocol=build_defer_to_resample())
 
     # Act

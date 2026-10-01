@@ -160,17 +160,17 @@ def read_sentences(page: Path) -> list[str]:
     return re.split(r"(?<=[.!?])\s+", prose)
 
 
-def mentions_value(sentence: str, value: float) -> bool:
+def has_exact_value(sentence: str, value: float) -> bool:
     """Tell whether a sentence names a number exactly, so 0.6 matches `0.6,` but not 0.65."""
     return re.search(rf"(?<![\d.]){re.escape(str(value))}(?!\d)", sentence) is not None
 
 
-def restates_the_default_thresholds(sentence: str) -> bool:
+def is_restatement_of_the_default_thresholds(sentence: str) -> bool:
     """Tell whether a sentence gives both default values and calls them defaults, in any words."""
     return (
         "default" in sentence.lower()
-        and mentions_value(sentence, DEFAULT_DEFER_THRESHOLD.value)
-        and mentions_value(sentence, DEFAULT_AUDIT_THRESHOLD.value)
+        and has_exact_value(sentence, DEFAULT_DEFER_THRESHOLD.value)
+        and has_exact_value(sentence, DEFAULT_AUDIT_THRESHOLD.value)
     )
 
 
@@ -186,7 +186,7 @@ def restates_the_default_thresholds(sentence: str) -> bool:
 )
 def test_restated_defaults_are_recognised_in_other_words(sentence: str, restates: bool) -> None:
     # Act
-    recognised = restates_the_default_thresholds(sentence)
+    recognised = is_restatement_of_the_default_thresholds(sentence)
 
     # Assert
     assert recognised is restates
@@ -202,7 +202,9 @@ def test_no_other_page_restates_the_default_thresholds() -> None:
     restating = [
         str(page.relative_to(DOCS))
         for page in pages
-        if any(restates_the_default_thresholds(sentence) for sentence in read_sentences(page))
+        if any(
+            is_restatement_of_the_default_thresholds(sentence) for sentence in read_sentences(page)
+        )
     ]
 
     # Assert

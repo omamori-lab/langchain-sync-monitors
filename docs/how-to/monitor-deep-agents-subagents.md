@@ -409,9 +409,9 @@ publisher_steps = [record for record in log if record["agent"] == "publisher"]
   every declarative subagent. When a model call overflows the context, it
   summarises and runs the rest of the stack again, so the whole monitored
   step runs again with fresh samples. The samples judged before the overflow
-  reach only the warning log line and the `monitor_step_failed` event, never
-  `monitor_log`. `check_monitor_placement` cannot see this middleware, since
-  Deep Agents adds it.
+  reach only the `monitor_step_failed` event, and their suspicions the
+  warning log line, never `monitor_log`. `check_monitor_placement` cannot see
+  this middleware, since Deep Agents adds it.
 - **Forked subagents cannot be monitored yet;** see
   [Forked subagents are refused](#forked-subagents-are-refused).
 

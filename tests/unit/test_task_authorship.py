@@ -28,6 +28,8 @@ from langchain_sync_monitors._langchain import (
     ToolCallResults,
     read_update_pairs,
 )
+from langchain_sync_monitors.message_ids import build_run_end_update
+from langchain_sync_monitors.run_inputs import build_run_start_update
 from langchain_sync_monitors.task_authorship import (
     build_run_input_update,
     mark_context_notes,
@@ -164,6 +166,107 @@ def test_each_item_of_a_list_result_is_relabelled() -> None:
     assert tool_message is results[0]
     assert isinstance(command, Command)
     assert read_sources(command.update["messages"]) == ["attach"]
+
+
+def test_input_without_an_id_is_given_one_and_recorded_in_a_history_written_back_whole() -> None:
+    # Arrange: Deep Agents keeps a string input without an id, after the earlier turns
+    state = {
+        "messages": [
+            HumanMessage("Summarise q3.md.", id="task"),
+            AIMessage("Q3 grew 12%.", id="answer"),
+            HumanMessage("Now email it."),
+        ],
+        "monitor_task_messages": ["task"],
+        "monitor_seen_human_messages": ["task"],
+        "monitor_run_open": False,
+    }
+
+    # Act
+    update = build_run_start_update(state)
+
+    # Assert: the history comes back whole, in order, with the new input under a fresh id
+    assert isinstance(update["messages"], Overwrite)
+    messages = update["messages"].value
+    assert [(type(message), message.text) for message in messages] == [
+        (HumanMessage, "Summarise q3.md."),
+        (AIMessage, "Q3 grew 12%."),
+        (HumanMessage, "Now email it."),
+    ]
+    assert [message.id for message in messages[:2]] == ["task", "answer"]
+    new_id = messages[2].id
+    assert new_id
+    assert "lc_source" not in messages[2].additional_kwargs
+    assert update["monitor_task_messages"] == [new_id]
+    assert [entry["id"] for entry in update["monitor_run_inputs"]] == [new_id]
+
+
+def test_input_without_an_id_after_a_stopped_run_is_written_back_as_unconfirmed() -> None:
+    # Arrange: the earlier run never reached its end
+    state = {
+        "messages": [HumanMessage("Summarise q3.md.", id="task"), HumanMessage("Go on.")],
+        "monitor_task_messages": ["task"],
+        "monitor_seen_human_messages": ["task"],
+        "monitor_run_open": True,
+    }
+
+    # Act
+    update = build_run_start_update(state)
+
+    # Assert
+    first, second = update["messages"].value
+    assert first == state["messages"][0]
+    assert second.id
+    assert second.additional_kwargs["lc_source"] == "unconfirmed_input"
+    assert "monitor_task_messages" not in update
+
+
+def test_a_message_left_without_an_id_at_a_run_s_end_becomes_a_note_with_an_id() -> None:
+    # Arrange: a hook wrote a raw string during the run
+    state = {
+        "messages": [
+            HumanMessage("Summarise q3.md.", id="task"),
+            HumanMessage("Cite your sources.", name="nudge"),
+            AIMessage("Done.", id="answer"),
+        ],
+        "monitor_task_messages": ["task"],
+        "monitor_seen_human_messages": ["task"],
+        "monitor_run_open": True,
+    }
+
+    # Act
+    update = build_run_end_update(state)
+
+    # Assert
+    task, note, answer = update["messages"].value
+    assert (task, answer) == (state["messages"][0], state["messages"][2])
+    assert note.id
+    assert note.additional_kwargs["lc_source"] == "nudge"
+    assert update["monitor_run_open"] is False
+
+
+@pytest.mark.parametrize(
+    "unidentified",
+    [AIMessage("A step."), HumanMessage("A summary.", additional_kwargs={"lc_source": "summary"})],
+    ids=["ai-message", "tagged-human-message"],
+)
+def test_a_history_whose_untagged_human_messages_have_ids_is_not_written_back(
+    unidentified: BaseMessage,
+) -> None:
+    # Arrange: only an untagged human message needs an id to be recorded
+    state = {
+        "messages": [HumanMessage("Summarise q3.md.", id="task"), unidentified],
+        "monitor_task_messages": ["task"],
+        "monitor_seen_human_messages": ["task"],
+        "monitor_run_open": False,
+    }
+
+    # Act
+    start = build_run_start_update(state)
+    end = build_run_end_update(state)
+
+    # Assert
+    assert start == {"monitor_run_open": True}
+    assert end == {"monitor_run_open": False}
 
 
 def test_a_seen_message_whose_note_tag_was_lost_is_not_taken_for_input() -> None:

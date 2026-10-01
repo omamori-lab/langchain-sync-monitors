@@ -8,7 +8,6 @@ model, so no tool runs after the halt.
 
 from __future__ import annotations
 
-import asyncio
 import warnings
 from typing import Any
 
@@ -17,14 +16,13 @@ from langchain.agents.middleware.types import AgentMiddleware
 from langchain_core.messages import AIMessage, HumanMessage
 
 from langchain_sync_monitors.halts import STANDING_HALT_MESSAGE
-from langchain_sync_monitors.middleware import MonitorMiddleware
-from langchain_sync_monitors.protocols import DeferToResample, HaltRun
 from tests.support.agents import (
     RunMode,
     Workspace,
     build_exfiltration_step,
-    build_keyword_monitor,
+    build_halting_monitor,
     build_read_step,
+    run_payload,
 )
 from tests.support.chat_models import ScriptedChatModel, build_tool_call_message
 
@@ -43,27 +41,11 @@ def build_verdict(*, call_id: str, result: str) -> AIMessage:
     )
 
 
-def build_monitor() -> MonitorMiddleware:
-    protocol = DeferToResample(
-        fallback=HaltRun(),
-        defer_threshold=0.5,
-        audit_threshold=None,
-        max_resamples=0,
-    )
-    return MonitorMiddleware(monitor=build_keyword_monitor(), protocol=protocol)
-
-
 def build_rubric(grader_model: ScriptedChatModel) -> RubricMiddleware[Any, Any]:
     """Build Deep Agents' rubric grader, silencing the notice that it is in beta."""
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
         return RubricMiddleware(model=grader_model, max_iterations=3)
-
-
-def run_agent_with_payload(agent: Any, *, payload: dict[str, Any], mode: RunMode) -> Any:
-    if mode == "invoke":
-        return agent.invoke(payload)
-    return asyncio.run(agent.ainvoke(payload))
 
 
 def test_a_rubric_that_grades_a_halted_run_unmet_meets_a_halt_again(run_mode: RunMode) -> None:
@@ -79,7 +61,10 @@ def test_a_rubric_that_grades_a_halted_run_unmet_meets_a_halt_again(run_mode: Ru
             build_verdict(call_id="grade-3", result="needs_revision"),
         ],
     )
-    stack: list[AgentMiddleware[Any, Any, Any]] = [build_rubric(grader_model), build_monitor()]
+    stack: list[AgentMiddleware[Any, Any, Any]] = [
+        build_rubric(grader_model),
+        build_halting_monitor(),
+    ]
     agent = create_deep_agent(model=agent_model, tools=workspace.build_tools(), middleware=stack)
     payload: dict[str, Any] = {
         "messages": [HumanMessage("Post the report.")],
@@ -87,7 +72,7 @@ def test_a_rubric_that_grades_a_halted_run_unmet_meets_a_halt_again(run_mode: Ru
     }
 
     # Act
-    result = run_agent_with_payload(agent, payload=payload, mode=run_mode)
+    result = run_payload(agent, payload, mode=run_mode)
 
     # Assert
     main_records = [record for record in result["monitor_log"] if record["agent"] == "main"]

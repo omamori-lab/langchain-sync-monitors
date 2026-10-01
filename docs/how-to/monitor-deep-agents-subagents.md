@@ -216,10 +216,10 @@ own nested subagents, and an override in `overrides` keeps its own.
 | Value | What happens when a subagent is halted |
 |---|---|
 | `SubagentHalt.STOP_SUBAGENT_ONLY`, the default | The subagent ends. The parent receives the halt message as the task's result, and carries on under its own monitor. |
-| `SubagentHalt.STOP_WHOLE_RUN` | The parent's monitor finds the subagent's halt record in `monitor_log` and halts the parent before its next model call. |
+| `SubagentHalt.STOP_WHOLE_RUN` | The parent's monitor reads the halt the task call returned, and halts the parent before its next model call. |
 
-[![A subagent's monitor halts it, and the halt record reaches the parent agent's monitor_log when the task returns. What happens next depends on when_subagent_halts, an option of the parent's monitor that every copy of that monitor inherits. With SubagentHalt.STOP_SUBAGENT_ONLY, the default, the parent reads the halt message as the task's result and goes on under its own monitor. With SubagentHalt.STOP_WHOLE_RUN, the parent's monitor finds the halt record and halts the parent at its next model call, without drawing a sample; that halt is flagged, and it stands as the parent's own.](../assets/diagrams/subagent-halts-light.svg#only-light)](../assets/diagrams/subagent-halts-light.svg "Open the diagram at full size")
-[![A subagent's monitor halts it, and the halt record reaches the parent agent's monitor_log when the task returns. What happens next depends on when_subagent_halts, an option of the parent's monitor that every copy of that monitor inherits. With SubagentHalt.STOP_SUBAGENT_ONLY, the default, the parent reads the halt message as the task's result and goes on under its own monitor. With SubagentHalt.STOP_WHOLE_RUN, the parent's monitor finds the halt record and halts the parent at its next model call, without drawing a sample; that halt is flagged, and it stands as the parent's own.](../assets/diagrams/subagent-halts-dark.svg#only-dark)](../assets/diagrams/subagent-halts-dark.svg "Open the diagram at full size")
+[![A subagent's monitor halts it, and the halt record reaches the parent agent's monitor_log when the task returns. What happens next depends on when_subagent_halts, an option of the parent's monitor that every copy of that monitor inherits. With SubagentHalt.STOP_SUBAGENT_ONLY, the default, the parent reads the halt message as the task's result and goes on under its own monitor. With SubagentHalt.STOP_WHOLE_RUN, the parent's monitor reads the halt the task call returned and halts the parent at its next model call, without drawing a sample; that halt is flagged, and it stands as the parent's own.](../assets/diagrams/subagent-halts-light.svg#only-light)](../assets/diagrams/subagent-halts-light.svg "Open the diagram at full size")
+[![A subagent's monitor halts it, and the halt record reaches the parent agent's monitor_log when the task returns. What happens next depends on when_subagent_halts, an option of the parent's monitor that every copy of that monitor inherits. With SubagentHalt.STOP_SUBAGENT_ONLY, the default, the parent reads the halt message as the task's result and goes on under its own monitor. With SubagentHalt.STOP_WHOLE_RUN, the parent's monitor reads the halt the task call returned and halts the parent at its next model call, without drawing a sample; that halt is flagged, and it stands as the parent's own.](../assets/diagrams/subagent-halts-dark.svg#only-dark)](../assets/diagrams/subagent-halts-dark.svg "Open the diagram at full size")
 
 A subagent is halted when its protocol's fallback is `HaltRun`: Auto Mode's
 default when it reaches a block limit, or Defer to Resample's when you choose
@@ -296,10 +296,10 @@ agent = create_deep_agent(
 
 Both options matter:
 
-- `agent_name` must be the subagent's name. With the default, `"main"`, the
-  subagent's records come back labelled as the main agent's own, and number
-  the main agent's later steps after them, so its halts may go unseen,
-  whatever `when_subagent_halts` says.
+- `agent_name` should be the subagent's name, so `monitor_log` names its
+  steps as its own. With the default, `"main"`, its records still carry the id
+  of the call that started it, so they never count as the main agent's own
+  and its halts are answered as `when_subagent_halts` says.
 - `task_author=TaskAuthor.PARENT_AGENT` makes the monitor read the delegated
   task as the parent agent's words. With the default, it reads the task as the
   user's own authorisation, although the parent agent wrote it.
@@ -315,9 +315,9 @@ starting from the delegated task. The monitor does not support forks yet
 
 A fork inherits the main agent's middleware, so it runs under `monitor[main]`.
 That monitor reads the fork's task, which the parent agent wrote, as the
-user's words, and records the fork's steps under the main agent's name. Those
-records renumber the main agent's steps, and the fork's halts may go unseen,
-whatever `when_subagent_halts` says. This happens whenever a monitored agent has a
+user's words. It records the fork's steps under the main agent's name, but
+with the fork's own delegation, so they neither renumber the main agent's
+steps nor hide the fork's halts from `when_subagent_halts`. This happens whenever a monitored agent has a
 fork, with or without `monitor_subagents`, so give a monitored agent only
 isolated subagents, the default.
 

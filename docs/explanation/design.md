@@ -548,7 +548,18 @@ reads:
   put the agent's words in the user's. A tool's `Command` writes to the state
   keys only the monitor writes, every monitor key but `monitor_log`, are
   dropped with a warning, in every item of a list result and in a command the
-  tool raises. When a tool writes a message under the id of a human message
+  tool raises. Its writes to `monitor_log` are checked record by record, in
+  the same places: an `Overwrite` adds the records it holds instead of
+  erasing the log; a write that starts with the whole current log, as when a
+  tool writes the state back, adds only the records after it, while records
+  of the log written back any other way are added again and count twice; a
+  record that claims a step of the calling agent itself is kept out of the
+  log with a warning, and counts as a halted subagent when it is a halt; one
+  that is not a whole `StepRecord` with counts of zero or more is kept out
+  with a warning and counts as a halted subagent. The halts and blocks the
+  records hold wait under `monitor_subagent_returns` for the agent's next
+  step. A malformed record read from the log raises `MonitorError` naming it,
+  its position and the fields at fault. When a tool writes a message under the id of a human message
   the monitor has seen, the monitor records that id under
   `monitor_rewritten_inputs`. Once the messages kept before that input are
   all gone, such a message never marks the input's place, though it still
@@ -661,12 +672,16 @@ the monitor lift a halt too
 `STOP_SUBAGENT_ONLY`, the default, the subagent ends, and the parent receives
 the halt message as the task's result and carries on under its own monitor,
 whose protocol still counts the subagent's blocks ([Auto Mode](#auto-mode)).
-With `STOP_WHOLE_RUN`, the parent's monitor finds the subagent's halt record
-in `monitor_log` and halts the parent before its next model call, whatever
-its protocol. That halt is the parent's own, so it stands as above.
+With `STOP_WHOLE_RUN`, the parent's monitor halts the parent before its next
+model call, whatever its protocol. It reads the halt from what the task call
+returned, noted when the call returned, not from where the record sits in
+`monitor_log`, so no record a tool writes can hide it. A subagent that shares
+the parent's name, such as a fork or a compiled subagent whose monitor keeps
+`agent_name="main"`, records its own delegation, so its halt is answered the
+same way. That halt is the parent's own, so it stands as above.
 
-[![A subagent's monitor halts it, and the halt record reaches the parent agent's monitor_log when the task returns. What happens next depends on when_subagent_halts, an option of the parent's monitor that every copy of that monitor inherits. With SubagentHalt.STOP_SUBAGENT_ONLY, the default, the parent reads the halt message as the task's result and goes on under its own monitor. With SubagentHalt.STOP_WHOLE_RUN, the parent's monitor finds the halt record and halts the parent at its next model call, without drawing a sample; that halt is flagged, and it stands as the parent's own.](../assets/diagrams/subagent-halts-light.svg#only-light)](../assets/diagrams/subagent-halts-light.svg "Open the diagram at full size")
-[![A subagent's monitor halts it, and the halt record reaches the parent agent's monitor_log when the task returns. What happens next depends on when_subagent_halts, an option of the parent's monitor that every copy of that monitor inherits. With SubagentHalt.STOP_SUBAGENT_ONLY, the default, the parent reads the halt message as the task's result and goes on under its own monitor. With SubagentHalt.STOP_WHOLE_RUN, the parent's monitor finds the halt record and halts the parent at its next model call, without drawing a sample; that halt is flagged, and it stands as the parent's own.](../assets/diagrams/subagent-halts-dark.svg#only-dark)](../assets/diagrams/subagent-halts-dark.svg "Open the diagram at full size")
+[![A subagent's monitor halts it, and the halt record reaches the parent agent's monitor_log when the task returns. What happens next depends on when_subagent_halts, an option of the parent's monitor that every copy of that monitor inherits. With SubagentHalt.STOP_SUBAGENT_ONLY, the default, the parent reads the halt message as the task's result and goes on under its own monitor. With SubagentHalt.STOP_WHOLE_RUN, the parent's monitor reads the halt the task call returned and halts the parent at its next model call, without drawing a sample; that halt is flagged, and it stands as the parent's own.](../assets/diagrams/subagent-halts-light.svg#only-light)](../assets/diagrams/subagent-halts-light.svg "Open the diagram at full size")
+[![A subagent's monitor halts it, and the halt record reaches the parent agent's monitor_log when the task returns. What happens next depends on when_subagent_halts, an option of the parent's monitor that every copy of that monitor inherits. With SubagentHalt.STOP_SUBAGENT_ONLY, the default, the parent reads the halt message as the task's result and goes on under its own monitor. With SubagentHalt.STOP_WHOLE_RUN, the parent's monitor reads the halt the task call returned and halts the parent at its next model call, without drawing a sample; that halt is flagged, and it stands as the parent's own.](../assets/diagrams/subagent-halts-dark.svg#only-dark)](../assets/diagrams/subagent-halts-dark.svg "Open the diagram at full size")
 
 ### Asking a person
 
@@ -696,10 +711,11 @@ as the parent agent's words, `<delegator>`, rather than the user's.
 - **Compiled and remote subagents** cannot take injected middleware. Add a
   monitor to the subagent's own graph instead, with
   `agent_name="<subagent name>"` and `task_author=TaskAuthor.PARENT_AGENT`.
-  With the default `agent_name="main"`, its records count as the main
-  agent's own, so its halts may go unseen, whatever `when_subagent_halts`
-  says; set `agent_name` to the subagent's name. With the default task author, it reads the
-  delegated task as the user's authorisation.
+  With the default `agent_name="main"`, its records still carry its own
+  delegation, so they never count as the main agent's own and its halts are
+  answered as `when_subagent_halts` says, but `monitor_log` names its steps as
+  `main`'s. With the default task author, it reads the delegated task as the
+  user's authorisation.
 - **Forked subagents**, `mode="fork"`, are not supported yet, as issue #35
   tracks. A fork passed to `create_deep_agent` directly still runs
   ([forked subagents](#subagents-and-the-thread-total)).
@@ -715,7 +731,10 @@ Deep Agents' `task` tool passes that state on to the subagent it starts
 records as `delegation_id`, and its Auto Mode starts from the thread's total.
 `(agent, delegation_id, step_number)` names one step, provided every tool call
 in the thread has its own id
-([subagents and the thread total](#subagents-and-the-thread-total)).
+([subagents and the thread total](#subagents-and-the-thread-total)). A record
+is an agent's own only when it names the agent and the agent's own
+delegation, so a subagent that shares its parent's name never passes for the
+parent.
 
 When the subagent returns, its records flow into the parent's `monitor_log`
 through the log's reducer, which LangGraph reads only from the last position
@@ -724,12 +743,15 @@ left out of the subagent's output, so it never flows back. A crashed
 subagent's records do not flow back
 ([subagents and the thread total](#subagents-and-the-thread-total)).
 
-A second monitor stacked in the same agent finds the delegation for the call
-already made by its own agent and passes it on as it is, so blocks are not
-counted twice. A subagent's monitor replaces the delegation it inherited with
-one that adds its own blocks, even when its call reuses the id of the call
-that started it. Both rely on each agent's monitor having its own
-`agent_name`, which `monitor_subagents` gives it.
+Only the outermost monitor of an agent hands on the delegation and checks
+what a tool call writes; a monitor stacked inside it knows the call by the
+tool runtime the outer one handed on, which a middleware between them keeps
+even when it copies the call or the state, and passes it on as it is. So
+blocks are not counted twice, and neither monitor takes the other's writes
+for the tool's. The monitor computes the delegation from the agent's own
+state, which it leaves unchanged, handing the tool a copy, so a subagent's
+monitor always adds its own blocks to those it inherited, even when its call
+reuses the id of the call that started it.
 
 `monitor_delegation` is part of every monitored agent's input, a plain
 `create_agent` one included, since a subagent receives it as input. The
@@ -752,13 +774,15 @@ whether it ran. The proposal keeps every channel, provider tool calls and
 their full results included. A subagent's records also carry
 `delegation_id`. Records reach `monitor_log` in the order they reach the
 state: an agent's own as each step is committed, and a subagent's together
-when its task returns.
+when its task returns. The suspicion is stored as a `float` and the flag as a
+`bool`, even when a monitor scores with numpy's numbers.
 
 ### Private state keys
 
-The monitor keeps its run state in eight keys. Six are private: they never
-enter any run's input or `invoke` output, but they do appear in
-`stream_mode="values"`, `stream_mode="updates"` and `get_state`. So
+The monitor keeps its run state in nine keys. Seven are private: they never
+enter a run's `invoke` output or an isolated subagent's input, though Deep
+Agents hands a forked subagent its parent's private state, but they do appear
+in `stream_mode="values"`, `stream_mode="updates"` and `get_state`. So
 `monitor_run_inputs` carries the text of the user's turns into those three.
 
 | Key | Holds | In a run's input | In `invoke` output | In `values`, `updates`, `get_state` |
@@ -771,6 +795,7 @@ enter any run's input or `invoke` output, but they do appear in
 | `monitor_rewritten_inputs` | The ids of the human messages the monitor has seen that a tool wrote a message under | No | No | Yes |
 | `monitor_run_open` | Whether a run has started and not yet reached `after_agent` | No | No | Yes |
 | `monitor_inputs_at_halt` | For each monitor, the run inputs recorded at its latest halt | No | No | In `values` and `get_state` from the first chunk, as `[]`; in `updates` once a monitor has halted |
+| `monitor_subagent_returns` | The subagent halts, and the blocks by monitor label, that each tool call returned, until the agent's next step answers them | No | No | In `values` and `get_state` from the first chunk, as `[]`; in `updates` once a tool call returns a halt or a block, and when a step answers it |
 
 Every key but `monitor_delegation` has a reducer, so stacked monitors can
 write them in one node. A subagent's private keys and its
@@ -1166,9 +1191,21 @@ limit is linked from where it arises above.
 - **Forked subagents.** Only `monitor_subagents` refuses them. A fork passed
   to `create_deep_agent` directly runs under the main agent's monitor, which
   reads the fork's task, written by the parent agent, as the user's words and
-  records the fork's steps as the main agent's, so the fork's halts may go
-  unseen, whatever `when_subagent_halts` says. Delegate only to isolated
+  records the fork's steps under the main agent's name, with the fork's own
+  delegation, so they never pass for the main agent's and its halts are
+  answered as `when_subagent_halts` says. Delegate only to isolated
   subagents.
+- **A subagent that receives no delegation.** A custom tool that runs a
+  monitored graph without passing it the agent's state hands it no
+  delegation, so a subagent whose monitor shares the parent's name records
+  steps that claim to be the parent's. The parent keeps them out of its log
+  with a warning and counts a halt among them, but their blocks miss Auto
+  Mode's total. Give that monitor its own `agent_name`, or pass the state as
+  Deep Agents' `task` tool does.
+- **A reused call id under one name.** When a subagent's tool call reuses
+  the id of the call that started it, and the subagent it starts shares its
+  name, the monitor raises `ConfigurationError` when the call returns, after
+  the inner subagent has run.
 - **Delegation ids** name a step only if the model provider gives every tool
   call in the thread its own id, which LangChain does not check.
 

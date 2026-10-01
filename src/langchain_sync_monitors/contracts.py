@@ -251,9 +251,8 @@ class Delegation(TypedDict):
 
     `tool_call_id` is the id of that tool call, which the subagent's records
     carry as their `delegation_id`. `delegating_agent` names the agent that
-    made the call, so a monitor stacked in that agent passes the delegation on
-    as it is, while a subagent whose own call reuses the id hands on a new one.
-    `blocks_before` holds, for each monitor label, the blocks recorded in the
+    made the call, for whoever reads the delegation; the monitor decides
+    nothing by it. `blocks_before` holds, for each monitor label, the blocks recorded in the
     conversation thread when the subagent started, none of them negative, so
     that the subagent's Auto Mode counts from the thread's total. The state key
     that holds it is part of every monitored agent's input, and a value that

@@ -129,7 +129,7 @@ is the kind.
 | Kind | `outcome` | How to tell it | The step's message |
 |---|---|---|---|
 | A standing halt | `halted` | This monitor's previous record for this agent is `halted` too | `STANDING_HALT_MESSAGE` |
-| A subagent's halt | `halted` | The parent's monitor uses `SubagentHalt.STOP_WHOLE_RUN`, and a subagent's `halted` record sits after the agent's own previous record | Names the subagent, such as "[Safety monitor] Stopped: the safety monitor halted the subagent researcher, so this agent stops too." |
+| A subagent's halt | `halted` | The parent's monitor uses `SubagentHalt.STOP_WHOLE_RUN`, and a tool call since the agent's previous step returned a subagent's `halted` record, or a record the monitor could not read | Names the subagent, such as "[Safety monitor] Stopped: the safety monitor halted the subagent researcher, so this agent stops too."; a subagent that shares the parent's name is named by the task's `subagent_type`, and one nested deeper by its name and the call that started it, as in "the subagent main that the call call-middle started" |
 | Auto Mode's thread total | `halted` | Neither: the subagents' records after the agent's own previous record carry the blocks that took the thread to `max_total_blocks` | The fallback's message: `DEFAULT_HALT_MESSAGE` for `HaltRun()` |
 | Auto Mode's thread total, deferred | `deferred_to_trusted` | As above, with `when_limit_reached=DeferToTrustedModel(...)` | The trusted model's step |
 
@@ -348,7 +348,12 @@ The library logs through Python's `logging`, under `langchain_sync_monitors`:
 | `langchain_sync_monitors.task_authorship` | `WARNING` | A run started after one that stopped before its end, so its new human messages are notes from `unconfirmed_input`; the message names their ids |
 | `langchain_sync_monitors.task_authorship` | `WARNING` | A tool's command wrote a state key only the monitor writes, every monitor key but `monitor_log`; the write is dropped, and the message names the tool and the keys |
 | `langchain_sync_monitors.concurrency` | `WARNING` | A concurrent call failed after another one already had |
+| `langchain_sync_monitors.returned_records` | `WARNING` | A tool wrote to `monitor_log` an `Overwrite`, a record claiming a step of the calling agent itself, or a record that is not a whole `StepRecord`; the message names the tool and the record and says what the monitor did |
 | `langchain_sync_monitors._langchain` | `ERROR` | Writing a monitor event to the custom stream failed. The event is dropped and nothing else changes: a committed step stays committed, and a failed step's error is still raised |
+
+A malformed record read from `monitor_log` raises `MonitorError` naming its
+position and the fields at fault; the monitor skips no record, since that
+could hide a halt.
 
 Warnings about configuration, such as `ProviderToolWarning` and
 `UncalibratedThresholdWarning`, go through Python's `warnings` module instead.

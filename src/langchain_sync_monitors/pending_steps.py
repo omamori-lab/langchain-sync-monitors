@@ -252,8 +252,9 @@ class MonitoredStep(PendingStep):
     could not confirm, which the monitor reads even once the request no
     longer holds it, the latter as a note; `rewritten_input_ids` holds the
     ones a tool wrote a message under. The middleware counts
-    `blocks_in_thread` and `new_subagent_blocks` from the log and from the
-    agent's `Delegation`.
+    `blocks_in_thread` from the log and the agent's `Delegation`, and
+    `new_subagent_blocks` from what its tool calls returned since its last
+    step, which `subagent_returns` keeps.
     `judged_samples` collects every sample the monitor has judged so far, in
     the order the verdicts arrived, so the middleware can report them if the
     step fails before it is committed. `sample_numbers` numbers the samples

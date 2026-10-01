@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import get_args
+from typing import Any, get_args
 
 import pytest
 from langchain.agents.middleware.types import ModelResponse
@@ -17,7 +17,15 @@ from langchain_sync_monitors.contracts import (
     StepRecord,
     Verdict,
 )
-from langchain_sync_monitors.records import OUTCOME_NAMES, build_step_record, find_monitor_records
+from langchain_sync_monitors.errors import MonitorError
+from langchain_sync_monitors.records import (
+    OUTCOME_NAMES,
+    build_step_record,
+    find_monitor_records,
+    is_own_record,
+    read_step_records,
+    validate_step_record,
+)
 from tests.support.chat_models import build_tool_call_message
 
 
@@ -30,8 +38,14 @@ def build_sample(*, content: str, suspicion: float) -> Sample:
     )
 
 
-def build_record(*, agent: str, monitor: str, step_number: int) -> StepRecord:
-    return StepRecord(
+def build_record(
+    *,
+    agent: str,
+    monitor: str,
+    step_number: int,
+    delegation_id: str | None = None,
+) -> StepRecord:
+    record = StepRecord(
         agent=agent,
         monitor=monitor,
         step_number=step_number,
@@ -40,6 +54,21 @@ def build_record(*, agent: str, monitor: str, step_number: int) -> StepRecord:
         blocked_count=0,
         samples=[],
     )
+    if delegation_id is not None:
+        record["delegation_id"] = delegation_id
+    return record
+
+
+VALID_RECORD: dict[str, Any] = {
+    "agent": "worker",
+    "monitor": "monitor",
+    "step_number": 1,
+    "outcome": "halted",
+    "flagged": True,
+    "blocked_count": 2,
+    "samples": [{"suspicion": 1, "reason": "r", "proposal": "p", "executed": False}],
+    "delegation_id": "call-task",
+}
 
 
 @pytest.fixture
@@ -175,18 +204,127 @@ def test_every_outcome_has_a_stored_name() -> None:
     assert names == set(get_args(OutcomeName))
 
 
-def test_only_the_records_of_one_monitor_and_agent_are_found() -> None:
-    # Arrange
+def test_only_the_records_of_one_monitor_agent_and_delegation_are_found() -> None:
+    # Arrange: a fork and a compiled subagent at the default name record as main too
     records = [
         build_record(agent="main", monitor="monitor", step_number=1),
         build_record(agent="researcher", monitor="monitor", step_number=1),
         build_record(agent="main", monitor="guard", step_number=1),
+        build_record(agent="main", monitor="monitor", step_number=1, delegation_id="call-fork"),
         build_record(agent="main", monitor="monitor", step_number=2),
     ]
 
     # Act
-    found = find_monitor_records(records, monitor="monitor", agent="main")
+    found = find_monitor_records(records, monitor="monitor", agent="main", delegation_id=None)
 
     # Assert
     assert [record["step_number"] for record in found] == [1, 2]
-    assert all(record["agent"] == "main" and record["monitor"] == "monitor" for record in found)
+    assert all(record.get("delegation_id") is None for record in found)
+
+
+OWN_RECORD_CASES = {
+    "same-name-same-delegation": ("main", "call-task", True),
+    "same-name-other-delegation": ("main", "call-other", False),
+    "same-name-no-delegation": ("main", None, False),
+    "other-name-same-delegation": ("worker", "call-task", False),
+}
+
+
+@pytest.mark.parametrize(
+    ("agent", "delegation_id", "expected"),
+    OWN_RECORD_CASES.values(),
+    ids=OWN_RECORD_CASES.keys(),
+)
+def test_a_record_is_the_agent_s_own_only_with_its_name_and_its_delegation(
+    agent: str,
+    delegation_id: str | None,
+    expected: bool,
+) -> None:
+    # Arrange
+    record = build_record(
+        agent=agent, monitor="monitor", step_number=1, delegation_id=delegation_id
+    )
+
+    # Act
+    own = is_own_record(record, agent="main", delegation_id="call-task")
+
+    # Assert
+    assert own is expected
+
+
+def test_a_record_without_a_delegation_is_the_own_record_of_an_agent_without_one() -> None:
+    # Arrange
+    record = build_record(agent="main", monitor="monitor", step_number=1)
+
+    # Act
+    own = is_own_record(record, agent="main", delegation_id=None)
+
+    # Assert
+    assert own is True
+
+
+def test_a_whole_record_is_read_with_a_whole_suspicion_as_a_float() -> None:
+    # Act
+    record = validate_step_record(VALID_RECORD)
+
+    # Assert
+    assert record["samples"][0]["suspicion"] == 1.0
+    assert record["delegation_id"] == "call-task"
+
+
+MALFORMED_RECORDS = {
+    "negative-count": {**VALID_RECORD, "blocked_count": -1},
+    "negative-step": {**VALID_RECORD, "step_number": -1},
+    "string-count": {**VALID_RECORD, "blocked_count": "2"},
+    "bool-count": {**VALID_RECORD, "blocked_count": True},
+    "float-count": {**VALID_RECORD, "blocked_count": 2.0},
+    "unknown-outcome": {**VALID_RECORD, "outcome": "ignored"},
+    "no-agent": {key: value for key, value in VALID_RECORD.items() if key != "agent"},
+    "number-delegation": {**VALID_RECORD, "delegation_id": 7},
+    "malformed-sample": {**VALID_RECORD, "samples": [{"suspicion": 0.5}]},
+    "not-a-mapping": "halted",
+}
+
+
+@pytest.mark.parametrize("value", MALFORMED_RECORDS.values(), ids=MALFORMED_RECORDS.keys())
+def test_a_malformed_record_is_refused(value: object) -> None:
+    # Act / Assert
+    with pytest.raises(ValueError, match=r"validation error|zero or more"):
+        validate_step_record(value)
+
+
+def test_a_zero_count_is_a_whole_record() -> None:
+    # Act
+    record = validate_step_record({**VALID_RECORD, "blocked_count": 0, "step_number": 0})
+
+    # Assert
+    assert (record["blocked_count"], record["step_number"]) == (0, 0)
+
+
+def test_the_records_in_a_state_are_read_whole() -> None:
+    # Act
+    records = read_step_records({"monitor_log": [VALID_RECORD]})
+
+    # Assert
+    assert records == [validate_step_record(VALID_RECORD)]
+
+
+@pytest.mark.parametrize("state", [{}, {"monitor_log": None}, "not a state"])
+def test_a_state_without_records_reads_as_none(state: object) -> None:
+    # Act / Assert
+    assert read_step_records(state) == []
+
+
+def test_a_malformed_record_in_the_state_raises_naming_its_position() -> None:
+    # Arrange
+    state = {"monitor_log": [VALID_RECORD, {**VALID_RECORD, "blocked_count": -100}]}
+
+    # Act / Assert
+    with pytest.raises(MonitorError, match=r"monitor_log\[1\].*-100"):
+        read_step_records(state)
+
+
+def test_a_log_that_is_not_a_list_raises() -> None:
+    # Act / Assert
+    with pytest.raises(MonitorError, match="must be a list"):
+        read_step_records({"monitor_log": VALID_RECORD})

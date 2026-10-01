@@ -5,7 +5,8 @@ records flow back into its parent's log when it returns. Before each tool
 call, the monitor adds a `Delegation` to the state the tool sees, so a
 subagent that the call starts knows which call started it and how many blocks
 the thread had recorded by then. From the log and the delegation, the monitor
-counts the blocks that Auto Mode limits, and finds the subagent halts its
+counts the blocks that Auto Mode limits. `returned_records` checks the records
+a call returns, and `subagent_returns` keeps the subagent halts and blocks the
 agent has not yet answered.
 """
 
@@ -16,18 +17,10 @@ from collections.abc import Mapping, Sequence
 from langchain.agents.middleware.types import ModelResponse, ToolCallRequest
 from langchain_core.messages import AIMessage
 
-from langchain_sync_monitors._langchain import (
-    build_tool_request_with_delegation,
-    read_delegation,
-    read_monitor_log,
-)
-from langchain_sync_monitors.contracts import Delegation, Outcome, StepDecision, StepRecord
+from langchain_sync_monitors._langchain import build_tool_request_with_delegation, read_delegation
+from langchain_sync_monitors.contracts import Delegation, Outcome, StepDecision
 from langchain_sync_monitors.feedback import build_monitor_message_id
-from langchain_sync_monitors.records import (
-    count_blocks,
-    count_blocks_by_monitor,
-    find_new_subagent_records,
-)
+from langchain_sync_monitors.records import count_blocks, count_blocks_by_monitor, read_step_records
 
 
 def read_delegation_id(state: object) -> str | None:
@@ -41,23 +34,20 @@ def add_delegation(request: ToolCallRequest, *, agent: str) -> ToolCallRequest:
 
     `agent` names the agent making the call. The blocks count from this
     agent's log, which holds its subagents' records too, on top of the blocks
-    recorded before this agent started. A request that already carries this
-    agent's delegation for this very call, added by a monitor further out, is
-    returned as it is, so stacked monitors do not count the blocks twice. A
-    delegation this agent inherited is replaced even when the call reuses its
-    id, so a nested subagent still counts this agent's blocks. A call without
-    an id, from which Deep Agents refuses to start a subagent
+    recorded before this agent started, which its own delegation holds. Both
+    are read from the request's state, which stays the agent's own, so a
+    delegation this agent inherited is replaced even when the call reuses
+    its id, and a nested subagent still counts this agent's blocks. A call
+    without an id, from which Deep Agents refuses to start a subagent
     [@deepagents2026], is returned as it is.
     """
     tool_call_id = request.tool_call["id"]
     if tool_call_id is None:
         return request
-    earlier = read_delegation(request.state)
-    if is_delegation_of_call(earlier, tool_call_id=tool_call_id, agent=agent):
-        return request
+    own = read_delegation(request.state)
     blocks_before = count_blocks_by_monitor(
-        read_monitor_log(request.state),
-        earlier_blocks=earlier["blocks_before"] if earlier else {},
+        read_step_records(request.state),
+        earlier_blocks=own["blocks_before"] if own else {},
     )
     delegation = Delegation(
         tool_call_id=tool_call_id,
@@ -65,20 +55,6 @@ def add_delegation(request: ToolCallRequest, *, agent: str) -> ToolCallRequest:
         blocks_before=blocks_before,
     )
     return build_tool_request_with_delegation(request, delegation=delegation)
-
-
-def is_delegation_of_call(
-    delegation: Delegation | None,
-    *,
-    tool_call_id: str,
-    agent: str,
-) -> bool:
-    """Tell whether the delegation is the one this agent made for this tool call."""
-    return (
-        delegation is not None
-        and delegation["tool_call_id"] == tool_call_id
-        and delegation["delegating_agent"] == agent
-    )
 
 
 def count_blocks_in_thread(state: Mapping[str, object], *, monitor: str) -> int:
@@ -89,29 +65,7 @@ def count_blocks_in_thread(state: Mapping[str, object], *, monitor: str) -> int:
     """
     delegation = read_delegation(state)
     earlier_blocks = delegation["blocks_before"].get(monitor, 0) if delegation else 0
-    return earlier_blocks + count_blocks(read_monitor_log(state), monitor=monitor)
-
-
-def count_new_subagent_blocks(records: Sequence[StepRecord], *, agent: str, monitor: str) -> int:
-    """Return the blocks one monitor recorded inside subagents since this agent's last step."""
-    return count_blocks(find_new_subagent_records(records, agent=agent), monitor=monitor)
-
-
-def find_new_subagent_halts(
-    records: Sequence[StepRecord],
-    *,
-    agent: str,
-) -> list[StepRecord]:
-    """Return the halts of other agents logged since this agent's last step.
-
-    Only halts this agent has not yet answered count, so a halted run does not
-    stay halted on the next turn of a checkpointed thread.
-    """
-    return [
-        record
-        for record in find_new_subagent_records(records, agent=agent)
-        if record["outcome"] == "halted"
-    ]
+    return earlier_blocks + count_blocks(read_step_records(state), monitor=monitor)
 
 
 def build_subagent_halt_decision(*, subagent_names: Sequence[str]) -> StepDecision:

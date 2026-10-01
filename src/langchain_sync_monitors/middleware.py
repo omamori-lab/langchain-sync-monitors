@@ -34,7 +34,7 @@ from langchain.agents.middleware.types import (
     ToolCallRequest,
     hook_config,
 )
-from langgraph.errors import GraphBubbleUp, ParentCommand
+from langgraph.errors import GraphBubbleUp
 
 from langchain_sync_monitors._langchain import (
     AgentContext,
@@ -47,9 +47,7 @@ from langchain_sync_monitors._langchain import (
     StructuredOutput,
     ToolCallHandler,
     ToolCallResult,
-    cast_to_tool_call_result,
     hide_model_calls_from_message_stream,
-    read_monitor_log,
 )
 from langchain_sync_monitors.commits import commit_step, report_failed_step
 from langchain_sync_monitors.contracts import (
@@ -60,12 +58,7 @@ from langchain_sync_monitors.contracts import (
     SubagentHalt,
     TaskAuthor,
 )
-from langchain_sync_monitors.delegation import (
-    add_delegation,
-    count_blocks_in_thread,
-    count_new_subagent_blocks,
-    read_delegation_id,
-)
+from langchain_sync_monitors.delegation import count_blocks_in_thread, read_delegation_id
 from langchain_sync_monitors.errors import ConfigurationError
 from langchain_sync_monitors.halts import (
     build_end_run_update,
@@ -86,7 +79,7 @@ from langchain_sync_monitors.pending_steps import (
     run_synchronously,
 )
 from langchain_sync_monitors.provider_tools import warn_about_provider_tools
-from langchain_sync_monitors.records import find_monitor_records
+from langchain_sync_monitors.records import find_monitor_records, read_step_records
 from langchain_sync_monitors.run_inputs import (
     build_refresh_update,
     build_run_start_update,
@@ -100,13 +93,13 @@ from langchain_sync_monitors.spans import (
     trace_decision_sync,
 )
 from langchain_sync_monitors.state_keys import REWRITTEN_INPUTS_KEY, TASK_MESSAGES_KEY
+from langchain_sync_monitors.subagent_returns import count_returned_blocks, read_subagent_returns
 from langchain_sync_monitors.task_authorship import (
     build_run_end_update,
     build_step_start_update,
-    mark_tool_written_notes,
     read_message_ids,
-    relabel_parent_command,
 )
+from langchain_sync_monitors.tool_calls import arun_tool_call, run_tool_call
 
 
 @dataclass(frozen=True, kw_only=True, eq=False)
@@ -146,7 +139,13 @@ class MonitorMiddleware(AgentMiddleware[MonitorState, AgentContext, StructuredOu
     tool sees: the call's id, `agent_name` and the blocks each monitor has
     recorded in the thread. A subagent the call starts, as Deep Agents' `task`
     tool does, receives it, so the subagent's records carry the call's id as
-    `delegation_id` and its Auto Mode counts from the thread's total.
+    `delegation_id` and its Auto Mode counts from the thread's total. A record
+    is this agent's own only when it names `agent_name` and this agent's own
+    delegation, so a subagent that shares the name, such as a fork, is never
+    taken for this agent. The records a call returns are checked where they
+    are written, and the subagent halts and blocks they hold wait in private
+    state for this agent's next step; `returned_records` and
+    `subagent_returns` have the rules.
 
     Only the untagged human messages a run receives as its input are read as
     the task author's. The middleware's `before_agent` hook records them in
@@ -346,20 +345,12 @@ class MonitorMiddleware(AgentMiddleware[MonitorState, AgentContext, StructuredOu
     ) -> ToolCallResult:
         """Run a tool call under `invoke()`, handing any subagent it starts its delegation.
 
-        Every new or changed message the tool writes loses a source only the
-        monitor writes, and a human message left without one becomes a note
-        named after the tool, whatever the shape of the result, of a
-        `Command`'s update or of a `ParentCommand` the call raises;
-        `mark_tool_written_notes` has the rule.
+        What the call writes is checked, whatever the shape of the result, of
+        a `Command`'s update or of a `ParentCommand` the call raises: its
+        messages as `mark_tool_written_notes` says, and its records as
+        `returned_records` says. `tool_calls` has the rule.
         """
-        tool_name = request.tool_call["name"]
-        try:
-            result = handler(add_delegation(request, agent=self.agent_name))
-        except ParentCommand as bubble:
-            relabel_parent_command(bubble, tool_name=tool_name, state=request.state)
-            raise
-        written = mark_tool_written_notes(result, tool_name=tool_name, state=request.state)
-        return cast_to_tool_call_result(written)
+        return run_tool_call(request, handler=handler, agent=self.agent_name)
 
     @override
     async def awrap_tool_call(
@@ -369,20 +360,9 @@ class MonitorMiddleware(AgentMiddleware[MonitorState, AgentContext, StructuredOu
     ) -> ToolCallResult:
         """Run a tool call under `ainvoke()`, handing any subagent it starts its delegation.
 
-        Every new or changed message the tool writes loses a source only the
-        monitor writes, and a human message left without one becomes a note
-        named after the tool, whatever the shape of the result, of a
-        `Command`'s update or of a `ParentCommand` the call raises;
-        `mark_tool_written_notes` has the rule.
+        What the call writes is checked as under `invoke()`.
         """
-        tool_name = request.tool_call["name"]
-        try:
-            result = await handler(add_delegation(request, agent=self.agent_name))
-        except ParentCommand as bubble:
-            relabel_parent_command(bubble, tool_name=tool_name, state=request.state)
-            raise
-        written = mark_tool_written_notes(result, tool_name=tool_name, state=request.state)
-        return cast_to_tool_call_result(written)
+        return await arun_tool_call(request, handler=handler, agent=self.agent_name)
 
     @override
     def before_agent(self, state: MonitorState, runtime: AgentRuntime) -> AgentStateUpdate | None:
@@ -452,19 +432,25 @@ class MonitorMiddleware(AgentMiddleware[MonitorState, AgentContext, StructuredOu
     def prepare_step(self, request: AgentModelRequest) -> PreparedStep:
         """Read the log once for a step: its identity, a halt without a sample, its options."""
         warn_about_provider_tools(request, middleware=self, middleware_name=self.name)
-        records = read_monitor_log(request.state)
-        previous_records = find_monitor_records(records, monitor=self.label, agent=self.agent_name)
+        delegation_id = read_delegation_id(request.state)
+        previous_records = find_monitor_records(
+            read_step_records(request.state),
+            monitor=self.label,
+            agent=self.agent_name,
+            delegation_id=delegation_id,
+        )
+        returns = read_subagent_returns(request.state)
         identity = StepIdentity(
             monitor=self.label,
             agent=self.agent_name,
             step_number=len(previous_records) + 1,
             protocol=type(self.protocol).__name__,
-            delegation_id=read_delegation_id(request.state),
+            delegation_id=delegation_id,
         )
         halt = find_halt_decision(
             request.state,
             previous_records=previous_records,
-            agent=self.agent_name,
+            returns=returns,
             monitor=self.name,
             when_subagent_halts=self.when_subagent_halts,
         )
@@ -477,8 +463,6 @@ class MonitorMiddleware(AgentMiddleware[MonitorState, AgentContext, StructuredOu
             rewritten_input_ids=read_message_ids(request.state, key=REWRITTEN_INPUTS_KEY),
             previous_records=previous_records,
             blocks_in_thread=count_blocks_in_thread(request.state, monitor=self.label),
-            new_subagent_blocks=count_new_subagent_blocks(
-                records, agent=self.agent_name, monitor=self.label
-            ),
+            new_subagent_blocks=count_returned_blocks(returns, monitor=self.label),
         )
         return PreparedStep(identity=identity, halt=halt, options=options)

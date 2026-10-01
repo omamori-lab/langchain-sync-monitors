@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import dataclasses
 import json
+import logging
 from typing import Annotated, Any, Literal
 
 import pytest
@@ -29,7 +30,7 @@ from tests.support.agents import (
 )
 from tests.support.chat_models import ScriptedChatModel, build_tool_call_message
 from tests.support.protocols import AcceptFirst
-from tests.support.written_human_messages import NudgingMiddleware
+from tests.support.written_human_messages import NudgingMiddleware, rewrite_history
 
 SUBAGENT_HALT = StepRecord(
     agent="researcher",
@@ -254,6 +255,7 @@ def test_two_monitors_on_one_agent_count_their_own_steps(run_mode: RunMode) -> N
         "monitor_run_inputs",
         "monitor_rewritten_inputs",
         "monitor_inputs_at_halt",
+        "monitor_subagent_returns",
     ],
 )
 def test_the_message_ids_and_halt_counts_the_monitor_records_are_private(
@@ -293,6 +295,39 @@ def test_two_monitors_on_one_agent_record_each_message_id_once(run_mode: RunMode
     assert state["monitor_task_messages"] == [first_task, second_task]
     assert state["monitor_seen_human_messages"] == [first_task, nudge, second_task]
     assert [entry["id"] for entry in state["monitor_run_inputs"]] == [first_task, second_task]
+
+
+def test_two_monitors_on_one_agent_check_a_tool_s_writes_once(
+    run_mode: RunMode,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    # Arrange: the tool writes the history back, so the outer monitor records a rewritten input
+    guard = MonitorMiddleware(
+        monitor=build_keyword_monitor(), protocol=AcceptFirst(), label="guard"
+    )
+    judge = MonitorMiddleware(monitor=build_keyword_monitor(), protocol=AcceptFirst())
+    model = ScriptedChatModel(
+        responses=[
+            build_tool_call_message(tool_name="rewrite_history", call_id="call-rewrite"),
+            AIMessage("Done."),
+        ],
+    )
+    agent = create_agent(
+        model,
+        tools=[rewrite_history],
+        middleware=[guard, judge],
+        checkpointer=InMemorySaver(),
+    )
+    config = build_thread_config(f"stacked-tool-{run_mode}")
+
+    # Act
+    with caplog.at_level(logging.WARNING, logger="langchain_sync_monitors"):
+        run_agent(agent, mode=run_mode, config=config)
+
+    # Assert: the inner monitor's own record is not taken for the tool's write
+    state = agent.get_state(config).values
+    assert state["monitor_rewritten_inputs"] == state["monitor_task_messages"]
+    assert caplog.records == []
 
 
 def test_names_are_unique_per_agent_and_subagent_copies_trust_the_parent_less(

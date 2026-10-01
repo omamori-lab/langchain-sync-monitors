@@ -418,5 +418,9 @@ change raises the minor version.
   linear time; the search for its reasoning block took time quadratic in its
   length, over two seconds at 100,000 characters, on the event loop under
   `ainvoke()`.
+- An option refused with a number Python will not write out, such as
+  `10**5000`, raises `ConfigurationError` naming the number by its kind,
+  instead of `ValueError`. `LLMMonitor` refuses such a scale end when it is
+  built, where it used to fail at its first step.
 
 [Unreleased]: https://github.com/omamori-lab/langchain-sync-monitors/commits/main

@@ -1003,6 +1003,9 @@ wrappers, `MonitorView`, the decision models, `monitor_subagents` and
 - `MonitorMiddleware`'s `label` and `agent_name`, and each subagent's name,
   must be non-blank strings without `:` or `|`, which LangGraph refuses in a
   node name.
+- A refused number Python will not write out, such as an integer of more
+  than 4,300 digits, is named by its kind in the message. A chat judge's
+  scale ends must be integers Python writes out, since the prompt shows them.
 
 ### Error and warning classes
 

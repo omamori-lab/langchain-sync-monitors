@@ -39,6 +39,7 @@ from langchain_sync_monitors.options import (
     check_instance_option,
     read_count_option,
     read_integer_option,
+    write_integer_option,
 )
 from langchain_sync_monitors.prompts import DEFAULT_MONITOR_PROMPT
 from langchain_sync_monitors.thresholds import LIBRARY_DIRECTORY
@@ -446,16 +447,24 @@ class LLMMonitor(ChatModelMonitor):
     ) -> None:
         """Build a chat judge; the prompt must use `{transcript}` and `{proposed_step}`.
 
-        The ends of the scale must be integers, the lowest below the highest,
-        and `max_parse_retries` a whole number of at least 0; anything else
+        The ends of the scale must be integers Python can write out, since
+        the prompt shows them, the lowest below the highest, and
+        `max_parse_retries` a whole number of at least 0; anything else
         raises `ConfigurationError`.
         """
         self.lowest_score = read_integer_option(lowest_score, parameter_name="lowest_score")
         self.highest_score = read_integer_option(highest_score, parameter_name="highest_score")
+        # Written once here, so an end the prompt cannot show fails now, not at the first step.
+        self.scale_ends = {
+            "lowest_score": write_integer_option(self.lowest_score, parameter_name="lowest_score"),
+            "highest_score": write_integer_option(
+                self.highest_score, parameter_name="highest_score"
+            ),
+        }
         if self.lowest_score >= self.highest_score:
             message = (
-                f"lowest_score ({self.lowest_score}) must be below "
-                f"highest_score ({self.highest_score})"
+                f"lowest_score ({self.scale_ends['lowest_score']}) must be below "
+                f"highest_score ({self.scale_ends['highest_score']})"
             )
             raise ConfigurationError(message)
         self.max_parse_retries = read_count_option(
@@ -467,7 +476,7 @@ class LLMMonitor(ChatModelMonitor):
 
     def build_extra_prompt_values(self) -> dict[str, str]:
         """Give the prompt the ends of the scale."""
-        return {"lowest_score": str(self.lowest_score), "highest_score": str(self.highest_score)}
+        return dict(self.scale_ends)
 
     def build_verdict_plan(self, monitor_input: MonitorInput) -> VerdictPlan:
         """Ask for a reply until one has a readable score, then fail closed."""

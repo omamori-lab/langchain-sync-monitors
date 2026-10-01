@@ -10,7 +10,10 @@ state, which human messages were a run's input, and tags every other one as a
 context note, in the state as well as in what the monitor reads.
 
 - At the start of a run, an untagged human message the monitor has not seen
-  is the run's input, and is recorded under `TASK_MESSAGES_KEY`.
+  is the run's input, and is recorded under `TASK_MESSAGES_KEY`. One without
+  an id, as Deep Agents keeps a string or tuple input, is first given one,
+  and at the end of a run one left without an id is given one as a note, as
+  `message_ids` says.
 - Before each step, when it commits and when the run ends, the monitor
   records the untagged human messages then in the state as seen, under
   `SEEN_HUMAN_MESSAGES_KEY`, and writes each one that is not a run's input
@@ -281,11 +284,6 @@ def build_step_start_update(state: object) -> AgentStateUpdate:
     again.
     """
     return {**build_note_update(state), RUN_OPEN_KEY: True}
-
-
-def build_run_end_update(state: object) -> AgentStateUpdate:
-    """Return the update a run ends with: the notes so far, and the run marked closed."""
-    return {**build_note_update(state), RUN_OPEN_KEY: False}
 
 
 def relabel_tool_written_message(message: BaseMessage, *, tool_name: str) -> BaseMessage:

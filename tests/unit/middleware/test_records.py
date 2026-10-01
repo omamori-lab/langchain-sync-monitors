@@ -24,6 +24,7 @@ from langchain_sync_monitors.records import (
     find_monitor_records,
     is_own_record,
     read_step_records,
+    render_value,
     validate_step_record,
 )
 from tests.support.array_scalars import ArrayBool, ArrayFloat64
@@ -356,11 +357,76 @@ def test_a_malformed_record_in_the_state_raises_naming_its_position() -> None:
     state = {"monitor_log": [VALID_RECORD, {**VALID_RECORD, "blocked_count": -100}]}
 
     # Act / Assert
-    with pytest.raises(MonitorError, match=r"monitor_log\[1\].*-100"):
+    with pytest.raises(MonitorError, match=r"monitor_log\[1\].*zero or more.*step number 1"):
         read_step_records(state)
+
+
+def test_a_malformed_record_in_the_state_raises_without_quoting_its_samples() -> None:
+    # Arrange: the sample lacks `executed`, so pydantic's error would quote the whole sample
+    sample = {"suspicion": 0.9, "reason": "quoted reason", "proposal": "quoted proposal"}
+    state = {"monitor_log": [{**VALID_RECORD, "samples": [sample]}]}
+
+    # Act
+    with pytest.raises(MonitorError) as raised:
+        read_step_records(state)
+
+    # Assert: the fields at fault are named, the text is not, and no cause is chained
+    assert "samples.0.executed: Field required" in str(raised.value)
+    assert raised.value.__cause__ is None
+    assert raised.value.__suppress_context__
+    for text in ("quoted reason", "quoted proposal"):
+        assert text not in str(raised.value)
 
 
 def test_a_log_that_is_not_a_list_raises() -> None:
     # Act / Assert
-    with pytest.raises(MonitorError, match="must be a list"):
+    with pytest.raises(MonitorError, match=r"must be a list.*got a dict with agent 'worker'"):
         read_step_records({"monitor_log": VALID_RECORD})
+
+
+def test_a_record_is_rendered_by_the_fields_that_name_it() -> None:
+    # Act
+    rendered = render_value(VALID_RECORD)
+
+    # Assert
+    assert rendered == (
+        "a dict with agent 'worker', monitor 'monitor', step number 1, "
+        "outcome 'halted', delegation id 'call-task', 1 sample(s)"
+    )
+
+
+def test_a_record_s_fields_of_the_wrong_type_are_named_by_their_type() -> None:
+    # Arrange: each field holds text a record never would, in a type it never would
+    record = {
+        "agent": ["quoted agent"],
+        "step_number": True,
+        "outcome": None,
+        "samples": "quoted samples",
+    }
+
+    # Act
+    rendered = render_value(record)
+
+    # Assert
+    assert rendered == (
+        "a dict with agent that is a list of length 1, step number that is a bool, "
+        "outcome that is None, samples that are a str of length 14"
+    )
+
+
+VALUES_NAMED_BY_TYPE = {
+    "text": ("quoted text", "a str of length 11"),
+    "list": (["quoted", "text"], "a list of length 2"),
+    "mapping-without-record-fields": ({"quoted": "text"}, "a dict of length 1"),
+    "number": (7, "an int"),
+    "message": (AIMessage("quoted text"), "a langchain_core.messages.ai.AIMessage"),
+    "none": (None, "None"),
+}
+
+
+@pytest.mark.parametrize(
+    ("value", "expected"), VALUES_NAMED_BY_TYPE.values(), ids=VALUES_NAMED_BY_TYPE.keys()
+)
+def test_any_other_value_is_rendered_by_its_type_and_length(value: object, expected: str) -> None:
+    # Act / Assert
+    assert render_value(value) == expected

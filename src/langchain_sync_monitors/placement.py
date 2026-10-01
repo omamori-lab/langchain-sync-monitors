@@ -411,7 +411,8 @@ def check_monitor_placement(*, middleware: Sequence[AnyAgentMiddleware]) -> list
     - outside the last monitor, a middleware known to retry failed model calls,
       such as `ModelRetryMiddleware`. A retry runs the whole step again with
       fresh samples, and the samples judged before the failure reach only a
-      warning log line and a `MonitorStepFailedEvent`, never `monitor_log`;
+      `MonitorStepFailedEvent`, and their suspicions a warning log line, never
+      `monitor_log`;
     - anywhere in a list with a monitor, a middleware known to run failed tool
       calls again or answer them with an error message, such as
       `ToolRetryMiddleware`. A subagent's records reach its parent only in the
@@ -462,8 +463,8 @@ def check_monitor_placement(*, middleware: Sequence[AnyAgentMiddleware]) -> list
         retrying_outside,
         reason="retries failed model calls from outside a monitor, so a step that fails "
         "runs again from the start with fresh samples. The samples the monitor judged "
-        "before the failure never reach monitor_log; only a warning log line and a "
-        "monitor_step_failed event on stream_mode='custom' keep them.",
+        "before the failure never reach monitor_log; only a monitor_step_failed event on "
+        "stream_mode='custom' keeps them, and a warning log line their suspicions.",
     )
     warn_about_placement(
         handling_tool_failures,

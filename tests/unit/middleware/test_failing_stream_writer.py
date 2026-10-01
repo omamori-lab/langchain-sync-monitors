@@ -3,7 +3,8 @@
 The step it was written for stays committed, and a failed step's own error is
 still raised. The log line says the event is dropped, which holds for both
 events: `monitor_step`, whose step commits, and `monitor_step_failed`, whose
-step never does.
+step never does. It names the writer's error by its type, with no message
+or traceback, since the writer was handed the event and its samples.
 """
 
 from __future__ import annotations
@@ -31,7 +32,11 @@ from tests.support.flaky_models import FlakyChatModel
 from tests.support.protocols import AcceptFirst
 
 STREAM_WRITER_LOGGER = "langchain_sync_monitors._langchain"
-DROPPED_EVENT_TEXT = "The stream writer failed on a monitor event; the event is dropped."
+DROPPED_EVENT_TEXT = (
+    "The stream writer failed on a monitor event with StreamConsumerGoneError; "
+    "the event is dropped."
+)
+WRITER_ERROR_TEXT = "the stream consumer went away"
 ANSWER = "Q3 revenue grew 12%."
 
 
@@ -40,8 +45,7 @@ class StreamConsumerGoneError(RuntimeError):
 
 
 def fail_to_write(_event: object) -> None:
-    message = "the stream consumer went away"
-    raise StreamConsumerGoneError(message)
+    raise StreamConsumerGoneError(WRITER_ERROR_TEXT)
 
 
 class FailingStreamWriterMiddleware(AgentMiddleware[Any, Any, Any]):
@@ -94,6 +98,7 @@ def test_a_committed_step_stays_committed_when_its_event_is_dropped(
     assert [record["outcome"] for record in result["monitor_log"]] == ["allowed"]
     assert result["messages"][-1].text == ANSWER
     assert read_stream_writer_errors(caplog) == [DROPPED_EVENT_TEXT]
+    assert WRITER_ERROR_TEXT not in caplog.text
 
 
 def test_a_failed_step_still_raises_its_own_error_when_its_event_is_dropped(

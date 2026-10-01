@@ -152,7 +152,9 @@ def mark_context_note(message: HumanMessage) -> HumanMessage:
     )
 
 
-def is_note_to_mark(message: BaseMessage, *, task_message_ids: Collection[str]) -> bool:
+def is_note_to_mark(
+    message: BaseMessage, *, task_message_ids: Collection[str]
+) -> TypeGuard[HumanMessage]:
     """Tell whether a message is an untagged human message that was not a run's input."""
     return is_untagged_human_message(message) and message.id not in task_message_ids
 
@@ -173,8 +175,7 @@ def mark_context_notes(
     """
     return tuple(
         mark_context_note(message)
-        if isinstance(message, HumanMessage)
-        and is_note_to_mark(message, task_message_ids=task_message_ids)
+        if is_note_to_mark(message, task_message_ids=task_message_ids)
         else message
         for message in history
     )
@@ -261,9 +262,7 @@ def build_note_update(state: object) -> AgentStateUpdate:
     notes = [
         mark_context_note(message)
         for message in read_state_messages(state)
-        if isinstance(message, HumanMessage)
-        and message.id
-        and is_note_to_mark(message, task_message_ids=task_message_ids)
+        if message.id and is_note_to_mark(message, task_message_ids=task_message_ids)
     ]
     update: AgentStateUpdate = {}
     if unseen_ids:

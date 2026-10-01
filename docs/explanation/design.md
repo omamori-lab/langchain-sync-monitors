@@ -510,6 +510,18 @@ reads:
 
 - **At the start of a run**, its `before_agent` hook records each untagged
   human message it has not seen as the run's input.
+- **A message without an id gets one.** The monitor records messages by id.
+  Deep Agents keeps `messages` in a channel that adds a message without an id
+  as it is, and LangGraph gives an id to input written as a message or a
+  dictionary, not to a string or a `(role, text)` tuple
+  [@deepagents2026; @langgraph2026]. So at the start of a run the monitor
+  gives each untagged human message without an id a fresh one, then records
+  it, and at the end of a run it gives one to each written since, tagged as
+  a note. A message without an id cannot be replaced in place, so the hook
+  writes the whole history back as an `Overwrite`, which streams nothing to
+  `stream_mode="messages"`. That run's checkpoint stores the history once
+  more, and `stream_mode="updates"` shows it as the hook's write; input given
+  as a message or a dictionary needs neither.
 - **Every run's input stays with the judge.** At the start of a run the
   monitor keeps the text of each input under `monitor_run_inputs`, with the
   ids of up to three messages before it. The kept copy follows its message in
@@ -813,7 +825,7 @@ monitored agent does not stream tokens as the model writes them
 | Stream | What it carries |
 |---|---|
 | `stream_mode="messages"` | Only committed steps, each whole. With `IN_TRANSCRIPT`, blocked attempts and their feedback stream with the step that follows them. A custom monitor's call made with its own `tags` streams too. |
-| `stream_mode="updates"` | Every node's writes, `monitor_log` and the private keys included. The monitor's hooks write back the human messages they tag under their own ids, so such a message can arrive twice: once from the node that wrote it, and once tagged. After a run that stopped early, the user's new message comes back tagged too. Merge messages by id, as LangGraph's message reducer does [@langgraph2026]; a message a node writes as a dictionary without an id arrives first with no id, so its tagged copy cannot be matched to it. |
+| `stream_mode="updates"` | Every node's writes, `monitor_log` and the private keys included. The monitor's hooks write back the human messages they tag under their own ids, so such a message can arrive twice: once from the node that wrote it, and once tagged. After a run that stopped early, the user's new message comes back tagged too. In a Deep Agent, input given as a string or a tuple comes back as the whole history in an `Overwrite`, with an id ([task authorship and notes](#task-authorship-and-notes)). Merge messages by id, as LangGraph's message reducer does [@langgraph2026]; a message a node writes as a dictionary without an id arrives first with no id, so its tagged copy cannot be matched to it. |
 | `stream_mode="values"` | The whole state after each step, `monitor_log` and the private keys included. |
 | `stream_mode="custom"` | A `MonitorStepEvent` for each committed step and a `MonitorStepFailedEvent` for each failed one. A subagent writes its events inside its own graph, so they reach the parent's stream only with `subgraphs=True`. |
 | `astream_events`, `astream_log` | Every model call live, rejected samples included, and the monitor's spans, which `exclude_tags=["monitor"]` drops. A user interface should read `stream_mode="messages"` instead. |

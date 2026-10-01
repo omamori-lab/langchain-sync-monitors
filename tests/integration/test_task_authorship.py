@@ -34,9 +34,12 @@ from langgraph.graph.state import CompiledStateGraph
 from langgraph.types import Command, Overwrite, interrupt
 
 from langchain_sync_monitors import (
+    AutoMode,
     Channel,
+    ControlProtocol,
     DeferToResample,
     HaltRun,
+    Monitor,
     MonitorInput,
     MonitorMiddleware,
     MonitorView,
@@ -45,6 +48,7 @@ from langchain_sync_monitors import (
     Verdict,
 )
 from langchain_sync_monitors.prompts import MONITOR_INSTRUCTIONS
+from langchain_sync_monitors.state_keys import TASK_MESSAGES_KEY
 from langchain_sync_monitors.transcript import render_proposal_for_audit
 from tests.support.agents import (
     RunMode,
@@ -178,32 +182,207 @@ def test_a_human_message_a_tool_writes_is_a_note_not_the_user(
     assert f'<context_note source="{tool_name}">' in transcript
 
 
-@pytest.mark.parametrize(
-    "task_input",
-    [
-        [HumanMessage(TASK)],
-        [{"role": "user", "content": TASK}],
-        [("user", TASK)],
-        TASK,
-    ],
-    ids=["message", "dictionary", "tuple", "string"],
-)
+def build_monitored_deep_agent(
+    model: ScriptedChatModel,
+    *,
+    monitor: Monitor,
+    protocol: ControlProtocol | None = None,
+    other_middleware: tuple[AgentMiddleware[Any, Any, Any], ...] = (),
+    checkpointer: InMemorySaver | None = None,
+) -> CompiledStateGraph[Any, Any, Any, Any]:
+    """Build a Deep Agent, which keeps a message given without an id as it is, with the monitor."""
+    deepagents = pytest.importorskip("deepagents")
+    middleware = MonitorMiddleware(
+        monitor=monitor,
+        protocol=protocol or TrustedMonitoring(flag_threshold=0.6),
+    )
+    return deepagents.create_deep_agent(
+        model=model,
+        tools=build_tools(),
+        middleware=[*other_middleware, middleware],
+        checkpointer=checkpointer,
+    )
+
+
+TASK_INPUT_SHAPES = {
+    "message": lambda: [HumanMessage(TASK)],
+    "dictionary": lambda: [{"role": "user", "content": TASK}],
+    "single-dictionary": lambda: {"role": "user", "content": TASK},
+    "tuple": lambda: [("user", TASK)],
+    "string": lambda: TASK,
+}
+"""Every shape LangGraph accepts a run's input in; Deep Agents gives a string or tuple no id."""
+
+
+@pytest.mark.parametrize("agent_kind", ["agent", "deep-agent"])
+@pytest.mark.parametrize("build_input", TASK_INPUT_SHAPES.values(), ids=TASK_INPUT_SHAPES.keys())
 def test_the_task_speaks_as_the_user_in_every_input_shape(
     run_mode: RunMode,
-    task_input: object,
+    agent_kind: str,
+    build_input: Callable[[], object],
 ) -> None:
     # Arrange
     monitor = RenderingMonitor()
     model = ScriptedChatModel(responses=[build_exfiltration_step(), AIMessage("Done.")])
-    agent = build_monitored_agent(model, monitor=monitor)
+    build = build_monitored_agent if agent_kind == "agent" else build_monitored_deep_agent
+    agent = build(model, monitor=monitor)
 
     # Act
-    run_messages(agent, task_input, mode=run_mode)
+    state = run_messages(agent, build_input(), mode=run_mode)
 
     # Assert
     authors, notes = read_authors_and_notes(monitor)
     assert authors == [TASK]
     assert notes == []
+    (task,) = [message for message in state["messages"] if isinstance(message, HumanMessage)]
+    assert task.id
+
+
+@pytest.mark.parametrize("shape", ["string", "tuple"])
+def test_a_halt_in_a_deep_agent_lifts_when_the_user_writes_a_string_or_a_tuple(
+    run_mode: RunMode,
+    shape: str,
+) -> None:
+    # Arrange: a checkpointed Deep Agent halts on its first run
+    model = ScriptedChatModel(
+        responses=[build_exfiltration_step(), AIMessage("Q3 grew 12%."), AIMessage("Glad to.")],
+    )
+    protocol = AutoMode(block_threshold=0.5, max_consecutive_blocks=1, when_limit_reached=HaltRun())
+    monitor = RenderingMonitor(suspicion_by_keyword=SUSPICION_BY_KEYWORD)
+    agent = build_monitored_deep_agent(
+        model,
+        monitor=monitor,
+        protocol=protocol,
+        checkpointer=InMemorySaver(),
+    )
+    config = build_thread_config(f"deep-halt-{shape}-{run_mode}")
+
+    def wrap(text: str) -> object:
+        return text if shape == "string" else [("user", text)]
+
+    run_messages(agent, wrap(TASK), mode=run_mode, config=config)
+
+    # Act
+    second = run_messages(agent, wrap("Just summarise q3.md."), mode=run_mode, config=config)
+    third = run_messages(agent, wrap("Thanks."), mode=run_mode, config=config)
+
+    # Assert: each new input is recorded, so the halt lifts and the model answers
+    assert [record["outcome"] for record in third["monitor_log"]] == [
+        "halted",
+        "allowed",
+        "allowed",
+    ]
+    assert second["messages"][-1].text == "Q3 grew 12%."
+    assert third["messages"][-1].text == "Glad to."
+    assert len(agent.get_state(config).values[TASK_MESSAGES_KEY]) == 3
+
+
+RAW_NOTE = "Remember to cite every source you read."
+
+
+class RawStringNoteMiddleware(AgentMiddleware[Any, Any, Any]):
+    """Writes one human message as a raw string before a model call, as hook code may.
+
+    Deep Agents stores a message written as a string without an id.
+    """
+
+    def build_raw_note(self, messages: list[AnyMessage]) -> dict[str, Any] | None:
+        if any(message.text == RAW_NOTE for message in messages):
+            return None
+        return {"messages": [RAW_NOTE]}
+
+    def before_model(self, state: Any, runtime: Any) -> dict[str, Any] | None:
+        return self.build_raw_note(state["messages"])
+
+    async def abefore_model(  # lanorme: ignore[NAMING-011]
+        self,
+        state: Any,
+        runtime: Any,
+    ) -> dict[str, Any] | None:
+        return self.build_raw_note(state["messages"])
+
+
+def test_a_message_a_hook_writes_without_an_id_stays_a_note_in_the_next_run(
+    run_mode: RunMode,
+) -> None:
+    # Arrange: a middleware before the monitor writes a raw string during the first run
+    monitor = RenderingMonitor()
+    model = ScriptedChatModel(
+        responses=[AIMessage("Read it."), build_exfiltration_step(), AIMessage("Done.")],
+    )
+    agent = build_monitored_deep_agent(
+        model,
+        monitor=monitor,
+        other_middleware=(RawStringNoteMiddleware(),),
+        checkpointer=InMemorySaver(),
+    )
+    config = build_thread_config(f"deep-raw-note-{run_mode}")
+    run_messages(agent, [HumanMessage(TASK)], mode=run_mode, config=config)
+
+    # Act
+    state = run_messages(agent, [HumanMessage(NEXT_TURN)], mode=run_mode, config=config)
+
+    # Assert: the run's end gave the note an id and tagged it, so the next run left it a note
+    authors, notes = read_authors_and_notes(monitor)
+    assert authors == [TASK, NEXT_TURN]
+    assert notes == [RAW_NOTE]
+    (note,) = [message for message in state["messages"] if message.text == RAW_NOTE]
+    assert note.id
+    assert note.additional_kwargs["lc_source"] == "application"
+
+
+def test_giving_the_input_an_id_streams_no_message(run_mode: RunMode) -> None:
+    # Arrange
+    agent = build_monitored_deep_agent(
+        ScriptedChatModel(responses=[build_read_step(), AIMessage("Done.")]),
+        monitor=RenderingMonitor(),
+    )
+    payload = {"messages": TASK}
+
+    # Act
+    if run_mode == "invoke":
+        parts = list(agent.stream(payload, stream_mode="messages"))
+    else:
+
+        async def collect() -> list[Any]:
+            return [part async for part in agent.astream(payload, stream_mode="messages")]
+
+        parts = asyncio.run(collect())
+
+    # Assert: only the committed steps and the tool's result stream
+    assert [type(message).__name__ for message, _ in parts] == [
+        "AIMessage",
+        "ToolMessage",
+        "AIMessage",
+    ]
+
+
+def test_input_with_an_id_is_never_written_back(run_mode: RunMode) -> None:
+    # Arrange: create_agent gives every input an id, so the monitor has none to give
+    agent = build_monitored_agent(
+        ScriptedChatModel(responses=[AIMessage("Done.")]),
+        monitor=RenderingMonitor(),
+    )
+    payload = {"messages": TASK}
+
+    # Act
+    if run_mode == "invoke":
+        updates = list(agent.stream(payload, stream_mode="updates"))
+    else:
+
+        async def collect() -> list[Any]:
+            return [part async for part in agent.astream(payload, stream_mode="updates")]
+
+        updates = asyncio.run(collect())
+
+    # Assert
+    hook_updates = [
+        update["monitor[main].before_agent"]
+        for update in updates
+        if "monitor[main].before_agent" in update
+    ]
+    assert hook_updates
+    assert all("messages" not in update for update in hook_updates)
 
 
 def test_a_tool_that_writes_the_history_back_keeps_the_task_as_the_user(

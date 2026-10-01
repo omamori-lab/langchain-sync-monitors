@@ -389,5 +389,11 @@ change raises the minor version.
   `ChatOpenRouter`'s `max_retries` retries network errors and HTTP 5xx only.
   The guides no longer say that a chat model's `max_retries` covers rate
   limits.
+- In a Deep Agent, a run's input given as a string or a `(role, text)` tuple
+  speaks as the user: Deep Agents kept it without an id, so the monitor never
+  recorded it, read the task as a note, and a halt on the thread never lifted
+  while new input came that way. The monitor now gives such a message an id
+  at the start of a run, and one a hook writes during a run an id and a note
+  tag at its end.
 
 [Unreleased]: https://github.com/omamori-lab/langchain-sync-monitors/commits/main

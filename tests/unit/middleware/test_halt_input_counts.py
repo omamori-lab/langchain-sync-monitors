@@ -31,14 +31,18 @@ from langgraph.graph.message import REMOVE_ALL_MESSAGES
 from langgraph.graph.state import CompiledStateGraph
 from langgraph.runtime import Runtime
 
+from langchain_sync_monitors.contracts import StepRecord, SubagentHalt
 from langchain_sync_monitors.halts import (
     INPUTS_AT_HALT_KEY,
+    STANDING_HALT_MESSAGE,
     InputsAtHalt,
+    find_halt_decision,
     merge_inputs_at_halt,
     read_run_inputs_at_halt,
 )
 from langchain_sync_monitors.middleware import MonitorMiddleware
 from langchain_sync_monitors.protocols import TrustedMonitoring
+from langchain_sync_monitors.state_keys import TASK_MESSAGES_KEY
 from tests.support.agents import (
     RunMode,
     Workspace,
@@ -442,3 +446,34 @@ def test_a_state_without_a_list_of_counts_reads_no_count(state: dict[str, object
 
     # Assert
     assert count is None
+
+
+@pytest.mark.parametrize("count", [1.5, "1"], ids=["float", "string"])
+def test_a_halt_whose_count_is_no_integer_stands_after_new_run_inputs(count: object) -> None:
+    # Arrange: the thread has recorded two run inputs, more than the count says
+    halt = StepRecord(
+        agent="main",
+        monitor="monitor",
+        step_number=1,
+        outcome="halted",
+        flagged=True,
+        blocked_count=0,
+        samples=[],
+    )
+    state = {
+        TASK_MESSAGES_KEY: ["input-1", "input-2"],
+        INPUTS_AT_HALT_KEY: [{"monitor": "monitor[main]", "run_inputs": count}],
+    }
+
+    # Act
+    decision = find_halt_decision(
+        state,
+        previous_records=[halt],
+        returns=[],
+        monitor="monitor[main]",
+        when_subagent_halts=SubagentHalt.STOP_SUBAGENT_ONLY,
+    )
+
+    # Assert: the count reads as none, so the halt fails closed
+    assert decision is not None
+    assert [message.text for message in decision.response.result] == [STANDING_HALT_MESSAGE]

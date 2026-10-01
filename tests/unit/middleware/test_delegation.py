@@ -7,12 +7,15 @@ from typing import Any
 
 import pytest
 from langchain.agents import create_agent
-from langchain.agents.middleware.types import ToolCallRequest
+from langchain.agents.middleware import ToolRetryMiddleware
+from langchain.agents.middleware.types import AgentMiddleware, ToolCallRequest
 from langchain.tools import ToolRuntime
 from langchain_core.messages import AIMessage, ToolMessage
+from langchain_core.tools import BaseTool, tool
 from langgraph.checkpoint.memory import InMemorySaver
+from langgraph.types import Command
 
-from langchain_sync_monitors.contracts import Delegation, StepRecord
+from langchain_sync_monitors.contracts import Delegation, StepRecord, SubagentHalt
 from langchain_sync_monitors.delegation import add_delegation
 from langchain_sync_monitors.errors import ConfigurationError
 from langchain_sync_monitors.middleware import MonitorMiddleware
@@ -27,7 +30,7 @@ from tests.support.agents import (
     build_thread_config,
     run_agent,
 )
-from tests.support.chat_models import ScriptedChatModel
+from tests.support.chat_models import ScriptedChatModel, build_tool_call_message
 
 RECORD_KEYS = {
     "agent",
@@ -297,3 +300,74 @@ def test_a_valid_delegation_in_the_input_counts_towards_the_total(run_mode: RunM
     assert (record["outcome"], record["blocked_count"]) == ("halted", 1)
     assert record["delegation_id"] == "call-caller"
     assert workspace.executed == []
+
+
+SUBAGENT_HALT = StepRecord(
+    agent="researcher",
+    monitor="monitor",
+    step_number=1,
+    outcome="halted",
+    flagged=True,
+    blocked_count=0,
+    samples=[],
+)
+
+
+def build_delegate_failing_once(seen_delegations: list[object]) -> BaseTool:
+    """Return a `delegate` tool whose first call fails, and whose second returns a halt."""
+
+    @tool("delegate")
+    def delegate(description: str, runtime: ToolRuntime) -> Command[None]:
+        """Hand a task to the researcher subagent, whose provider fails once."""
+        seen_delegations.append(runtime.state.get("monitor_delegation"))
+        if len(seen_delegations) == 1:
+            message = "the researcher's provider went away"
+            raise ConnectionError(message)
+        report = ToolMessage("Stopped by the safety monitor.", tool_call_id=runtime.tool_call_id)
+        return Command[None](update={"monitor_log": [SUBAGENT_HALT], "messages": [report]})
+
+    return delegate
+
+
+def test_a_call_retried_from_outside_the_monitor_is_handed_on_and_checked_again(
+    run_mode: RunMode,
+) -> None:
+    # Arrange: a retry listed before the monitor runs the same request through it twice
+    seen_delegations: list[object] = []
+    delegation_step = build_tool_call_message(
+        tool_name="delegate",
+        call_id="call-delegate",
+        arguments={"description": "Find the sources."},
+    )
+    model = ScriptedChatModel(responses=[delegation_step, AIMessage("never drawn")])
+    monitor = MonitorMiddleware(
+        monitor=build_keyword_monitor(),
+        protocol=AutoMode(block_threshold=0.6),
+        when_subagent_halts=SubagentHalt.STOP_WHOLE_RUN,
+    )
+    stack: list[AgentMiddleware[Any, Any, Any]] = [
+        ToolRetryMiddleware(max_retries=1, initial_delay=0, jitter=False),
+        monitor,
+    ]
+    agent = create_agent(
+        model,
+        tools=[build_delegate_failing_once(seen_delegations)],
+        middleware=stack,
+    )
+
+    # Act
+    result = run_agent(agent, mode=run_mode)
+
+    # Assert: the retry received its delegation, and the halt it returned stops the run
+    expected = Delegation(
+        tool_call_id="call-delegate",
+        delegating_agent="main",
+        blocks_before={"monitor": 0},
+    )
+    assert seen_delegations == [expected, expected]
+    assert [(record["agent"], record["outcome"]) for record in result["monitor_log"]] == [
+        ("main", "allowed"),
+        ("researcher", "halted"),
+        ("main", "halted"),
+    ]
+    assert len(model.calls) == 1

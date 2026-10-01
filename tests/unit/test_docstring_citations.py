@@ -297,6 +297,7 @@ def test_a_citation_where_no_link_may_go_stays_as_written_and_warns(
         '<p><a id="x"/> see</a> ',
         "<p><button>Copy</button> ",
         "<p><br/> ",
+        "<p><code/> ",
     ],
     ids=[
         "a-link",
@@ -306,6 +307,7 @@ def test_a_citation_where_no_link_may_go_stays_as_written_and_warns(
         "a-self-closing-link-closed-later",
         "a-button",
         "a-self-closing-void-element",
+        "a-self-closing-verbatim-element",
     ],
 )
 def test_a_citation_where_a_link_may_go_renders_without_a_warning(

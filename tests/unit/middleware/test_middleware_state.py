@@ -238,7 +238,7 @@ def test_two_monitors_on_one_agent_count_their_own_steps(run_mode: RunMode) -> N
 
 
 @pytest.mark.parametrize("key", sorted(MONITOR_STATE_KEYS - {MONITOR_DELEGATION_KEY}))
-def test_every_key_only_the_monitor_writes_but_the_delegation_is_private(
+def test_every_key_only_the_monitor_writes_is_private_except_the_delegation(
     middleware: MonitorMiddleware,
     key: str,
 ) -> None:

@@ -202,7 +202,7 @@ def test_a_parent_counts_apart_from_a_subagent_monitor_with_a_label_of_its_own(
     ]
 
 
-def test_blocks_returned_under_another_label_leave_a_parent_at_its_total_sampling(
+def test_a_parent_at_its_total_still_samples_after_blocks_returned_under_another_label(
     run_mode: RunMode,
 ) -> None:
     # Arrange: the parent reached its total of one on the first turn, and a new turn lifts

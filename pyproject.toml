@@ -49,7 +49,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-deepagents = ["deepagents>=0.7.12"]
+deepagents = ["deepagents>=0.7.13"]
 openrouter = ["langchain-openrouter>=0.2.1"]
 typesafe = ["langchain-typesafe>=0.0.1a3"]
 

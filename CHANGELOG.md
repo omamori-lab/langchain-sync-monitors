@@ -59,8 +59,8 @@ change raises the minor version.
 - A halt stands until the thread records a new run input: each later step,
   as when Deep Agents' `RubricMiddleware` sends the run back to the model,
   halts again without calling the untrusted model, and its record holds no
-  samples. A hook that rewrites, trims or removes messages, a harness nudge
-  and a note cannot lift it.
+  samples. No hook that rewrites, trims or removes messages, no harness nudge
+  and no note lifts it.
 - `ProviderToolWarning`, raised once per middleware when a model call receives
   a server tool that Anthropic, OpenAI or Gemini runs itself, before the
   monitor can judge the step. It also reads tools bound on the model of an
@@ -151,9 +151,9 @@ change raises the minor version.
   never removes a safeguard, such as asking the user first, logging or
   reporting.
 - Only the human messages a run receives as its input render as `<user>`, or
-  `<delegator>` inside a subagent. Every other human message renders as
-  `<context_note>`, which authorises nothing, such as a conversation summary
-  or a harness nudge.
+  `<delegator>` inside a subagent. Every other human message, such as a
+  conversation summary or a harness nudge, renders as `<context_note>`, which
+  authorises nothing.
 - Every run's input reaches the judge whole and in order on every step, even
   after summarisation or a tool has taken it out of the model request, and
   even when Deep Agents shows it to the agent only as a preview, since

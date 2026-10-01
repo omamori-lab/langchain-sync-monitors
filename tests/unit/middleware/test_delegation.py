@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
+from collections.abc import Callable
 from typing import Any
 
 import pytest
@@ -129,6 +131,59 @@ def test_a_tool_call_hands_on_the_thread_s_blocks_by_monitor(
     assert handled.runtime.state["monitor_delegation"] == expected
     assert handled.state["monitor_delegation"] == PARENT_DELEGATION
     assert subagent_state["monitor_delegation"] == PARENT_DELEGATION
+
+
+def call_twice_ignoring_failures(
+    middleware: MonitorMiddleware,
+    request: ToolCallRequest,
+    *,
+    handle: Callable[[ToolCallRequest], ToolMessage],
+    mode: RunMode,
+) -> None:
+    """Run one request through the monitor twice in one context, as a retry around it would."""
+    if mode == "invoke":
+        for _ in range(2):
+            with contextlib.suppress(ConnectionError):
+                middleware.wrap_tool_call(request, handle)
+        return
+
+    async def handle_async(inner: ToolCallRequest) -> ToolMessage:
+        return handle(inner)
+
+    async def call_twice() -> None:
+        for _ in range(2):
+            with contextlib.suppress(ConnectionError):
+                await middleware.awrap_tool_call(request, handle_async)
+
+    asyncio.run(call_twice())
+
+
+def test_a_call_that_failed_leaves_its_retry_handed_on_and_checked(
+    run_mode: RunMode,
+    middleware: MonitorMiddleware,
+    subagent_state: dict[str, Any],
+) -> None:
+    # Arrange: the first call fails, so the monitor must not still take it for one in check
+    request = build_tool_request(state=subagent_state, call_id="call-child")
+    seen_delegations: list[object] = []
+
+    def handle(inner: ToolCallRequest) -> ToolMessage:
+        seen_delegations.append(inner.runtime.state["monitor_delegation"])
+        if len(seen_delegations) == 1:
+            message = "the subagent's provider went away"
+            raise ConnectionError(message)
+        return ToolMessage("done", tool_call_id="call-child")
+
+    # Act
+    call_twice_ignoring_failures(middleware, request, handle=handle, mode=run_mode)
+
+    # Assert: the retry gets this call's delegation, not the one the agent inherited
+    expected = Delegation(
+        tool_call_id="call-child",
+        delegating_agent="main",
+        blocks_before={"monitor": 7, "other": 1},
+    )
+    assert seen_delegations == [expected, expected]
 
 
 def test_adding_the_delegation_twice_hands_on_an_equal_one(

@@ -328,7 +328,7 @@ class GuardModelMonitor(ChatModelMonitor):
         if verdict is not None:
             return verdict
         if self.scoring is GuardScoring.LOG_PROBABILITIES:
-            return build_unlocated_label_verdict()
+            return build_unscored_label_verdict()
         # The first reply counts as a sample, so with `samples=1` no more are drawn.
         remaining = self.samples - 1
         more_replies = yield ReplyRequest(model=self.model, messages=messages, count=remaining)
@@ -549,13 +549,13 @@ def is_rejected_keyword(error: TypeError, *, keyword: str) -> bool:
     return "unexpected keyword argument" in text and keyword in text
 
 
-def build_unlocated_label_verdict() -> Verdict:
+def build_unscored_label_verdict() -> Verdict:
     """Fail closed when log-probabilities came back but no label could be scored from them."""
     logger.warning(
         "No guard label could be scored from the log-probabilities; the step is suspicious."
     )
     reason = (
-        "The guard model's reply had log-probabilities but no readable label, "
-        "so the step is treated as suspicious."
+        "The guard model's reply had log-probabilities, but no label could be scored "
+        "from them, so the step is treated as suspicious."
     )
     return Verdict(suspicion=1.0, reason=reason)

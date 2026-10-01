@@ -47,9 +47,9 @@ POLICY_PROMPT = ChatPromptTemplate.from_messages(
 type ScoredToken = tuple[str, dict[str, float]]
 
 GUARD_LOGGER = "langchain_sync_monitors.monitors.guard"
-UNLOCATED_REASON = (
-    "The guard model's reply had log-probabilities but no readable label, "
-    "so the step is treated as suspicious."
+UNSCORED_REASON = (
+    "The guard model's reply had log-probabilities, but no label could be scored "
+    "from them, so the step is treated as suspicious."
 )
 
 
@@ -212,7 +212,7 @@ async def test_log_probabilities_without_a_label_fail_closed(
 
     # Assert
     assert verdict.suspicion == 1.0
-    assert verdict.reason == UNLOCATED_REASON
+    assert verdict.reason == UNSCORED_REASON
     assert read_logged_lines(caplog, logger=GUARD_LOGGER) == [
         (
             "WARNING",
@@ -558,7 +558,7 @@ async def test_label_probabilities_that_underflow_to_zero_fail_closed(
 
     # Assert
     assert verdict.suspicion == 1.0
-    assert verdict.reason == UNLOCATED_REASON
+    assert verdict.reason == UNSCORED_REASON
 
 
 async def test_auto_scores_from_log_probabilities_in_one_call(
@@ -1378,8 +1378,9 @@ async def test_log_probabilities_of_a_reply_cut_off_at_a_length_limit_fail_close
     # Act
     verdict = await evaluate_on_path(guard, monitor_input, call_path=call_path)
 
-    # Assert
+    # Assert: the text holds a readable label, so the reason must not say it has none.
     assert verdict.suspicion == 1.0
+    assert verdict.reason == UNSCORED_REASON
 
 
 @pytest.mark.parametrize(

@@ -71,7 +71,7 @@ from langchain_sync_monitors.task_authorship import (
 )
 from langchain_sync_monitors.transcript import read_message_source
 
-ANCHOR_COUNT = 3
+PREVIOUS_MESSAGE_COUNT = 3
 """How many of the messages before an input are kept as the places it can go back to."""
 
 
@@ -79,7 +79,7 @@ class RunInput(TypedDict):
     """The kept copy of one human message a run received as its input.
 
     `text` is what the judge reads. `previous_message_ids` holds the ids of up
-    to `ANCHOR_COUNT` messages before it when recorded, nearest first.
+    to `PREVIOUS_MESSAGE_COUNT` messages before it when recorded, nearest first.
     `confirmed` is false for input a run could not confirm, which goes back as
     a note from `unconfirmed_input`.
     """
@@ -163,7 +163,7 @@ def build_kept_inputs(
     for index, message in enumerate(messages):
         if not message.id or message.id not in input_ids:
             continue
-        earlier = messages[max(0, index - ANCHOR_COUNT) : index]
+        earlier = messages[max(0, index - PREVIOUS_MESSAGE_COUNT) : index]
         kept.append(
             RunInput(
                 id=message.id,

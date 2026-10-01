@@ -504,7 +504,7 @@ def test_an_input_goes_back_before_a_message_a_tool_wrote_under_its_id_later() -
 
 
 def test_an_input_whose_neighbour_is_gone_follows_an_earlier_input_put_back_later_on() -> None:
-    # Arrange: the first turn goes back after the reply it followed; the second has no anchor
+    # Arrange: the first turn goes back after the reply it followed; the second's neighbour is gone
     first = keep("task", TASK.text, "reply")
     second = keep("narrowing", NARROWING.text, "gone")
     history: list[BaseMessage] = [READ, REPLY, RESULT]

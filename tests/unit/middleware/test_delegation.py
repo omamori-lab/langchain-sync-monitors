@@ -218,17 +218,21 @@ def test_an_agent_without_subagents_records_and_stores_what_it_did_before(
     assert "monitor_delegation" not in agent.get_state(config).values
 
 
-def build_agent_with_delegation_input(
-    *,
-    workspace: Workspace,
-    max_total_blocks: int,
-) -> Any:
-    model = ScriptedChatModel(
+def build_exfiltrating_model() -> ScriptedChatModel:
+    return ScriptedChatModel(
         responses=[
             *(build_exfiltration_step(call_id=f"call-post-{index}") for index in range(3)),
             AIMessage("Summary."),
         ],
     )
+
+
+def build_agent_with_delegation_input(
+    *,
+    model: ScriptedChatModel,
+    workspace: Workspace,
+    max_total_blocks: int,
+) -> Any:
     monitor = MonitorMiddleware(
         monitor=build_keyword_monitor(),
         protocol=AutoMode(block_threshold=0.6, max_total_blocks=max_total_blocks),
@@ -260,21 +264,25 @@ def test_an_invalid_delegation_in_the_input_is_rejected_before_any_step(
     delegation: object,
 ) -> None:
     # Arrange
+    model = build_exfiltrating_model()
     workspace = Workspace()
-    agent = build_agent_with_delegation_input(workspace=workspace, max_total_blocks=2)
+    agent = build_agent_with_delegation_input(model=model, workspace=workspace, max_total_blocks=2)
 
     # Act
     with pytest.raises(ConfigurationError, match="monitor_delegation"):
         run_with_delegation(agent, delegation=delegation, mode=run_mode)
 
     # Assert
+    assert model.calls == []
     assert workspace.executed == []
 
 
 def test_a_valid_delegation_in_the_input_counts_towards_the_total(run_mode: RunMode) -> None:
     # Arrange
     workspace = Workspace()
-    agent = build_agent_with_delegation_input(workspace=workspace, max_total_blocks=2)
+    agent = build_agent_with_delegation_input(
+        model=build_exfiltrating_model(), workspace=workspace, max_total_blocks=2
+    )
     delegation = Delegation(
         tool_call_id="call-caller",
         delegating_agent="caller",

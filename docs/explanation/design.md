@@ -510,6 +510,18 @@ reads:
 
 - **At the start of a run**, its `before_agent` hook records each untagged
   human message it has not seen as the run's input.
+- **A message without an id gets one.** The monitor records messages by id.
+  Deep Agents keeps `messages` in a channel that adds a message without an id
+  as it is, and LangGraph gives an id to input written as a message or a
+  dictionary, not to a string or a `(role, text)` tuple
+  [@deepagents2026; @langgraph2026]. So at the start of a run the monitor
+  gives each untagged human message without an id a fresh one, then records
+  it, and at the end of a run it gives one to each written since, tagged as
+  a note. A message without an id cannot be replaced in place, so the hook
+  writes the whole history back as an `Overwrite`, which streams nothing to
+  `stream_mode="messages"`. That run's checkpoint stores the history once
+  more, and `stream_mode="updates"` shows it as the hook's write; input given
+  as a message or a dictionary needs neither.
 - **Every run's input stays with the judge.** At the start of a run the
   monitor keeps the text of each input under `monitor_run_inputs`, with the
   ids of up to three messages before it. The kept copy follows its message in
@@ -815,7 +827,7 @@ monitored agent does not stream tokens as the model writes them
 | Stream | What it carries |
 |---|---|
 | `stream_mode="messages"` | Only committed steps, each whole. With `IN_TRANSCRIPT`, blocked attempts and their feedback stream with the step that follows them. A custom monitor's call made with its own `tags` streams too. |
-| `stream_mode="updates"` | Every node's writes, `monitor_log` and the private keys included. The monitor's hooks write back the human messages they tag under their own ids, so such a message can arrive twice: once from the node that wrote it, and once tagged. After a run that stopped early, the user's new message comes back tagged too. Merge messages by id, as LangGraph's message reducer does [@langgraph2026]; a message a node writes as a dictionary without an id arrives first with no id, so its tagged copy cannot be matched to it. |
+| `stream_mode="updates"` | Every node's writes, `monitor_log` and the private keys included. The monitor's hooks write back the human messages they tag under their own ids, so such a message can arrive twice: once from the node that wrote it, and once tagged. After a run that stopped early, the user's new message comes back tagged too. In a Deep Agent, input given as a string or a tuple comes back as the whole history in an `Overwrite`, with an id ([task authorship and notes](#task-authorship-and-notes)). Merge messages by id, as LangGraph's message reducer does [@langgraph2026]; a message a node writes as a dictionary without an id arrives first with no id, so its tagged copy cannot be matched to it. |
 | `stream_mode="values"` | The whole state after each step, `monitor_log` and the private keys included. |
 | `stream_mode="custom"` | A `MonitorStepEvent` for each committed step and a `MonitorStepFailedEvent` for each failed one. A subagent writes its events inside its own graph, so they reach the parent's stream only with `subgraphs=True`. |
 | `astream_events`, `astream_log` | Every model call live, rejected samples included, and the monitor's spans, which `exclude_tags=["monitor"]` drops. A user interface should read `stream_mode="messages"` instead. |
@@ -919,8 +931,11 @@ there raises `SynchronousRunError` instead of hanging, and so does one that
 starts asyncio work where no loop can run it, such as `asyncio.gather`
 outside a running loop, or a monitor whose `evaluate_sync` does. Inside a
 running loop, as when `invoke()` is called from a notebook, any task the
-protocol scheduled is cancelled before it starts, and once a step is over its
-pending step refuses to call the model. A timeout cannot limit a pending
+protocol scheduled is cancelled before it starts. Once a step is over, under
+either entry point, its pending step refuses to call the model or the
+monitor: a task a protocol started and did not await raises
+`SynchronousRunError` under `invoke()` and `MonitorError` under `ainvoke()`,
+rather than draw a sample nothing can use. A timeout cannot limit a pending
 step's call under `invoke()`
 ([protocols and configuration](#protocols-and-configuration)).
 
@@ -941,8 +956,13 @@ the error propagates unchanged. Before it does, the middleware writes a
 `MonitorStepFailedEvent` (`type="monitor_step_failed"`) to
 `stream_mode="custom"`, with every sample the monitor had judged, none if it
 had judged nothing, and the `delegation_id` inside a subagent. When there are
-judged samples, it also logs them at warning level, each with its suspicion,
-reason and proposal.
+judged samples, it also logs a warning that gives the error's type and each
+sample's suspicion. The warning quotes no proposal, reason or error message,
+since any of them can hold the transcript, and no log line or error of the
+library's own does. A protocol's decision is checked inside the step as
+well: one that is not a `StepDecision` whose `response` is a `ModelResponse`
+holding a list of messages fails the step the same way, with `MonitorError`
+naming the protocol, before any record is streamed.
 
 A middleware outside the monitor that retries failed model calls, such as
 LangChain's `ModelRetryMiddleware` or `ModelFallbackMiddleware`, runs the
@@ -976,18 +996,21 @@ wrappers, `MonitorView`, the decision models, `monitor_subagents` and
 - `MonitorMiddleware`'s `label` and `agent_name`, and each subagent's name,
   must be non-blank strings without `:` or `|`, which LangGraph refuses in a
   node name.
+- A refused number Python will not write out, such as an integer of more
+  than 4,300 digits, is named by its kind in the message. A chat judge's
+  scale ends must be integers Python writes out, since the prompt shows them.
 
 ### Error and warning classes
 
 | Class | Raised or emitted when |
 |---|---|
-| `MonitorError` | The base class of the library's own errors. Also raised at run time for a malformed record in `monitor_log` or `monitor_subagent_returns`, and for a decision model's answer that is not a probability from 0 to 1. |
+| `MonitorError` | The base class of the library's own errors. Also raised at run time for a malformed record in `monitor_log` or `monitor_subagent_returns`, for a decision model's answer that is not a probability from 0 to 1, for a protocol's decision of the wrong shape ([failed steps](#failed-steps)), and for a pending step used after its step under `ainvoke()` ([sync and async](#sync-and-async)). |
 | `ConfigurationError` | An option cannot work. Also at run time: for an invalid `monitor_delegation` in an agent's input; for a guard model that returns no log-probabilities under `GuardScoring.LOG_PROBABILITIES`, or that rejects the request for them under `GuardScoring.AUTO` or `LOG_PROBABILITIES`; and for a tool call that reuses the id of the call that started its agent and returns records under that agent's name ([subagents and the thread total](#subagents-and-the-thread-total)). |
 | `MissingExtraError` | A feature needs an extra that is not installed; the message names the install command. It is a `ConfigurationError` and an `ImportError`. |
 | `SynchronousRunError` | A protocol or monitor needs an event loop under `invoke()` ([sync and async](#sync-and-async)). |
 | `InvalidSuspicionError` | A `Verdict` is built with a suspicion that is NaN or outside 0 to 1. |
 | `UncalibratedThresholdWarning` | A protocol is built with a default threshold. |
-| `CachedResampleWarning` | A step is resampled under a response cache; once per process. |
+| `CachedResampleWarning` | A step is resampled, or a monitor draws a second reply to one prompt, under a response cache; once per process for each. |
 | `ProviderToolWarning` | A model call receives a tool its provider runs itself; once per middleware instance. |
 | `MonitorPlacementWarning` | `check_monitor_placement` finds a middleware placed where it undermines the monitor, a stacked monitor that loses or misjudges records included, or `monitor_subagents` builds such a stack in a subagent. |
 | `HardLabelWarning` | A `GuardModelMonitor` is built with `GuardScoring.HARD_LABEL`. |
@@ -1136,7 +1159,14 @@ limit is linked from where it arises above.
   more deterministic the model, the less it helps [@bhatt2025ctrlzpost]. A
   LangChain response cache, global or on the agent's model, answers every
   resample with the first sample again. The library emits a
-  `CachedResampleWarning`; build the untrusted model with `cache=False`.
+  `CachedResampleWarning`; build the untrusted model with `cache=False`. A
+  cache on a monitor's model makes a guard's samples, and a chat judge's
+  request after an unreadable reply, copies of the first reply, and warns
+  the same way.
+- **A rate limit on the agent's own calls fails the step.** The chat
+  monitors retry their own calls on HTTP 429. The agent's model and a trusted
+  model are the agent's calls, retried only as their chat model retries, and
+  `ChatOpenRouter` retries no 429, so one fails the step.
 - **No timeouts under `invoke()`.** `asyncio.timeout` or `asyncio.wait_for`
   cannot limit a pending step's call under `invoke()`: outside a running loop
   it raises `SynchronousRunError`, and inside one it never fires, because the
@@ -1201,8 +1231,8 @@ limit is linked from where it arises above.
 
 - **Retried steps.** Under a middleware that retries failed model calls from
   outside the monitor ([failed steps](#failed-steps)), the samples judged
-  before the failure reach only the warning log and the
-  `monitor_step_failed` event, never `monitor_log`.
+  before the failure reach only the `monitor_step_failed` event, and their
+  suspicions the warning log, never `monitor_log`.
 - **A committed step an outer middleware undoes.** A middleware outside the
   monitor that raises after a step returns leaves that step's record on
   `stream_mode="custom"` but out of `monitor_log`, with one monitor as with a

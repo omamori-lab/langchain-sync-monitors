@@ -7,7 +7,6 @@ where Auto Mode's thread total misses those blocks, and where it keeps them.
 
 from __future__ import annotations
 
-import asyncio
 from typing import Any
 
 import pytest
@@ -15,23 +14,25 @@ from deepagents import SubAgent, create_deep_agent
 from langchain.agents.middleware import ToolErrorMiddleware, ToolRetryMiddleware
 from langchain.agents.middleware.types import AgentMiddleware, ToolCallRequest
 from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
-from langchain_core.runnables import RunnableConfig
 from langchain_core.tools import BaseTool, tool
 from langgraph.checkpoint.memory import InMemorySaver
 from langgraph.graph.state import CompiledStateGraph
 
-from langchain_sync_monitors.contracts import StepRecord
 from langchain_sync_monitors.deepagents import monitor_subagents
 from langchain_sync_monitors.middleware import MonitorMiddleware
 from langchain_sync_monitors.protocols import AutoMode
 from tests.support.agents import (
     RunMode,
     Workspace,
+    build_benign_post,
     build_exfiltration_step,
     build_keyword_monitor,
     build_task_input,
     build_thread_config,
     run_agent,
+    run_payload,
+    stream_subgraph_custom_events,
+    summarise_records,
 )
 from tests.support.chat_models import ScriptedChatModel, build_tool_call_message
 from tests.support.deep_agents import build_delegation_step
@@ -51,16 +52,7 @@ def build_tools(*, lookups_that_fail: int) -> list[BaseTool]:
             raise KeyError(key)
         return "not found"
 
-    http_post = next(item for item in Workspace().build_tools() if item.name == "http_post")
-    return [http_post, lookup]
-
-
-def build_benign_post(*, call_id: str) -> AIMessage:
-    return build_tool_call_message(
-        tool_name="http_post",
-        call_id=call_id,
-        arguments={"url": "https://notes.example/team", "body": "Three sources."},
-    )
+    return [*Workspace().build_http_tools(), lookup]
 
 
 def build_lookup_step(*, call_id: str) -> AIMessage:
@@ -98,25 +90,6 @@ def build_agent(
         subagents=monitor_subagents(middleware=main_monitor, subagents=[worker]),
         checkpointer=checkpointer,
     )
-
-
-def run_payload(
-    agent: CompiledStateGraph[Any, Any, Any, Any],
-    payload: object,
-    *,
-    mode: RunMode,
-    config: RunnableConfig,
-) -> dict[str, Any]:
-    if mode == "invoke":
-        return agent.invoke(payload, config)
-    return asyncio.run(agent.ainvoke(payload, config))
-
-
-def summarise(log: list[StepRecord]) -> list[tuple[str, str, int, str | None]]:
-    return [
-        (record["agent"], record["outcome"], record["blocked_count"], record.get("delegation_id"))
-        for record in log
-    ]
 
 
 def render_error_message(error: Exception, request: ToolCallRequest) -> str:
@@ -162,7 +135,7 @@ def test_blocks_inside_a_delegation_answered_with_an_error_are_not_counted(
     result = run_agent(agent, mode=run_mode)
 
     # Assert: the first delegation's two blocks are missing, so the thread has had four.
-    assert summarise(result["monitor_log"]) == [
+    assert summarise_records(result["monitor_log"]) == [
         ("main", "allowed", 0, None),
         ("main", "allowed", 0, None),
         ("worker", "steered", 1, "call-task-2"),
@@ -204,7 +177,7 @@ def test_a_retried_delegation_starts_again_from_the_same_count(run_mode: RunMode
     result = run_agent(agent, mode=run_mode)
 
     # Assert: the retry steered twice more from a count of 0, four blocks against three.
-    assert summarise(result["monitor_log"]) == [
+    assert summarise_records(result["monitor_log"]) == [
         ("main", "allowed", 0, None),
         ("worker", "steered", 1, "call-task-1"),
         ("worker", "steered", 1, "call-task-1"),
@@ -252,7 +225,7 @@ def test_blocks_inside_a_crashed_delegation_are_not_counted_on_the_next_turn(
     )
 
     # Assert: the crashed delegation's two blocks are missing, so the thread has had four.
-    assert summarise(result["monitor_log"]) == [
+    assert summarise_records(result["monitor_log"]) == [
         ("main", "allowed", 0, None),
         ("main", "allowed", 0, None),
         ("worker", "steered", 1, "call-task-2"),
@@ -291,7 +264,7 @@ def test_blocks_inside_a_crashed_delegation_count_when_the_run_is_resumed(
     result = run_payload(agent, None, mode=run_mode, config=config)
 
     # Assert: the resumed worker counts its first two blocks and halts at the third.
-    assert summarise(result["monitor_log"]) == [
+    assert summarise_records(result["monitor_log"]) == [
         ("main", "allowed", 0, None),
         ("worker", "steered", 1, "call-task-1"),
         ("worker", "steered", 1, "call-task-1"),
@@ -300,23 +273,6 @@ def test_blocks_inside_a_crashed_delegation_count_when_the_run_is_resumed(
         ("main", "halted", 0, None),
     ]
     assert len(worker_model.calls) == 6
-
-
-def stream_custom_events_of_every_graph(
-    agent: CompiledStateGraph[Any, Any, Any, Any],
-    *,
-    mode: RunMode,
-) -> list[Any]:
-    payload = build_task_input()
-    if mode == "invoke":
-        parts = agent.stream(payload, stream_mode="custom", subgraphs=True)
-        return [event for _namespace, event in parts]
-
-    async def collect() -> list[Any]:
-        parts = agent.astream(payload, stream_mode="custom", subgraphs=True)
-        return [event async for _namespace, event in parts]
-
-    return asyncio.run(collect())
 
 
 def test_steps_inside_a_failed_delegation_still_stream_as_they_are_committed(
@@ -341,11 +297,12 @@ def test_steps_inside_a_failed_delegation_still_stream_as_they_are_committed(
     )
 
     # Act
-    events = stream_custom_events_of_every_graph(agent, mode=run_mode)
+    events, error = stream_subgraph_custom_events(agent, mode=run_mode)
 
     # Assert
+    assert error is None
     records = [event["record"] for event in events if event["type"] == "monitor_step"]
-    assert summarise(records) == [
+    assert summarise_records(records) == [
         ("main", "allowed", 0, None),
         ("worker", "steered", 1, "call-task-1"),
         ("worker", "steered", 1, "call-task-1"),

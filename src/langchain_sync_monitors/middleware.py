@@ -49,7 +49,7 @@ from langchain_sync_monitors._langchain import (
     ToolCallResult,
     hide_model_calls_from_message_stream,
 )
-from langchain_sync_monitors.commits import commit_step, report_failed_step
+from langchain_sync_monitors.commits import check_step_decision, commit_step, report_failed_step
 from langchain_sync_monitors.contracts import (
     ControlProtocol,
     Fallback,
@@ -65,6 +65,7 @@ from langchain_sync_monitors.halts import (
     find_halt_decision,
     has_just_halted,
 )
+from langchain_sync_monitors.message_ids import build_run_end_update
 from langchain_sync_monitors.monitor_state import MonitorState
 from langchain_sync_monitors.options import (
     check_enum_option,
@@ -95,7 +96,6 @@ from langchain_sync_monitors.spans import (
 from langchain_sync_monitors.state_keys import REWRITTEN_INPUTS_KEY, TASK_MESSAGES_KEY
 from langchain_sync_monitors.subagent_returns import count_returned_blocks, read_subagent_returns
 from langchain_sync_monitors.task_authorship import (
-    build_run_end_update,
     build_step_start_update,
     read_message_ids,
 )
@@ -181,14 +181,14 @@ class MonitorMiddleware(AgentMiddleware[MonitorState, AgentContext, StructuredOu
     rule.
 
     If a call inside a step raises before the protocol decides, the step is
-    not committed. The samples the monitor had judged are logged as a warning
-    and written to `stream_mode="custom"` as a `MonitorStepFailedEvent`, and
-    the exception is raised again. LangGraph's own control flow, such as the
-    `GraphInterrupt` that `interrupt()` raises, passes through unreported. Yet
-    a monitor, a protocol or a fallback must not call `interrupt()`: on
-    resume LangGraph runs the model node again [@langgraph2026], so the step
-    is sampled and judged afresh, and the person's answer applies to samples
-    they never saw.
+    not committed. The samples the monitor had judged are written to
+    `stream_mode="custom"` as a `MonitorStepFailedEvent`, their suspicions
+    are logged as a warning, and the exception is raised again. LangGraph's
+    own control flow, such as the `GraphInterrupt` that `interrupt()` raises,
+    passes through unreported. Yet a monitor, a protocol or a fallback must
+    not call `interrupt()`: on resume LangGraph runs the model node again
+    [@langgraph2026], so the step is sampled and judged afresh, and the
+    person's answer applies to samples they never saw.
 
     In LangChain tracers such as LangSmith and Langfuse, each step is a
     `monitor step` span, with the spans that `spans` describes nested in it.
@@ -274,7 +274,8 @@ class MonitorMiddleware(AgentMiddleware[MonitorState, AgentContext, StructuredOu
                 step = SyncPendingStep(handler=handler, **prepared.options)
                 try:
                     with hide_model_calls_from_message_stream():
-                        decision = run_synchronously(self.protocol.decide(step))
+                        decided = run_synchronously(self.protocol.decide(step))
+                    decision = check_step_decision(decided, protocol=self.protocol)
                 except GraphBubbleUp:
                     # LangGraph's own control flow, such as an interrupt, is not a failed step.
                     raise
@@ -316,7 +317,8 @@ class MonitorMiddleware(AgentMiddleware[MonitorState, AgentContext, StructuredOu
                 step = AsyncPendingStep(handler=handler, **prepared.options)
                 try:
                     with hide_model_calls_from_message_stream():
-                        decision = await self.protocol.decide(step)
+                        decided = await self.protocol.decide(step)
+                    decision = check_step_decision(decided, protocol=self.protocol)
                 except GraphBubbleUp:
                     # LangGraph's own control flow, such as an interrupt, is not a failed step.
                     raise
@@ -329,6 +331,10 @@ class MonitorMiddleware(AgentMiddleware[MonitorState, AgentContext, StructuredOu
                         middleware_name=self.name,
                     )
                     raise
+                finally:
+                    # A task the protocol started and left running may outlast the step.
+                    # Once closed, the step refuses it the model and the monitor.
+                    step.close()
             record = prepared.identity.build_record(decision)
             await trace_decision(traced_step, record=record)
             return commit_step(

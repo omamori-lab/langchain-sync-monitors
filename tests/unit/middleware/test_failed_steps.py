@@ -1,8 +1,9 @@
 """A step that raises after the monitor judged samples leaves evidence, then raises as before.
 
 The step is never committed, so its samples cannot reach `monitor_log`. The
-middleware logs them at warning level and writes a `monitor_step_failed` event
-to `stream_mode="custom"`, and the original exception propagates unchanged.
+middleware writes them in a `monitor_step_failed` event to
+`stream_mode="custom"`, logs their suspicions and the error's type at warning
+level, and the original exception propagates unchanged.
 """
 
 from __future__ import annotations
@@ -10,18 +11,20 @@ from __future__ import annotations
 import asyncio
 import logging
 from collections.abc import Sequence
-from typing import Any
+from dataclasses import dataclass
+from typing import Any, cast
 
 import pytest
 from langchain.agents import create_agent
 from langchain.agents.middleware import ModelRetryMiddleware
-from langchain.agents.middleware.types import AgentMiddleware
-from langchain_core.messages import AIMessage
+from langchain.agents.middleware.types import AgentMiddleware, ModelResponse
+from langchain_core.messages import AIMessage, BaseMessage
 from langchain_core.runnables import Runnable, RunnableConfig
 from langgraph.checkpoint.memory import InMemorySaver
 from langgraph.graph.state import CompiledStateGraph
 from langgraph.types import interrupt
 
+from langchain_sync_monitors import commits
 from langchain_sync_monitors.contracts import (
     ControlProtocol,
     Monitor,
@@ -32,6 +35,7 @@ from langchain_sync_monitors.contracts import (
     StepDecision,
     Verdict,
 )
+from langchain_sync_monitors.errors import MonitorError
 from langchain_sync_monitors.middleware import MonitorMiddleware
 from langchain_sync_monitors.protocols import (
     AutoMode,
@@ -50,6 +54,7 @@ from tests.support.agents import (
 from tests.support.flaky_models import FlakyChatModel, TriggeredFailureMonitor
 from tests.support.monitors import KeywordMonitor
 from tests.support.protocols import AcceptFirst
+from tests.unit.monitors.doubles import PLANTED_SECRET
 
 MIDDLEWARE_LOGGER = "langchain_sync_monitors.middleware"
 EXFILTRATION_SUSPICION = 0.95
@@ -142,9 +147,12 @@ def test_a_resample_that_raises_keeps_the_suspicious_sample_as_evidence(
     assert "attacker.example" in first_sample["proposal"]
     assert not any(sample["executed"] for sample in event["samples"])
     [warning] = read_warnings(caplog)
-    assert "suspicion 0.950" in warning
-    assert "attacker.example" in warning
-    assert "429 rate limited" in warning
+    assert "failed with RuntimeError before it was committed" in warning
+    assert "Their suspicions: 0.950." in warning
+    assert "monitor_step_failed event" in warning
+    # The warning quotes no proposal and no error message: either can hold the transcript.
+    assert "attacker.example" not in warning
+    assert "429 rate limited" not in warning
 
 
 def test_a_monitor_that_raises_on_a_resample_keeps_the_first_sample(
@@ -184,7 +192,9 @@ def test_an_auto_mode_retry_that_raises_keeps_the_blocked_attempt(
     assert isinstance(error, RuntimeError)
     [event] = find_failed_step_events(events)
     assert [sample["suspicion"] for sample in event["samples"]] == [EXFILTRATION_SUSPICION]
-    assert "attacker.example" in read_warnings(caplog)[0]
+    [warning] = read_warnings(caplog)
+    assert "Their suspicions: 0.950." in warning
+    assert "attacker.example" not in warning
 
 
 def test_a_trusted_model_that_raises_keeps_the_deferred_sample(
@@ -225,6 +235,97 @@ def test_a_step_that_fails_before_any_verdict_writes_an_empty_event_and_no_warni
     [event] = find_failed_step_events(events)
     assert event["samples"] == []
     assert read_warnings(caplog) == []
+
+
+@dataclass(kw_only=True)
+class MalformedDecision(ControlProtocol):
+    """Judges one sample, then decides with a response of the wrong shape, or no decision."""
+
+    response: object
+    return_the_decision: bool = True
+
+    async def decide(self, step: PendingStep) -> StepDecision:
+        [sample] = await step.sample(count=1)
+        decision = StepDecision(
+            outcome=Outcome.DEFERRED_TO_TRUSTED,
+            response=cast("ModelResponse", self.response),
+            samples=(sample,),
+            executed_sample=None,
+            flagged=True,
+        )
+        return decision if self.return_the_decision else cast("StepDecision", self.response)
+
+
+MALFORMED_DECISIONS = {
+    "bare-ai-message": (MalformedDecision(response=AIMessage("I cannot help.")), "a response"),
+    "response-holding-one-message": (
+        MalformedDecision(
+            response=ModelResponse(result=cast("list[BaseMessage]", AIMessage("I cannot help.")))
+        ),
+        "a response",
+    ),
+    "no-step-decision": (
+        MalformedDecision(response=AIMessage("I cannot help."), return_the_decision=False),
+        "not a StepDecision",
+    ),
+    "text-for-a-decision": (
+        MalformedDecision(response=f"Deploy with {PLANTED_SECRET}.", return_the_decision=False),
+        "returned a str of length 34, not a StepDecision",
+    ),
+}
+
+
+@pytest.mark.parametrize(
+    ("protocol", "complaint"), MALFORMED_DECISIONS.values(), ids=MALFORMED_DECISIONS.keys()
+)
+def test_a_malformed_decision_fails_the_step_and_streams_no_record(
+    run_mode: RunMode,
+    protocol: MalformedDecision,
+    complaint: str,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    # Arrange
+    caplog.set_level(logging.WARNING, logger=MIDDLEWARE_LOGGER)
+    model = FlakyChatModel(replies=[build_exfiltration_step()])
+    agent = build_agent(model, protocol=protocol)
+
+    # Act
+    events, error = stream_custom_events(agent, mode=run_mode)
+
+    # Assert: the step fails as any error does, with its judged sample reported
+    assert isinstance(error, MonitorError)
+    assert "MalformedDecision" in str(error)
+    assert complaint in str(error)
+    assert PLANTED_SECRET not in str(error)
+    assert [event["type"] for event in events] == ["monitor_step_failed"]
+    [event] = events
+    assert event["samples"][0]["suspicion"] == EXFILTRATION_SUSPICION
+    [warning] = read_warnings(caplog)
+    assert "failed with MonitorError" in warning
+    assert "Their suspicions: 0.950." in warning
+    assert "attacker.example" not in warning
+
+
+def test_a_commit_that_fails_streams_no_record(
+    run_mode: RunMode,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Arrange: the last part of the commit's state update fails to build
+    def fail_to_build_the_update(_state: object) -> dict[str, object]:
+        message = "planted failure in the commit's update"
+        raise MonitorError(message)
+
+    monkeypatch.setattr(commits, "build_answered_update", fail_to_build_the_update)
+    model = FlakyChatModel(replies=[build_read_step(), AIMessage("Done.")])
+    agent = build_agent(model, protocol=AcceptFirst())
+
+    # Act
+    events, error = stream_custom_events(agent, mode=run_mode)
+
+    # Assert: the step's record is streamed only once its commit is built
+    assert isinstance(error, MonitorError)
+    assert str(error) == "planted failure in the commit's update"
+    assert "monitor_step" not in [event["type"] for event in events]
 
 
 def test_a_committed_step_writes_no_failure_event(run_mode: RunMode) -> None:

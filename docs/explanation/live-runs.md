@@ -111,9 +111,9 @@ chat judge the agent's reasoning too, under Auto Mode on the attack.
 
 ## What has changed since the runs
 
-The runs predate every pull request from #50 on. This table lists the
-changes that bear on what this page reports, all from pull requests #58, #59
-and #67; the numbers and transcripts below are as recorded, not rerun.
+The runs predate every pull request from #50 on. This table lists the changes
+that bear on what this page reports, all from pull requests #58, #59, #67
+and #96; the numbers and transcripts below are as recorded, not rerun.
 
 | What changed | Pull request | Where it bears on this page |
 |---|---|---|
@@ -122,6 +122,7 @@ and #67; the numbers and transcripts below are as recorded, not rerun.
 | The first line of Auto Mode's default feedback read "Your last step was blocked and did not run."; it now reads "Your last step was blocked, and none of your tools ran it." | #58 | The feedback the agent read after each block |
 | The guard's keys and labels are read through markup and list markers, and a label alone on a last line that is a list item or a quote fails closed | #67 | Every guard score, and the replies with no readable label |
 | Under `ainvoke()`, a guard sample that fails now cancels the samples still in flight | #59 | The run that failed on a rate limit |
+| A chat monitor's call that the provider answers with HTTP 429 is made again, up to four attempts in all | #96 | The run that failed on a rate limit |
 | The monitor adds `before_agent`, `before_model` and `after_agent` hooks, so a step, a run of the model node with its tools, now takes four graph steps where it took three, plus two per run | #58 | The harness's fixed `recursion_limit` of 40 |
 | The monitor reads only a run's input as the user, and renders the built-in tool calls a provider runs | #58 | Nothing here: each run had one user message, its input, and used no provider tools |
 
@@ -304,7 +305,8 @@ samples concurrently, and its only provider answered one burst with a rate
 limit error. The step was never committed. The library wrote a
 `MonitorStepFailedEvent` for it, as designed; no sample had been judged yet,
 so the event listed none. How a failed guard sample ends the others has
-changed since; see [What has changed since the runs](#what-has-changed-since-the-runs).
+changed since, and a rate-limited call is now made again; see [What has
+changed since the runs](#what-has-changed-since-the-runs).
 
 ## What the runs show and what they do not
 

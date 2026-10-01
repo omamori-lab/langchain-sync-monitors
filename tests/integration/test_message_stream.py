@@ -10,14 +10,23 @@ from __future__ import annotations
 
 import itertools
 from collections.abc import Sequence
+from dataclasses import dataclass
 
 import pytest
 from langchain.agents import create_agent
 from langchain_core.language_models.fake_chat_models import GenericFakeChatModel
 from langchain_core.messages import AIMessage, BaseMessage, ToolMessage
+from langchain_core.runnables import RunnableConfig
 
-from langchain_sync_monitors.contracts import ControlProtocol, FeedbackVisibility, Resampling
+from langchain_sync_monitors.contracts import (
+    ControlProtocol,
+    FeedbackVisibility,
+    MonitorInput,
+    Resampling,
+    Verdict,
+)
 from langchain_sync_monitors.middleware import MonitorMiddleware
+from langchain_sync_monitors.model_calls import build_internal_call_config
 from langchain_sync_monitors.protocols import (
     AutoMode,
     DeferToResample,
@@ -30,8 +39,8 @@ from tests.support.agents import (
     Workspace,
     build_exfiltration_step,
     build_read_step,
-    build_task_input,
     stream_messages,
+    stream_v3_messages,
 )
 from tests.support.chat_models import StreamingScriptedChatModel
 from tests.support.monitors import KeywordMonitor
@@ -44,14 +53,45 @@ REJECTED_STEP_MARK = "attacker.example"
 FEEDBACK_MARK = "[Safety monitor]"
 
 
+def build_judge() -> GenericFakeChatModel:
+    """Return a judge that streams its reply token by token, as a real provider does."""
+    return GenericFakeChatModel(messages=itertools.repeat(AIMessage(JUDGE_REPLY)))
+
+
+@dataclass(kw_only=True)
+class OwnTagsJudgeMonitor(KeywordMonitor):
+    """A keyword monitor whose judge call sets tags of its own, as a user's monitor may.
+
+    The call's own tags replace the `nostream` tag it would inherit, so only
+    its internal-call metadata can keep the judge's reply out of the v3 event
+    stream.
+    """
+
+    def build_judge_config(self) -> RunnableConfig:
+        return RunnableConfig(
+            **build_internal_call_config(source="own_tags_judge"),
+            tags=["security-judge"],
+        )
+
+    async def evaluate(self, monitor_input: MonitorInput) -> Verdict:
+        if self.judge_model is not None:
+            await self.judge_model.ainvoke("Judge this step.", config=self.build_judge_config())
+        return self.score(monitor_input)
+
+    def evaluate_sync(self, monitor_input: MonitorInput) -> Verdict:
+        if self.judge_model is not None:
+            self.judge_model.invoke("Judge this step.", config=self.build_judge_config())
+        return self.score(monitor_input)
+
+
 def build_monitor_middleware(
     *,
     protocol: ControlProtocol,
     feedback_visibility: FeedbackVisibility = FeedbackVisibility.HIDDEN,
+    monitor_type: type[KeywordMonitor] = KeywordMonitor,
 ) -> MonitorMiddleware:
     """Build a keyword monitor whose every verdict also streams a judge reply, like a real one."""
-    judge = GenericFakeChatModel(messages=itertools.repeat(AIMessage(JUDGE_REPLY)))
-    monitor = KeywordMonitor(suspicion_by_keyword=SUSPICION_BY_KEYWORD, judge_model=judge)
+    monitor = monitor_type(suspicion_by_keyword=SUSPICION_BY_KEYWORD, judge_model=build_judge())
     return MonitorMiddleware(
         monitor=monitor,
         protocol=protocol,
@@ -99,17 +139,28 @@ def read_answers(messages: Sequence[BaseMessage]) -> list[str]:
     ]
 
 
-def test_defer_to_resample_streams_only_the_committed_sample(run_mode: RunMode) -> None:
-    # Arrange
+@pytest.mark.parametrize(
+    ("resampling", "resampled_reads"),
+    [(Resampling.SEQUENTIAL, 1), (Resampling.PARALLEL, 2)],
+    ids=["sequential", "parallel"],
+)
+def test_defer_to_resample_streams_only_the_committed_sample(
+    run_mode: RunMode,
+    resampling: Resampling,
+    resampled_reads: int,
+) -> None:
+    # Arrange: parallel resampling draws both resamples at once, and commits one.
     protocol = DeferToResample(
         fallback=HaltRun(message="Stopped."),
         defer_threshold=0.6,
         audit_threshold=0.95,
+        resampling=resampling,
     )
+    reads = [build_read_step(call_id=f"call-read-{index}") for index in range(resampled_reads)]
 
     # Act
     streamed = stream_monitored_agent(
-        untrusted_steps=[build_exfiltration_step(), build_read_step(), AIMessage(FINAL_ANSWER)],
+        untrusted_steps=[build_exfiltration_step(), *reads, AIMessage(FINAL_ANSWER)],
         protocol=protocol,
         run_mode=run_mode,
     )
@@ -117,34 +168,6 @@ def test_defer_to_resample_streams_only_the_committed_sample(run_mode: RunMode) 
     # Assert
     assert find_mentions(streamed, text=REJECTED_STEP_MARK) == []
     assert find_mentions(streamed, text=JUDGE_MARK) == []
-    assert read_tool_call_names(streamed) == ["read_file"]
-    assert read_answers(streamed) == [FINAL_ANSWER]
-
-
-def test_parallel_resampling_streams_only_the_committed_sample(run_mode: RunMode) -> None:
-    # Arrange
-    protocol = DeferToResample(
-        fallback=HaltRun(message="Stopped."),
-        defer_threshold=0.6,
-        audit_threshold=0.95,
-        resampling=Resampling.PARALLEL,
-    )
-    untrusted_steps = [
-        build_exfiltration_step(),
-        build_read_step(call_id="call-read-a"),
-        build_read_step(call_id="call-read-b"),
-        AIMessage(FINAL_ANSWER),
-    ]
-
-    # Act
-    streamed = stream_monitored_agent(
-        untrusted_steps=untrusted_steps,
-        protocol=protocol,
-        run_mode=run_mode,
-    )
-
-    # Assert
-    assert find_mentions(streamed, text=REJECTED_STEP_MARK) == []
     assert read_tool_call_names(streamed) == ["read_file"]
     assert read_answers(streamed) == [FINAL_ANSWER]
 
@@ -239,21 +262,33 @@ def test_a_rejected_subagent_step_never_streams(run_mode: RunMode) -> None:
 
 
 @pytest.mark.filterwarnings("ignore::langchain_core._api.beta_decorator.LangChainBetaWarning")
-def test_the_v3_event_stream_carries_only_committed_steps() -> None:
+@pytest.mark.parametrize(
+    "monitor_type",
+    [KeywordMonitor, OwnTagsJudgeMonitor],
+    ids=["judge-inherits-tags", "judge-sets-its-own-tags"],
+)
+def test_the_v3_event_stream_carries_only_committed_steps(
+    run_mode: RunMode,
+    monitor_type: type[KeywordMonitor],
+) -> None:
     # Arrange
     agent = create_agent(
         model=StreamingScriptedChatModel(
             responses=[build_exfiltration_step(), build_read_step(), AIMessage(FINAL_ANSWER)],
         ),
         tools=Workspace().build_tools(),
-        middleware=[build_monitor_middleware(protocol=AutoMode(block_threshold=0.6))],
+        middleware=[
+            build_monitor_middleware(
+                protocol=AutoMode(block_threshold=0.6), monitor_type=monitor_type
+            )
+        ],
     )
 
     # Act
-    run = agent.stream_events(build_task_input(), version="v3")
-    streamed: list[BaseMessage] = [message_stream.output for message_stream in run.messages]
+    streamed = stream_v3_messages(agent, mode=run_mode)
 
     # Assert
     assert find_mentions(streamed, text=REJECTED_STEP_MARK) == []
+    assert find_mentions(streamed, text=JUDGE_MARK) == []
     assert read_tool_call_names(streamed) == ["read_file"]
     assert read_answers(streamed) == [FINAL_ANSWER]

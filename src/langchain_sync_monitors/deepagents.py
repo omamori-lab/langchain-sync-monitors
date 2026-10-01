@@ -180,7 +180,10 @@ def check_overrides_option(overrides: Mapping[str, MonitorMiddleware] | None) ->
         raise ConfigurationError(error_message)
     for name, override in overrides.items():
         if not isinstance(name, str):
-            error_message = f"overrides must be keyed by subagent name, got the key {name!r}"
+            error_message = (
+                "overrides must be keyed by subagent name, "
+                f"got a key that is {describe_option_value(name)}"
+            )
             raise ConfigurationError(error_message)
         check_instance_option(
             override,

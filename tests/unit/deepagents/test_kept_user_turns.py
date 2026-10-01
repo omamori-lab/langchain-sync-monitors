@@ -24,12 +24,12 @@ from langgraph.checkpoint.memory import InMemorySaver
 from langgraph.errors import ParentCommand
 from langgraph.types import Command
 
-from langchain_sync_monitors import MonitorMiddleware, TrustedMonitoring
 from tests.support.agents import (
     RunMode,
     Workspace,
     build_exfiltration_step,
     build_read_step,
+    build_reading_monitor,
     build_thread_config,
     run_agent,
     run_messages,
@@ -46,10 +46,6 @@ LARGE_TASK_LINES = [
     *(f"Background line {number} about the Q3 report." for number in range(8, 15)),
 ]
 LARGE_TASK = "\n".join(LARGE_TASK_LINES)
-
-
-def build_reading_monitor(monitor: RenderingMonitor) -> MonitorMiddleware:
-    return MonitorMiddleware(monitor=monitor, protocol=TrustedMonitoring(flag_threshold=0.6))
 
 
 def test_a_subagent_s_task_stays_the_delegator_s_after_a_tool_removes_it(

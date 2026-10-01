@@ -6,7 +6,7 @@ from collections.abc import Sequence
 from typing import Any
 
 from deepagents import SubAgent, create_deep_agent
-from langchain_core.messages import AIMessage
+from langchain_core.messages import AIMessage, ToolCall
 from langchain_core.tools import BaseTool
 from langgraph.checkpoint.memory import InMemorySaver
 from langgraph.graph.state import CompiledStateGraph
@@ -27,6 +27,34 @@ def build_delegation_step(
         call_id=call_id,
         arguments={"description": description, "subagent_type": subagent_type},
     )
+
+
+def build_parallel_delegation() -> AIMessage:
+    """Script one step that hands `worker` and `reviewer` a task each, at once."""
+    return AIMessage(
+        content="",
+        tool_calls=[
+            ToolCall(
+                name="task",
+                args={"description": "Find sources.", "subagent_type": "worker"},
+                id="call-task-worker",
+                type="tool_call",
+            ),
+            ToolCall(
+                name="task",
+                args={"description": "Check sources.", "subagent_type": "reviewer"},
+                id="call-task-reviewer",
+                type="tool_call",
+            ),
+        ],
+    )
+
+
+def read_monitor(spec: SubAgent) -> MonitorMiddleware:
+    """Return the monitor `monitor_subagents` added to a spec, the last of its middleware."""
+    monitor = spec.get("middleware", [])[-1]
+    assert isinstance(monitor, MonitorMiddleware)
+    return monitor
 
 
 def build_deep_agent(

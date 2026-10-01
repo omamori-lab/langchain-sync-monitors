@@ -30,6 +30,8 @@ from langchain_sync_monitors.thresholds import (
     DEFAULT_TRUSTED_MONITORING_AUDIT_THRESHOLD,
     DEFER_TO_RESAMPLE_GUIDE_TITLE,
     LIBRARY_DIRECTORY,
+    THRESHOLD_SECTION_TITLE,
+    TRUSTED_MONITORING_GUIDE_TITLE,
     DefaultThreshold,
     ThresholdStatistic,
     UncalibratedThresholdWarning,
@@ -42,32 +44,45 @@ HOW_TO_GUIDES = DOCS / "how-to"
 SINGLE_SAMPLE_AUDIT_WARNING = (
     "audit_threshold uses the uncalibrated default 0.9. Suspicion scores differ between "
     "monitors and agents, so a fixed default may block honest work or miss attacks. Run "
-    "the agent on honest tasks, collect the suspicion scores in monitor_log, and set the "
-    "threshold at a high percentile of them (for example the 98th), or wrap the monitor in "
-    "CalibratedMonitor so that its scores are honest-run percentiles. Pass audit_threshold "
-    "explicitly to silence this warning."
+    "the agent on honest tasks, take the suspicion scores of the monitor_log records whose "
+    "agent and monitor are your MonitorMiddleware's agent_name and label, and set the "
+    "threshold at a high percentile of those scores (for example the 98th), as the section "
+    '"Calibrate the threshold" of the guide "Use Trusted Monitoring" shows, or wrap the '
+    "monitor in CalibratedMonitor so that its scores are honest-run percentiles. Pass "
+    "audit_threshold explicitly to silence this warning."
 )
 SINGLE_SAMPLE_DEFER_WARNING = (
     "defer_threshold uses the uncalibrated default 0.6. Suspicion scores differ between "
     "monitors and agents, so a fixed default may block honest work or miss attacks. Run "
-    "the agent on honest tasks, collect the suspicion scores in monitor_log, and set the "
-    "threshold at a high percentile of them (for example the 98th), or wrap the monitor in "
-    "CalibratedMonitor so that its scores are honest-run percentiles. Pass defer_threshold "
-    "explicitly to silence this warning."
+    "the agent on honest tasks, take the suspicion scores of the monitor_log records whose "
+    "agent and monitor are your MonitorMiddleware's agent_name and label, and set the "
+    "threshold at a high percentile of those scores (for example the 98th), as the section "
+    '"Calibrate the threshold" of the guide "Use Trusted Monitoring" shows, or wrap the '
+    "monitor in CalibratedMonitor so that its scores are honest-run percentiles. Pass "
+    "defer_threshold explicitly to silence this warning."
+)
+SINGLE_SAMPLE_BLOCK_WARNING = (
+    "block_threshold uses the uncalibrated default 0.6. Suspicion scores differ between "
+    "monitors and agents, so a fixed default may block honest work or miss attacks. Run "
+    "the agent on honest tasks, take the suspicion scores of the monitor_log records whose "
+    "agent and monitor are your MonitorMiddleware's agent_name and label, and set the "
+    "threshold at a high percentile of those scores (for example the 98th), as the section "
+    '"Calibrate the threshold" of the guide "Use Trusted Monitoring" shows, or wrap the '
+    "monitor in CalibratedMonitor so that its scores are honest-run percentiles. Pass "
+    "block_threshold explicitly to silence this warning."
 )
 LOWEST_SAMPLE_SCORE_AUDIT_WARNING = (
     "audit_threshold uses the uncalibrated default 0.9. Suspicion scores differ between "
     "monitors and agents, so a fixed default may block honest work or miss attacks. "
     "audit_threshold is compared with the lowest suspicion score across a step's samples, "
     "which is never above the first sample's score, so a percentile of single-sample scores "
-    "sets it too high. Set defer_threshold first, then run the agent on at least a hundred "
-    "honest steps under the DeferToResample you will deploy, with the same defer_threshold, "
-    "max_resamples and resampling. From each monitor_log record that has samples and whose "
-    "agent and monitor are your MonitorMiddleware's agent_name and label, take the lowest "
-    "score, and set the threshold at a high percentile of those scores, for example the 99th "
-    'by statistics.quantiles with method="inclusive", as the section "Calibrate the audit '
-    'threshold" of the guide "Use Defer to Resample" shows. Pass audit_threshold explicitly '
-    "to silence this warning."
+    "sets it too high. Set defer_threshold first, run the agent on at least a hundred honest "
+    "steps under the DeferToResample you will deploy, take the lowest score of each "
+    "monitor_log record that has samples and whose agent and monitor are your "
+    "MonitorMiddleware's agent_name and label, and set the threshold at a high percentile of "
+    'those scores (for example the 99th), as the section "Calibrate the audit threshold" of '
+    'the guide "Use Defer to Resample" shows. Pass audit_threshold explicitly to silence this '
+    "warning."
 )
 
 
@@ -298,14 +313,42 @@ def test_the_uncalibrated_warning_names_the_default_and_says_how_to_calibrate() 
         AutoMode()
 
     # Assert
-    assert [str(warning.message) for warning in record] == [
-        "block_threshold uses the uncalibrated default 0.6. Suspicion scores differ between "
-        "monitors and agents, so a fixed default may block honest work or miss attacks. Run "
-        "the agent on honest tasks, collect the suspicion scores in monitor_log, and set the "
-        "threshold at a high percentile of them (for example the 98th), or wrap the monitor in "
-        "CalibratedMonitor so that its scores are honest-run percentiles. Pass block_threshold "
-        "explicitly to silence this warning."
-    ]
+    assert [str(warning.message) for warning in record] == [SINGLE_SAMPLE_BLOCK_WARNING]
+
+
+QUOTED_WARNING_MARKER = "UncalibratedThresholdWarning: "
+
+
+def read_quoted_uncalibrated_warnings() -> dict[str, list[str]]:
+    """Return each docs page's quotes of an `UncalibratedThresholdWarning`, by page.
+
+    A quote is found anywhere in a line, so one in a blockquote, a list or an
+    indented block counts too, and it runs from the marker to the line's end.
+    """
+    quotes: dict[str, list[str]] = {}
+    for page in sorted(DOCS.rglob("*.md")):
+        if "plans" in page.parts:
+            continue
+        lines = page.read_text(encoding="utf-8").splitlines()
+        quoted = [
+            line[line.index(QUOTED_WARNING_MARKER) :]
+            for line in lines
+            if QUOTED_WARNING_MARKER in line
+        ]
+        if quoted:
+            quotes[str(page.relative_to(DOCS))] = quoted
+    return quotes
+
+
+def test_the_docs_quote_the_uncalibrated_warning_word_for_word() -> None:
+    # Arrange: the literal, so the quote cannot follow the message builder by construction
+    expected_quote = f"UncalibratedThresholdWarning: {SINGLE_SAMPLE_BLOCK_WARNING}"
+
+    # Act
+    quotes = read_quoted_uncalibrated_warnings()
+
+    # Assert
+    assert quotes == {"how-to/combine-and-calibrate-monitors.md": [expected_quote]}
 
 
 def build_default_auto_mode() -> AutoMode:
@@ -422,48 +465,61 @@ def test_defer_to_resample_audit_warning_advises_the_lowest_score_across_samples
     assert "CalibratedMonitor" not in str(record[0].message)
 
 
-def read_lowest_score_audit_warning(fallback: DeferToTrustedModel) -> str:
+GUIDE_SECTIONS = {
+    ThresholdStatistic.SINGLE_SAMPLE_SCORE: (
+        "use-trusted-monitoring.md",
+        TRUSTED_MONITORING_GUIDE_TITLE,
+        THRESHOLD_SECTION_TITLE,
+    ),
+    ThresholdStatistic.LOWEST_SAMPLE_SCORE: (
+        "use-defer-to-resample.md",
+        DEFER_TO_RESAMPLE_GUIDE_TITLE,
+        AUDIT_THRESHOLD_SECTION_TITLE,
+    ),
+}
+"""For each statistic, the guide's file and title, and the section its advice names."""
+
+
+def read_audit_warning(statistic: ThresholdStatistic) -> str:
     with pytest.warns(UncalibratedThresholdWarning) as record:
-        DeferToResample(fallback=fallback, defer_threshold=0.5)
+        resolve_threshold(
+            parameter_name="audit_threshold",
+            threshold=DefaultThreshold(0.9),
+            statistic=statistic,
+        )
     return str(record[0].message)
 
 
-def read_defer_to_resample_guide_lines() -> list[str]:
-    return (HOW_TO_GUIDES / "use-defer-to-resample.md").read_text(encoding="utf-8").splitlines()
+def read_guide_lines(page: str) -> list[str]:
+    return (HOW_TO_GUIDES / page).read_text(encoding="utf-8").splitlines()
 
 
-def test_the_lowest_score_advice_names_the_defer_to_resample_guide_by_its_title(
-    defer_to_trusted_model: DeferToTrustedModel,
+@pytest.mark.parametrize(
+    "statistic",
+    [ThresholdStatistic.SINGLE_SAMPLE_SCORE, ThresholdStatistic.LOWEST_SAMPLE_SCORE],
+    ids=["single-sample-score", "lowest-sample-score"],
+)
+def test_the_advice_names_a_section_of_a_guide_by_their_titles(
+    statistic: ThresholdStatistic,
 ) -> None:
     # Arrange
-    warning = read_lowest_score_audit_warning(defer_to_trusted_model)
+    warning = read_audit_warning(statistic)
+    page, guide_title, section_title = GUIDE_SECTIONS[statistic]
 
     # Act
-    guide_lines = read_defer_to_resample_guide_lines()
+    guide_lines = read_guide_lines(page)
 
     # Assert
-    assert f'the guide "{DEFER_TO_RESAMPLE_GUIDE_TITLE}"' in warning
-    assert guide_lines[0] == f"# {DEFER_TO_RESAMPLE_GUIDE_TITLE}"
+    assert f'the section "{section_title}" of the guide "{guide_title}"' in warning
+    assert guide_lines[0] == f"# {guide_title}"
+    assert f"### {section_title}" in guide_lines
 
 
-def test_the_lowest_score_advice_names_a_section_of_the_defer_to_resample_guide(
-    defer_to_trusted_model: DeferToTrustedModel,
-) -> None:
-    # Arrange
-    warning = read_lowest_score_audit_warning(defer_to_trusted_model)
-
-    # Act
-    guide_lines = read_defer_to_resample_guide_lines()
-
-    # Assert
-    assert f'the section "{AUDIT_THRESHOLD_SECTION_TITLE}"' in warning
-    assert f"### {AUDIT_THRESHOLD_SECTION_TITLE}" in guide_lines
-
-
-def read_audit_threshold_section() -> str:
-    """Return the guide's audit threshold section, up to its next heading, as one line."""
-    lines = read_defer_to_resample_guide_lines()
-    start = lines.index(f"### {AUDIT_THRESHOLD_SECTION_TITLE}") + 1
+def read_guide_section(statistic: ThresholdStatistic) -> str:
+    """Return the section a statistic's advice names, up to its next heading, as one line."""
+    page, _, section_title = GUIDE_SECTIONS[statistic]
+    lines = read_guide_lines(page)
+    start = lines.index(f"### {section_title}") + 1
     section: list[str] = []
     in_code_block = False
     for line in lines[start:]:
@@ -475,46 +531,85 @@ def read_audit_threshold_section() -> str:
     return " ".join(" ".join(section).split())
 
 
+AGENT_AND_LABEL_ADVICE = "whose agent and monitor are your MonitorMiddleware's agent_name and label"
+AGENT_AND_LABEL_RECIPE = 'record["agent"] == agent_name and record["monitor"] == label'
+
+
 @pytest.mark.parametrize(
-    ("advice", "recipe"),
+    ("statistic", "advice", "recipe"),
     [
-        ("Set defer_threshold first", "Set `defer_threshold` first"),
-        (
-            "with the same defer_threshold, max_resamples and resampling",
-            "with the same `defer_threshold`, `max_resamples` and `resampling`",
+        pytest.param(
+            ThresholdStatistic.SINGLE_SAMPLE_SCORE,
+            AGENT_AND_LABEL_ADVICE,
+            AGENT_AND_LABEL_RECIPE,
+            id="single-sample-agent-and-label",
         ),
-        ("at least a hundred honest steps", "at least a hundred honest steps"),
-        (
-            "whose agent and monitor are your MonitorMiddleware's agent_name and label",
-            'record["agent"] == agent_name and record["monitor"] == label',
+        pytest.param(
+            ThresholdStatistic.SINGLE_SAMPLE_SCORE,
+            "take the suspicion scores",
+            'sample["suspicion"] for result in honest_results',
+            id="single-sample-scores",
         ),
-        ("record that has samples", 'and record["samples"]'),
-        ("take the lowest score", 'min(sample["suspicion"] for sample in record["samples"])'),
-        (
-            'the 99th by statistics.quantiles with method="inclusive"',
+        pytest.param(
+            ThresholdStatistic.SINGLE_SAMPLE_SCORE,
+            "(for example the 98th)",
+            'statistics.quantiles(honest_scores, n=100, method="inclusive")[97]',
+            id="single-sample-98th",
+        ),
+        pytest.param(
+            ThresholdStatistic.LOWEST_SAMPLE_SCORE,
+            "Set defer_threshold first",
+            "Set `defer_threshold` first",
+            id="lowest-defer-threshold-first",
+        ),
+        pytest.param(
+            ThresholdStatistic.LOWEST_SAMPLE_SCORE,
+            "at least a hundred honest steps",
+            "at least a hundred honest steps",
+            id="lowest-hundred-steps",
+        ),
+        pytest.param(
+            ThresholdStatistic.LOWEST_SAMPLE_SCORE,
+            "under the DeferToResample you will deploy",
+            "under the `DeferToResample` you will deploy",
+            id="lowest-deployed-protocol",
+        ),
+        pytest.param(
+            ThresholdStatistic.LOWEST_SAMPLE_SCORE,
+            AGENT_AND_LABEL_ADVICE,
+            AGENT_AND_LABEL_RECIPE,
+            id="lowest-agent-and-label",
+        ),
+        pytest.param(
+            ThresholdStatistic.LOWEST_SAMPLE_SCORE,
+            "record that has samples",
+            'and record["samples"]',
+            id="lowest-has-samples",
+        ),
+        pytest.param(
+            ThresholdStatistic.LOWEST_SAMPLE_SCORE,
+            "take the lowest score",
+            'min(sample["suspicion"] for sample in record["samples"])',
+            id="lowest-score",
+        ),
+        pytest.param(
+            ThresholdStatistic.LOWEST_SAMPLE_SCORE,
+            "(for example the 99th)",
             'statistics.quantiles(lowest_scores, n=100, method="inclusive")[98]',
+            id="lowest-99th",
         ),
-    ],
-    ids=[
-        "defer-threshold-first",
-        "same-settings",
-        "hundred-steps",
-        "agent-and-label",
-        "has-samples",
-        "lowest-score",
-        "inclusive-99th",
     ],
 )
-def test_the_lowest_score_advice_agrees_with_the_section_it_names(
-    defer_to_trusted_model: DeferToTrustedModel,
+def test_the_advice_agrees_with_the_section_it_names(
+    statistic: ThresholdStatistic,
     advice: str,
     recipe: str,
 ) -> None:
     # Arrange
-    warning = read_lowest_score_audit_warning(defer_to_trusted_model)
+    warning = read_audit_warning(statistic)
 
     # Act
-    section = read_audit_threshold_section()
+    section = read_guide_section(statistic)
 
     # Assert
     assert advice in warning

@@ -272,8 +272,8 @@ Angelopoulos and Bates give after Vovk (section 3.2, equation 16)
 [@angelopoulos2021gentle]. Its standard deviation is
 `sqrt(t * (1 - t) / (n + 2))`, close to that of a share estimated from `n`
 draws. At `t = 0.99` it is about 0.3 percentage points for a thousand honest
-scores, and about 1 point for a hundred. With ties, or with `(n + 1) * t` not
-a whole number, the spread is close to this but not exactly it.
+scores, and about 1 point for a hundred. When `(n + 1) * t` is not a whole
+number the spread is close to this; with ties it can differ.
 
 | Consequence | What it means |
 |---|---|

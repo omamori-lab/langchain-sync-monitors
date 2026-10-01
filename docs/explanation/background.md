@@ -154,8 +154,7 @@ When a provider returns no log-probabilities, the share of several samples
 that carry the unsafe label estimates the same probability. The evidence for
 sampling comes from studies of confidence in question answering, not of
 guards: Xiong et al. see its gains converge as samples grow (section 5.3),
-and Lyu et al. see them saturate after 15 to 20 samples and advise 3 to 5
-under a tight budget (section 6.3)
+and Lyu et al. see them saturate after 15 to 20 samples (section 6.3)
 [@xiong2024uncertainty; @lyu2025sampleconsistency].
 
 Llama Guard 3 writes its label on the first line and, for unsafe content, the

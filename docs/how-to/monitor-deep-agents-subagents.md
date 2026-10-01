@@ -314,12 +314,12 @@ starting from the delegated task. The monitor does not support forks yet
 (issue #35), and `monitor_subagents` raises `ConfigurationError` for one.
 
 A fork inherits the main agent's middleware, so it runs under `monitor[main]`.
-That monitor reads the fork's task, which the parent agent wrote, as the
-user's words. It records the fork's steps under the main agent's name, but
-with the fork's own delegation, so they neither renumber the main agent's
-steps nor hide the fork's halts from `when_subagent_halts`. This happens whenever a monitored agent has a
-fork, with or without `monitor_subagents`, so give a monitored agent only
-isolated subagents, the default.
+That monitor reads the fork's task, which the parent agent wrote, as the user's
+words. It records the fork's steps under the main agent's name, but with the
+fork's own delegation, so they neither renumber the main agent's steps nor hide
+the fork's halts from `when_subagent_halts`. This happens whenever a monitored
+agent has a fork, with or without `monitor_subagents`, so give a monitored
+agent only isolated subagents, the default.
 
 ## Read the parent's `monitor_log`
 

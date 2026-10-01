@@ -276,9 +276,9 @@ With `random_seed`, `U` comes from the seed and the step's content: the task
 author, the type and text of each earlier message, and the proposal with all
 its parts. The earlier messages' tool calls and ids are left out, since the
 monitor's own messages get fresh random ids on every run; two steps whose
-histories differ only in tool calls get the same draw. The same step always gets the same draw, in every process, so the same
-raw score always gives the same calibrated suspicion, and an evaluation can be
-replayed exactly.
+histories differ only in tool calls get the same draw. The same step always
+gets the same draw, in every process, so the same raw score always gives the
+same calibrated suspicion, and an evaluation can be replayed exactly.
 
 ## Put a fast monitor in front of a careful one
 

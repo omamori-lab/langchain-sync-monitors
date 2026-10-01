@@ -6,11 +6,12 @@ a suspicious step and runs the least suspicious acceptable one.
 [TOC]
 
 Use it when you want to keep most of the stronger model's work and gather
-evidence from repeated samples. Only when every sample looks suspicious does
-a fallback write the step: a trusted model, or a halt. The protocol comes from Ctrl-Z [@bhatt2025ctrlz]. At
-the same deferral threshold it costs much less usefulness than deferring to a
-trusted model at once, since a fresh sample of an innocent step may look
-innocent, and the extra samples are evidence for an audit.
+evidence from repeated samples. Only when every sample looks suspicious does a
+fallback write the step: a trusted model, or a halt. The protocol comes from
+Ctrl-Z [@bhatt2025ctrlz]. At the same deferral threshold it costs much less
+usefulness than deferring to a trusted model at once, since a fresh sample of
+an innocent step may look innocent, and the extra samples are evidence for an
+audit.
 
 ## How it works
 

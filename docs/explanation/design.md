@@ -71,17 +71,19 @@ order:
 | `HumanInTheLoopMiddleware` | `after_model`, `wrap_tool_call` | Its `after_model` runs before the monitor's; its tool wrapper sits inside the monitor's |
 | `UnsupportedContentMiddleware` | `wrap_model_call` | Inside: called once per sample, rewrites the request |
 
-The monitor therefore reads the conversation after summarisation, as the
-agent does, with one addition: each run's input the summary replaced is put
-back in the monitor's copy, verbatim. Every sample passes through the two
-inner model-call layers, which return no commands. Skills, memory, asynchronous subagents and
-harness profiles add layers of their own when they are configured.
+The monitor therefore reads the conversation after summarisation, as the agent
+does, with one addition: each run's input the summary replaced is put back in
+the monitor's copy, verbatim. Every sample passes through the two inner
+model-call layers, which return no commands. Skills, memory, asynchronous
+subagents and harness profiles add layers of their own when they are
+configured.
 
 ### The monitor's hooks
 
 Besides the model call, the monitor wraps every tool call and adds four node
-hooks. One run passes through them in this order, the middle three once per
-agent step:
+hooks. One run passes through them in this order: `before_agent` once,
+`before_model`, `wrap_model_call` and `after_model` once per agent step,
+`wrap_tool_call` once per tool call, and `after_agent` once:
 
 | Hook | What the monitor does there |
 |---|---|
@@ -89,7 +91,7 @@ agent step:
 | `before_model` | Tags the notes written so far, and marks the run open. |
 | `wrap_model_call` | Samples, judges, decides and commits the step. |
 | `after_model` | Ends the run after this monitor's halt ([halts](#halts)). |
-| `wrap_tool_call` | Hands each tool call a `Delegation` ([subagents](#subagents)), and tags the human messages a tool writes. |
+| `wrap_tool_call` | Hands each tool call a `Delegation` ([subagents](#subagents)), tags the human messages a tool writes, drops its writes to the monitor's own keys, and checks its writes to `monitor_log` ([task authorship](#task-authorship-and-notes)). |
 | `after_agent` | Tags the notes written since the last step, and marks the run closed. |
 
 The node hooks count towards `recursion_limit` ([graph steps](#graph-steps)).
@@ -382,13 +384,13 @@ the sources found as its result. Under the default view the judge reads the
 call and not its result; the audit record keeps both. A tool that leaves no
 block is not shown ([what the judge does not see](#what-the-judge-does-not-see)).
 
-When the view keeps only recent entries, every message from the task author
-is kept anyway, in order: the first states the task, and a later one can
-narrow or revoke it. A context note is never kept in their place. After
-summarisation, or after a tool removes a message by id, every run's input
-still reaches the monitor, verbatim and in order
-([task authorship](#task-authorship-and-notes)). Reasoning is read from LangChain's standard content blocks, with a fallback for a reply
-that carries it only in OpenRouter's `reasoning_details`
+When the view keeps only recent entries, every message from the task author is
+kept anyway, in order: the first states the task, and a later one can narrow or
+revoke it. A context note is never kept in their place. After summarisation, or
+after a tool removes a message by id, every run's input still reaches the
+monitor, verbatim and in order ([task authorship](#task-authorship-and-notes)).
+Reasoning is read from LangChain's standard content blocks, with a fallback for
+a reply that carries it only in OpenRouter's `reasoning_details`
 [@langchaincore2026; @langchainopenrouter2026].
 
 ## How a monitor scores
@@ -533,42 +535,35 @@ reads:
   every untagged human message then in the state as seen, and writes each one
   that is not a run's input back, by its id, tagged as a note. The tag is part
   of the message, so a history the application saves or replays keeps it.
-- **When a tool writes messages**, `wrap_tool_call` tags each new human
-  message as a note named after the tool, whether the tool returns a
-  `Command`, a list, or messages as dictionaries, and whatever shape a
-  command's update takes that LangGraph accepts: a dict, pairs of key and
-  value, a dataclass or a pydantic model [@langgraph2026]. A dict comes back
-  a dict, and any other update as the pairs LangGraph writes. A command the
-  tool raises for the parent graph as a `ParentCommand`, itself or from a
-  graph it calls, is relabelled the same way before it goes on. A message
-  written back under the id of one already in the state counts as unchanged
-  only if it has the same type and every field equal, and then keeps its
-  author, as when a tool rewrites the history. One changed in any field, its
-  metadata included, does not, so a tool that edits a message by id cannot
-  put the agent's words in the user's. A tool's `Command` writes to the state
-  keys only the monitor writes, every monitor key but `monitor_log`, are
-  dropped with a warning, in every item of a list result and in a command the
-  tool raises. Its writes to `monitor_log` are checked record by record, in
-  the same places: an `Overwrite` adds the records it holds instead of
-  erasing the log; a write that starts with the whole current log, as when a
-  tool writes the state back, adds only the records after it, while records
-  of the log written back any other way are added again and count twice; a
-  record that claims a step of the calling agent itself is kept out of the
-  log with a warning, and counts as a halted subagent when it is a halt; one
-  that is not a whole `StepRecord` with counts of zero or more is kept out
-  with a warning and counts as a halted subagent. The halts and blocks the
-  records hold wait under `monitor_subagent_returns` for the agent's next
-  step. A malformed record read from the log raises `MonitorError` naming it,
-  its position and the fields at fault. When a tool writes a message under the id of a human message
-  the monitor has seen, the monitor records that id under
-  `monitor_rewritten_inputs`. Once the messages kept before that input are
-  all gone, such a message never marks the input's place, though it still
-  bounds it from above; ids stay as the tool wrote them. A command still
-  addressed to the parent graph is recorded by the parent's monitor. Each
-  item of a list result is read against the state the items before it leave.
+- **When a tool writes**, `wrap_tool_call` checks what the tool writes
+  before LangGraph applies it, case by case, as the table below sets out.
 - **Before a monitor judges a step**, every untagged human message whose id
   is not recorded as input is tagged as a note in the monitor's copy of the
   request, which can hold messages the state lacks.
+
+The checks read every shape a tool's result takes: a `Command`, a list, or
+messages as dictionaries, and any update shape LangGraph accepts, a dict,
+pairs of key and value, a dataclass or a pydantic model [@langgraph2026]. A
+dict comes back a dict, and any other update as the pairs LangGraph writes.
+
+| A tool writes | What the monitor does |
+|---|---|
+| A new human message | Tags it as a note named after the tool. |
+| A message under the id of one already in the state | Keeps its author only if it has the same type and every field equal, as when a tool rewrites the history. One changed in any field, its metadata included, becomes a note, so editing a message by id cannot put the agent's words in the user's. |
+| A message under the id of a human message the monitor has seen | Records that id under `monitor_rewritten_inputs`. Once the messages kept before that input are all gone, such a message never marks the input's place, though it still bounds it from above. Ids stay as the tool wrote them. |
+| To a state key only the monitor writes, every monitor key but `monitor_log` | Drops the write, with a warning. |
+| An `Overwrite` of `monitor_log` | Adds the records it holds instead of erasing the log, with a warning. |
+| The whole current `monitor_log` first, as when it writes the state back | Adds only the records after it. Records of the log written back any other way are added again, and count twice. |
+| A record that claims a step of the calling agent itself | Keeps it out of the log, with a warning, and counts it as a halted subagent when it is a halt. |
+| A record that is not a whole `StepRecord` with counts of zero or more | Keeps it out of the log, with a warning, and counts it as a halted subagent. |
+| A command raised as a `ParentCommand`, itself or from a graph it calls | Checks it the same way before it goes on. |
+| A command still addressed to the parent graph | Leaves it to the parent's monitor, which records it against the parent's state. |
+
+Each item of a list result is read against the state the items before it
+leave. The halts and blocks the kept records hold wait under
+`monitor_subagent_returns` for the agent's next step. A malformed record read
+from the log raises `MonitorError` naming it, its position and the fields at
+fault.
 
 Two sources belong to the monitor alone: `monitor`, on its feedback, and
 `unconfirmed_input`, below. A message a tool writes loses either tag, except
@@ -995,8 +990,8 @@ wrappers, `MonitorView`, the decision models, `monitor_subagents` and
 
 | Class | Raised or emitted when |
 |---|---|
-| `MonitorError` | The base class of the library's own errors. |
-| `ConfigurationError` | An option cannot work. Also at run time: for an invalid `monitor_delegation` in an agent's input, and for a guard model that returns no log-probabilities under `GuardScoring.LOG_PROBABILITIES`, or rejects the request for them. |
+| `MonitorError` | The base class of the library's own errors. Also raised at run time for a malformed record in `monitor_log` or `monitor_subagent_returns`, and for a decision model's answer that is not a probability from 0 to 1. |
+| `ConfigurationError` | An option cannot work. Also at run time: for an invalid `monitor_delegation` in an agent's input; for a guard model that returns no log-probabilities under `GuardScoring.LOG_PROBABILITIES`, or that rejects the request for them under `GuardScoring.AUTO` or `LOG_PROBABILITIES`; and for a tool call that reuses the id of the call that started its agent and returns records under that agent's name ([subagents and the thread total](#subagents-and-the-thread-total)). |
 | `MissingExtraError` | A feature needs an extra that is not installed; the message names the install command. It is a `ConfigurationError` and an `ImportError`. |
 | `SynchronousRunError` | A protocol or monitor needs an event loop under `invoke()` ([sync and async](#sync-and-async)). |
 | `InvalidSuspicionError` | A `Verdict` is built with a suspicion that is NaN or outside 0 to 1. |
@@ -1098,9 +1093,10 @@ limit is linked from where it arises above.
   before a step that failed.
 - **Messages added to a resumed run.** A human message added to a run that
   resumes, through `Command(update=...)` or `update_state`, is never recorded
-  as input, so it is a note from `application`, and it is not kept. That
-  fails closed, but a restriction the user adds that way, such as "do not send anything", then
-  carries no authority with the judge either; send it as a new run's input.
+  as input, so it is a note from `application`, and it is not kept. That fails
+  closed, but a restriction the user adds that way, such as "do not send
+  anything", then carries no authority with the judge either; send it as a new
+  run's input.
 - **Unconfirmed input.** After a run that stopped early, the user's new
   message stays a note from `unconfirmed_input` for the rest of the thread.
   It comes back after summarisation, but, like every note, an entry limit may

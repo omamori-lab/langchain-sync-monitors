@@ -39,7 +39,8 @@ model
 - **Errors.** A halt is a decision like any other, so it never marks a span as
   failed. A span ends with an error only when the step fails: a model or
   monitor call raises, a sample is cancelled because another one failed, or
-  `SynchronousRunError` is raised.
+  `SynchronousRunError` is raised; or with the `GraphInterrupt` when a
+  middleware inside the monitor calls `interrupt()`.
 - **No handler, no span.** With no callback handler attached, the monitor
   opens no span.
 
@@ -364,24 +365,24 @@ explains.
 
 ## Limits
 
-- **What is confirmed live.** The test suite checks the spans and their
-  nesting offline, with a recording handler and with LangSmith's tracer on a
-  mock client, where it also checks the parent of each span LangSmith
-  receives. No test runs Langfuse's handler. Read back through their APIs,
-  LangSmith and Langfuse Cloud show the trees, fields and filters on this
-  page as described, with langsmith 0.14.1 and langfuse 4.15.6, under
-  `invoke()` and `ainvoke()`. That covers allowed, steered, resampled,
-  deferred and halted steps, a step whose monitor call raised, a Deep Agents
-  subagent, the Decisions API monitor against a fake server, and real chat,
-  guard and subagent model calls. The Langfuse handler, the two query
-  examples and the `astream_events` example run as written. The
-  `monitor call` name, the model each tool shows for such a call, and the
-  four- and five-name filters were confirmed live in both tools too, with
-  langsmith 0.14.2, langfuse 4.16.0 and a real OpenRouter model. A cancelled sample,
-  `SynchronousRunError`, stacked monitors, parallel resampling, a monitor's
-  own `traceable` code, `TypeSafeDecisionModel`, the attempts of a classifier
-  wrapped in `with_retry()` and what each tool's UI shows, its Trajectory
-  view included, rest on the tests and the tools' source alone.
+- **What is confirmed live.** The test suite checks the spans and their nesting
+  offline, with a recording handler and with LangSmith's tracer on a mock
+  client, where it also checks the parent of each span LangSmith receives. No
+  test runs Langfuse's handler. Read back through their APIs, LangSmith and
+  Langfuse Cloud show the trees, fields and filters on this page as described,
+  with langsmith 0.14.1 and langfuse 4.15.6, under `invoke()` and `ainvoke()`.
+  That covers allowed, steered, resampled, deferred and halted steps, a step
+  whose monitor call raised, a Deep Agents subagent, the Decisions API monitor
+  against a fake server, and real chat, guard and subagent model calls. The
+  Langfuse handler, the two query examples and the `astream_events` example run
+  as written. The `monitor call` name, the model each tool shows for such a
+  call, and the four- and five-name filters were confirmed live in both tools
+  too, with langsmith 0.14.2, langfuse 4.16.0 and a real OpenRouter model. A
+  cancelled sample, `SynchronousRunError`, stacked monitors, parallel
+  resampling, a monitor's own `traceable` code, `TypeSafeDecisionModel`, the
+  attempts of a classifier wrapped in `with_retry()` and what each tool's UI
+  shows, its Trajectory view included, rest on the tests and the tools' source
+  alone.
 - **Two tracers together can split a trace.** The monitor opens its spans
   from the model node's own callback manager, so they nest under `model` for
   every handler. With LangSmith and a second tracer attached together, other

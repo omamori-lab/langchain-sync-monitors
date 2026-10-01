@@ -129,7 +129,7 @@ is the kind.
 | Kind | `outcome` | How to tell it | The step's message |
 |---|---|---|---|
 | A standing halt | `halted` | This monitor's previous record for this agent is `halted` too | `STANDING_HALT_MESSAGE` |
-| A subagent's halt | `halted` | The parent's monitor uses `SubagentHalt.STOP_WHOLE_RUN`, and a tool call since the agent's previous step returned a subagent's `halted` record, or a record the monitor could not read | Names the subagent, such as "[Safety monitor] Stopped: the safety monitor halted the subagent researcher, so this agent stops too."; a subagent that shares the parent's name is named by the task's `subagent_type`, and one nested deeper by its name and the call that started it, as in "the subagent main that the call call-middle started" |
+| A subagent's halt | `halted` | The parent's monitor uses `SubagentHalt.STOP_WHOLE_RUN`, and a tool call since the agent's previous step returned a subagent's `halted` record, or a record the monitor could not read, which stays out of the log: a `langchain_sync_monitors.returned_records` warning names it | Names the subagent, such as "[Safety monitor] Stopped: the safety monitor halted the subagent researcher, so this agent stops too."; a subagent that shares the parent's name is named by the task's `subagent_type`, and one nested deeper by its name and the call that started it, as in "the subagent main that the call call-middle started" |
 | Auto Mode's thread total | `halted` | Neither: the subagents' records after the agent's own previous record carry the blocks that took the thread to `max_total_blocks` | The fallback's message: `DEFAULT_HALT_MESSAGE` for `HaltRun()` |
 | Auto Mode's thread total, deferred | `deferred_to_trusted` | As above, with `when_limit_reached=DeferToTrustedModel(...)` | The trusted model's step |
 
@@ -284,18 +284,19 @@ not append them. With `FeedbackVisibility.IN_TRANSCRIPT`, a blocked attempt
 and its feedback are committed as part of the conversation, so they stream
 with the step that follows them.
 
-The monitor keeps six private keys in the state: `monitor_task_messages`,
+The monitor keeps seven private keys in the state: `monitor_task_messages`,
 `monitor_seen_human_messages`, `monitor_run_inputs`,
-`monitor_rewritten_inputs`, `monitor_run_open` and `monitor_inputs_at_halt`.
-They record which human messages were a run's input and the text of each,
-the inputs a tool wrote over, and how many inputs the thread had at a halt,
-so `monitor_run_inputs` holds the text of the user's turns. They never enter a run's
-input or the result of `invoke()` and `ainvoke()`, but `values`, `updates`
-and `agent.get_state(config)` show them. One more key, `monitor_delegation`,
-is part of every monitored agent's input: the monitor sets it for each
-subagent it starts, so leave it out of your own input.
-[What streams](../explanation/design.md#what-streams) explains how the
-library keeps the other calls out of the message stream.
+`monitor_rewritten_inputs`, `monitor_run_open`, `monitor_inputs_at_halt` and
+`monitor_subagent_returns`. They record which human messages were a run's input
+and the text of each, the inputs a tool wrote over, how many inputs the thread
+had at a halt, and the subagent halts and blocks a tool call returned, until
+the next step. So `monitor_run_inputs` holds the text of the user's turns. They
+never enter a run's input or the result of `invoke()` and `ainvoke()`, but
+`values`, `updates` and `agent.get_state(config)` show them. One more key,
+`monitor_delegation`, is part of every monitored agent's input: the monitor
+sets it for each subagent it starts, so leave it out of your own input. [What
+streams](../explanation/design.md#what-streams) explains how the library keeps
+the other calls out of the message stream.
 
 ## Allow for the graph steps
 

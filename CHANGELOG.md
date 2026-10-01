@@ -59,8 +59,8 @@ change raises the minor version.
   such as `with_fallbacks(...)` or queued on a configurable model.
 - The middleware's `before_agent`, `before_model`, `after_model` and
   `after_agent` hooks, which show as graph nodes in a trace and add two graph
-  steps per model call and two per run, all counted by an explicit
-  `recursion_limit`.
+  steps per agent step (each run of the model node), however many samples it
+  draws, and two per run, all counted by an explicit `recursion_limit`.
 - Seven private state keys, `monitor_task_messages`,
   `monitor_seen_human_messages`, `monitor_run_inputs`,
   `monitor_rewritten_inputs`, `monitor_run_open`, `monitor_inputs_at_halt` and

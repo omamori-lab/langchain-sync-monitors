@@ -52,7 +52,8 @@ the install commands without it:
 uv add "langchain-sync-monitors[typesafe]"
 ```
 
-With pip, run `pip install "langchain-sync-monitors[typesafe]"` instead.
+With pip, run `pip install "langchain-sync-monitors[typesafe]"` instead;
+[Install](../index.md#install) says what each command needs.
 
 ```python
 from langchain_typesafe import TypeSafeClassifier

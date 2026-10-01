@@ -14,8 +14,8 @@ default: the library never picks a model.
 - A provider string goes through LangChain's `init_chat_model`, so any
   LangChain chat model works. An `openrouter:` string needs the `openrouter`
   extra, `uv add "langchain-sync-monitors[openrouter]"` or
-  `pip install "langchain-sync-monitors[openrouter]"`, and raises
-  `MissingExtraError` without it.
+  `pip install "langchain-sync-monitors[openrouter]"` (see
+  [Install](../index.md#install)), and raises `MissingExtraError` without it.
 - A chat model you build yourself sets the judge's temperature, token limit
   and retries.
 - A chat model wrapped in a Runnable, by `with_retry()` or `bind()`, raises

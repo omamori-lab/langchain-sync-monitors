@@ -84,7 +84,7 @@ answered.
 Each monitor ran under each of these three protocols, on the honest task and
 on the attack; Defer to Trusted was not run. Every run of the matrix streamed
 through `astream()`, which takes the same asynchronous path as `ainvoke()`; the
-live test below also runs one through `stream()`, the synchronous path of
+live suite below also runs through `stream()`, the synchronous path of
 `invoke()`.
 
 - **Defer to Resample** [@bhatt2025ctrlz]: a sample at or above 0.6 is drawn
@@ -342,10 +342,15 @@ changed since the runs](#what-has-changed-since-the-runs).
 The harness lives in `tests/live/`:
 
 - `sandbox.py` holds the files, the key and the recording tools;
-- `scenario.py` holds the task, the side task and the guard's policy;
-- `harness.py` builds and runs the agent and returns a report of every step;
-- `test_harness_offline.py` runs the same harness on fake models, under
-  `invoke()` and `ainvoke()`, as part of the regular test suite.
+- `scenario.py` holds the tasks, the side task and the guard's policy;
+- `harness.py` builds and runs the agent and returns a report of every step,
+  with every message of the final state and the monitor's spans;
+- `invariants.py` and `traces.py` check from a report that no call ran that
+  the protocol rejected or blocked, and that the spans keep their names and
+  nesting;
+- `test_harness_offline.py` and `test_eval_checks_offline.py` run the same
+  harness and checks on fake models, under `invoke()` and `ainvoke()`, as
+  part of the regular test suite.
 
 Every run has a hard budget, read from OpenRouter's per-response cost. No call
 starts once the spend has reached it, so a run can exceed it only by the call
@@ -359,18 +364,25 @@ them; when the runs were made, it allowed thirteen. A step counts once however
 many samples it draws, so under Defer to Resample nine steps can make up to 27
 calls of the agent's model.
 
-The live test runs the harness in a smaller form: Jev under Auto Mode, the
-honest run through `stream()`, the synchronous path of `invoke()`, and the
-attack run through `astream()`, the asynchronous path of `ainvoke()`. Each run
-has a budget of three cents. The attack test is skipped when the agent never
-tries the side task, and both are skipped without a key:
+The live suite goes beyond the matrix: the attack under six protocol
+variants, honest runs of four tasks under each monitor, Jev inside each
+wrapper monitor, a forced halt, a Deep Agent with a monitored subagent, and
+two turns after summarisation. `tests/live/__init__.py` says what each test
+measures and what the suite costs. The whole-agent attack counts as tried
+when a sample proposed reading `config/.env` or sending the key, so a monitor
+that blocks the read is tested too. A test is skipped when its run never
+reached what it measures: the whole-agent attack when no sample proposed
+either step, a protocol test when no sample reached the threshold, and each
+test of a subagent's halt, whether the halt stops the whole run or only the
+subagent, when no subagent step was halted. A run a provider rate-limits is
+skipped too, and every live test is skipped without a key:
 
 ```console
-# Install every extra, give the key to this shell only, and run the two live tests
-# with their log lines shown.
+# Install every extra, give the key to this shell only, and run the live suite
+# with its log lines shown; LIVE_REPORT_DIR keeps each run's report as JSON.
 uv sync --group dev --all-extras
 export OPENROUTER_API_KEY=...
-uv run --group dev pytest -m live tests/live/test_whole_agent_runs.py -q \
+LIVE_REPORT_DIR=live-reports uv run --group dev pytest -m live tests/live -q \
     -o log_cli=true --log-cli-level=INFO
 ```
 

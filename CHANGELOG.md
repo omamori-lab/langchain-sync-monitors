@@ -408,5 +408,11 @@ change raises the minor version.
   its step is over, as it does under `invoke()`: a task a protocol started and
   did not await raises `MonitorError`, where it used to call the model after
   the step was committed.
+- A custom protocol's decision whose `response` is not a `ModelResponse`
+  holding a list of messages, such as a bare `AIMessage`, fails the step with
+  `MonitorError` naming the protocol, reported as a `MonitorStepFailedEvent`
+  with its judged samples. It used to stream a `monitor_step` record and then
+  raise `AttributeError`, with no samples reported; a commit now streams its
+  record last.
 
 [Unreleased]: https://github.com/omamori-lab/langchain-sync-monitors/commits/main

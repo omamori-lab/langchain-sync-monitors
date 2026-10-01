@@ -49,7 +49,7 @@ from langchain_sync_monitors._langchain import (
     ToolCallResult,
     hide_model_calls_from_message_stream,
 )
-from langchain_sync_monitors.commits import commit_step, report_failed_step
+from langchain_sync_monitors.commits import check_step_decision, commit_step, report_failed_step
 from langchain_sync_monitors.contracts import (
     ControlProtocol,
     Fallback,
@@ -272,7 +272,8 @@ class MonitorMiddleware(AgentMiddleware[MonitorState, AgentContext, StructuredOu
                 step = SyncPendingStep(handler=handler, **prepared.options)
                 try:
                     with hide_model_calls_from_message_stream():
-                        decision = run_synchronously(self.protocol.decide(step))
+                        decided = run_synchronously(self.protocol.decide(step))
+                    decision = check_step_decision(decided, protocol=self.protocol)
                 except GraphBubbleUp:
                     # LangGraph's own control flow, such as an interrupt, is not a failed step.
                     raise
@@ -314,7 +315,8 @@ class MonitorMiddleware(AgentMiddleware[MonitorState, AgentContext, StructuredOu
                 step = AsyncPendingStep(handler=handler, **prepared.options)
                 try:
                     with hide_model_calls_from_message_stream():
-                        decision = await self.protocol.decide(step)
+                        decided = await self.protocol.decide(step)
+                    decision = check_step_decision(decided, protocol=self.protocol)
                 except GraphBubbleUp:
                     # LangGraph's own control flow, such as an interrupt, is not a failed step.
                     raise

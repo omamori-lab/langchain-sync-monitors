@@ -12,6 +12,7 @@ import logging
 from collections.abc import Sequence
 
 from langchain.agents.middleware.types import ExtendedModelResponse, ModelResponse
+from langchain_core.messages import BaseMessage
 from langgraph.types import Command
 
 from langchain_sync_monitors._langchain import (
@@ -24,13 +25,16 @@ from langchain_sync_monitors._langchain import (
     write_stream_event,
 )
 from langchain_sync_monitors.contracts import (
+    ControlProtocol,
     FeedbackVisibility,
     SampleRecord,
     StepDecision,
     StepRecord,
 )
+from langchain_sync_monitors.errors import MonitorError
 from langchain_sync_monitors.feedback import build_blocked_attempt_messages
 from langchain_sync_monitors.halts import build_halt_inputs_update
+from langchain_sync_monitors.options import describe_option_value
 from langchain_sync_monitors.pending_steps import MonitoredStep
 from langchain_sync_monitors.records import build_sample_record
 from langchain_sync_monitors.run_inputs import build_refresh_update
@@ -92,6 +96,34 @@ def report_failed_step(
         )
 
 
+def check_step_decision(decision: object, *, protocol: ControlProtocol) -> StepDecision:
+    """Return a protocol's decision once it has the shape a commit reads, else raise `MonitorError`.
+
+    A decision must be a `StepDecision` whose `response` is a `ModelResponse`
+    that holds a list of messages. A custom protocol could return a bare
+    `AIMessage` there, which `wrap_model_call` itself accepts from a
+    middleware [@langchain2026]; the commit would then fail after streaming
+    the step's record, and report none of its judged samples. Checked inside
+    the step instead, a malformed decision fails it as any error does.
+    """
+    protocol_name = type(protocol).__name__
+    if not isinstance(decision, StepDecision):
+        message = (
+            f"{protocol_name}.decide returned {describe_option_value(decision)}, not a StepDecision"
+        )
+        raise MonitorError(message)
+    response = decision.response
+    is_model_response = isinstance(response, ModelResponse) and isinstance(response.result, list)
+    if not is_model_response or not all(isinstance(item, BaseMessage) for item in response.result):
+        message = (
+            f"{protocol_name} decided with a response that is {describe_option_value(response)}, "
+            "not a ModelResponse holding a list of messages: wrap the messages in "
+            "ModelResponse(result=[...])"
+        )
+        raise MonitorError(message)
+    return decision
+
+
 def commit_step(
     request: AgentModelRequest,
     *,
@@ -102,17 +134,14 @@ def commit_step(
 ) -> ExtendedModelResponse[StructuredOutput]:
     """Commit the decided messages and append the step's record to `monitor_log`.
 
-    The record is also written to `stream_mode="custom"` as it is committed.
+    The record is also written to `stream_mode="custom"`, once the response
+    and the update are built, so a commit that fails streams no record.
     With `FeedbackVisibility.IN_TRANSCRIPT`, each blocked attempt and its
     feedback come before the step's own messages. The untagged human
     messages in the state that the monitor had not seen are recorded as
     seen, so the next run does not take them for its input, and the
     subagent halts and blocks the step answered are removed.
     """
-    write_stream_event(request, event=MonitorStepEvent(type="monitor_step", record=record))
-    logger.debug(
-        "%s committed step %d: %s", middleware_name, record["step_number"], record["outcome"]
-    )
     messages = list(decision.response.result)
     if feedback_visibility is FeedbackVisibility.IN_TRANSCRIPT:
         messages = [*build_blocked_attempt_messages(decision=decision), *messages]
@@ -130,4 +159,8 @@ def commit_step(
         **build_halt_inputs_update(record, state=request.state, monitor=middleware_name),
         **build_answered_update(request.state),
     }
+    write_stream_event(request, event=MonitorStepEvent(type="monitor_step", record=record))
+    logger.debug(
+        "%s committed step %d: %s", middleware_name, record["step_number"], record["outcome"]
+    )
     return ExtendedModelResponse(model_response=response, command=Command(update=update))

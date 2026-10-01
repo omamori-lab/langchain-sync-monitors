@@ -966,7 +966,10 @@ the error propagates unchanged. Before it does, the middleware writes a
 `stream_mode="custom"`, with every sample the monitor had judged, none if it
 had judged nothing, and the `delegation_id` inside a subagent. When there are
 judged samples, it also logs them at warning level, each with its suspicion,
-reason and proposal.
+reason and proposal. A protocol's decision is checked inside the step as
+well: one that is not a `StepDecision` whose `response` is a `ModelResponse`
+holding a list of messages fails the step the same way, with `MonitorError`
+naming the protocol, before any record is streamed.
 
 A middleware outside the monitor that retries failed model calls, such as
 LangChain's `ModelRetryMiddleware` or `ModelFallbackMiddleware`, runs the
@@ -1005,7 +1008,7 @@ wrappers, `MonitorView`, the decision models, `monitor_subagents` and
 
 | Class | Raised or emitted when |
 |---|---|
-| `MonitorError` | The base class of the library's own errors. Also raised at run time for a malformed record in `monitor_log` or `monitor_subagent_returns`, for a decision model's answer that is not a probability from 0 to 1, and for a pending step used after its step under `ainvoke()` ([sync and async](#sync-and-async)). |
+| `MonitorError` | The base class of the library's own errors. Also raised at run time for a malformed record in `monitor_log` or `monitor_subagent_returns`, for a decision model's answer that is not a probability from 0 to 1, for a protocol's decision of the wrong shape ([failed steps](#failed-steps)), and for a pending step used after its step under `ainvoke()` ([sync and async](#sync-and-async)). |
 | `ConfigurationError` | An option cannot work. Also at run time: for an invalid `monitor_delegation` in an agent's input; for a guard model that returns no log-probabilities under `GuardScoring.LOG_PROBABILITIES`, or that rejects the request for them under `GuardScoring.AUTO` or `LOG_PROBABILITIES`; and for a tool call that reuses the id of the call that started its agent and returns records under that agent's name ([subagents and the thread total](#subagents-and-the-thread-total)). |
 | `MissingExtraError` | A feature needs an extra that is not installed; the message names the install command. It is a `ConfigurationError` and an `ImportError`. |
 | `SynchronousRunError` | A protocol or monitor needs an event loop under `invoke()` ([sync and async](#sync-and-async)). |

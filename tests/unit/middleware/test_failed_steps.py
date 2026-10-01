@@ -10,13 +10,14 @@ from __future__ import annotations
 import asyncio
 import logging
 from collections.abc import Sequence
-from typing import Any
+from dataclasses import dataclass
+from typing import Any, cast
 
 import pytest
 from langchain.agents import create_agent
 from langchain.agents.middleware import ModelRetryMiddleware
-from langchain.agents.middleware.types import AgentMiddleware
-from langchain_core.messages import AIMessage
+from langchain.agents.middleware.types import AgentMiddleware, ModelResponse
+from langchain_core.messages import AIMessage, BaseMessage
 from langchain_core.runnables import Runnable, RunnableConfig
 from langgraph.checkpoint.memory import InMemorySaver
 from langgraph.graph.state import CompiledStateGraph
@@ -32,6 +33,7 @@ from langchain_sync_monitors.contracts import (
     StepDecision,
     Verdict,
 )
+from langchain_sync_monitors.errors import MonitorError
 from langchain_sync_monitors.middleware import MonitorMiddleware
 from langchain_sync_monitors.protocols import (
     AutoMode,
@@ -225,6 +227,68 @@ def test_a_step_that_fails_before_any_verdict_writes_an_empty_event_and_no_warni
     [event] = find_failed_step_events(events)
     assert event["samples"] == []
     assert read_warnings(caplog) == []
+
+
+@dataclass(kw_only=True)
+class MalformedDecision(ControlProtocol):
+    """Judges one sample, then decides with a response of the wrong shape, or no decision."""
+
+    response: object
+    return_the_decision: bool = True
+
+    async def decide(self, step: PendingStep) -> StepDecision:
+        [sample] = await step.sample(count=1)
+        decision = StepDecision(
+            outcome=Outcome.DEFERRED_TO_TRUSTED,
+            response=cast("ModelResponse", self.response),
+            samples=(sample,),
+            executed_sample=None,
+            flagged=True,
+        )
+        return decision if self.return_the_decision else cast("StepDecision", self.response)
+
+
+MALFORMED_DECISIONS = {
+    "bare-ai-message": (MalformedDecision(response=AIMessage("I cannot help.")), "a response"),
+    "response-holding-one-message": (
+        MalformedDecision(
+            response=ModelResponse(result=cast("list[BaseMessage]", AIMessage("I cannot help.")))
+        ),
+        "a response",
+    ),
+    "no-step-decision": (
+        MalformedDecision(response=AIMessage("I cannot help."), return_the_decision=False),
+        "not a StepDecision",
+    ),
+}
+
+
+@pytest.mark.parametrize(
+    ("protocol", "complaint"), MALFORMED_DECISIONS.values(), ids=MALFORMED_DECISIONS.keys()
+)
+def test_a_malformed_decision_fails_the_step_and_streams_no_record(
+    run_mode: RunMode,
+    protocol: MalformedDecision,
+    complaint: str,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    # Arrange
+    caplog.set_level(logging.WARNING, logger=MIDDLEWARE_LOGGER)
+    model = FlakyChatModel(replies=[build_exfiltration_step()])
+    agent = build_agent(model, protocol=protocol)
+
+    # Act
+    events, error = stream_custom_events(agent, mode=run_mode)
+
+    # Assert: the step fails as any error does, with its judged sample reported
+    assert isinstance(error, MonitorError)
+    assert "MalformedDecision" in str(error)
+    assert complaint in str(error)
+    assert [event["type"] for event in events] == ["monitor_step_failed"]
+    [event] = events
+    assert event["samples"][0]["suspicion"] == EXFILTRATION_SUSPICION
+    [warning] = read_warnings(caplog)
+    assert "attacker.example" in warning
 
 
 def test_a_committed_step_writes_no_failure_event(run_mode: RunMode) -> None:

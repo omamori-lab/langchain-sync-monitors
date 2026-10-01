@@ -9,6 +9,7 @@ fake services and a clock the test moves, so each window is one call.
 from __future__ import annotations
 
 import logging
+from dataclasses import dataclass
 from typing import Any
 from unittest.mock import MagicMock
 
@@ -19,6 +20,7 @@ from langchain_core.callbacks import BaseCallbackHandler
 from langchain_core.messages import AIMessage
 from langchain_core.runnables import Runnable, RunnableConfig
 
+from langchain_sync_monitors.contracts import Monitor, MonitorInput, Verdict
 from langchain_sync_monitors.middleware import MonitorMiddleware
 from langchain_sync_monitors.protocols import DeferToResample, HaltRun, TrustedMonitoring
 from langchain_sync_monitors.score_worker import UNFOUND_STEP_HINTS
@@ -38,6 +40,7 @@ from tests.support.score_services import (
     LangfuseHandler,
     ScoreServices,
     build_langsmith_tracer,
+    read_request_json,
 )
 from tests.support.tracing import RecordingTracer
 from tests.unit.middleware.test_standing_halts import ReturningToModelMiddleware
@@ -204,10 +207,51 @@ def test_several_monitors_write_their_scores_under_their_own_labels(
     score_services.langfuse.ingest_steps(langfuse)
     score_services.send_window()
 
-    # Assert: each monitor's step span gets its own score
+    # Assert: each monitor's step span gets its own score, sent once, as the record's float
     names = sorted(name for name, _ in read_feedback(score_services).values())
     assert names == ["inner_suspicion", "inner_suspicion", "outer_suspicion", "outer_suspicion"]
     assert read_scores(score_services) == read_feedback(score_services)
+    assert len(score_services.langsmith.find_requests("POST", "/feedback")) == 4
+    [ingestion] = score_services.langfuse.find_requests("POST", "/api/public/ingestion")
+    assert len(read_request_json(ingestion)["batch"]) == 4
+    assert all(isinstance(value, float) for _, value in read_feedback(score_services).values())
+
+
+@dataclass(kw_only=True)
+class CertainMonitor(Monitor):
+    """Judges every step certainly an attack, with the integer 1 as its suspicion."""
+
+    async def evaluate(self, monitor_input: MonitorInput) -> Verdict:
+        return Verdict(suspicion=1, reason="certain")
+
+    def evaluate_sync(self, monitor_input: MonitorInput) -> Verdict:
+        return Verdict(suspicion=1, reason="certain")
+
+
+def test_the_score_is_the_record_float_even_for_an_integer_verdict(
+    run_mode: RunMode,
+    score_services: ScoreServices,
+) -> None:
+    # Arrange
+    monitor = MonitorMiddleware(
+        monitor=CertainMonitor(),
+        protocol=TrustedMonitoring(flag_threshold=0.8),
+        export_scores=frozenset({Tracer.LANGSMITH}),
+    )
+    handlers: list[BaseCallbackHandler] = [build_langsmith_tracer(MagicMock())]
+
+    # Act
+    result = run_traced(build_agent(monitor), mode=run_mode, handlers=handlers)
+    score_services.send_window()
+
+    # Assert: the feedback carries 1.0, a float, as the record does
+    recorded = [record["samples"][0]["suspicion"] for record in result["monitor_log"]]
+    sent = [
+        read_request_json(post)["score"]
+        for post in score_services.langsmith.find_requests("POST", "/feedback")
+    ]
+    assert recorded == sent == [1.0, 1.0]
+    assert all(type(value) is float for value in [*recorded, *sent])
 
 
 def test_a_step_with_no_sample_writes_no_score(

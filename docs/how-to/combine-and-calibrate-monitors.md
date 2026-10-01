@@ -263,15 +263,15 @@ The step takes one of `n + 1` places in the sorted list of honest scores.
 `below` counts the honest scores lower than the step's score, and `tied`
 counts those equal to it. `U` is a random number from 0 up to 1, which spreads
 the step evenly over its own place and the places of the honest scores it ties
-with. Breaking ties at random follows Makins et al. and LinuxArena
-[@makins2026multiagent; @tracy2026linuxarena].
+with. Makins et al. and LinuxArena also break ties at random in their control
+evaluations [@makins2026multiagent; @tracy2026linuxarena].
 
 This is the smoothed conformal p-value of Vovk et al., with the step's raw
 score in the place of their conformity score and `U` as their uniform random
 number; their count of ties includes the step itself, which gives `tied + 1`
-(section 2, equation 2) [@vovk2016criteria]. They credit the uniform
-distribution of such p-values to Vovk, Gammerman and Shafer's book
-[@vovk2005algorithmic].
+(section 2, equation 2) [@vovk2016criteria]. In the same section they credit
+the uniform distribution of such p-values to proposition 2.8 of Vovk,
+Gammerman and Shafer's book [@vovk2016criteria; @vovk2005algorithmic].
 
 The guarantee holds when the step's raw score is exchangeable with the honest
 scores: the step comes from the same kind of honest run, scored by the same

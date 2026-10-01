@@ -144,10 +144,10 @@ class CalibratedMonitor(Monitor):
     p-value of Vovk et al., with the raw score in the place of their
     conformity score (section 2, equation 2) [@vovk2016criteria], and its ties
     are broken at random as Makins et al. and LinuxArena break them
-    [@makins2026multiagent; @tracy2026linuxarena]. For steps whose raw scores
-    are exchangeable with the honest scores, a threshold of 0.99 then flags
-    1% of them on average. The formula, and what a threshold on it means, are
-    in `docs/how-to/combine-and-calibrate-monitors.md` ("What a calibrated
+    [@makins2026multiagent; @tracy2026linuxarena]. The formula, and the
+    guarantee that a threshold of 0.99 flags 1% of the steps whose raw scores
+    are exchangeable with the honest scores, on average, are in
+    `docs/how-to/combine-and-calibrate-monitors.md` ("What a calibrated
     threshold means").
 
     Collect `honest_scores` by running the wrapped monitor, with the same

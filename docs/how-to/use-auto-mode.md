@@ -257,9 +257,7 @@ A blocked attempt is answered in a way every provider accepts:
   attempts and their feedback. The agent's messages show the accepted step
   alone, and `monitor_log` keeps the blocked attempts.
 - With `IN_TRANSCRIPT`, the blocked attempts and their feedback are committed
-  before the accepted step, as in Claude Code
-  ([Auto Mode](../explanation/design.md#auto-mode)). The
-  agent remembers the blocked attempts on later steps, and so does the
+  before the accepted step. The agent remembers the blocked attempts on later steps, and so does the
   monitor, which reads earlier feedback as `<monitor_feedback>`. Keep
   `HIDDEN` for an Auto Mode monitor that sits inside another monitor: a
   monitor outside it would judge the first blocked attempt instead of the

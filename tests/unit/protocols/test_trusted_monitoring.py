@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from langchain_sync_monitors.contracts import Outcome
+from langchain_sync_monitors.contracts import Outcome, SampleDrawing
 from langchain_sync_monitors.errors import ConfigurationError
 from langchain_sync_monitors.protocols import TrustedMonitoring
 
@@ -28,7 +28,9 @@ def test_benign_step_runs_unflagged(protocol: TrustedMonitoring, drive: StepDriv
     assert decision.flagged is False
     assert decision.executed_sample is step.drawn_samples[0]
     assert decision.response is step.drawn_samples[0].response
-    assert step.sample_calls == [SampleCall(count=1, blocked_attempts=(), concurrently=False)]
+    assert step.sample_calls == [
+        SampleCall(count=1, blocked_attempts=(), drawing=SampleDrawing.SEQUENTIAL),
+    ]
 
 
 @pytest.mark.parametrize("suspicion", [0.6, 0.95])

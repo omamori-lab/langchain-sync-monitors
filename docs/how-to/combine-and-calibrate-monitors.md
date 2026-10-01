@@ -19,9 +19,15 @@ UncalibratedThresholdWarning: block_threshold uses the uncalibrated default 0.6.
 
 Treat the defaults as placeholders. Each monitor spreads its scores
 differently, and an agent's honest work looks more or less unusual depending
-on its task and tools. Control evaluations set each threshold from the scores
-the monitor gives to honest runs, so that it spends a known audit budget
-([where the ideas come from](../explanation/background.md#thresholds-and-scores)).
+on its task and tools. Control evaluations set thresholds from the scores the
+monitor gives to honest runs, and the audit threshold spends a known audit
+budget: 2% of honest solutions in AI Control (section 3.2)
+[@greenblatt2023aicontrol], and 1% of honest actions in Ctrl-Z (section 2.2;
+appendix C) [@bhatt2025ctrlz]. A defer threshold is a percentile of the same
+scores, but it trades usefulness for safety rather than spending a budget, so
+it can sit much lower, as Ctrl-Z notes (section 3.1.3) [@bhatt2025ctrlz].
+[Thresholds](choose-a-protocol.md#thresholds) gives the defer percentiles
+each source uses.
 
 A threshold may be any real number from 0 to 1, a `Fraction` or a `Decimal`
 included. It is checked exactly, before it becomes a float, so a `Decimal`
@@ -34,7 +40,8 @@ honest runs does what it asks. There are two ways to choose one:
 - Take a high percentile of the raw honest scores. This is simple, but a
   percentile that falls among tied scores flags every step in the tie.
 - Wrap the monitor in `CalibratedMonitor`. Its scores are then honest-run
-  percentiles, so a threshold of 0.99 flags about 1% of honest steps.
+  percentiles, so a threshold of 0.99 compared with one sample's score flags
+  about 1% of honest steps.
 
 The rest of this guide takes the second way.
 
@@ -46,7 +53,7 @@ around the other wrappers, and every protocol accepts it.
 | Wrapper | What it reports | Calls per judged sample | Reason |
 |---|---|---|---|
 | `RepeatedMonitor(monitor=..., ensemble_size=...)` | The mean suspicion of `ensemble_size` calls | `ensemble_size` times the wrapped monitor's | The most suspicious call's |
-| `CalibratedMonitor(monitor=..., honest_scores=..., random_seed=...)` | The percentile rank of the score among honest scores | The wrapped monitor's, and no more | The wrapped monitor's |
+| `CalibratedMonitor(monitor=..., honest_scores=..., random_seed=...)` | The smoothed conformal p-value of the score against honest scores | The wrapped monitor's, and no more | The wrapped monitor's |
 | `CascadeMonitor(fast=..., careful=..., escalation_threshold=...)` | The fast verdict, or the careful one when the fast suspicion reaches `escalation_threshold` | The fast monitor's, plus the careful monitor's for escalated samples | The verdict's own |
 
 The wrappers never add a score to a reason. Auto Mode shows the reason to the
@@ -232,8 +239,15 @@ middleware = MonitorMiddleware(
 
 Every other protocol's thresholds read the same way: with a calibrated
 monitor, a defer threshold of 0.98 sends about 2% of honest steps to
-resampling. `honest_scores` can be a list or any other iterable, such as a
-generator, which the constructor reads once. It must hold at least one score,
+resampling. Defer to Resample's `audit_threshold` is the exception. It is
+compared with the lowest score across a step's samples, which is at most the
+first sample's score, so 0.99 flags at most about 1% of honest steps, and
+usually fewer;
+[Calibrate the audit threshold](use-defer-to-resample.md#calibrate-the-audit-threshold)
+sets it on that statistic.
+
+`honest_scores` can be a list or any other iterable, such as a generator,
+which the constructor reads once. It must hold at least one score,
 and each is checked as a threshold is: a number from 0 to 1, not a `bool` and
 not NaN, or the constructor raises `ConfigurationError`. Each is kept as a
 float, so pass Python floats or numpy `float64`s: a `float32` 0.1 becomes
@@ -241,9 +255,8 @@ float, so pass Python floats or numpy `float64`s: a `float32` 0.1 becomes
 
 ## What a calibrated threshold means
 
-`CalibratedMonitor` replaces the wrapped monitor's score with one minus its
-smoothed conformal p-value [@vovk2005algorithmic], with the `n` honest scores
-as the calibration set:
+`CalibratedMonitor` replaces the wrapped monitor's score with its smoothed
+conformal p-value, with the `n` honest scores as the calibration set:
 
 ```text
 calibrated suspicion = (below + U * (tied + 1)) / (n + 1)
@@ -253,11 +266,16 @@ The step takes one of `n + 1` places in the sorted list of honest scores.
 `below` counts the honest scores lower than the step's score, and `tied`
 counts those equal to it. `U` is a random number from 0 up to 1, which spreads
 the step evenly over its own place and the places of the honest scores it ties
-with. The smoothed p-value counts the places above the step's score and a
-random share of the tied ones, the step's own included, out of `n + 1`; one
-minus it, with `U` standing for one minus Vovk's random number, is the formula
-above. It is the score's percentile rank among the honest scores, with ties
-broken at random.
+with. Makins et al. (appendix G.4.1) and LinuxArena (section 5.1) also break
+ties at random in their control evaluations
+[@makins2026multiagent; @tracy2026linuxarena].
+
+This is the smoothed conformal p-value of Vovk et al., with the step's raw
+score in the place of their conformity score and `U` as their uniform random
+number; their count of ties includes the step itself, which gives `tied + 1`
+(section 2, equation 2) [@vovk2016criteria]. In the same section they credit
+the uniform distribution of such p-values to proposition 2.8 of Vovk,
+Gammerman and Shafer's book [@vovk2016criteria; @vovk2005algorithmic].
 
 The guarantee holds when the step's raw score is exchangeable with the honest
 scores: the step comes from the same kind of honest run, scored by the same

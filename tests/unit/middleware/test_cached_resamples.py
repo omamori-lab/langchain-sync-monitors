@@ -25,7 +25,7 @@ from langchain_core.messages import AIMessage, HumanMessage
 from langchain_core.runnables import Runnable
 
 import langchain_sync_monitors
-from langchain_sync_monitors.contracts import ControlProtocol, TaskAuthor
+from langchain_sync_monitors.contracts import ControlProtocol, SampleDrawing, TaskAuthor
 from langchain_sync_monitors.middleware import MonitorMiddleware
 from langchain_sync_monitors.model_calls import CachedResampleWarning, is_response_cache_active
 from langchain_sync_monitors.pending_steps import (
@@ -189,7 +189,7 @@ def draw_first_samples(
             step = SyncPendingStep(
                 request=request, handler=call_model, monitor=monitor, task_author=TaskAuthor.USER
             )
-            run_synchronously(step.sample(count=count, concurrently=True))
+            run_synchronously(step.sample(count=count, drawing=SampleDrawing.CONCURRENT))
         else:
             async_step = AsyncPendingStep(
                 request=request,
@@ -197,7 +197,7 @@ def draw_first_samples(
                 monitor=monitor,
                 task_author=TaskAuthor.USER,
             )
-            asyncio.run(async_step.sample(count=count, concurrently=True))
+            asyncio.run(async_step.sample(count=count, drawing=SampleDrawing.CONCURRENT))
     return [warning for warning in caught if warning.category is CachedResampleWarning]
 
 

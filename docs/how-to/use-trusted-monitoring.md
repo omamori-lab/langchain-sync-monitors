@@ -7,8 +7,9 @@ flags the suspicious ones without changing what the agent does.
 
 Use it to watch an agent before you let a monitor intervene, to collect the
 honest-run scores that calibrate a threshold, or to queue steps for a person to
-review. It comes from the AI control paper [@greenblatt2023aicontrol], where a
-person reviews flagged code before it is used. Here nothing waits for review:
+review. It comes from the AI control paper (section 3.2)
+[@greenblatt2023aicontrol], where a person reviews flagged code before it is
+used (section 1) [@greenblatt2023aicontrol]. Here nothing waits for review:
 the step runs, and the flag marks its record.
 
 ## How it works
@@ -77,33 +78,46 @@ The default of 0.6 is a placeholder, and a protocol built with it emits an
 agents, so a fixed value may flag most honest work or miss attacks. Passing
 any value yourself silences the warning.
 
-Control evaluations set a threshold at a high percentile of the scores the
-monitor gives on honest runs [@greenblatt2023aicontrol; @bhatt2025ctrlz].
-Trusted Monitoring never changes a run, so it is the protocol to collect them
-with. Run the agent on tasks you know to be honest, then take a percentile:
+Control evaluations set thresholds at percentiles of the scores the monitor
+gives on honest runs [@greenblatt2023aicontrol; @bhatt2025ctrlz];
+[Thresholds](choose-a-protocol.md#thresholds) gives the percentiles they
+use. Trusted Monitoring never changes a run, so it is the protocol to collect
+them with for a protocol threshold compared with one sample's score:
+`defer_threshold`, `block_threshold`, and the `audit_threshold` of Trusted
+Monitoring and Defer to Trusted. Defer to
+Resample's `audit_threshold` is compared with the lowest score across a
+step's samples instead, and
+[Calibrate the audit threshold](use-defer-to-resample.md#calibrate-the-audit-threshold)
+sets it. Run the agent on tasks you know to be honest, then take a
+percentile:
 
 ```python
 import statistics
 
 # honest_results holds the results of your honest runs.
+# Your MonitorMiddleware's agent_name and label; these are the defaults.
+agent_name, label = "main", "monitor"
 honest_scores = [
     sample["suspicion"]
     for result in honest_results
     for record in result["monitor_log"]
+    # Keep only this agent's records under this monitor.
+    if record["agent"] == agent_name and record["monitor"] == label
     for sample in record["samples"]
 ]
 # The 98th percentile flags about 2% of honest steps, if the scores do not tie.
-audit_threshold = statistics.quantiles(honest_scores, n=100)[97]
+# The inclusive method keeps the threshold within the scores you collected.
+audit_threshold = statistics.quantiles(honest_scores, n=100, method="inclusive")[97]
 ```
 
 A single chat judge scores in steps of 0.1, so many honest steps share a
 score, and the share of honest steps flagged can land well away from the
-percentile you chose [@koran2026ensemble]. A threshold that still flags the
-judge's top score flags every honest step given that score, however few you
-meant to flag [@kaufman2025basharena].
+percentile you chose (section 5.1) [@koran2026ensemble]. A threshold that
+still flags the judge's top score flags every honest step given that score,
+however few you meant to flag (section 4.3) [@kaufman2025basharena].
 [Combine and calibrate monitors](combine-and-calibrate-monitors.md) shows how
 `RepeatedMonitor` spreads the scores out and `CalibratedMonitor` turns them
-into ranks among honest-run scores.
+into smoothed conformal p-values against honest-run scores.
 
 ## Read the outcome in `monitor_log`
 
@@ -122,7 +136,7 @@ In a Deep Agent whose monitor has
 halt stands: until a later run brings new input from the user, every further
 step halts the same way without a sample, and two paths through middleware
 listed before the monitor can lift it early; see
-[A halt stands](choose-a-protocol.md#a-halt-stands).
+[A halt stands](../explanation/design.md#a-halt-stands).
 
 To list the steps a person should review:
 

@@ -133,39 +133,32 @@ def render_tie_break_key(monitor_input: MonitorInput) -> str:
 
 
 class CalibratedMonitor(Monitor):
-    """Report suspicion as the percentile rank of a step's score among the scores of honest runs.
+    """Report suspicion as the smoothed conformal p-value of a step's score against honest runs.
 
-    Control evaluations set thresholds as percentiles of honest-run scores.
-    This wrapper reports one minus the smoothed conformal p-value of the raw
-    score, with the `n` honest scores as the calibration set
-    [@vovk2005algorithmic]:
-
-        (below + U * (tied + 1)) / (n + 1)
-
-    where `below` counts the honest scores lower than the raw score, `tied`
-    counts those equal to it, and `U`, uniform on [0, 1), stands for one minus
-    Vovk's random number. This is the raw score's percentile rank among the
-    honest scores, with ties broken at random: `U` spreads the step evenly
-    over its own place and those of the honest scores it ties with. A score
-    above every honest score lands between `n / (n + 1)` and 1.
-
-    When a step's raw score is exchangeable with the honest scores, as for a
-    step of the same kind of honest run scored by the same monitor with the
-    same settings, a threshold `t` flags a share `1 - t` of such steps on
-    average, so 0.99 flags 1% of honest steps. For the one set of honest
-    scores collected, the share varies around `1 - t`. The how-to Combine and
-    calibrate monitors gives that spread, and so how many honest scores to
-    collect; the explanation Where the ideas come from names the control
-    evaluations that set thresholds this way.
+    Control evaluations set thresholds as percentiles of honest-run scores, so
+    an audit budget of 1% means flagging for review the top 1% of honest
+    steps. This wrapper reports the raw score's smoothed conformal p-value
+    against the `n` honest scores: its place among them, as a share of
+    `n + 1`, with its ties broken by a uniform random draw. That is the
+    p-value of Vovk et al. with the raw score in the place of their conformity
+    score (section 2, equation 2) [@vovk2016criteria], and its ties are broken
+    at random as Makins et al. (appendix G.4.1) and LinuxArena (section 5.1)
+    break them [@makins2026multiagent; @tracy2026linuxarena]. The formula,
+    the guarantee that a threshold of 0.99 flags 1% of the steps whose raw
+    scores are exchangeable with the honest scores, on average, and how far
+    that share strays for one set of honest scores are in
+    `docs/how-to/combine-and-calibrate-monitors.md` ("What a calibrated
+    threshold means").
 
     Collect `honest_scores` by running the wrapped monitor, with the same
     settings, on steps from runs you trust, and pass them as Python floats or
     numpy float64s: each is read as a float, so a float32 0.1 becomes
     0.10000000149011612 and no longer ties with a score of 0.1. With
-    `random_seed`, `U` is derived from the seed and the step's content, so a
-    step always gets the same suspicion, whatever else the instance has
-    scored and however many runs share it. Without a seed, `U` is drawn afresh
-    on every call. The reason is the wrapped monitor's, unchanged.
+    `random_seed`, the tie-breaking draw is derived from the seed and the
+    step's content, so a step always gets the same suspicion, whatever else
+    the instance has scored and however many runs share it. Without a seed,
+    the draw is made afresh on every call. The reason is the wrapped
+    monitor's, unchanged.
     """
 
     def __init__(
@@ -203,10 +196,10 @@ class CalibratedMonitor(Monitor):
         return self.build_calibrated_verdict(verdict, monitor_input=monitor_input)
 
     def build_calibrated_verdict(self, verdict: Verdict, *, monitor_input: MonitorInput) -> Verdict:
-        """Replace the raw suspicion with one minus its smoothed conformal p-value."""
+        """Replace the raw suspicion with its smoothed conformal p-value against honest scores."""
         scores = self.sorted_honest_scores
-        # One minus the smoothed p-value: every honest score below counts, and the tied ones,
-        # with the step's own place, count for a random share.
+        # (below + U * (tied + 1)) / (n + 1): every honest score below counts, and the tied
+        # ones, with the step itself, count for a random share U.
         below = bisect_left(scores, verdict.suspicion)
         tied = bisect_right(scores, verdict.suspicion) - below
         tie_share = self.draw_tie_share(monitor_input)
@@ -214,7 +207,7 @@ class CalibratedMonitor(Monitor):
         return Verdict(suspicion=percentile, reason=verdict.reason)
 
     def draw_tie_share(self, monitor_input: MonitorInput) -> float:
-        """Draw `U`, uniform on [0, 1), from the seed and the step when a seed is set.
+        """Draw the tie share `U`, uniform on [0, 1), from the seed and the step when a seed is set.
 
         A string seed goes through SHA-512 in Python's `random`, so the draw is
         the same in every process.

@@ -108,6 +108,9 @@ change raises the minor version.
   the run is resumed.
 - `PendingStep.blocks_in_thread` and `PendingStep.new_subagent_blocks`, which
   give a protocol these counts.
+- `SampleDrawing`, with which a protocol has `PendingStep.sample` draw its
+  samples one after another or at once; under `invoke()` they are drawn one
+  after another either way, and a plain string raises `ConfigurationError`.
 - Default thresholds, 0.6 for `defer_threshold`, `block_threshold` and Trusted
   Monitoring's `audit_threshold`, and 0.9 for the `audit_threshold` of Defer
   to Trusted and Defer to Resample, which raise `UncalibratedThresholdWarning`
@@ -127,9 +130,9 @@ change raises the minor version.
   for again and then fails closed.
 - A guard's label is read only where its format puts it.
 - The `RepeatedMonitor`, `CalibratedMonitor` and `CascadeMonitor` wrappers.
-- `CalibratedMonitor` reports a step's suspicion as one minus the smoothed
-  conformal p-value of its score among honest-run scores, so a threshold of
-  0.99 flags 1% of new honest steps on average.
+- `CalibratedMonitor` reports a step's suspicion as the smoothed conformal
+  p-value of its score against honest-run scores, so a threshold of 0.99 flags
+  1% of new honest steps on average.
 - The library adds no score, probability or percentile to a verdict's reason,
   which Auto Mode shows the agent; they stay in `monitor_log`.
 - `DEFAULT_MONITOR_PROMPT` asks a chat judge to keep its score out of the

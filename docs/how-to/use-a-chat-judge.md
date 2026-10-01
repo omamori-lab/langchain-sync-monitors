@@ -106,8 +106,8 @@ monitor gave no readable score, so the step is treated as suspicious.", and
 the `langchain_sync_monitors.monitors.chat` logger writes a warning. That 1.0
 is a bare `LLMMonitor`'s. Inside `RepeatedMonitor` it is averaged with the
 other calls, so one unreadable call of three adds about a third to the mean.
-Inside `CalibratedMonitor` it becomes a percentile rank below 1.0; see [Collect honest
-scores](combine-and-calibrate-monitors.md#collect-honest-scores).
+Inside `CalibratedMonitor` it becomes a smoothed conformal p-value below 1.0;
+see [Collect honest scores](combine-and-calibrate-monitors.md#collect-honest-scores).
 
 ## Use the default prompt, or write your own
 

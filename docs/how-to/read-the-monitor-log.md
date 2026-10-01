@@ -118,7 +118,7 @@ Records hold plain values only, so they pass through checkpointers and
 A halt stands until a later run brings new input from the user, so every
 further step halts again without a sample. Two paths through a middleware
 listed before the monitor can lift it early; see
-[A halt stands](choose-a-protocol.md#a-halt-stands).
+[A halt stands](../explanation/design.md#a-halt-stands).
 
 ### Tell apart the records without samples
 

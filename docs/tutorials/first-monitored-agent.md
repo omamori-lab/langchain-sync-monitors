@@ -22,12 +22,12 @@ touches the real world: `read_file` reads from a Python dictionary, and
 
 A step is one run of the agent's model, which proposes a tool call or its
 final answer; [the monitored step](../explanation/design.md#the-monitored-step)
-defines it in full. The agent
-may make more than one attempt at a step, when an attempt is blocked. The
-monitor judges each attempt before any of the agent's own tools run, and
-records each step in `monitor_log`. Server-side tools, which a model provider
-runs inside the model call, such as its web search, are the exception: they
-have run by the time the monitor sees the step. This agent has none.
+defines it in full. The agent may make more than one attempt at a step, when
+an attempt is blocked. The monitor judges each attempt before any of the
+agent's own tools run, and records each step in `monitor_log`. Server-side
+tools, which a model provider runs inside the model call, such as its web
+search, are the exception: they have run by the time the monitor sees the
+step. This agent has none.
 
 ## Before you start
 
@@ -47,9 +47,14 @@ pip install "langchain-sync-monitors[openrouter] @ git+https://github.com/omamor
 ```
 
 The tutorial uses two models through OpenRouter: a small, fast model as the
-agent and a stronger model as the judge. Any LangChain chat model works in
-either place; pass another provider string, or a chat model object you built
-yourself. Create a key at OpenRouter and export it:
+agent and a stronger model as the judge, since a weaker monitor cannot
+reliably tell an attack from honest work (section 3.4)
+[@greenblatt2023aicontrol]. A judge stronger than the agent is not a trusted
+model in AI Control's sense, as
+[Trusted Monitoring, Defer to Trusted and Defer to Resample](../explanation/design.md#trusted-monitoring-defer-to-trusted-and-defer-to-resample)
+explains. Any LangChain chat model works in either place; pass another
+provider string, or a chat model object you built yourself. Create a key at
+OpenRouter and export it:
 
 ```console
 export OPENROUTER_API_KEY="your key"

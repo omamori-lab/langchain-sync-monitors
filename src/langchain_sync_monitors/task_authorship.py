@@ -344,8 +344,9 @@ class StateBeforeTool:
 
 def read_state_before_tool(state: object) -> StateBeforeTool:
     """Return what the state held when a tool ran: its messages, and the ids the monitor saw."""
+    messages = read_state_messages(state)
     return StateBeforeTool(
-        existing_messages=read_existing_messages(state),
+        existing_messages={message.id: message for message in messages if message.id},
         seen_ids=read_message_ids(state, key=SEEN_HUMAN_MESSAGES_KEY),
     )
 
@@ -502,20 +503,13 @@ def relabel_tool_result(
     """
     if isinstance(result, Command):
         return relabel_tool_command(result, tool_name=tool_name, before=before)
-    message = result
-    if not is_unchanged_write_back(result, existing_messages=before.existing_messages):
-        relabelled = relabel_tool_written_message(result, tool_name=tool_name)
-        # A tool message stays one; the check only narrows the type for the type checker.
-        message = relabelled if isinstance(relabelled, ToolMessage) else result
+    relabelled = relabel_unless_written_back(result, tool_name=tool_name, before=before)
+    # A tool message stays one; the check only narrows the type for the type checker.
+    message = relabelled if isinstance(relabelled, ToolMessage) else result
     rewritten_ids = find_rewritten_ids([message], before=before)
     if not rewritten_ids:
         return message
     return Command(update={"messages": [message], REWRITTEN_INPUTS_KEY: rewritten_ids})
-
-
-def read_existing_messages(state: object) -> dict[str, BaseMessage]:
-    """Return the messages in the state by id, leaving out any without an id."""
-    return {message.id: message for message in read_state_messages(state) if message.id}
 
 
 def relabel_parent_command(bubble: ParentCommand, *, tool_name: str, state: object) -> None:

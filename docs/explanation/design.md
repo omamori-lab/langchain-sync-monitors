@@ -248,36 +248,76 @@ Each step ends in one of five outcomes:
 Each threshold is on the common 0 to 1 scale, and each default, listed in
 [Thresholds](../how-to/choose-a-protocol.md#thresholds), is a placeholder: a
 protocol built with one emits an `UncalibratedThresholdWarning`, because a
-threshold should come from the scores of honest runs [@bhatt2025ctrlz]. A
-flag marks a step in `monitor_log` for a person to review after the fact and
-never blocks it. So Defer to Resample and Defer to Trusted accept an
-`audit_threshold` below the defer threshold, which flags borderline steps
-that still ran, and `audit_threshold=None` turns their flagging off.
-`HaltRun` flags every halt regardless.
+threshold should come from the scores of honest runs (appendix C)
+[@bhatt2025ctrlz]. A flag marks a step in `monitor_log` for a person to
+review after the fact and never blocks it. So Defer to Resample and Defer to
+Trusted accept an `audit_threshold` below the defer threshold, which flags
+borderline steps that still ran, and `audit_threshold=None` turns their
+flagging off. `HaltRun` flags every halt regardless.
+
+An audit in the literature does more. In AI Control a person reviews flagged
+code before it is used, and a backdoor found shuts the untrusted model out
+of every later problem (sections 1 and 2.2) [@greenblatt2023aicontrol]; in
+Ctrl-Z an audited attack ends the episode (section 2.2) [@bhatt2025ctrlz].
+Their safety figures for an audit budget rest on that. This library's flag
+stops nothing, so those figures do not carry over to it.
+
+Four rules here are the library's own, and none of the sources it cites
+states them: `HaltRun` as the fallback of Defer to Resample, where Ctrl-Z
+always hands the step to the trusted model (section 3.2) [@bhatt2025ctrlz];
+a flag on every halted and every steered step; a halt that stands until new
+run input ([a halt stands](#a-halt-stands)); and
+`SubagentHalt.STOP_WHOLE_RUN` ([subagent halts](#subagent-halts)). The
+nearest source is Claude Code's auto mode. At its limits it stops the model
+and escalates to a person, or ends the process in headless mode
+(section "Deny-and-continue") [@hughes2026automode], and its check when a
+subagent returns only adds a warning for the agent that started it
+(figure 2; section "Multi-agent handoffs") [@hughes2026automode], as
+`STOP_SUBAGENT_ONLY` leaves the parent to carry on. The library chose them
+for these reasons:
+
+- `HaltRun` ends the run so that a person can decide, the only way to ask one
+  that the model node allows ([asking a person](#asking-a-person)).
+- A halted step is flagged because a person should look at why the run
+  stopped, and a steered step because the monitor blocked an attempt within
+  it.
+- A halt stands because a hook such as Deep Agents' `RubricMiddleware` can
+  send a halted run back to the model.
+- `STOP_WHOLE_RUN` is an option, off by default, for a run that should end
+  whenever one of its subagents is halted.
 
 ### Trusted Monitoring, Defer to Trusted and Defer to Resample
 
 Trusted Monitoring lets every step run and flags a suspicious one for a
 person to review, and Defer to Trusted replaces a suspicious step with the
-trusted model's own [@greenblatt2023aicontrol]. Defer to Trusted is Defer to
-Resample with no resamples. Defer to Resample draws up to two more samples of
-a suspicious step, runs the least suspicious one below the threshold, and
-hands the step to its fallback when every sample is suspicious
-[@bhatt2025ctrlz]. `Resampling.SEQUENTIAL` stops at the first acceptable
-resample, and `Resampling.PARALLEL` draws them all at once, for lower latency
-and more calls. The audit flag uses the lowest score across the samples, as
-in Ctrl-Z. Resampling needs fresh draws, and it gives an injection aimed at
-the monitor more tries ([protocols and configuration](#protocols-and-configuration)).
+trusted model's own (sections 3.2 and 3.3) [@greenblatt2023aicontrol]. In AI
+Control the monitor of both is the trusted model: less capable than the
+untrusted model, and known not to try to backdoor solutions (section 2)
+[@greenblatt2023aicontrol]. The library accepts any model as the monitor,
+and a monitor at least as capable as the agent is not trusted in that sense;
+the trusted model, in this library, is the one that writes a deferred step.
+Defer to Trusted is Defer to Resample with no resamples. Defer to Resample
+draws up to two more samples of a suspicious step, runs the least suspicious
+one below the threshold, and hands the step to its fallback when every
+sample is suspicious (section 3.2) [@bhatt2025ctrlz]. `Resampling.SEQUENTIAL`
+stops at the first acceptable resample, and `Resampling.PARALLEL` draws them
+all at once, for lower latency and more calls. The audit flag uses the lowest
+score across the samples, as in Ctrl-Z (section 3.2, footnote 6)
+[@bhatt2025ctrlz]. Resampling needs fresh draws, and it gives an injection
+aimed at the monitor more tries
+([protocols and configuration](#protocols-and-configuration)).
 
 ### Auto Mode
 
 Auto Mode blocks a suspicious step and the agent tries again: as in Claude
-Code's auto mode, a blocked action comes back with the reason and an
-instruction to find a safer path [@hughes2026automode]. Each retry is drawn
-on the conversation followed by every blocked attempt and its feedback. After
-three blocks within one step, or twenty in the conversation thread, the
-limits Claude Code uses within a session, `when_limit_reached` writes the
-step; by default `HaltRun` ends the run.
+Code's auto mode, a blocked action comes back to the agent as a tool result,
+with the reason and an instruction to find a safer path rather than route
+around the block (section "Deny-and-continue"; figure 4)
+[@hughes2026automode]. Each retry is drawn on the conversation followed by
+every blocked attempt and its feedback. After three blocks within one step,
+or twenty in the conversation thread, the limits Claude Code uses within a
+session, `when_limit_reached` writes the step; by default `HaltRun` ends the
+run.
 
 [![A new step starts with the agent's model, which proposes an attempt, seeing the step's blocked attempts and their feedback. The monitor, drawn as an omamori charm, reads it through its view and scores it from 0 to 1. Below block_threshold the attempt runs: on the first attempt the outcome is allowed, and after a block it is steered and flagged. At or above block_threshold the attempt is blocked, and the feedback tells the agent why. If no limit is reached, the agent tries again. Once the step's blocks reach max_consecutive_blocks, 3 by default, or the thread's blocks reach max_total_blocks, 20 by default, when_limit_reached writes the step, flagged: by default HaltRun ends the run, recorded as halted, and DeferToTrustedModel has the trusted model write it instead, recorded as deferred_to_trusted. A step goes to when_limit_reached at once, with no attempt, when blocks inside subagents since this agent's last step leave the thread at or over max_total_blocks.](../assets/diagrams/protocol-auto-mode-light.svg#only-light)](../assets/diagrams/protocol-auto-mode-light.svg "Open the diagram at full size")
 [![A new step starts with the agent's model, which proposes an attempt, seeing the step's blocked attempts and their feedback. The monitor, drawn as an omamori charm, reads it through its view and scores it from 0 to 1. Below block_threshold the attempt runs: on the first attempt the outcome is allowed, and after a block it is steered and flagged. At or above block_threshold the attempt is blocked, and the feedback tells the agent why. If no limit is reached, the agent tries again. Once the step's blocks reach max_consecutive_blocks, 3 by default, or the thread's blocks reach max_total_blocks, 20 by default, when_limit_reached writes the step, flagged: by default HaltRun ends the run, recorded as halted, and DeferToTrustedModel has the trusted model write it instead, recorded as deferred_to_trusted. A step goes to when_limit_reached at once, with no attempt, when blocks inside subagents since this agent's last step leave the thread at or over max_total_blocks.](../assets/diagrams/protocol-auto-mode-dark.svg#only-dark)](../assets/diagrams/protocol-auto-mode-dark.svg "Open the diagram at full size")
@@ -469,7 +509,7 @@ passing. The numbers stay in `suspicion`, which the records keep. A chat
 judge's reason is its own reasoning, and `DEFAULT_MONITOR_PROMPT` asks it to
 keep its score out of it, but its wording may still hint at one.
 
-Scores have to be fine-grained. Control protocols set thresholds as
+Scores have to be fine-grained. Control evaluations set thresholds as
 percentiles of honest-run scores, and a score with few distinct values cannot
 hit a small audit budget, because the budget falls inside a group of tied
 scores [@kaufman2025basharena; @koran2026ensemble]. Three wrappers, each a
@@ -479,9 +519,9 @@ monitor itself, address this and stack around any family:
   resolution at low false-positive rates [@kaufman2025basharena], as
   LinuxArena does with two calls per action [@tracy2026linuxarena];
 - `CalibratedMonitor` reports suspicion as the step's smoothed conformal rank
-  among honest-run scores, breaking ties at random
-  [@vovk2005algorithmic; @makins2026multiagent], so a threshold of 0.99
-  flags 1% of honest steps on average;
+  among honest-run scores, breaking ties at random [@makins2026multiagent],
+  so a threshold of 0.99 flags 1% of honest steps on average
+  ([what a calibrated threshold means](../how-to/combine-and-calibrate-monitors.md#what-a-calibrated-threshold-means));
 - `CascadeMonitor` runs a fast monitor on every step and a careful one when
   the fast score reaches one threshold, after the two stages of Claude Code's
   auto mode [@hughes2026automode]. Hua et al.'s best two-monitor protocol
@@ -658,7 +698,8 @@ last step:
 
 Both halts here draw no sample: the untrusted model is not called, and the
 step's record is `halted`, flagged, with no samples. A standing halt's final
-message is `STANDING_HALT_MESSAGE`, from `halts.py`:
+message is `STANDING_HALT_MESSAGE`, from `halts.py`, whatever message the
+`HaltRun` has:
 
 > [Safety monitor] This run is stopped: the safety monitor halted an earlier
 > step, and that halt stands until a later run brings new input the monitor
@@ -669,11 +710,11 @@ rewrites, trims or removes messages cannot lift a halt, and one that writes
 messages after the run's input cannot keep new input from lifting it. Only
 the `before_agent` hook at the start of a run records input, so nothing
 written during a run lifts a halt: not a hook that sends the run back to the
-model, not a harness nudge, and not a note from `unconfirmed_input`. A fork
-from a checkpoint before the halt starts afresh, since it holds neither the
-halt nor its count. The two open paths through a middleware listed before
-the monitor lift a halt too
-([who speaks as the user](#who-speaks-as-the-user)).
+model, not a harness nudge, and not a note from `unconfirmed_input`. A new
+run that brings no new message stays halted too. A fork from a checkpoint
+before the halt starts afresh, since it holds neither the halt nor its
+count. The two open paths through a middleware listed before the monitor
+lift a halt too ([who speaks as the user](#who-speaks-as-the-user)).
 
 ### Subagent halts
 
@@ -1154,16 +1195,17 @@ limit is linked from where it arises above.
   ([two monitors in one agent](#two-monitors-in-one-agent)).
 - **Resampling as a best-of-n attack.** An injection aimed at the monitor
   gets another try with every sample, so Defer to Resample turns it into a
-  best-of-n attack [@terekhov2025adaptive]. An injection that passes one
-  sample in five gets through about half the time across three samples.
+  best-of-n attack (sections 4.2 and 6) [@terekhov2025adaptive]. An
+  injection that passes one sample in five gets through about half the time
+  across three samples.
 - **A response cache defeats resampling.** Resampling needs fresh draws: the
-  more deterministic the model, the less it helps [@bhatt2025ctrlzpost]. A
-  LangChain response cache, global or on the agent's model, answers every
-  resample with the first sample again. The library emits a
-  `CachedResampleWarning`; build the untrusted model with `cache=False`. A
-  cache on a monitor's model makes a guard's samples, and a chat judge's
-  request after an unreadable reply, copies of the first reply, and warns
-  the same way.
+  more deterministic the model, the less it helps (section "Important
+  Limitations") [@bhatt2025ctrlzpost]. A LangChain response cache, global or
+  on the agent's model, answers every resample with the first sample again.
+  The library emits a `CachedResampleWarning`; build the untrusted model
+  with `cache=False`. A cache on a monitor's model makes a guard's samples,
+  and a chat judge's request after an unreadable reply, copies of the first
+  reply, and warns the same way.
 - **A rate limit on the agent's own calls fails the step.** The chat
   monitors retry their own calls on HTTP 429. The agent's model and a trusted
   model are the agent's calls, retried only as their chat model retries, and

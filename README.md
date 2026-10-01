@@ -14,9 +14,11 @@ file, run a command. AI control research guards against this with a monitor,
 a second model that scores each step, and a protocol that acts on the score.
 This library brings those protocols, from AI Control, Ctrl-Z and Claude Code's
 auto mode, to `create_agent` and `create_deep_agent` as one middleware.
-"Sync" means synchronous in the control sense: a step waits for its verdict,
-so a suspicious step can be stopped before any of the agent's own tools run
-it.
+"Sync" means synchronous in the control sense of
+[Blocking live failures with synchronous monitors](https://blog.redwoodresearch.org/p/blocking-live-failures-with-synchronous)
+(Lucassen and Kaufman, Redwood Research, 2026): a step waits for its
+verdict, so a suspicious step can be stopped before any of the agent's own
+tools run it.
 
 ## Install
 

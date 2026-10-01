@@ -31,11 +31,12 @@ change raises the minor version.
 ### Fixed
 
 - Ten figures, and the prose and docstrings beside them, now match the code:
-  a failed step runs none of the agent's own tools, Defer to Resample defers
-  only when no sample passes, `CalibratedMonitor` reports a smoothed conformal
-  p-value, a guard raises `ConfigurationError` only when the chat model's
-  adapter rejects the `logprobs` keyword, the monitor's own feedback renders
-  as `<monitor_feedback>`, and input after a run that stopped early is
+  a failed step runs none of the agent's own tools, Defer to Resample hands
+  the step to its fallback only when no sample passes, `CalibratedMonitor`
+  reports a smoothed conformal p-value, a guard's `ConfigurationError` naming
+  `SAMPLE_FRACTION` comes from an adapter that rejects the `logprobs` keyword,
+  not from a provider that refuses the request, the monitor's own feedback
+  renders as `<monitor_feedback>`, and input after a run that stopped early is
   recorded as no input.
 
 ## [0.1.0] - 2026-10-01

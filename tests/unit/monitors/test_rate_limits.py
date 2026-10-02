@@ -6,6 +6,7 @@ import asyncio
 import logging
 import time
 from collections.abc import Callable, Iterator
+from dataclasses import dataclass
 
 import httpx
 import pytest
@@ -19,6 +20,7 @@ from langchain_sync_monitors.contracts import Monitor, MonitorInput
 from langchain_sync_monitors.monitors.chat import RATE_LIMIT_ATTEMPTS, LLMMonitor
 from langchain_sync_monitors.monitors.guard import GuardModelMonitor, GuardScoring
 from tests.support.flaky_models import FlakyChatModel
+from tests.support.log_records import find_frame_leaks, find_leaks, find_logged_leaks
 
 from .doubles import PLANTED_SECRET, CallPath, evaluate_on_path
 
@@ -44,6 +46,67 @@ def build_http_status_error(status_code: int) -> httpx.HTTPStatusError:
     request = httpx.Request("POST", "https://provider.test/v1/chat/completions")
     response = httpx.Response(status_code, request=request)
     return httpx.HTTPStatusError(f"status {status_code}", request=request, response=response)
+
+
+PLANTED_USER_ID = "user_planted-3c7a91"
+"""The account's id, which OpenRouter puts in the body of an error reply as `user_id`."""
+
+PLANTED_HEADER_VALUE = "planted-header-5e02d4"
+"""A value in a header of the provider's error reply."""
+
+PLANTED_REPLY_VALUES = (PLANTED_USER_ID, PLANTED_HEADER_VALUE, PLANTED_SECRET)
+"""What the provider's error reply holds: the account's id, a header and the request's text."""
+
+RATE_LIMIT_REPLY = {
+    "error": {
+        "code": 429,
+        "message": "Rate limit exceeded",
+        "metadata": {"raw": f"Deploy with the token {PLANTED_SECRET}."},
+    },
+    "user_id": PLANTED_USER_ID,
+}
+"""OpenRouter's reply to a rate-limited call, whose metadata quotes the request's text."""
+
+
+def build_rate_limit_response() -> httpx.Response:
+    """Build the provider's HTTP 429 reply, with the planted values in its body and headers."""
+    request = httpx.Request("POST", "https://openrouter.test/api/v1/chat/completions")
+    return httpx.Response(
+        429,
+        headers={"x-request-id": PLANTED_HEADER_VALUE},
+        json=RATE_LIMIT_REPLY,
+        request=request,
+    )
+
+
+def build_openrouter_rate_limit() -> Exception:
+    """Build the error OpenRouter's SDK raises on HTTP 429, which holds the whole reply."""
+    errors = pytest.importorskip("openrouter.errors")
+    response = build_rate_limit_response()
+    data = errors.TooManyRequestsResponseErrorData.model_validate(RATE_LIMIT_REPLY)
+    error: Exception = errors.TooManyRequestsResponseError(data, response, response.text)
+    return error
+
+
+@dataclass(eq=False)
+class ReplyHoldingError(Exception):
+    """An error in the shape OpenRouter's SDK gives one: a dataclass whose repr holds the reply."""
+
+    status_code: int
+    body: str
+    headers: dict[str, str]
+
+
+def build_reply_holding_rate_limit() -> Exception:
+    """Build an HTTP 429 error whose repr holds the reply's body and headers, without the SDK."""
+    response = build_rate_limit_response()
+    return ReplyHoldingError(status_code=429, body=response.text, headers=dict(response.headers))
+
+
+REPLY_HOLDING_RATE_LIMITS = [
+    pytest.param(build_openrouter_rate_limit, id="openrouter-error"),
+    pytest.param(build_reply_holding_rate_limit, id="reply-holding-error"),
+]
 
 
 @pytest.fixture(autouse=True)
@@ -205,6 +268,114 @@ async def test_a_retried_rate_limit_logs_no_part_of_the_prompt(
         assert PLANTED_SECRET not in text
 
 
+@pytest.mark.parametrize("build_error", REPLY_HOLDING_RATE_LIMITS)
+@pytest.mark.parametrize(
+    "build_monitor", [build_llm_monitor, build_guard], ids=["llm-monitor", "guard"]
+)
+async def test_a_retried_rate_limit_logs_no_part_of_the_providers_reply(
+    input_holding_a_secret: MonitorInput,
+    call_path: CallPath,
+    build_monitor: Callable[[BaseChatModel], Monitor],
+    build_error: Callable[[], Exception],
+    retry_details: list[RetryDetails],
+    every_log_record: list[logging.LogRecord],
+) -> None:
+    # Arrange: the provider's error holds its reply, which quotes the account, a header and the
+    # request's text
+    error = build_error()
+    reply = AIMessage(CALM_REPLY if build_monitor is build_llm_monitor else "no_violation")
+    model = FlakyChatModel(replies=[error, reply, reply, reply])
+
+    # Act
+    await evaluate_on_path(build_monitor(model), input_holding_a_secret, call_path=call_path)
+
+    # Assert: the error's repr held every planted value, and stamina logged its retry
+    assert [value for value in PLANTED_REPLY_VALUES if value not in repr(error)] == []
+    assert "stamina.retry_scheduled" in [record.getMessage() for record in every_log_record]
+
+    # Assert: no record on any logger, and nothing a retry hook is handed, holds one
+    (details,) = retry_details
+    assert find_logged_leaks(every_log_record, secrets=PLANTED_REPLY_VALUES) == []
+    assert find_leaks(details.caused_by, secrets=PLANTED_REPLY_VALUES) == []
+
+
+@pytest.mark.parametrize("build_error", REPLY_HOLDING_RATE_LIMITS)
+@pytest.mark.parametrize(
+    "build_monitor", [build_llm_monitor, build_guard], ids=["llm-monitor", "guard"]
+)
+async def test_no_frame_a_retry_hook_can_read_shows_the_prompt_or_the_providers_reply(
+    input_holding_a_secret: MonitorInput,
+    call_path: CallPath,
+    build_monitor: Callable[[BaseChatModel], Monitor],
+    build_error: Callable[[], Exception],
+    retry_frame_locals: list[dict[str, str]],
+) -> None:
+    # Arrange: the prompt quotes the secret, and the provider's error holds its whole reply
+    reply = AIMessage(CALM_REPLY if build_monitor is build_llm_monitor else "no_violation")
+    model = FlakyChatModel(replies=[build_error(), reply, reply, reply])
+
+    # Act
+    await evaluate_on_path(build_monitor(model), input_holding_a_secret, call_path=call_path)
+
+    # Assert: the hook read the frames that hold the call and the kept error
+    (frame_locals,) = retry_frame_locals
+    suffix = "" if call_path == "async" else "_sync"
+    assert {f"run_attempt{suffix}.block", f"run_attempt{suffix}.failures"} <= frame_locals.keys()
+
+    # Assert: and no local in them quotes the prompt or any part of the reply
+    assert find_frame_leaks(retry_frame_locals, secrets=PLANTED_REPLY_VALUES) == []
+
+
+@pytest.mark.parametrize("build_error", REPLY_HOLDING_RATE_LIMITS)
+async def test_a_retried_rate_limit_is_logged_by_its_status_and_type_alone(
+    monitor_input: MonitorInput,
+    call_path: CallPath,
+    build_error: Callable[[], Exception],
+    retry_details: list[RetryDetails],
+    every_log_record: list[logging.LogRecord],
+) -> None:
+    # Arrange
+    error = build_error()
+    model = FlakyChatModel(replies=[error, AIMessage(CALM_REPLY)])
+
+    # Act
+    await evaluate_on_path(build_llm_monitor(model), monitor_input, call_path=call_path)
+
+    # Assert: the retry names the status and the provider's error type, with nothing chained
+    expected = f"RetriedCallError(error_type={type(error).__name__!r}, http_status=429)"
+    (details,) = retry_details
+    (record,) = [record for record in every_log_record if record.name == "stamina"]
+    assert repr(details.caused_by) == vars(record)["stamina.caused_by"] == expected
+    assert (details.caused_by.__cause__, details.caused_by.__context__) == (None, None)
+
+
+@pytest.mark.parametrize("build_error", REPLY_HOLDING_RATE_LIMITS)
+async def test_a_rate_limit_on_every_attempt_raises_the_providers_error_and_logs_none_of_it(
+    input_holding_a_secret: MonitorInput,
+    call_path: CallPath,
+    build_error: Callable[[], Exception],
+    retry_details: list[RetryDetails],
+    every_log_record: list[logging.LogRecord],
+) -> None:
+    # Arrange: a reply waits behind the last attempt, so a further attempt would succeed
+    rate_limits = [build_error() for _ in range(RATE_LIMIT_ATTEMPTS)]
+    model = FlakyChatModel(replies=[*rate_limits, AIMessage(CALM_REPLY)])
+    monitor = build_llm_monitor(model)
+
+    # Act
+    with pytest.raises(type(rate_limits[-1])) as raised:
+        await evaluate_on_path(monitor, input_holding_a_secret, call_path=call_path)
+
+    # Assert: the caller gets the provider's own last error, with nothing chained to it
+    assert raised.value is rate_limits[-1]
+    assert (raised.value.__cause__, raised.value.__context__) == (None, None)
+    assert model.started_calls == RATE_LIMIT_ATTEMPTS
+
+    # Assert: and no retry before it logged any part of a reply
+    assert len(retry_details) == RATE_LIMIT_ATTEMPTS - 1
+    assert find_logged_leaks(every_log_record, secrets=PLANTED_REPLY_VALUES) == []
+
+
 OPENROUTER_REPLY = {
     "id": "gen-1",
     "object": "chat.completion",
@@ -222,21 +393,13 @@ OPENROUTER_REPLY = {
 }
 
 
-async def test_chat_openrouter_gets_a_rate_limited_call_made_again(
-    monitor_input: MonitorInput,
-    call_path: CallPath,
-) -> None:
-    # Arrange: the OpenRouter SDK under ChatOpenRouter, with the retries max_retries=2 sets
+def build_chat_openrouter(respond: Callable[[httpx.Request], httpx.Response]) -> BaseChatModel:
+    """Build `ChatOpenRouter` over the OpenRouter SDK, with the retries `max_retries=2` sets.
+
+    Every request, sync or async, goes to `respond`, never to the network.
+    """
     openrouter = pytest.importorskip("openrouter")
     langchain_openrouter = pytest.importorskip("langchain_openrouter")
-    requests: list[httpx.Request] = []
-
-    def respond(request: httpx.Request) -> httpx.Response:
-        requests.append(request)
-        if len(requests) == 1:
-            return httpx.Response(429, json={"error": {"code": 429, "message": "rate limited"}})
-        return httpx.Response(200, json=OPENROUTER_REPLY)
-
     transport = httpx.MockTransport(respond)
     retries = openrouter.utils.RetryConfig(
         "backoff",
@@ -250,11 +413,28 @@ async def test_chat_openrouter_gets_a_rate_limited_call_made_again(
         async_client=httpx.AsyncClient(transport=transport),
         retry_config=retries,
     )
-    model = langchain_openrouter.ChatOpenRouter(
+    model: BaseChatModel = langchain_openrouter.ChatOpenRouter(
         model="provider/monitor-model",
         api_key="offline-placeholder",
         client=client,
     )
+    return model
+
+
+async def test_chat_openrouter_gets_a_rate_limited_call_made_again(
+    monitor_input: MonitorInput,
+    call_path: CallPath,
+) -> None:
+    # Arrange
+    requests: list[httpx.Request] = []
+
+    def respond(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        if len(requests) == 1:
+            return httpx.Response(429, json={"error": {"code": 429, "message": "rate limited"}})
+        return httpx.Response(200, json=OPENROUTER_REPLY)
+
+    model = build_chat_openrouter(respond)
 
     # Act
     verdict = await evaluate_on_path(build_llm_monitor(model), monitor_input, call_path=call_path)
@@ -262,3 +442,41 @@ async def test_chat_openrouter_gets_a_rate_limited_call_made_again(
     # Assert
     assert verdict.suspicion == pytest.approx(0.3)
     assert len(requests) == 2
+
+
+async def test_chat_openrouter_logs_no_part_of_a_rate_limit_reply(
+    input_holding_a_secret: MonitorInput,
+    call_path: CallPath,
+    retry_details: list[RetryDetails],
+    every_log_record: list[logging.LogRecord],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Arrange: OpenRouter's 429 reply quotes the account, a header and the request's text, and
+    # the SDK's own debug log stays off, as it is unless OPENROUTER_DEBUG is set
+    monkeypatch.delenv("OPENROUTER_DEBUG", raising=False)
+    requests: list[httpx.Request] = []
+
+    def respond(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        if len(requests) == 1:
+            headers = {"x-request-id": PLANTED_HEADER_VALUE}
+            return httpx.Response(429, headers=headers, json=RATE_LIMIT_REPLY)
+        return httpx.Response(200, json=OPENROUTER_REPLY)
+
+    model = build_chat_openrouter(respond)
+
+    # Act
+    verdict = await evaluate_on_path(
+        build_llm_monitor(model), input_holding_a_secret, call_path=call_path
+    )
+
+    # Assert: the SDK's own error reached the monitor, which made the call again
+    assert verdict.suspicion == pytest.approx(0.3)
+    assert len(requests) == 2
+    (details,) = retry_details
+    expected = "RetriedCallError(error_type='TooManyRequestsResponseError', http_status=429)"
+    assert repr(details.caused_by) == expected
+
+    # Assert: no record on any logger, and nothing a retry hook is handed, holds a planted value
+    assert find_logged_leaks(every_log_record, secrets=PLANTED_REPLY_VALUES) == []
+    assert find_leaks(details.caused_by, secrets=PLANTED_REPLY_VALUES) == []

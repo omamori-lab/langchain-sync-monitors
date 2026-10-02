@@ -119,11 +119,13 @@ body:
         [Turn on log messages](https://omamori-lab.github.io/langchain-sync-monitors/how-to/read-the-monitor-log/#turn-on-log-messages)
         shows. By design they hold ids, names, counts, outcomes, suspicions and
         error types, never the transcript's text, so they are safe to paste.
-        Two exceptions: stamina's retry lines, under the logger `stamina`, hold
-        the error's repr, which can quote a request's URL or a provider's error
-        reply, account ids included, as that section says, so check them before
-        you paste; and other libraries' own debug lines make no such promise, so
-        set `DEBUG` on the library's logger alone.
+        So are the retry lines stamina logs, under the logger `stamina`, for
+        this library's own calls: their `caused_by` is a `RetriedCallError`,
+        which names the error's type and HTTP status alone, as that section
+        says. That logger is shared, and its lines for retries in your own
+        code or in other libraries make no such promise, so check those
+        before you paste. Other libraries' own debug lines make none either,
+        so set `DEBUG` on the library's logger alone.
       render: text
 
   - type: textarea

@@ -220,9 +220,12 @@ error, such as a bad key (401) or a request timeout the server reports (408),
 raises `httpx.HTTPStatusError` at once. A request httpx refuses to send, such
 as one to a URL whose scheme it does not support, raises at once too, since it
 would fail the same way every time. stamina logs each retry as
-`stamina.retry_scheduled` with its error and wait, never the request, so
-neither the transcript nor the key reaches the log. The error quotes the
-request's URL, as httpx's own `HTTP Request` line at INFO does. That URL
+`stamina.retry_scheduled` with its wait and a stand-in for its error that
+names the error's type and HTTP status alone, never the request or the
+reply, so neither the transcript nor the key reaches that log, as
+[Turn on log messages](read-the-monitor-log.md#turn-on-log-messages) says.
+httpx's own `HTTP Request` line at INFO quotes the request's URL, and so
+does the `httpx.HTTPStatusError` raised after the last attempt. That URL
 holds no user name or password from `base_url` as httpx parses it, since a
 `base_url` with them is refused; a relative `base_url` takes the rest of the
 URL from your client's own `base_url`, which is not checked for a user name

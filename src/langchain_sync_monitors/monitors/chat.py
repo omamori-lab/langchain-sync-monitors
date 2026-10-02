@@ -20,7 +20,6 @@ from dataclasses import dataclass, replace
 from typing import ClassVar
 
 import httpx
-import stamina
 from langchain_core.language_models import BaseChatModel, LanguageModelInput
 from langchain_core.messages import AIMessage, BaseMessage
 from langchain_core.prompts import ChatPromptTemplate
@@ -42,6 +41,7 @@ from langchain_sync_monitors.options import (
     write_integer_option,
 )
 from langchain_sync_monitors.prompts import DEFAULT_MONITOR_PROMPT
+from langchain_sync_monitors.retries import call_with_retries, call_with_retries_sync
 from langchain_sync_monitors.thresholds import LIBRARY_DIRECTORY
 from langchain_sync_monitors.transcript import render_proposed_step, render_transcript
 
@@ -282,30 +282,39 @@ class ChatModelMonitor(Monitor, ABC):
         A call the provider answers with HTTP 429 is tried again with stamina
         [@schlawack2026stamina], after a growing, jittered wait, up to
         `RATE_LIMIT_ATTEMPTS` attempts in all; any other error is raised at
-        once, and so is the last 429. The retries wrap a block, not a
-        function, so stamina's retry log holds the error's repr and the wait,
-        never the prompt. A custom hook is handed the error itself, which a
-        provider's SDK may give the request, prompt included.
+        once, and so is the provider's last 429. `call_with_retries` retries
+        the call, so no retry hook is handed the prompt, or the provider's
+        error, which can hold its whole reply: stamina's retry log holds the
+        wait and a `RetriedCallError`'s repr, which names the provider error's
+        type and its status alone. The call is a nested function, whose repr
+        names it alone, since a hook can read the retried block's repr from
+        the stand-in's traceback.
         """
-        async for attempt in stamina.retry_context(
-            on=is_rate_limit_error,
+        messages = list(request.messages)
+
+        async def call_model() -> AIMessage:
+            return await request.model.ainvoke(messages, config=self.call_config)
+
+        return await call_with_retries(
+            call_model,
+            is_retried=is_rate_limit_error,
             attempts=RATE_LIMIT_ATTEMPTS,
             wait_initial=RATE_LIMIT_FIRST_WAIT_SECONDS,
-        ):
-            with attempt:
-                reply = await request.model.ainvoke(list(request.messages), config=self.call_config)
-        return reply
+        )
 
     def request_reply_sync(self, request: ReplyRequest) -> AIMessage:
         """Draw one reply without an event loop, calling the model again after a rate limit."""
-        for attempt in stamina.retry_context(
-            on=is_rate_limit_error,
+        messages = list(request.messages)
+
+        def call_model() -> AIMessage:
+            return request.model.invoke(messages, config=self.call_config)
+
+        return call_with_retries_sync(
+            call_model,
+            is_retried=is_rate_limit_error,
             attempts=RATE_LIMIT_ATTEMPTS,
             wait_initial=RATE_LIMIT_FIRST_WAIT_SECONDS,
-        ):
-            with attempt:
-                reply = request.model.invoke(list(request.messages), config=self.call_config)
-        return reply
+        )
 
 
 def is_reply_cut_off(reply: AIMessage) -> bool:

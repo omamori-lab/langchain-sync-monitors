@@ -31,9 +31,9 @@ from datetime import UTC, datetime
 from typing import Final, TypeGuard
 
 import httpx
-import stamina
 
 from langchain_sync_monitors.monitors.openrouter_decisions import check_key_characters
+from langchain_sync_monitors.retries import call_with_retries_sync
 
 logger = logging.getLogger(__name__)
 
@@ -161,25 +161,35 @@ def is_transient_failure(error: Exception) -> bool:
 
 
 def send_with_retries(http_client: httpx.Client, *, request: httpx.Request) -> httpx.Response:
-    """Send the request, raising on a server error so that stamina retries it.
+    """Send the request, again after a transport failure or a server error.
 
-    The retries wrap a block, not a function, so no retry hook is handed the
-    client or the request as an argument, where stamina's own hooks would log
-    it [@schlawack2026stamina]: the request holds the key in its headers.
-    Those hooks log the error as its repr, whose text quotes the request's
-    URL for a server error, and never its headers or body; `send_request`
-    says what that URL holds. A custom hook is handed the error itself,
-    whose `request` still holds the headers.
+    `call_with_retries_sync` retries it [@schlawack2026stamina], so no retry
+    hook is handed the client, the request or httpx's error, whose request
+    holds the key in its headers: stamina's retry log holds the wait and a
+    `RetriedCallError`'s repr, which names httpx's error type and the status
+    alone. The retried block is a nested function, not a `functools.partial`,
+    so its repr names no request. After the last attempt, httpx's error is
+    raised.
     """
-    for attempt in stamina.retry_context(
-        on=is_transient_failure,
+
+    def send_once() -> httpx.Response:
+        return send_raising_on_server_error(http_client, request=request)
+
+    return call_with_retries_sync(
+        send_once,
+        is_retried=is_transient_failure,
         attempts=RETRY_ATTEMPTS,
         timeout=RETRY_BUDGET_SECONDS,
-    ):
-        with attempt:
-            response = http_client.send(request)
-            if response.status_code >= httpx.codes.INTERNAL_SERVER_ERROR:
-                response.raise_for_status()
+    )
+
+
+def send_raising_on_server_error(
+    http_client: httpx.Client, *, request: httpx.Request
+) -> httpx.Response:
+    """Send the request once, raising `httpx.HTTPStatusError` on a server error alone."""
+    response = http_client.send(request)
+    if response.status_code >= httpx.codes.INTERNAL_SERVER_ERROR:
+        response.raise_for_status()
     return response
 
 
@@ -187,14 +197,13 @@ def send_request(http_client: httpx.Client, *, request: httpx.Request) -> httpx.
     """Send the request with retries, or return None, logged, when it still failed.
 
     The log names the request's path and `describe_failure`'s account of
-    the error, never a header. stamina's retry log quotes the URL of a
-    request that met a server error, and the URL holds no key and no text
-    of a run: the tool's endpoint, from which `build_http_client` takes any
-    user name and password; the path; and the query of a lookup. That query
-    names the LangSmith project, or asks Langfuse for a page of the
-    `monitor step` observations that started in a time window, by the span's
-    name, the window's bounds, the page size and the cursor Langfuse
-    returned. The score itself goes in the body.
+    the error, never a header. httpx's own request log quotes the URL, and
+    the URL holds no key and no text of a run: the tool's endpoint, from
+    which `build_http_client` takes any user name and password; the path;
+    and the query of a lookup. That query names the LangSmith project, or
+    asks Langfuse for a page of the `monitor step` observations that started
+    in a time window, by the span's name, the window's bounds, the page size
+    and the cursor Langfuse returned. The score itself goes in the body.
     """
     try:
         return send_with_retries(http_client, request=request)

@@ -63,6 +63,29 @@ class SynchronousRunError(MonitorError):
     """
 
 
+class RetriedCallError(MonitorError):
+    """The stand-in for an error the library retries, naming its type and HTTP status alone.
+
+    The library retries with stamina, which hands the error it retries on to
+    every retry hook, and whose logging hook logs the error's repr
+    [@schlawack2026stamina]. The error a call failed with can hold what it
+    sent or received, so each retry site retries on this error in its place,
+    as `retries` explains. Nothing is chained to it. It never leaves the
+    library: after the last attempt, the error it stood in for is raised.
+    """
+
+    def __init__(self, *, error_type: str, http_status: int | None) -> None:
+        """Name the type of the error stood in for and its HTTP status, and nothing it holds."""
+        status = "no HTTP status" if http_status is None else f"HTTP {http_status}"
+        super().__init__(f"a call failed with {error_type} ({status}) and is retried")
+        self.error_type = error_type
+        self.http_status = http_status
+
+    def __repr__(self) -> str:
+        """Name the error's type and HTTP status, as stamina's retry log shows them."""
+        return f"RetriedCallError(error_type={self.error_type!r}, http_status={self.http_status!r})"
+
+
 class ServerToolWarning(UserWarning):
     """The agent's model is given server tools, which the model provider runs itself.
 

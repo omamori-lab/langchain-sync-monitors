@@ -37,6 +37,13 @@ from langchain_sync_monitors.monitors.openrouter_decisions import (
     OpenRouterDecisionModel,
     read_decisions_probabilities,
 )
+from tests.support.log_records import find_frame_leaks, find_leaks, find_logged_leaks
+from tests.support.malformed_replies import (
+    PLANTED_REPLY_HEADER,
+    build_malformed_reply_error,
+    fail_with_a_malformed_reply,
+    raise_on_send,
+)
 
 from .doubles import PLANTED_SECRET, CallPath, evaluate_on_path
 
@@ -309,45 +316,118 @@ async def test_a_retried_request_logs_no_part_of_the_transcript_or_the_key(
         assert PLANTED_KEY not in text
 
 
+RETRIED_FAILURES = [
+    pytest.param(
+        fail_with(503),
+        "RetriedCallError(error_type='HTTPStatusError', http_status=503)",
+        id="server-error",
+    ),
+    pytest.param(
+        fail_with(429),
+        "RetriedCallError(error_type='HTTPStatusError', http_status=429)",
+        id="rate-limit",
+    ),
+    pytest.param(
+        fail_with_a_malformed_reply,
+        "RetriedCallError(error_type='RemoteProtocolError', http_status=None)",
+        id="malformed-reply",
+    ),
+    pytest.param(
+        drop_connection,
+        "RetriedCallError(error_type='ConnectError', http_status=None)",
+        id="dropped-connection",
+    ),
+]
+"""Each failure the model retries, and the repr stamina's retry log holds for it."""
+
+
+@pytest.mark.usefixtures("three_attempts")
+@pytest.mark.parametrize(("first_failure", "logged_error"), RETRIED_FAILURES)
+async def test_a_retried_request_hands_a_retry_hook_only_the_error_type_and_status(
+    call_path: CallPath,
+    input_holding_a_secret: MonitorInput,
+    retry_details: list[RetryDetails],
+    retry_frame_locals: list[dict[str, str]],
+    every_log_record: list[logging.LogRecord],
+    first_failure: Responder,
+    logged_error: str,
+) -> None:
+    # Arrange
+    server = DecisionsServer(responders=[first_failure, answer_with({"suspicious_step": 0.1})])
+    monitor = DecisionModelMonitor(
+        decision_model=server.build_model(api_key=SecretStr(PLANTED_KEY)),
+    )
+
+    # Act
+    verdict = await evaluate_on_path(monitor, input_holding_a_secret, call_path=call_path)
+
+    # Assert: the request was sent again, and stamina logged the error's type and status
+    assert verdict.suspicion == 0.1
+    assert len(server.requests) == 2
+    (details,) = retry_details
+    (record,) = [record for record in every_log_record if record.name == "stamina"]
+    assert repr(details.caused_by) == vars(record)["stamina.caused_by"] == logged_error
+    assert (details.caused_by.__cause__, details.caused_by.__context__) == (None, None)
+
+    # Assert: no record on any logger, and nothing a retry hook is handed, holds the
+    # transcript, the key, any part of the reply or a live httpx object
+    secrets = [PLANTED_SECRET, PLANTED_KEY, PLANTED_REPLY_HEADER]
+    assert find_logged_leaks(every_log_record, secrets=secrets) == []
+    assert find_leaks(details.caused_by, secrets=secrets) == []
+
+    # Assert: nor does any local of the frames in the stand-in's traceback, read by repr
+    (frame_locals,) = retry_frame_locals
+    assert any(name.startswith("run_attempt") for name in frame_locals)
+    assert find_frame_leaks(retry_frame_locals, secrets=secrets) == []
+
+
+@pytest.mark.usefixtures("three_attempts")
+async def test_a_malformed_reply_on_every_attempt_raises_httpx_error_from_the_last(
+    call_path: CallPath,
+    retry_details: list[RetryDetails],
+    every_log_record: list[logging.LogRecord],
+) -> None:
+    # Arrange: an answer waits behind the last attempt, so a further attempt would succeed
+    errors = [build_malformed_reply_error() for _ in range(3)]
+    responders = [*(raise_on_send(error) for error in errors), answer_with({"leaks": 0.1})]
+    server = DecisionsServer(responders=responders)
+
+    # Act
+    with pytest.raises(httpx.RemoteProtocolError) as raised:
+        await estimate_on_path(server.build_model(), questions=[LEAK_QUESTION], call_path=call_path)
+
+    # Assert: the caller gets httpx's own error from the last attempt, with nothing chained
+    assert raised.value is errors[-1]
+    assert (raised.value.__cause__, raised.value.__context__) == (None, None)
+    assert len(server.requests) == 3
+
+    # Assert: and no retry before it logged any part of the reply
+    assert len(retry_details) == 2
+    assert find_logged_leaks(every_log_record, secrets=[PLANTED_REPLY_HEADER]) == []
+
+
+@pytest.mark.usefixtures("three_attempts")
+async def test_a_server_error_on_every_attempt_raises_httpx_status_error(
+    call_path: CallPath,
+    retry_details: list[RetryDetails],
+) -> None:
+    # Arrange
+    server = DecisionsServer(responders=[fail_with(503)] * 3 + [answer_with({"leaks": 0.1})])
+
+    # Act
+    with pytest.raises(httpx.HTTPStatusError) as raised:
+        await estimate_on_path(server.build_model(), questions=[LEAK_QUESTION], call_path=call_path)
+
+    # Assert: the last attempt's own error, for its own request, with nothing chained
+    assert raised.value.response.status_code == 503
+    assert raised.value.request is server.requests[-1]
+    assert (raised.value.__cause__, raised.value.__context__) == (None, None)
+    assert len(server.requests) == 3
+    assert len(retry_details) == 2
+
+
 PLANTED_PASSWORD = "planted-password-71b3"
 """A password planted in `base_url`, which httpx would send as Basic authentication."""
-
-
-class RecordCollector(logging.Handler):
-    """Keep every record it is handed, whatever its level."""
-
-    def __init__(self) -> None:
-        super().__init__(level=logging.DEBUG)
-        self.records: list[logging.LogRecord] = []
-
-    def emit(self, record: logging.LogRecord) -> None:
-        self.records.append(record)
-
-
-@pytest.fixture
-def every_log_record(caplog: pytest.LogCaptureFixture) -> Iterator[list[logging.LogRecord]]:
-    """Collect every record at every level, from every logger, propagating or not.
-
-    Every logger that exists, httpx's and stamina's included, is set to DEBUG,
-    and the collector sits on the root logger and on each logger that does not
-    propagate. A logger made later inherits the root's DEBUG level and
-    propagates. caplog restores the levels afterwards.
-    """
-    collector = RecordCollector()
-    caplog.set_level(logging.DEBUG)
-    loggers = [
-        logger
-        for logger in logging.root.manager.loggerDict.values()
-        if isinstance(logger, logging.Logger)
-    ]
-    for logger in loggers:
-        caplog.set_level(logging.DEBUG, logger=logger.name)
-    holders = [logging.root, *(logger for logger in loggers if not logger.propagate)]
-    for holder in holders:
-        holder.addHandler(collector)
-    yield collector.records
-    for holder in holders:
-        holder.removeHandler(collector)
 
 
 @pytest.mark.usefixtures("three_attempts")

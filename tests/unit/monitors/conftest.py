@@ -9,7 +9,10 @@ import stamina
 from langchain_core.messages import AIMessage, HumanMessage
 
 from langchain_sync_monitors.contracts import MonitorInput, TaskAuthor
+from tests.support.fixtures import every_log_record as every_log_record
 from tests.support.fixtures import retry_details as retry_details
+from tests.support.fixtures import retry_frame_locals as retry_frame_locals
+from tests.support.fixtures import retry_hook_calls as retry_hook_calls
 
 from .doubles import PLANTED_SECRET, CallPath
 

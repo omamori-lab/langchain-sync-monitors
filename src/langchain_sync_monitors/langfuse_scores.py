@@ -369,8 +369,11 @@ class LangfuseScoreSender:
     the general rate limit, which every project and key of the organisation
     shares, for at most `MAX_OBSERVATION_PAGES` pages per lookup: 6 fresh
     lookups and 1 stale one a minute, 21 requests at most and 7 when each
-    lookup fits a page, and twice the fresh ones during the exit drain
-    [@langfuse2026apilimits]. The writes go to the ingestion bucket.
+    lookup fits a page, and twice the fresh ones during the exit drain, so up
+    to 33 in a minute that holds it [@langfuse2026apilimits]. `send_request`
+    sends a page once more after a server error or a network failure, so a
+    minute can take up to twice as many. The writes go to the ingestion
+    bucket.
 
     The scores found go in one `POST /api/public/ingestion`, as
     `score-create` events, which is how Langfuse's own SDK sends scores

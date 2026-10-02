@@ -43,6 +43,8 @@ STEP_SPAN_NAME = "monitor step"
 SPAN_START_DELAY = timedelta(milliseconds=500)
 """How long after its id is made a step's span starts, in the fake Langfuse."""
 LANGSMITH_KEY = "test-langsmith-key"
+LANGFUSE_KEYS = ("pk-test", "sk-test")
+"""The public and secret keys `set_score_credentials` sets, which the fake's clients send."""
 CONNECTION = LangSmithCredentials(
     api_key=SecretStr(LANGSMITH_KEY), endpoint=LANGSMITH_ENDPOINT, workspace_id=None
 )
@@ -216,10 +218,11 @@ class FakeLangfuse:
             if str(run.run_id) not in known:
                 self.add_step(str(run.run_id))
 
-    def build_client(self) -> httpx.Client:
+    def build_client(self, *, auth: tuple[str, str] = LANGFUSE_KEYS) -> httpx.Client:
+        """Return a client that reaches this fake with a key pair, as the library's does."""
         return httpx.Client(
             base_url=LANGFUSE_BASE_URL,
-            auth=("pk-test", "sk-test"),
+            auth=auth,
             transport=httpx.MockTransport(self.build_reply),
         )
 
@@ -292,8 +295,8 @@ def set_score_credentials(monkeypatch: pytest.MonkeyPatch) -> None:
     """Set test credentials for both tools, turn tracing by variable off, and fake langfuse."""
     monkeypatch.setenv("LANGSMITH_API_KEY", LANGSMITH_KEY)
     monkeypatch.setenv("LANGSMITH_ENDPOINT", LANGSMITH_ENDPOINT)
-    monkeypatch.setenv("LANGFUSE_PUBLIC_KEY", "pk-test")
-    monkeypatch.setenv("LANGFUSE_SECRET_KEY", "sk-test")
+    monkeypatch.setenv("LANGFUSE_PUBLIC_KEY", LANGFUSE_KEYS[0])
+    monkeypatch.setenv("LANGFUSE_SECRET_KEY", LANGFUSE_KEYS[1])
     monkeypatch.setenv("LANGFUSE_BASE_URL", LANGFUSE_BASE_URL)
     for name in (
         "LANGSMITH_TRACING",

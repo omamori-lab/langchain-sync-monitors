@@ -13,18 +13,22 @@ from dataclasses import dataclass
 from typing import Any
 from unittest.mock import MagicMock
 
+import httpx
 import pytest
+import stamina
 from langchain.agents import create_agent
 from langchain.agents.middleware.types import AgentMiddleware
 from langchain_core.callbacks import BaseCallbackHandler
 from langchain_core.messages import AIMessage
 from langchain_core.runnables import Runnable, RunnableConfig
+from stamina.instrumentation import RetryDetails
 
 from langchain_sync_monitors import middleware
 from langchain_sync_monitors.contracts import Monitor, MonitorInput, Verdict
 from langchain_sync_monitors.errors import MonitorError
 from langchain_sync_monitors.middleware import MonitorMiddleware
 from langchain_sync_monitors.protocols import DeferToResample, HaltRun, TrustedMonitoring
+from langchain_sync_monitors.score_requests import RETRY_ATTEMPTS
 from langchain_sync_monitors.score_worker import UNFOUND_STEP_HINTS
 from langchain_sync_monitors.scores import PendingScore, Tracer
 from tests.support.agents import (
@@ -36,8 +40,10 @@ from tests.support.agents import (
     run_agent,
 )
 from tests.support.chat_models import ScriptedChatModel
+from tests.support.log_records import find_logged_leaks
 from tests.support.monitors import BENIGN_SUSPICION
 from tests.support.score_services import (
+    LANGSMITH_KEY,
     PROJECT_ID,
     LangfuseHandler,
     ScoreServices,
@@ -154,6 +160,36 @@ def test_a_step_langfuse_has_not_ingested_waits_for_a_later_window(
     assert len(read_scores(score_services)) == 2
     lookups = score_services.langfuse.find_requests("GET", "/api/public/v2/observations")
     assert len(lookups) == 2
+
+
+def test_a_lookup_sent_again_after_a_server_error_logs_no_key_or_request(
+    run_mode: RunMode,
+    score_services: ScoreServices,
+    retry_details: list[RetryDetails],
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    # Arrange: each tool's first request, its lookup, meets a server error
+    caplog.set_level(logging.DEBUG)
+    score_services.langsmith.queued_answers.append(httpx.Response(503))
+    score_services.langfuse.queued_answers.append(httpx.Response(503))
+    langfuse = LangfuseHandler()
+    handlers: list[BaseCallbackHandler] = [build_langsmith_tracer(MagicMock()), langfuse]
+    run_traced(build_agent(build_monitor()), mode=run_mode, handlers=handlers)
+    score_services.langfuse.ingest_steps(langfuse)
+
+    # Act
+    with stamina.set_testing(True, attempts=RETRY_ATTEMPTS):
+        score_services.send_window()
+
+    # Assert: each lookup was sent again and every score written, no hook was handed the
+    # request, and no record, on any logger, holds a key, a header or a live request
+    assert len(read_feedback(score_services)) == len(read_scores(score_services)) == 2
+    assert [(details.args, details.kwargs) for details in retry_details] == [((), {}), ((), {})]
+    headers = [
+        score_services.langsmith.requests[0].headers["x-api-key"],
+        score_services.langfuse.requests[0].headers["authorization"],
+    ]
+    assert find_logged_leaks(caplog.records, secrets=[LANGSMITH_KEY, *headers]) == []
 
 
 def test_only_the_tools_asked_for_receive_scores(

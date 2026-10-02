@@ -363,9 +363,15 @@ of samples. The proposals, the reasons and the errors' messages stay in
 step, such as the provider's own, propagates unchanged.
 
 A retry logs through stamina's own logger, `stamina`, at `WARNING`, as
-`stamina.retry_scheduled`: each Decisions API request sent again, and each
-chat monitor call made again after HTTP 429. The record holds the error and
-the wait; the request, its transcript and key included, is never handed to it.
+`stamina.retry_scheduled`: each Decisions API request sent again, each chat
+monitor call made again after HTTP 429, and each score-export request sent
+again after a server error or a network failure. The record holds the
+error's repr and the wait; the request, its transcript and key included, is
+never handed to it. For a Decisions API or score-export request, the error is
+httpx's, whose repr can quote the request's URL but never its headers or its
+body. A score-export URL holds no key and no text of a run, as
+[Know what it costs](see-decisions-in-langsmith-and-langfuse.md#know-what-it-costs)
+says.
 
 A malformed record read from `monitor_log` raises `MonitorError` naming its
 position, the record and the fields at fault; the monitor skips no record,

@@ -6,6 +6,7 @@ import pytest
 import stamina
 
 from langchain_sync_monitors.score_requests import RETRY_ATTEMPTS
+from tests.support.fixtures import retry_details as retry_details
 from tests.support.score_services import score_services as score_services
 
 

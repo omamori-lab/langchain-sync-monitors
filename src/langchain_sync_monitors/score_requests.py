@@ -104,7 +104,16 @@ def build_http_client(
 
     Where the system's proxies cannot be looked up safely, the client skips
     them and still trusts the environment's certificates.
+
+    A user name and password in the base URL become the client's Basic
+    authentication, as httpx would apply them, unless `auth` is given, which
+    httpx prefers [@httpx2024]. The URL keeps neither, so no request's URL,
+    and no error that quotes one, holds the password.
     """
+    url = httpx.URL(base_url)
+    if url.userinfo:
+        auth = auth if auth is not None else (url.username, url.password)
+        base_url = str(url.copy_with(userinfo=b""))
     if is_system_proxy_lookup_safe():
         return httpx.Client(
             base_url=base_url, headers=headers, auth=auth, timeout=REQUEST_TIMEOUT_SECONDS
@@ -147,12 +156,26 @@ def is_transient_failure(error: Exception) -> bool:
     return isinstance(error, httpx.TransportError)
 
 
-@stamina.retry(on=is_transient_failure, attempts=RETRY_ATTEMPTS, timeout=RETRY_BUDGET_SECONDS)
 def send_with_retries(http_client: httpx.Client, *, request: httpx.Request) -> httpx.Response:
-    """Send the request, raising on a server error so that stamina retries it."""
-    response = http_client.send(request)
-    if response.status_code >= httpx.codes.INTERNAL_SERVER_ERROR:
-        response.raise_for_status()
+    """Send the request, raising on a server error so that stamina retries it.
+
+    The retries wrap a block, not a function, so no retry hook is handed the
+    client or the request as an argument, where stamina's own hooks would log
+    it [@schlawack2026stamina]: the request holds the key in its headers.
+    Those hooks log the error as its repr, whose text quotes the request's
+    URL for a server error, and never its headers or body; `send_request`
+    says what that URL holds. A custom hook is handed the error itself,
+    whose `request` still holds the headers.
+    """
+    for attempt in stamina.retry_context(
+        on=is_transient_failure,
+        attempts=RETRY_ATTEMPTS,
+        timeout=RETRY_BUDGET_SECONDS,
+    ):
+        with attempt:
+            response = http_client.send(request)
+            if response.status_code >= httpx.codes.INTERNAL_SERVER_ERROR:
+                response.raise_for_status()
     return response
 
 
@@ -160,7 +183,14 @@ def send_request(http_client: httpx.Client, *, request: httpx.Request) -> httpx.
     """Send the request with retries, or return None, logged, when it still failed.
 
     The log names the request's path and `describe_failure`'s account of
-    the error, never a header.
+    the error, never a header. stamina's retry log quotes the URL of a
+    request that met a server error, and the URL holds no key and no text
+    of a run: the tool's endpoint, from which `build_http_client` takes any
+    user name and password; the path; and the query of a lookup. That query
+    names the LangSmith project, or asks Langfuse for a page of the
+    `monitor step` observations that started in a time window, by the span's
+    name, the window's bounds, the page size and the cursor Langfuse
+    returned. The score itself goes in the body.
     """
     try:
         return send_with_retries(http_client, request=request)

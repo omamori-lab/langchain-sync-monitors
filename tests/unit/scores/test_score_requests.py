@@ -6,8 +6,11 @@ anything unreadable pauses for the default, and a date already past for nothing.
 
 from __future__ import annotations
 
+import functools
 import logging
 import ssl
+from collections.abc import Callable
+from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from email.utils import format_datetime
 from pathlib import Path
@@ -16,9 +19,13 @@ from unittest.mock import MagicMock
 import certifi
 import httpx
 import pytest
+from pydantic import SecretStr
+from stamina.instrumentation import RetryDetails
 
 from langchain_sync_monitors import score_requests
 from langchain_sync_monitors.errors import ConfigurationError
+from langchain_sync_monitors.langfuse_scores import LangfuseScoreSender
+from langchain_sync_monitors.langsmith_scores import LangSmithFeedbackSender
 from langchain_sync_monitors.score_requests import (
     DEFAULT_PAUSE_SECONDS,
     MAX_PAUSE_SECONDS,
@@ -30,6 +37,15 @@ from langchain_sync_monitors.score_requests import (
     read_environment_value,
     read_pause_seconds,
     send_request,
+)
+from langchain_sync_monitors.scores import LangSmithCredentials, PendingScore, ScoreSender, Tracer
+from tests.support.log_records import find_logged_leaks
+from tests.support.score_services import (
+    LANGSMITH_ENDPOINT,
+    PROJECT_NAME,
+    FakeLangfuse,
+    FakeLangSmith,
+    build_step_id,
 )
 
 PROXY_VARIABLES = ("HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "NO_PROXY")
@@ -171,6 +187,137 @@ def test_a_server_error_is_retried_and_then_leaves_no_response(
         if record.name == "langchain_sync_monitors.score_requests"
     ] == ["score export: GET /items failed with HTTPStatusError (HTTP 503)"]
     assert all(record.exc_info is None for record in caplog.records)
+
+
+PLANTED_KEY = "planted-score-key-7e1b"
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class RetriedSend:
+    """A sender whose first request meets a server error, its score, and what its fake received.
+
+    `header` names the request header that carries the planted key.
+    """
+
+    sender: ScoreSender
+    score: PendingScore
+    requests: list[httpx.Request]
+    header: str
+
+
+def build_langsmith_send() -> RetriedSend:
+    """Return a LangSmith sender whose project lookup fails once, with the key in `x-api-key`."""
+    service = FakeLangSmith(queued_answers=[httpx.Response(503)])
+    connection = LangSmithCredentials(
+        api_key=SecretStr(PLANTED_KEY), endpoint=LANGSMITH_ENDPOINT, workspace_id=None
+    )
+    score = PendingScore(
+        step_id=build_step_id(),
+        name="monitor_suspicion",
+        value=0.9,
+        tracer=Tracer.LANGSMITH,
+        project=PROJECT_NAME,
+        queued_at=0.0,
+        connection=connection,
+    )
+    sender = LangSmithFeedbackSender(build_client=service.build_client, posts_in_flight=1)
+    return RetriedSend(sender=sender, score=score, requests=service.requests, header="x-api-key")
+
+
+def build_langfuse_send() -> RetriedSend:
+    """Return a Langfuse sender whose step lookup fails once, with the key in Basic auth."""
+    service = FakeLangfuse(queued_answers=[httpx.Response(503)])
+    step_id = build_step_id()
+    service.add_step(str(step_id))
+    score = PendingScore(
+        step_id=step_id,
+        name="monitor_suspicion",
+        value=0.9,
+        tracer=Tracer.LANGFUSE,
+        project=None,
+        queued_at=0.0,
+    )
+    sender = LangfuseScoreSender(
+        http_client=service.build_client(auth=("pk-planted", PLANTED_KEY)), clock=lambda: 0.0
+    )
+    return RetriedSend(
+        sender=sender, score=score, requests=service.requests, header="authorization"
+    )
+
+
+@pytest.mark.parametrize(
+    "build_send", [build_langsmith_send, build_langfuse_send], ids=["langsmith", "langfuse"]
+)
+def test_a_retried_request_hands_no_retry_hook_the_request_and_logs_no_key(
+    build_send: Callable[[], RetriedSend],
+    retry_details: list[RetryDetails],
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    # Arrange: the sender's first request, a lookup, meets a server error, so it is sent again
+    caplog.set_level(logging.DEBUG)
+    case = build_send()
+
+    # Act
+    report = case.sender.send([case.score])
+    case.sender.close()
+
+    # Assert: the lookup was sent again and the score written; no record, on any logger,
+    # holds the key, the header that carried it or a live request, and no hook was handed one
+    first, retried, _ = case.requests
+    assert retried.url == first.url
+    assert report.written == [case.score]
+    secrets = [PLANTED_KEY, first.headers[case.header]]
+    assert "stamina.retry_scheduled" in [record.getMessage() for record in caplog.records]
+    assert find_logged_leaks(caplog.records, secrets=secrets) == []
+    (details,) = retry_details
+    assert (details.name, details.args, details.kwargs) == ("<context block>", (), {})
+    assert not any(secret in repr(details.caused_by) for secret in secrets)
+
+
+PLANTED_PASSWORD = "planted-url-password-31c9"
+
+
+@pytest.mark.parametrize("auth", [None, ("pk-given", "sk-given")], ids=["url", "given"])
+def test_credentials_in_the_base_url_authenticate_as_httpx_would_and_stay_out_of_every_url(
+    monkeypatch: pytest.MonkeyPatch,
+    retry_details: list[RetryDetails],
+    caplog: pytest.LogCaptureFixture,
+    *,
+    auth: tuple[str, str] | None,
+) -> None:
+    # Arrange: every request meets a server error, whose text quotes the request's URL
+    caplog.set_level(logging.DEBUG)
+    base_url = f"https://monitor:{PLANTED_PASSWORD}@service.test/api"
+    seen: list[httpx.Request] = []
+
+    def answer(request: httpx.Request) -> httpx.Response:
+        seen.append(request)
+        return httpx.Response(503)
+
+    plain_client = httpx.Client
+    with plain_client(base_url=base_url, auth=auth, transport=httpx.MockTransport(answer)) as own:
+        own.get("/sessions")
+    caplog.clear()  # httpx's own client logs its URL, password included
+    monkeypatch.setattr(
+        score_requests.httpx,
+        "Client",
+        functools.partial(plain_client, transport=httpx.MockTransport(answer)),
+    )
+
+    # Act
+    with build_http_client(base_url=base_url, auth=auth) as client:
+        response = send_request(
+            client, request=client.build_request("GET", "/sessions", params={"limit": 1})
+        )
+
+    # Assert: the request authenticates as httpx's own client from that URL would, and
+    # neither its URL nor any record holds the password
+    httpx_request, first, retried = seen
+    assert response is None
+    assert first.headers["authorization"] == httpx_request.headers["authorization"]
+    assert str(first.url) == str(retried.url) == "https://service.test/api/sessions?limit=1"
+    assert len(retry_details) == 1
+    assert find_logged_leaks(caplog.records, secrets=[PLANTED_PASSWORD]) == []
 
 
 def test_a_server_error_then_a_success_returns_the_success() -> None:

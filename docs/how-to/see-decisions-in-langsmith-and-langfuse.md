@@ -372,15 +372,27 @@ full rules, forked processes included.
   is true [@langsmith2026retention].
 - **Rate limits.** Each LangSmith feedback is one request. Langfuse's lookups
   spend its general API rate limit, which every project and key of an
-  organisation shares: at most 21 requests a minute per process, and 7 when
-  each lookup fits one page of 1,000 observations [@langfuse2026apilimits].
-  The scores go in through the ingestion API, which has a limit of its own. A
-  `429` holds every call to that tool until its `Retry-After`, for at most 5
-  minutes.
+  organisation shares [@langfuse2026apilimits]. One process looks up the
+  fresh steps every 10 seconds and the stale ones once a minute, up to 3
+  pages each: at most 21 requests a minute, and 7 when each lookup fits one
+  page of 1,000 observations. A minute that holds the 30-second exit drain,
+  which looks every 5 seconds, takes about half as many again, up to 33. A
+  page that meets a server error or a network failure is sent once more, so
+  up to twice as many in all. The scores go in through the ingestion API,
+  which has a limit of its own. A `429` holds every call to that tool until
+  its `Retry-After`, for at most 5 minutes.
 - **The agent never waits.** One background thread per process sends the
-  scores, every 10 seconds. A failure never reaches the run. It is logged,
-  mostly by `langchain_sync_monitors.score_worker`, with the tool, the
-  error's type and any HTTP status, but never the error's text or traceback.
+  scores, every 10 seconds. A failure never reaches the run. The library's
+  own loggers, mostly `langchain_sync_monitors.score_worker`, log it with the
+  tool, the error's type and any HTTP status, but never the error's text or
+  traceback. A request sent again is logged by stamina's logger, `stamina`,
+  at `WARNING`, as `stamina.retry_scheduled`, with the wait and the error's
+  repr, which can quote the request's URL but never its headers or body
+  [@schlawack2026stamina]. That URL holds no key and no text of a run: the
+  tool's endpoint, without any user name or password, the path, and a
+  lookup's query. The query names the LangSmith project, or asks Langfuse for
+  the `monitor step` observations that started in a time window, a page at a
+  time.
 
 ### Know what happens at exit
 

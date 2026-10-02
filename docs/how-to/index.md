@@ -33,5 +33,5 @@ This page lists the how-to guides, each of which solves one concrete task.
 - [Read the monitor log](read-the-monitor-log.md): the records, the stream
   events and the logs a monitored run leaves.
 - [See the monitor's decisions in LangSmith and Langfuse](see-decisions-in-langsmith-and-langfuse.md):
-  the spans each step opens in a tracer, and the filters that find halted and
-  flagged steps.
+  the spans each step opens in a tracer, the filters that find halted and
+  flagged steps, and each step's suspicion sent as a score.

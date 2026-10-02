@@ -187,6 +187,52 @@ the ones above:
 | Which question a decision model answers | Rubric grading [@kim2024prometheus]; single-answer against pairwise grading [@zheng2023judging]; checklists [@lee2025checkeval; @cook2024ticking]; scale length [@godfrey2025likert; @li2026gradingscale]; proper scoring rules [@gneiting2007scoring]; language models as risk scores [@cruz2024riskscores]; saturated yes or no probabilities [@qi2026verdi]; a calibrated open reimplementation of Jev [@ren2026openjev]; Jev in practice [@typesafe2026jev; @openrouter2026gatetoolcalls]. |
 | Defer to Resample as Ctrl-Z specifies it | The protocol, its parameters and its caveats, from the paper and the authors' post [@bhatt2025ctrlz; @bhatt2025ctrlzpost]. |
 
+## The research behind the score export
+
+The research under `docs/plans/monitor-scores/research/` asks how LangSmith
+and Langfuse each expect a guardrail's or an evaluator's result to be
+recorded, which led to the `export_scores` option. It cites these sources
+beyond the ones above.
+
+### LangSmith
+
+Feedback's shape, sources and targets come from LangSmith's feedback pages
+[@langsmith2026feedback; @langsmith2026feedbackformat; @langsmith2026feedbackcriteria].
+What its filters accept comes from the trace query syntax
+[@langsmith2026querysyntax], and the `ls_` metadata keys from their reference
+[@langsmith2026metadataparameters]. The cost of feedback that extends a
+trace's retention is in the administration overview
+[@langsmith2026retention], and what a dashboard can chart is in the dashboards
+page [@langsmith2026dashboards]. Server-side scoring draws on code online
+evaluators [@langsmith2026codeevaluators], automation rules
+[@langsmith2026rules] and an evaluator's retention setting
+[@langsmith2026evaluatorretention]. LangSmith's OpenTelemetry mapping is
+described in its own guide [@langsmith2026otel].
+
+### Langfuse
+
+Scores and when to prefer them to tags come from the scores overview
+[@langfuse2026scores], and the ways to score a LangChain run from the
+integration guide [@langfuse2026langchain]. The research also read the pages on
+observation types [@langfuse2026observationtypes], log levels
+[@langfuse2026levels], trace ids [@langfuse2026traceids], naming
+[@langfuse2026bestpractices], code evaluators [@langfuse2026codeevaluators],
+LLM-as-a-judge [@langfuse2026llmjudge], custom dashboards
+[@langfuse2026dashboards], guardrails [@langfuse2026guardrails] and
+OpenTelemetry [@langfuse2026otel].
+
+### OpenTelemetry and comparable libraries
+
+The GenAI semantic conventions define the evaluation event
+[@otel2026genai], and the Python package marks their constants as moved
+[@otel2026semconvpython]. Two open proposals would add guardrail spans
+[@otel2026guardrailproposal] and a decision event for a proposed tool call
+[@otel2026tooldecisionproposal]. For how other libraries report a verdict,
+the research read openevals [@openevals2026], NeMo Guardrails
+[@nemoguardrails2026], Guardrails AI [@guardrailsai2026], the OpenAI Agents
+SDK [@openaiagents2026] and OpenInference's instrumentation of it
+[@openinference2026].
+
 ## Code we learned from or build on
 
 The middleware follows LangChain's own middleware [@langchain2026]: how

@@ -34,6 +34,12 @@ name `langchain_sync_monitors` exports, grouped by what it is for.
         - monitor_inputs_at_halt
         - monitor_subagent_returns
 
+::: langchain_sync_monitors.Tracer
+    options:
+      members:
+        - LANGSMITH
+        - LANGFUSE
+
 ## Protocols
 
 ::: langchain_sync_monitors.ControlProtocol

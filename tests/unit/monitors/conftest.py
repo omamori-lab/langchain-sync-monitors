@@ -7,9 +7,9 @@ from collections.abc import Iterator
 import pytest
 import stamina
 from langchain_core.messages import AIMessage, HumanMessage
-from stamina.instrumentation import LoggingOnRetryHook, RetryDetails
 
 from langchain_sync_monitors.contracts import MonitorInput, TaskAuthor
+from tests.support.fixtures import retry_details as retry_details
 
 from .doubles import PLANTED_SECRET, CallPath
 
@@ -52,16 +52,3 @@ def input_holding_a_secret() -> MonitorInput:
         ),
         task_author=TaskAuthor.USER,
     )
-
-
-@pytest.fixture
-def retry_details() -> Iterator[list[RetryDetails]]:
-    """Collect what every stamina retry hook is handed, beside stamina's own logging hook."""
-    collected: list[RetryDetails] = []
-
-    def collect(details: RetryDetails) -> None:
-        collected.append(details)
-
-    stamina.instrumentation.set_on_retry_hooks([LoggingOnRetryHook, collect])
-    yield collected
-    stamina.instrumentation.set_on_retry_hooks(None)

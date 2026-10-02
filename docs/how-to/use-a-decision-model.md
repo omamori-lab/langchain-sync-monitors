@@ -225,9 +225,10 @@ neither the transcript nor the key reaches the log. The error quotes the
 request's URL, as httpx's own `HTTP Request` line at INFO does. That URL
 holds no user name or password from `base_url` as httpx parses it, since a
 `base_url` with them is refused; a relative `base_url` takes the rest of the
-URL from your client's own `base_url`, which is not checked. But an
-unencoded `/`, `?` or `#` in a user name or password hides them from httpx,
-which reads what comes before that character as the host and port. Such a
+URL from your client's own `base_url`, which is not checked for a user name
+or password. But an unencoded `/`, `?` or `#` in a user name or password
+hides them from httpx, which reads what comes before that character as the
+host and port. Such a
 `base_url` is refused only when that is no host and port httpx can read, as
 in `https://user:abc#rest@host`;
 `https://user:/rest@host`, `https://user:123/rest@host` and

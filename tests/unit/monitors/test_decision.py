@@ -485,6 +485,49 @@ async def test_a_base_url_httpx_cannot_read_fails_at_construction_without_showin
     assert server.requests == []
 
 
+BASE_URLS_WHOSE_CREDENTIALS_HTTPX_CANNOT_SEE = {
+    "a-slash-after-an-empty-port": f"https://user:/{PLANTED_PASSWORD}@decisions.test/api",
+    "a-slash-after-a-number-port": f"https://user:123/{PLANTED_PASSWORD}@decisions.test/api",
+    "a-question-mark-after-an-empty-port": f"https://user:?{PLANTED_PASSWORD}@decisions.test/api",
+    "a-hash-after-an-empty-port": f"https://user:#{PLANTED_PASSWORD}@decisions.test/api",
+    "a-slash-in-the-user-name": f"https://user/name:{PLANTED_PASSWORD}@decisions.test/api",
+    "a-question-mark-in-the-user-name": f"https://user?name:{PLANTED_PASSWORD}@decisions.test/api",
+    "a-hash-in-the-user-name": f"https://user#name:{PLANTED_PASSWORD}@decisions.test/api",
+}
+"""Base URLs whose user name or password holds a `/`, `?` or `#`, which hides both from httpx.
+
+httpx reads what comes before that character as the host and port, `user`
+and an empty port or `123`, so it parses no user name or password and the
+check cannot see them. `OpenRouterDecisionModel` and the how-to document
+this limit; the test pins it, so the docs and the code cannot drift apart.
+"""
+
+
+@pytest.mark.parametrize(
+    "base_url",
+    BASE_URLS_WHOSE_CREDENTIALS_HTTPX_CANNOT_SEE.values(),
+    ids=BASE_URLS_WHOSE_CREDENTIALS_HTTPX_CANNOT_SEE.keys(),
+)
+async def test_credentials_httpx_cannot_see_are_not_refused_as_documented(
+    call_path: CallPath,
+    base_url: str,
+) -> None:
+    # Arrange
+    server = DecisionsServer(responders=[answer_with({"leaks": 0.1})])
+
+    # Act
+    model = server.build_model(base_url=base_url)
+    await estimate_on_path(model, questions=[LEAK_QUESTION], call_path=call_path)
+
+    # Assert: as documented, the model is built, and its request, key included, goes to a host
+    # read from the user name, with the password in the URL that httpx logs
+    (request,) = server.requests
+    assert request.url.host == "user"
+    assert request.url.userinfo == b""
+    assert request.headers["Authorization"] == "Bearer unit-test-key"
+    assert PLANTED_PASSWORD in str(request.url)
+
+
 PLANTED_USER = "planted-user-2f6e"
 """A user name planted where httpx reads a scheme, in a `base_url` with no `//`."""
 

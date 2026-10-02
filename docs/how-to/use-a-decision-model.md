@@ -224,9 +224,14 @@ would fail the same way every time. stamina logs each retry as
 neither the transcript nor the key reaches the log. The error quotes the
 request's URL, as httpx's own `HTTP Request` line at INFO does. That URL
 holds no user name or password as httpx parses it, since a `base_url` with
-them is refused. A password httpx parses as a port and the rest of the URL,
-as in `https://user:123/rest@host`, is not refused, and logs and errors can
-quote it with the URL: keep credentials out of `base_url`.
+them is refused. But an unencoded `/`, `?` or `#` in a user name or password
+hides them from httpx, which reads what comes before that character as the
+host and port. Such a `base_url` is refused only when that is no host and
+port httpx can read, as in `https://user:abc#rest@host`;
+`https://user:/rest@host`, `https://user:123/rest@host` and
+`https://user/rest:password@host` are built. Their requests, key included,
+go to a host read from the user name, and logs and errors can quote the user
+name and password with the URL. Keep credentials out of `base_url`.
 
 The library adds no retries around `TypeSafeDecisionModel`; an error from the
 classifier is raised as it is.

@@ -26,17 +26,21 @@ change raises the minor version.
 ### Security
 
 - A user name or password in `OpenRouterDecisionModel`'s `base_url`, as
-  httpx parses the URL, no longer reaches logs or errors; a password httpx
-  parses as a port and the rest of the URL, as in
-  `https://user:123/rest@host`, still can. httpx quoted them in its request
-  log line and in the error stamina logs on a retry, and sent them as Basic
-  authentication in place of the key. A `base_url` httpx could not read
-  failed at the first request with `httpx.InvalidURL`, which could quote the
-  start of the password as the port. Both now raise `ConfigurationError` when
-  the model is built, with no part of the URL in the message; pass the key as
-  `api_key`. A `base_url` with a user name or password used to send requests,
-  so a gateway that took their Basic authentication in place of the key now
-  needs an `http_client` you pass with its own `auth`.
+  httpx parses the URL, no longer reaches logs or errors. httpx quoted them
+  in its request log line and in the error stamina logs on a retry, and sent
+  them as Basic authentication in place of the key. A `base_url` httpx could
+  not read failed at the first request with `httpx.InvalidURL`, which could
+  quote the start of the password as the port. Both now raise
+  `ConfigurationError` when the model is built, with no part of the URL in
+  the message; pass the key as `api_key`. A `base_url` with a user name or
+  password used to send requests, so a gateway that took their Basic
+  authentication in place of the key now needs an `http_client` you pass
+  with its own `auth`. One limit remains: an unencoded `/`, `?` or `#` in a
+  user name or password hides them from httpx, which reads what comes before
+  that character as the host and port. So `https://user:/rest@host` and
+  `https://user/rest:password@host` are not refused; their requests, key
+  included, go to a host read from the user name, and logs and errors can
+  quote the user name and password with the URL.
 
 ## [0.1.1] - 2026-10-01
 

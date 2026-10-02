@@ -129,7 +129,8 @@ def check_url_without_credentials(url: str, *, parameter_name: str) -> None:
     `https://user:abc#rest@host` httpx reads `abc` as the port and quotes it.
     Neither message quotes any part of the URL, and nothing is chained to it,
     since the refusal is raised outside the handler that caught httpx's error.
-    `OpenRouterDecisionModel` states the password this check cannot see.
+    `OpenRouterDecisionModel` states the user names and passwords this check
+    cannot see.
     """
     parsed = read_httpx_url(url)
     if parsed is None:
@@ -236,9 +237,15 @@ class OpenRouterDecisionModel(DecisionModel):
     `check_url_without_credentials` explains, or that is not an `http` or
     `https` URL with a host, such as an empty or relative one, as
     `check_http_url_with_host` explains, with no part of the URL in the
-    message. A password httpx parses as a port and the rest of the URL, as
-    in `https://user:123/rest@host`, is not refused, and logs and errors can
-    quote it with the URL: keep credentials out of `base_url`.
+    message. An unencoded `/`, `?` or `#` in a user name or password hides
+    them from httpx, which reads what comes before that character as the
+    host and port. Such a `base_url` is refused only when that is no host
+    and port httpx can read, as in `https://user:abc#rest@host`;
+    `https://user:/rest@host`, `https://user:123/rest@host` and
+    `https://user/rest:password@host` are built. Their requests, key
+    included, go to a host read from the user name, and logs and errors can
+    quote the user name and password with the URL. Keep credentials out of
+    `base_url`.
 
     Pass your own `http_client` or `async_http_client` to reuse connections,
     change transports or decide when a client closes; a client you pass

@@ -17,12 +17,13 @@ Run the gates and make sure they pass:
 scripts/check.sh
 ```
 
-It runs the agent-file sync check, ruff, ty (Astral's type checker, warnings
-treated as errors), the offline test suite, the lanorme standards, a strict
-docs build, a package build and an import of the built wheel without any
-extra. CI runs the same script. The pre-commit hooks run only its fast gates,
-ruff, ty, lanorme and the offline suite, plus a gitleaks secrets scan and file
-checks, so they do not replace the script. Do not finish with a red gate.
+It runs the agent-file sync check, a gitleaks secrets scan, ruff, ty (Astral's
+type checker, warnings treated as errors), the offline test suite, the lanorme
+standards, a strict docs build, a package build and an import of the built
+wheel without any extra. CI runs the same script. The pre-commit hooks run
+only its fast gates, ruff, ty, lanorme and the offline suite, plus a gitleaks
+scan of the staged changes and file checks, so they do not replace the
+script. Do not finish with a red gate.
 `uv run --group dev ruff check --fix . && uv run --group dev ruff format .`
 fixes what ruff reports; `uvx --python 3.13 lanorme==0.21.0 rule CODE` explains
 a lanorme finding. lanorme's limits in `pyproject.toml` are a ratchet: meet them

@@ -47,10 +47,9 @@ uv sync --group dev --group docs --all-extras
 uvx pre-commit install
 ```
 
-The pre-commit hooks include a secrets scan, which needs
+The pre-commit hooks and `scripts/check.sh` include a secrets scan, which needs
 [gitleaks](https://github.com/gitleaks/gitleaks) on your `PATH`, for example
-from `brew install gitleaks`. CI scans the whole history with the same
-`.gitleaks.toml`.
+from `brew install gitleaks`.
 
 Live tests call real model providers. They read `OPENROUTER_API_KEY` from the
 environment only, and are skipped without it. Export the key, then run them
@@ -64,19 +63,29 @@ One script runs every gate:
 scripts/check.sh
 ```
 
-It checks that `CLAUDE.md` matches `AGENTS.md`, then runs ruff, ty (type checking),
-the offline test suite, the lanorme standards (naming, complexity, docstrings,
-prose, docs layout), a strict docs build and a package build, and imports the
-built wheel without any extra. CI runs the same script. CI also runs the
-offline suite at the lowest versions the dependency bounds in `pyproject.toml`
-allow, and again without any extra.
+It checks that `CLAUDE.md` matches `AGENTS.md`, scans for secrets with gitleaks
+and `.gitleaks.toml`, then runs ruff, ty (type checking), the offline test
+suite, the lanorme standards (naming, complexity, docstrings, prose, docs
+layout), a strict docs build and a package build, and imports the built wheel
+without any extra. CI runs the same script. CI also runs the offline suite at
+the lowest versions the dependency bounds in `pyproject.toml` allow, and again
+without any extra.
+
+The secrets scan covers what this checkout can commit and push: the history of
+the checked-out commit, the staged and unstaged changes, and each untracked
+file git does not ignore. It leaves out commits on other branches and in other
+worktrees, so they cannot fail this checkout's gates. A finding names its rule,
+file and commit, with the secret redacted. Without gitleaks on your `PATH`, the
+script prints one line saying it skipped the scan, and goes on; CI's gates job
+has no gitleaks, so it takes that path. CI's secrets job scans the whole
+history with the same `.gitleaks.toml`.
 
 The pre-commit hooks run the fast gates only: ruff, ty, lanorme, the offline
-test suite, the gitleaks secrets scan and a few file checks. They skip the
-agent-file sync check, the docs build, the package build and the wheel import,
-and ruff, ty and the test suite run only when a commit stages a Python file,
-so a docs-only commit skips the docs-standard tests. Run `scripts/check.sh`
-before you push.
+test suite, a gitleaks scan of the staged changes and a few file checks. They
+skip the agent-file sync check, the docs build, the package build and the
+wheel import, and ruff, ty and the test suite run only when a commit stages a
+Python file, so a docs-only commit skips the docs-standard tests. Run
+`scripts/check.sh` before you push.
 
 lanorme needs Python 3.13, so the script runs it with `uvx --python 3.13`; it
 only parses the code, so it checks 3.12 source correctly. To see why a rule

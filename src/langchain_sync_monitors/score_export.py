@@ -219,11 +219,23 @@ def read_langsmith_destination(tracer: LangChainTracer) -> ScoreDestination | No
 def is_langfuse_handler_silent(handler: BaseCallbackHandler) -> bool:
     """Tell whether a Langfuse handler's client sends no trace, so that no step of it is found.
 
-    Langfuse keeps both switches private: `Langfuse(tracing_enabled=False)`
-    leaves its client's `_tracing_enabled` false, and `sample_rate=0` gives
-    the client's tracer provider a sampler whose `rate` is 0 [@langfuse2026].
-    Each is read with a default, so a handler of another shape counts as
-    tracing, and its scores wait as they would have.
+    Without this test, each score of such a run waits for a step that never
+    arrives, and every exit spends the whole drain on it. Langfuse exposes
+    neither switch publicly [@langfuse2026], so three private reads make the
+    test, all of them on Langfuse's objects and none on LangChain's:
+
+    - `handler._langfuse_client`, the client the handler traces through,
+      which the handler keeps only there. Without one, it counts as tracing.
+    - `client._tracing_enabled`, which `Langfuse(tracing_enabled=False)`
+      sets false. Unless it is exactly `False`, the client counts as tracing.
+    - `client._resources.tracer_provider.sampler.rate`, which `sample_rate=0`
+      sets to 0 on the sampler of the client's tracer provider. Unless it is
+      a number of 0 or below, the client counts as tracing.
+
+    Each read is a `getattr` with that fallback, so a handler or client of
+    another shape, such as a later SDK's, never raises, and its scores wait
+    as they would have. The reads stay in this one function, since
+    `_langchain.py` holds LangChain's untyped surfaces, not Langfuse's.
     """
     client = getattr(handler, "_langfuse_client", None)
     if getattr(client, "_tracing_enabled", True) is False:

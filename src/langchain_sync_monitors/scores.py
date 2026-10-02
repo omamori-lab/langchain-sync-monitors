@@ -63,7 +63,7 @@ class Tracer(StrEnum):
       `get_client().flush()` before it ends; otherwise its last steps reach
       Langfuse only when the client's flush interval sends them, five
       seconds by default [@langfuse2026], and a `LANGFUSE_FLUSH_INTERVAL`
-      of twenty-five seconds or more sends them too late. When Langfuse
+      of twenty-five seconds or more can send them too late. When Langfuse
       ingests the last steps later than the drain lasts, their scores are
       dropped all the same; a program that must keep them keeps running, as
       a server does.

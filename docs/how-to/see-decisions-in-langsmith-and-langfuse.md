@@ -394,12 +394,13 @@ our checks. Two things can make it drop them instead:
   first out [@cpython2026]. The drain therefore runs before that flush, and
   the last steps reach Langfuse during the drain only if the client's flush
   interval sends them: `LANGFUSE_FLUSH_INTERVAL`, 5 seconds by default
-  [@langfuse2026]. At 25 seconds or more, the drain finds none of them, and
-  drops their scores after its full 30 seconds. Call `get_client().flush()`
-  before the script ends, as [Attach Langfuse](#attach-langfuse) does. With
-  an interval of 60 seconds, a script that flushed wrote both of its steps'
-  scores and exited 7 to 13 seconds after its run; without the flush, it
-  dropped both after 31 to 32 seconds.
+  [@langfuse2026]. At 25 seconds or more, it can send them too late, and
+  the drain then drops their scores after its full 30 seconds. Call
+  `get_client().flush()` before the script ends, as
+  [Attach Langfuse](#attach-langfuse) does, or keep the interval well under
+  30 seconds. With an interval of 60 seconds, a script that flushed wrote
+  both of its steps' scores and exited 7 to 13 seconds after its run;
+  without the flush, it dropped both after 31 to 32 seconds.
 - **Slow ingestion.** Langfuse's ingestion time varies, and its SDK says
   flushed data may not be queryable for 15 to 30 seconds [@langfuse2026].
   When it passes the drain's 30 seconds, as it did for every run, flushed or

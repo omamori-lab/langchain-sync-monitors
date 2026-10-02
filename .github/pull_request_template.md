@@ -6,9 +6,9 @@ Closes #
 
 ## Checklist
 
-- [ ] `scripts/check.sh` passes: agent files in sync, ruff, ty, the offline
-      test suite, lanorme, the strict docs build, the package build and the
-      wheel import.
+- [ ] `scripts/check.sh` passes: agent files in sync, the gitleaks secrets
+      scan, ruff, ty, the offline test suite, lanorme, the strict docs build,
+      the package build and the wheel import.
 - [ ] Tests cover a positive case, a negative case, the boundary and a
       regression test for the exact behaviour, under both `invoke` and
       `ainvoke`, with `# Arrange`, `# Act` and `# Assert` markers.

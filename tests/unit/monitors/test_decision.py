@@ -313,43 +313,6 @@ PLANTED_PASSWORD = "planted-password-71b3"
 """A password planted in `base_url`, which httpx would send as Basic authentication."""
 
 
-class RecordCollector(logging.Handler):
-    """Keep every record it is handed, whatever its level."""
-
-    def __init__(self) -> None:
-        super().__init__(level=logging.DEBUG)
-        self.records: list[logging.LogRecord] = []
-
-    def emit(self, record: logging.LogRecord) -> None:
-        self.records.append(record)
-
-
-@pytest.fixture
-def every_log_record(caplog: pytest.LogCaptureFixture) -> Iterator[list[logging.LogRecord]]:
-    """Collect every record at every level, from every logger, propagating or not.
-
-    Every logger that exists, httpx's and stamina's included, is set to DEBUG,
-    and the collector sits on the root logger and on each logger that does not
-    propagate. A logger made later inherits the root's DEBUG level and
-    propagates. caplog restores the levels afterwards.
-    """
-    collector = RecordCollector()
-    caplog.set_level(logging.DEBUG)
-    loggers = [
-        logger
-        for logger in logging.root.manager.loggerDict.values()
-        if isinstance(logger, logging.Logger)
-    ]
-    for logger in loggers:
-        caplog.set_level(logging.DEBUG, logger=logger.name)
-    holders = [logging.root, *(logger for logger in loggers if not logger.propagate)]
-    for holder in holders:
-        holder.addHandler(collector)
-    yield collector.records
-    for holder in holders:
-        holder.removeHandler(collector)
-
-
 @pytest.mark.usefixtures("three_attempts")
 async def test_a_password_in_the_base_url_reaches_no_log_and_no_request(
     call_path: CallPath,

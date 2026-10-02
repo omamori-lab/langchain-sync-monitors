@@ -63,6 +63,31 @@ class SynchronousRunError(MonitorError):
     """
 
 
+class RateLimitedCallError(MonitorError):
+    """A chat monitor's model call that the provider answered with HTTP 429.
+
+    A chat monitor retries a rate-limited call on this error in place of the
+    provider's own. stamina hands the error it retries on to every retry
+    hook, and its logging hook logs the error's repr [@schlawack2026stamina].
+    A provider's error can hold its whole reply: OpenRouter's
+    `TooManyRequestsResponseError` is a dataclass whose repr holds the reply's
+    body, the account's `user_id` included, and its headers
+    [@openrouterpythonsdk2026]. This error names the status and the type of the
+    provider's error, nothing else, and has nothing chained to it. It never
+    leaves the monitor: after the last attempt, the provider's own error is
+    raised.
+    """
+
+    def __init__(self, *, error_type: str) -> None:
+        """Name the type of the provider's error, and nothing it holds."""
+        super().__init__(f"the provider answered HTTP 429 with {error_type}")
+        self.error_type = error_type
+
+    def __repr__(self) -> str:
+        """Name the status and the type of the provider's error, as stamina's retry log shows it."""
+        return f"RateLimitedCallError(status_code=429, error_type={self.error_type!r})"
+
+
 class ServerToolWarning(UserWarning):
     """The agent's model is given server tools, which the model provider runs itself.
 

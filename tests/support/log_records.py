@@ -1,8 +1,9 @@
-"""Find what a log record holds beyond its text: live HTTP objects, and secrets in any value.
+"""Collect log records, and find what one holds beyond its text: live HTTP objects and secrets.
 
-A formatter prints a record's message, but a handler can read every attribute,
-the extras a library adds included, and a live request in them still holds its
-headers, which its repr leaves out. So each value is walked, through mappings,
+`RecordCollector` keeps every record a handler is handed. A formatter prints
+a record's message, but a handler can read every attribute, the extras a
+library adds included, and a live request in them still holds its headers,
+which its repr leaves out. So each value is walked, through mappings,
 sequences and the errors an error was raised from or while handling, rather
 than read as the repr of the record.
 """
@@ -36,6 +37,17 @@ CONTAINER_TYPES = (Mapping, list, tuple, set, frozenset)
 
 WALKED_ONCE_TYPES = (*CONTAINER_TYPES, BaseException)
 """The values that hold others, which the walk meets once each, an httpx error included."""
+
+
+class RecordCollector(logging.Handler):
+    """Keep every record it is handed, whatever its level."""
+
+    def __init__(self) -> None:
+        super().__init__(level=logging.DEBUG)
+        self.records: list[logging.LogRecord] = []
+
+    def emit(self, record: logging.LogRecord) -> None:
+        self.records.append(record)
 
 
 def find_logged_leaks(

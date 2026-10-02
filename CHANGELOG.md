@@ -16,16 +16,9 @@ change raises the minor version.
 
 ### Fixed
 
-- `OpenRouterDecisionModel` refuses, when it is built, a `base_url` that
-  could never reach a server: a relative or empty one when neither
-  `http_client` nor `async_http_client` has a `base_url` of its own to
-  complete it, which failed at the first request. A relative `base_url`
-  beside a client with its own `base_url` works as before. A `base_url` with
-  a scheme must be an `http` or `https` URL with a host, whatever the
-  clients: httpx sends no other scheme, and would read one with no host,
-  such as `https:///v1` or `localhost:8080`, as a path after a client's
-  `base_url`. Each raises `ConfigurationError`, with no part of the URL in
-  the message.
+- `OpenRouterDecisionModel` refuses, when it is built, a relative, empty or
+  host-less `base_url` when no client passed has an absolute `base_url` of
+  its own; such a `base_url` failed at the first request.
 
 ### Security
 

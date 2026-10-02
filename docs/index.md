@@ -267,7 +267,7 @@ that you removed API keys and private transcript text:
 | whether the agent ran with `invoke()` or `ainvoke()` | a bug can show under one call only |
 | the smallest script that shows it, with fake chat models where you can | we can run it without your API key |
 | what you expected, where the docs say so, and what happened | the docs decide which behaviour is right |
-| the library's log lines, if you can | they show what the monitor did at each step, and never quote the transcript |
+| the library's log lines, if you can | they show what the monitor did at each step; [Turn on log messages](how-to/read-the-monitor-log.md#turn-on-log-messages) says what they hold |
 
 For a vulnerability, such as a step that runs when it should have been
 stopped, do not open an issue: report it privately through

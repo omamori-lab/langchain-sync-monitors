@@ -14,6 +14,12 @@ change raises the minor version.
 
 ## [Unreleased]
 
+### Added
+
+- The docs home says how to report a bug, a vulnerability or a question, and
+  the bug report form asks for the configuration, the run mode and the log
+  output.
+
 ## [0.1.2] - 2026-10-02
 
 ### Added

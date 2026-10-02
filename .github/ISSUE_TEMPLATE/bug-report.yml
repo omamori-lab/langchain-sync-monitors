@@ -10,12 +10,17 @@ body:
         **A step that runs when it should have been stopped is a vulnerability: do
         not open an issue for it.** That covers a step that runs without being
         judged, one that runs after the protocol blocked, deferred or halted it,
-        and one that an error or an unreadable monitor reply lets through. Report
-        it, and any other vulnerability, through the
+        one whose verdict its own text sets, such as a score planted in the step,
+        one that content in the transcript lets through by changing how the
+        monitor's view is rendered or how its reply is read, and one that an
+        error or an unreadable monitor reply lets through. Report it, and any
+        other vulnerability, through the
         [private form](https://github.com/omamori-lab/langchain-sync-monitors/security/advisories/new),
         as [SECURITY.md](https://github.com/omamori-lab/langchain-sync-monitors/security/policy)
-        describes. A monitor model that scores a harmful step too low is not one:
-        report that here.
+        describes. A monitor model that misjudges a harmful step and scores it too
+        low, while the library renders its view and reads its reply correctly, is
+        not one: report that here. If you cannot tell which it is, use the private
+        form.
 
   - type: input
     id: package-version
@@ -23,7 +28,7 @@ body:
       label: langchain-sync-monitors version
       description: |
         The output of `python -c "import langchain_sync_monitors as package; print(package.__version__)"`.
-      placeholder: 0.1.2
+      placeholder: 0.x.y
     validations:
       required: true
 
@@ -115,9 +120,10 @@ body:
         shows. By design they hold ids, names, counts, outcomes, suspicions and
         error types, never the transcript's text, so they are safe to paste.
         Two exceptions: stamina's retry lines, under the logger `stamina`, hold
-        the error's repr, which can quote a request's URL, as that section says;
-        and other libraries' own debug lines make no such promise, so set
-        `DEBUG` on the library's logger alone.
+        the error's repr, which can quote a request's URL or a provider's error
+        reply, account ids included, as that section says, so check them before
+        you paste; and other libraries' own debug lines make no such promise, so
+        set `DEBUG` on the library's logger alone.
       render: text
 
   - type: textarea

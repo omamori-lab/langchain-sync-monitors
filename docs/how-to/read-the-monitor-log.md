@@ -376,7 +376,15 @@ headers or its body (method `Response.raise_for_status`, module
 `httpx/_models.py`) [@httpx2024]. A score-export URL holds no key and no text
 of a run, as
 [Know what it costs](see-decisions-in-langsmith-and-langfuse.md#know-what-it-costs)
-says.
+says. For a chat monitor's call, the error is the provider SDK's, whose repr
+can quote the provider's error reply. `ChatOpenRouter` raises the OpenRouter
+SDK's error unchanged (module `langchain_openrouter/chat_models.py`)
+[@langchainopenrouter2026]. That error is a dataclass whose repr holds the
+reply's body and headers (class `OpenRouterError`, module
+`openrouter/errors/openroutererror.py`), and an HTTP 429 reply's body can name
+the account's `user_id` (class `TooManyRequestsResponseErrorData`, module
+`openrouter/errors/toomanyrequestsresponse_error.py`)
+[@openrouterpythonsdk2026]. Check such a line before you share it.
 
 When structlog is installed, stamina logs each retry through structlog
 instead of Python's `logging` (section

@@ -392,7 +392,10 @@ full rules, forked processes included.
   tool's endpoint, without any user name or password, the path, and a
   lookup's query. The query names the LangSmith project, or asks Langfuse for
   the `monitor step` observations that started in a time window, a page at a
-  time.
+  time. When structlog is installed, stamina logs the retry through structlog
+  instead, at `WARNING` too, with the same fields, the error's repr as
+  `caused_by` included, as
+  [Turn on log messages](read-the-monitor-log.md#turn-on-log-messages) says.
 
 ### Know what happens at exit
 

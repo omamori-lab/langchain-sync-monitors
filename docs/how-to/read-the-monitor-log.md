@@ -373,6 +373,16 @@ body. A score-export URL holds no key and no text of a run, as
 [Know what it costs](see-decisions-in-langsmith-and-langfuse.md#know-what-it-costs)
 says.
 
+When structlog is installed, stamina logs each retry through structlog
+instead of Python's `logging`, to structlog's logger `stamina`, at `WARNING`,
+as `stamina.retry_scheduled` [@schlawack2026stamina]. The event holds the same
+fields, named without the `stamina.` prefix of the `logging` record's extras,
+such as `stamina.caused_by`: the error's repr as `caused_by`,
+the wait as `wait_for`, the retry's number, the time waited so far, and the
+retried block's name, `<context block>`, with no arguments. structlog's default
+set-up prints the event to standard output, so a `logging` handler on `stamina`
+sees it only when structlog is set up to pass its events to `logging`.
+
 A malformed record read from `monitor_log` raises `MonitorError` naming its
 position, the record and the fields at fault; the monitor skips no record,
 since that could hide a halt.

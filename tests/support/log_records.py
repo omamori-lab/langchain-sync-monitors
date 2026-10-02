@@ -2,8 +2,9 @@
 
 A formatter prints a record's message, but a handler can read every attribute,
 the extras a library adds included, and a live request in them still holds its
-headers, which its repr leaves out. So each value is walked, through mappings
-and sequences, rather than read as the repr of the record.
+headers, which its repr leaves out. So each value is walked, through mappings,
+sequences and the errors an error was raised from or while handling, rather
+than read as the repr of the record.
 """
 
 from __future__ import annotations
@@ -20,12 +21,21 @@ HTTP_OBJECT_TYPES = (
     httpx.Client,
     httpx.AsyncClient,
     httpx.HTTPError,
+    httpx.Auth,
 )
-"""The httpx objects a record must never hold, since each can reach a request's headers.
+"""The httpx objects a record must never hold, since each holds a credential or a request's headers.
 
 An httpx error counts: its `request`, and a status error's `response`, are the
-live request and answer, though its text quotes neither's headers.
+live request and answer, though its text quotes neither's headers. An auth
+object counts: it holds the credential that becomes a request's
+`Authorization` header, though its text quotes no password.
 """
+
+CONTAINER_TYPES = (Mapping, list, tuple, set, frozenset)
+"""The values whose parts are searched in place of their text."""
+
+WALKED_ONCE_TYPES = (*CONTAINER_TYPES, BaseException)
+"""The values that hold others, which the walk meets once each, an httpx error included."""
 
 
 def find_logged_leaks(
@@ -49,25 +59,47 @@ def find_leaks(value: object, *, secrets: Collection[str]) -> list[str]:
 def search_value(
     value: object, *, secrets: Collection[str], visited: dict[int, object]
 ) -> list[str]:
-    """Return the leaks in a value, walking each container once, so that a cycle ends.
+    """Return the leaks in a value, meeting each container and each error once.
 
-    `visited` maps each container's id to the container itself, which keeps it
-    alive, so no object made during the walk can take a walked container's id.
+    So a cycle ends, and an error raised `from` another, which holds it as both
+    its cause and its context, reports it once. `visited` maps each container's
+    and error's id to the object itself, which keeps it alive, so no object
+    made during the walk can take a walked object's id.
+
+    The walk does not reach an error's `args`, an exception group's members or
+    a traceback's frames.
     """
-    if isinstance(value, HTTP_OBJECT_TYPES):
-        return [f"a live {type(value).__name__}"]
-    if isinstance(value, Mapping | list | tuple | set | frozenset):
+    if isinstance(value, WALKED_ONCE_TYPES):
         if id(value) in visited:
             return []
         visited[id(value)] = value
-        parts = (
-            [part for pair in value.items() for part in pair]
-            if isinstance(value, Mapping)
-            else value
-        )
-        return [
-            leak for part in parts for leak in search_value(part, secrets=secrets, visited=visited)
-        ]
+    if isinstance(value, HTTP_OBJECT_TYPES):
+        return [f"a live {type(value).__name__}"]
+    leaks = [] if isinstance(value, CONTAINER_TYPES) else find_quoted_secret(value, secrets=secrets)
+    for part in read_parts(value):
+        leaks.extend(search_value(part, secrets=secrets, visited=visited))
+    return leaks
+
+
+def read_parts(value: object) -> list[object]:
+    """Return the values a value holds that a handler can reach.
+
+    These are a mapping's keys and values, a collection's items, and the
+    errors an error was raised from and while handling, its `__cause__` and
+    `__context__`. A record that holds an error holds both, even where a
+    traceback hides the context, as `raise ... from None` does.
+    """
+    if isinstance(value, Mapping):
+        return [part for pair in value.items() for part in pair]
+    if isinstance(value, list | tuple | set | frozenset):
+        return list(value)
+    if isinstance(value, BaseException):
+        return [error for error in (value.__cause__, value.__context__) if error is not None]
+    return []
+
+
+def find_quoted_secret(value: object, *, secrets: Collection[str]) -> list[str]:
+    """Return a leak for a value whose text quotes a secret, and none otherwise."""
     if any(secret in text for text in (str(value), repr(value)) for secret in secrets):
         return [f"a {type(value).__name__} quoting a secret"]
     return []

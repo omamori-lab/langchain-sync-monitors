@@ -1,7 +1,9 @@
 """The log-record check the privacy tests rely on reports live HTTP objects and quoted secrets.
 
 An httpx error's text quotes no header, but the error holds the live request,
-so a record that carries one is reported whatever its text says.
+and an auth object's text quotes no password, but it holds the credential, so
+a record that carries either is reported whatever its text says. So is a
+record whose error was raised from, or while handling, an httpx error.
 """
 
 from __future__ import annotations
@@ -12,9 +14,12 @@ from types import TracebackType
 import httpx
 import pytest
 
+from langchain_sync_monitors.score_requests import build_http_client
 from tests.support.log_records import find_logged_leaks
 
 PLANTED_KEY = "planted-log-key-5e1a"
+
+PLANTED_PASSWORD = "planted-log-password-9b4d"
 
 REQUEST = httpx.Request("GET", "https://service.test/items", headers={"x-api-key": PLANTED_KEY})
 
@@ -57,6 +62,36 @@ def raise_status_error() -> ExceptionInfo:
     raise AssertionError("a 503 answer raises")
 
 
+def raise_while_handling(handled: Exception, *, hide_cause: bool) -> ExceptionInfo:
+    """Raise a plain error while handling another, and return the exception info.
+
+    Raised `from` the handled error, the plain error holds it as its cause and
+    its context; raised `from None`, as its context alone, which a traceback
+    then leaves out.
+    """
+    try:
+        try:
+            raise handled
+        except Exception as error:
+            if hide_cause:
+                raise RuntimeError("score export failed") from None
+            raise RuntimeError("score export failed") from error
+    except RuntimeError as wrapper:
+        return (type(wrapper), wrapper, wrapper.__traceback__)
+    raise AssertionError("the handler raises")
+
+
+def read_score_client_auth() -> httpx.Auth:
+    """Return the auth the score client keeps from a key pair, as the Langfuse client is built."""
+    with build_http_client(
+        base_url="https://service.test", auth=("pk-planted", PLANTED_PASSWORD)
+    ) as client:
+        auth = client.auth
+    if auth is None:
+        raise AssertionError("a client given a key pair keeps an auth")
+    return auth
+
+
 @pytest.mark.parametrize(
     "error",
     [build_status_error(), httpx.ConnectError("Connection refused", request=REQUEST)],
@@ -97,6 +132,56 @@ async def test_a_record_whose_extras_hold_an_async_client_is_reported() -> None:
     assert leaks == ["score: a live AsyncClient"]
 
 
+@pytest.mark.parametrize(
+    "auth",
+    [httpx.BasicAuth("pk-planted", PLANTED_PASSWORD), read_score_client_auth()],
+    ids=["basic", "score-client"],
+)
+def test_a_record_whose_extras_hold_an_auth_object_is_reported(auth: httpx.Auth) -> None:
+    # Arrange: the auth's text quotes no password, though it holds the header built from one
+    record = build_record(extras={"auth": auth})
+
+    # Act
+    leaks = find_logged_leaks([record], secrets=[PLANTED_PASSWORD])
+
+    # Assert
+    assert PLANTED_PASSWORD not in f"{auth} {auth!r}"
+    assert leaks == [f"score: a live {type(auth).__name__}"]
+
+
+@pytest.mark.parametrize("hide_cause", [False, True], ids=["cause", "context"])
+def test_a_record_whose_error_was_raised_while_handling_an_httpx_error_is_reported(
+    *, hide_cause: bool
+) -> None:
+    # Arrange: the plain error's text quotes neither the key nor the transport error
+    transport_error = httpx.ConnectError("Connection refused", request=REQUEST)
+    exc_info = raise_while_handling(transport_error, hide_cause=hide_cause)
+    record = build_record(exc_info=exc_info)
+
+    # Act
+    leaks = find_logged_leaks([record], secrets=[PLANTED_KEY])
+
+    # Assert: the transport error is reported once, though `from` makes it cause and context
+    _, error, _ = exc_info
+    assert PLANTED_KEY not in f"{error} {error!r}"
+    assert leaks == ["score: a live ConnectError"]
+
+
+@pytest.mark.parametrize("hide_cause", [False, True], ids=["cause", "context"])
+def test_a_record_whose_error_was_raised_while_handling_a_plain_error_is_clean(
+    *, hide_cause: bool
+) -> None:
+    # Arrange: neither error quotes the key
+    exc_info = raise_while_handling(ValueError("score out of range"), hide_cause=hide_cause)
+    record = build_record(exc_info=exc_info)
+
+    # Act
+    leaks = find_logged_leaks([record], secrets=[PLANTED_KEY])
+
+    # Assert
+    assert leaks == []
+
+
 def test_a_record_naming_only_the_path_and_the_error_type_is_clean() -> None:
     # Arrange: what `send_request` logs, the method, path and error's account
     record = build_record(
@@ -105,7 +190,7 @@ def test_a_record_naming_only_the_path_and_the_error_type_is_clean() -> None:
     )
 
     # Act
-    leaks = find_logged_leaks([record], secrets=[PLANTED_KEY, REQUEST.headers["x-api-key"]])
+    leaks = find_logged_leaks([record], secrets=[PLANTED_KEY])
 
     # Assert
     assert leaks == []
@@ -124,3 +209,18 @@ def test_values_that_hold_themselves_are_walked_once() -> None:
 
     # Assert
     assert leaks == ["score: a str quoting a secret"]
+
+
+def test_errors_whose_chain_loops_are_walked_once() -> None:
+    # Arrange: each error is the other's cause or context, and one quotes the key
+    wrapper = RuntimeError("score export failed")
+    handled = ValueError(f"key={PLANTED_KEY}")
+    wrapper.__cause__ = handled
+    handled.__context__ = wrapper
+    record = build_record(exc_info=(RuntimeError, wrapper, None))
+
+    # Act
+    leaks = find_logged_leaks([record], secrets=[PLANTED_KEY])
+
+    # Assert
+    assert leaks == ["score: a ValueError quoting a secret"]

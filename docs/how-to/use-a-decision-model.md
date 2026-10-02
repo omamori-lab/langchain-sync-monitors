@@ -37,9 +37,9 @@ monitor = DecisionModelMonitor(
 | Setting | Behaviour |
 |---|---|
 | Key | Read from `OPENROUTER_API_KEY` when the model is built, unless you pass `api_key=SecretStr(...)`. A missing key raises `ConfigurationError` at once. A blank `api_key`, or one that is not a `SecretStr`, raises too, rather than fall back to the variable. Either key is stripped of surrounding whitespace, and one that still holds a control or non-ASCII character raises `ConfigurationError`, with no part of the key in the message. |
-| Endpoint | `{base_url}/decisions`, with `base_url` defaulting to `https://openrouter.ai/api/alpha`. The Decisions API is in alpha. |
+| Endpoint | `{base_url}/decisions`, with `base_url` defaulting to `https://openrouter.ai/api/alpha`. The Decisions API is in alpha. A relative, empty or host-less `base_url`, such as `/v1` or `https:///v1`, raises `ConfigurationError` when the model is built if no client you pass has an absolute `base_url` of its own to complete it, as Connections explains. So does a `base_url` that holds a user name or password as httpx parses it, such as `https://user:password@host`: httpx would send them as Basic authentication in place of the key, and quote them in its logs. So does a `base_url` httpx cannot read, such as `https://user:abc#rest@host`, where httpx would read `abc`, the start of the password, as the port and quote it. No message quotes any part of the URL. Pass the key as `api_key`. |
 | Timeout | `timeout_seconds`, 30 by default, a positive, finite number of seconds; `None` or an `httpx.Timeout` raises `ConfigurationError`. It applies only to the clients the model opens itself. A client you pass keeps its own timeout. |
-| Connections | Pass `http_client` or `async_http_client`, both `httpx` clients, to reuse connections or decide when a client closes. Without them, `invoke()` uses one client for the model's lifetime, which the library never closes, and `ainvoke()` opens and closes a client per request, since a pooled async client cannot move between event loops. |
+| Connections | Pass `http_client` or `async_http_client`, both `httpx` clients, to reuse connections or decide when a client closes. Without them, `invoke()` uses one client for the model's lifetime, which the library never closes, and `ainvoke()` opens and closes a client per request, since a pooled async client cannot move between event loops. httpx puts the path and query of a relative, empty or host-less `base_url` after the absolute `base_url` of the client that sends it: with `base_url="/v1"` and `http_client=httpx.Client(base_url="https://gateway.example/api")`, `invoke()` posts to `https://gateway.example/api/v1/decisions`. Each path sends with its own client only, so a path whose client you do not pass opens one without a `base_url`, and its first request raises `httpx.UnsupportedProtocol`. Pass a client with an absolute `base_url` for each path you use. |
 
 ## Reach Jev through TypeSafe's client
 
@@ -221,7 +221,20 @@ raises `httpx.HTTPStatusError` at once. A request httpx refuses to send, such
 as one to a URL whose scheme it does not support, raises at once too, since it
 would fail the same way every time. stamina logs each retry as
 `stamina.retry_scheduled` with its error and wait, never the request, so
-neither the transcript nor the key reaches the log.
+neither the transcript nor the key reaches the log. The error quotes the
+request's URL, as httpx's own `HTTP Request` line at INFO does. That URL
+holds no user name or password from `base_url` as httpx parses it, since a
+`base_url` with them is refused; a relative `base_url` takes the rest of the
+URL from your client's own `base_url`, which is not checked for a user name
+or password. But an unencoded `/`, `?` or `#` in a user name or password
+hides them from httpx, which reads what comes before that character as the
+host and port. Such a
+`base_url` is refused only when that is no host and port httpx can read, as
+in `https://user:abc#rest@host`;
+`https://user:/rest@host`, `https://user:123/rest@host` and
+`https://user/rest:password@host` are built. Their requests, key included,
+go to a host read from the user name, and logs and errors can quote the user
+name and password with the URL. Keep credentials out of `base_url`.
 
 The library adds no retries around `TypeSafeDecisionModel`; an error from the
 classifier is raised as it is.

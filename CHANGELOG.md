@@ -21,6 +21,24 @@ change raises the minor version.
   feedback in LangSmith and a numeric score in Langfuse, written by a
   background worker, with `Tracer` naming the tools.
 
+### Fixed
+
+- `OpenRouterDecisionModel` refuses, when it is built, a relative, empty or
+  host-less `base_url` when no client passed has an absolute `base_url` of
+  its own; such a `base_url` failed at the first request.
+
+### Security
+
+- A user name or password in `OpenRouterDecisionModel`'s `base_url`, as
+  httpx parses the URL, no longer reaches logs or errors: such a `base_url`,
+  and one httpx cannot read, raise `ConfigurationError` when the model is
+  built, quoting no part of the URL. Pass the key as `api_key`; a gateway
+  that needs Basic authentication takes an `http_client` with its own `auth`.
+  Only user information as httpx parses it is refused: a user name or
+  password holding an unencoded `/`, `?` or `#`, or one in a host-less
+  `base_url` that a client's `base_url` completes, is read as host or path
+  text and can still be logged.
+
 ## [0.1.1] - 2026-10-01
 
 ### Changed

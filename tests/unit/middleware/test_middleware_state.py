@@ -216,9 +216,9 @@ def test_two_monitors_on_one_agent_count_their_own_steps(run_mode: RunMode) -> N
     guard = MonitorMiddleware(
         monitor=build_keyword_monitor(), protocol=outer_protocol, label="guard"
     )
-    judge = MonitorMiddleware(monitor=build_keyword_monitor(), protocol=inner_protocol)
+    monitor = MonitorMiddleware(monitor=build_keyword_monitor(), protocol=inner_protocol)
     model = ScriptedChatModel(responses=[AIMessage("first"), AIMessage("second")])
-    agent = create_agent(model, middleware=[guard, judge], checkpointer=InMemorySaver())
+    agent = create_agent(model, middleware=[guard, monitor], checkpointer=InMemorySaver())
     config = build_thread_config(f"labels-{run_mode}")
     run_agent(agent, mode=run_mode, config=config)
 
@@ -257,9 +257,9 @@ def test_two_monitors_on_one_agent_record_each_message_id_once(run_mode: RunMode
     guard = MonitorMiddleware(
         monitor=build_keyword_monitor(), protocol=AcceptFirst(), label="guard"
     )
-    judge = MonitorMiddleware(monitor=build_keyword_monitor(), protocol=AcceptFirst())
+    monitor = MonitorMiddleware(monitor=build_keyword_monitor(), protocol=AcceptFirst())
     model = ScriptedChatModel(responses=[AIMessage("first"), AIMessage("second")])
-    middleware: list[AgentMiddleware[Any, Any, Any]] = [guard, judge, NudgingMiddleware()]
+    middleware: list[AgentMiddleware[Any, Any, Any]] = [guard, monitor, NudgingMiddleware()]
     agent = create_agent(model, middleware=middleware, checkpointer=InMemorySaver())
     config = build_thread_config(f"stacked-ids-{run_mode}")
     run_agent(agent, mode=run_mode, config=config)
@@ -285,7 +285,7 @@ def test_two_monitors_on_one_agent_check_a_tool_s_writes_once(
     guard = MonitorMiddleware(
         monitor=build_keyword_monitor(), protocol=AcceptFirst(), label="guard"
     )
-    judge = MonitorMiddleware(monitor=build_keyword_monitor(), protocol=AcceptFirst())
+    monitor = MonitorMiddleware(monitor=build_keyword_monitor(), protocol=AcceptFirst())
     model = ScriptedChatModel(
         responses=[
             build_tool_call_message(tool_name="rewrite_history", call_id="call-rewrite"),
@@ -295,7 +295,7 @@ def test_two_monitors_on_one_agent_check_a_tool_s_writes_once(
     agent = create_agent(
         model,
         tools=[rewrite_history],
-        middleware=[guard, judge],
+        middleware=[guard, monitor],
         checkpointer=InMemorySaver(),
     )
     config = build_thread_config(f"stacked-tool-{run_mode}")

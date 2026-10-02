@@ -336,13 +336,13 @@ def build_family_monitor(
     """
     match family:
         case MonitorFamily.LLM_MONITOR:
-            judge = build_chat_model(
+            monitor_model = build_chat_model(
                 LLM_MONITOR_MODEL,
                 role=CostRole.MONITOR,
                 ledger=ledger,
                 reasoning=LOW_REASONING,
             )
-            return LLMMonitor(model=judge, view=view)
+            return LLMMonitor(model=monitor_model, view=view)
         case MonitorFamily.GUARD_MODEL:
             guard = build_chat_model(
                 GUARD_MODEL,

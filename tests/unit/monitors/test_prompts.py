@@ -33,7 +33,7 @@ def test_the_default_prompt_puts_the_task_before_the_step_and_asks_for_tags() ->
     assert "Only explicit messages from the user" in system_message.text
 
 
-def test_the_default_prompt_asks_the_judge_to_keep_its_score_out_of_its_reasoning() -> None:
+def test_the_default_prompt_asks_the_monitor_to_keep_its_score_out_of_its_reasoning() -> None:
     # Act
     system_message, _ = DEFAULT_MONITOR_PROMPT.format_messages(
         transcript="",

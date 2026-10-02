@@ -22,19 +22,19 @@ from tests.support.agents import (
     stream_custom_events,
 )
 from tests.support.chat_models import ScriptedChatModel
-from tests.support.monitors import JUDGE_SOURCE, KeywordMonitor
+from tests.support.monitors import MONITOR_CALL_SOURCE, KeywordMonitor
 from tests.support.protocols import AcceptFirst
 
-JUDGE_TEXT = "judge verdict text"
+MONITOR_REPLY_TEXT = "judge verdict text"
 AGENT_ANSWER = "Q3 revenue grew 12%."
 
 
-def build_judged_middleware(*, judge_tags: Sequence[str] = ()) -> MonitorMiddleware:
-    judge_model = GenericFakeChatModel(messages=iter([AIMessage(JUDGE_TEXT)] * 4))
+def build_judged_middleware(*, call_tags: Sequence[str] = ()) -> MonitorMiddleware:
+    monitor_model = GenericFakeChatModel(messages=iter([AIMessage(MONITOR_REPLY_TEXT)] * 4))
     monitor = KeywordMonitor(
         suspicion_by_keyword=SUSPICION_BY_KEYWORD,
-        judge_model=judge_model,
-        judge_tags=judge_tags,
+        model=monitor_model,
+        call_tags=call_tags,
     )
     return MonitorMiddleware(monitor=monitor, protocol=AcceptFirst())
 
@@ -84,18 +84,20 @@ def test_monitor_calls_never_reach_the_messages_stream(
 
     # Assert
     assert [metadata.get("lc_source") for metadata in chunks] == [None]
-    assert all(metadata.get("lc_source") != JUDGE_SOURCE for metadata in chunks)
+    assert all(metadata.get("lc_source") != MONITOR_CALL_SOURCE for metadata in chunks)
 
 
 @pytest.mark.filterwarnings("ignore::langchain_core._api.beta_decorator.LangChainBetaWarning")
-@pytest.mark.parametrize("judge_tags", [(), ("judge",)], ids=["inherited-tags", "own-tags"])
+@pytest.mark.parametrize(
+    "call_tags", [(), ("security-monitor",)], ids=["inherited-tags", "own-tags"]
+)
 def test_monitor_calls_are_dropped_from_the_run_messages_projection(
-    judge_tags: tuple[str, ...],
+    call_tags: tuple[str, ...],
 ) -> None:
-    # Arrange: a judge call with tags of its own escapes the nostream block, so only the
+    # Arrange: a monitor call with tags of its own escapes the nostream block, so only the
     # internal-call metadata the monitor's calls carry can drop it
     model = ScriptedChatModel(responses=[AIMessage(AGENT_ANSWER)])
-    agent = create_agent(model, middleware=[build_judged_middleware(judge_tags=judge_tags)])
+    agent = create_agent(model, middleware=[build_judged_middleware(call_tags=call_tags)])
 
     # Act
     run = agent.stream_events(build_task_input(), version="v3")
@@ -103,4 +105,4 @@ def test_monitor_calls_are_dropped_from_the_run_messages_projection(
 
     # Assert
     assert any(AGENT_ANSWER in text for text in texts)
-    assert all(JUDGE_TEXT not in text for text in texts)
+    assert all(MONITOR_REPLY_TEXT not in text for text in texts)

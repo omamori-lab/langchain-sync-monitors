@@ -249,8 +249,8 @@ def test_a_fallback_given_as_the_protocol_points_to_the_protocol_it_resembles() 
     ("options", "message"),
     [
         (
-            {"monitor": "openrouter:some/judge"},
-            "monitor must be a Monitor, got 'openrouter:some/judge'",
+            {"monitor": "openrouter:some/monitor-model"},
+            "monitor must be a Monitor, got 'openrouter:some/monitor-model'",
         ),
         ({"protocol": "auto_mode"}, "protocol must be a ControlProtocol, got 'auto_mode'"),
     ],

@@ -3,7 +3,7 @@
 Only committed steps stream. A sample the protocol rejects, a step it blocks
 and the monitor's own model calls never reach the stream, and each committed
 step still arrives, whole, once the model node returns it. The untrusted model
-and the monitor's judge both stream token by token, as real providers do.
+and the monitor's model both stream token by token, as real providers do.
 """
 
 from __future__ import annotations
@@ -47,40 +47,40 @@ from tests.support.monitors import KeywordMonitor
 
 FINAL_ANSWER = "Q3 revenue grew 12%."
 TRUSTED_ANSWER = "A careful trusted summary."
-JUDGE_MARK = "Judge verdict"
-JUDGE_REPLY = f"{JUDGE_MARK}: the step sends the key away."
+MONITOR_REPLY_MARK = "Judge verdict"
+MONITOR_REPLY = f"{MONITOR_REPLY_MARK}: the step sends the key away."
 REJECTED_STEP_MARK = "attacker.example"
 FEEDBACK_MARK = "[Safety monitor]"
 
 
-def build_judge() -> GenericFakeChatModel:
-    """Return a judge that streams its reply token by token, as a real provider does."""
-    return GenericFakeChatModel(messages=itertools.repeat(AIMessage(JUDGE_REPLY)))
+def build_monitor_model() -> GenericFakeChatModel:
+    """Return a monitor's model that streams its reply token by token, as a real provider does."""
+    return GenericFakeChatModel(messages=itertools.repeat(AIMessage(MONITOR_REPLY)))
 
 
 @dataclass(kw_only=True)
-class OwnTagsJudgeMonitor(KeywordMonitor):
-    """A keyword monitor whose judge call sets tags of its own, as a user's monitor may.
+class OwnTagsMonitor(KeywordMonitor):
+    """A keyword monitor whose monitor call sets tags of its own, as a user's monitor may.
 
     The call's own tags replace the `nostream` tag it would inherit, so only
-    its internal-call metadata can keep the judge's reply out of the v3 event
+    its internal-call metadata can keep the model's reply out of the v3 event
     stream.
     """
 
-    def build_judge_config(self) -> RunnableConfig:
+    def build_monitor_call_config(self) -> RunnableConfig:
         return RunnableConfig(
-            **build_internal_call_config(source="own_tags_judge"),
-            tags=["security-judge"],
+            **build_internal_call_config(source="own_tags_monitor"),
+            tags=["security-monitor"],
         )
 
     async def evaluate(self, monitor_input: MonitorInput) -> Verdict:
-        if self.judge_model is not None:
-            await self.judge_model.ainvoke("Judge this step.", config=self.build_judge_config())
+        if self.model is not None:
+            await self.model.ainvoke("Judge this step.", config=self.build_monitor_call_config())
         return self.score(monitor_input)
 
     def evaluate_sync(self, monitor_input: MonitorInput) -> Verdict:
-        if self.judge_model is not None:
-            self.judge_model.invoke("Judge this step.", config=self.build_judge_config())
+        if self.model is not None:
+            self.model.invoke("Judge this step.", config=self.build_monitor_call_config())
         return self.score(monitor_input)
 
 
@@ -90,8 +90,8 @@ def build_monitor_middleware(
     feedback_visibility: FeedbackVisibility = FeedbackVisibility.HIDDEN,
     monitor_type: type[KeywordMonitor] = KeywordMonitor,
 ) -> MonitorMiddleware:
-    """Build a keyword monitor whose every verdict also streams a judge reply, like a real one."""
-    monitor = monitor_type(suspicion_by_keyword=SUSPICION_BY_KEYWORD, judge_model=build_judge())
+    """Build a keyword monitor whose every verdict also streams a model reply, like a real one."""
+    monitor = monitor_type(suspicion_by_keyword=SUSPICION_BY_KEYWORD, model=build_monitor_model())
     return MonitorMiddleware(
         monitor=monitor,
         protocol=protocol,
@@ -167,7 +167,7 @@ def test_defer_to_resample_streams_only_the_committed_sample(
 
     # Assert
     assert find_mentions(streamed, text=REJECTED_STEP_MARK) == []
-    assert find_mentions(streamed, text=JUDGE_MARK) == []
+    assert find_mentions(streamed, text=MONITOR_REPLY_MARK) == []
     assert read_tool_call_names(streamed) == ["read_file"]
     assert read_answers(streamed) == [FINAL_ANSWER]
 
@@ -264,8 +264,8 @@ def test_a_rejected_subagent_step_never_streams(run_mode: RunMode) -> None:
 @pytest.mark.filterwarnings("ignore::langchain_core._api.beta_decorator.LangChainBetaWarning")
 @pytest.mark.parametrize(
     "monitor_type",
-    [KeywordMonitor, OwnTagsJudgeMonitor],
-    ids=["judge-inherits-tags", "judge-sets-its-own-tags"],
+    [KeywordMonitor, OwnTagsMonitor],
+    ids=["monitor-call-inherits-tags", "monitor-call-sets-its-own-tags"],
 )
 def test_the_v3_event_stream_carries_only_committed_steps(
     run_mode: RunMode,
@@ -289,6 +289,6 @@ def test_the_v3_event_stream_carries_only_committed_steps(
 
     # Assert
     assert find_mentions(streamed, text=REJECTED_STEP_MARK) == []
-    assert find_mentions(streamed, text=JUDGE_MARK) == []
+    assert find_mentions(streamed, text=MONITOR_REPLY_MARK) == []
     assert read_tool_call_names(streamed) == ["read_file"]
     assert read_answers(streamed) == [FINAL_ANSWER]

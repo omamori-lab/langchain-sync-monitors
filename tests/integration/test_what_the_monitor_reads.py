@@ -411,7 +411,7 @@ def test_a_server_tool_call_is_judged_and_recorded(run_mode: RunMode) -> None:
 
 
 @pytest.mark.parametrize(
-    ("monitor_kind", "judge_reply"),
+    ("monitor_kind", "chat_model_reply"),
     [
         ("llm_monitor", "<reasoning>r</reasoning><score>1</score>"),
         ("guard_model_monitor", "no_violation"),
@@ -425,7 +425,7 @@ def test_a_server_tool_call_is_judged_and_recorded(run_mode: RunMode) -> None:
 def test_the_rendering_monitor_reads_exactly_what_each_chat_model_monitor_receives(
     run_mode: RunMode,
     monitor_kind: ChatModelMonitorKind,
-    judge_reply: str,
+    chat_model_reply: str,
     task_author: TaskAuthor,
     tag: str,
 ) -> None:
@@ -443,8 +443,8 @@ def test_the_rendering_monitor_reads_exactly_what_each_chat_model_monitor_receiv
         task_author=task_author,
     )
     view = MonitorView(most_recent_entries=2)
-    judge = ScriptedChatModel(responses=[AIMessage(judge_reply)])
-    chat_model_monitor = build_chat_model_monitor(monitor_kind, model=judge, view=view)
+    chat_model = ScriptedChatModel(responses=[AIMessage(chat_model_reply)])
+    chat_model_monitor = build_chat_model_monitor(monitor_kind, model=chat_model, view=view)
     monitor = RenderingMonitor(view=view)
 
     # Act
@@ -456,7 +456,7 @@ def test_the_rendering_monitor_reads_exactly_what_each_chat_model_monitor_receiv
 
     # Assert
     reading = monitor.readings[0]
-    judge_request = judge.calls[0][-1].text
-    assert read_tagged_entries(judge_request, tag=tag) == [TASK]
-    assert f"<transcript>\n{reading.transcript}\n</transcript>" in judge_request
-    assert reading.proposed_step in judge_request
+    chat_model_request = chat_model.calls[0][-1].text
+    assert read_tagged_entries(chat_model_request, tag=tag) == [TASK]
+    assert f"<transcript>\n{reading.transcript}\n</transcript>" in chat_model_request
+    assert reading.proposed_step in chat_model_request

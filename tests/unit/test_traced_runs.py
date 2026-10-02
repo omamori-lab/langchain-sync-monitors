@@ -155,11 +155,11 @@ def test_an_exception_ends_the_span_with_it_and_still_propagates(call_path: Call
 
     def fail(traced_run: TracedRun) -> None:
         traced_run.inputs_at_end = {"step_number": 1, "proposed_step": "<proposed_step/>"}
-        message = "judge provider timed out"
+        message = "monitor provider timed out"
         raise TimeoutError(message)
 
     # Act
-    with pytest.raises(TimeoutError, match="judge provider timed out"):
+    with pytest.raises(TimeoutError, match="monitor provider timed out"):
         run_span_in_node(SPAN, call_path=call_path, body=fail, callbacks=[tracer])
 
     # Assert

@@ -133,7 +133,7 @@ def build_halting_monitor(
     decisions_clients: DecisionsClients,
 ) -> MonitorMiddleware:
     """Build the subagent's override: the LLM monitor, under Defer to Resample ending in a halt."""
-    judge = build_family_monitor(
+    monitor = build_family_monitor(
         MonitorFamily.LLM_MONITOR,
         view=MonitorView(),
         ledger=ledger,
@@ -144,7 +144,7 @@ def build_halting_monitor(
         defer_threshold=threshold,
         audit_threshold=AUDIT_THRESHOLD,
     )
-    return MonitorMiddleware(monitor=judge, protocol=protocol)
+    return MonitorMiddleware(monitor=monitor, protocol=protocol)
 
 
 def build_deep_live_agent(

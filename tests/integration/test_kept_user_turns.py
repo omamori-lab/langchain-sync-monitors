@@ -1,8 +1,8 @@
-"""Every user turn reaches the judge verbatim, in order, after it has left the agent's history.
+"""Every user turn reaches the monitor verbatim, in order, after it has left the agent's history.
 
 LangChain's `SummarizationMiddleware` replaces the earlier messages with a
 summary, and a tool can remove the task message by id, or write a note under
-its id. The judge then still reads each run's input as `<user>`, and the
+its id. The monitor then still reads each run's input as `<user>`, and the
 summary as a note, while the agent's own context stays as the summariser or
 the tool left it.
 """
@@ -126,7 +126,7 @@ def read_texts(messages: list[BaseMessage]) -> set[str]:
     [MonitorView(), MonitorView(most_recent_entries=1)],
     ids=["default", "most-recent-1"],
 )
-def test_after_summarisation_the_judge_reads_both_turns_of_a_thread_in_order(
+def test_after_summarisation_the_monitor_reads_both_turns_of_a_thread_in_order(
     run_mode: RunMode,
     view: MonitorView,
 ) -> None:
@@ -149,7 +149,7 @@ def test_after_summarisation_the_judge_reads_both_turns_of_a_thread_in_order(
     # Act: the second turn's history grows until it is summarised
     run_messages(agent, [HumanMessage(NARROWING)], mode=run_mode, config=config)
 
-    # Assert: the judge reads both turns, and the agent only the summary
+    # Assert: the monitor reads both turns, and the agent only the summary
     assert summariser.calls, "the summariser never ran, so the test proves nothing"
     transcript = monitor.find_reading(tool_name="http_post").transcript
     lines = transcript.splitlines()
@@ -176,7 +176,7 @@ REMOVALS = {
 @pytest.mark.parametrize(
     ("tool_name", "arguments", "notes"), REMOVALS.values(), ids=REMOVALS.keys()
 )
-def test_a_tool_that_removes_the_task_leaves_it_where_the_judge_reads_it(
+def test_a_tool_that_removes_the_task_leaves_it_where_the_monitor_reads_it(
     run_mode: RunMode,
     tool_name: str,
     arguments: dict[str, str],
@@ -207,7 +207,7 @@ def test_a_tool_that_removes_the_task_leaves_it_where_the_judge_reads_it(
     assert TASK not in read_texts(model.calls[1])
 
 
-def test_without_summarisation_the_judge_reads_the_conversation_the_agent_reads(
+def test_without_summarisation_the_monitor_reads_the_conversation_the_agent_reads(
     run_mode: RunMode,
 ) -> None:
     # Arrange
@@ -300,7 +300,7 @@ def test_a_resumed_run_keeps_its_task_after_summarisation(run_mode: RunMode) -> 
 def test_input_a_run_cannot_confirm_comes_back_as_a_note_after_summarisation(
     run_mode: RunMode,
 ) -> None:
-    # Arrange: the first run stops when the judge fails, so the next input is unconfirmed
+    # Arrange: the first run stops when the monitor fails, so the next input is unconfirmed
     reader = RenderingMonitor()
     monitor = TriggeredFailureMonitor(inner=reader, trigger="stop-here")
     model = ScriptedChatModel(
@@ -341,7 +341,9 @@ def test_input_a_run_cannot_confirm_comes_back_as_a_note_after_summarisation(
     assert len(state["monitor_task_messages"]) == 1
 
 
-def test_a_turn_the_user_edits_between_runs_reaches_the_judge_as_edited(run_mode: RunMode) -> None:
+def test_a_turn_the_user_edits_between_runs_reaches_the_monitor_as_edited(
+    run_mode: RunMode,
+) -> None:
     # Arrange: the user rewrites the first turn under its id before the second
     monitor = RenderingMonitor()
     model = ScriptedChatModel(responses=[build_read_step(call_id="call-1"), AIMessage("Read it.")])
@@ -386,7 +388,7 @@ def build_redaction() -> PIIMiddleware:
     return PIIMiddleware("email", strategy="redact", apply_to_input=True)
 
 
-def test_a_redacted_turn_reaches_the_judge_redacted_before_and_after_summarisation(
+def test_a_redacted_turn_reaches_the_monitor_redacted_before_and_after_summarisation(
     run_mode: RunMode,
     summariser: ScriptedChatModel,
 ) -> None:
@@ -420,7 +422,7 @@ def test_a_redacted_turn_reaches_the_judge_redacted_before_and_after_summarisati
     assert [entry["text"] for entry in state["monitor_run_inputs"]] == [REDACTED_TASK]
 
 
-def test_a_redaction_by_a_middleware_listed_after_the_monitor_reaches_the_judge_and_stays(
+def test_a_redaction_by_a_middleware_listed_after_the_monitor_reaches_it_and_stays(
     run_mode: RunMode,
     summariser: ScriptedChatModel,
 ) -> None:
@@ -531,7 +533,7 @@ def test_a_redaction_a_summary_removes_in_the_same_pass_stays_redacted(
     assert read_tagged_entries(transcript, tag="user") == [REDACTED_TASK]
 
 
-def test_an_edit_made_while_a_run_is_paused_reaches_the_judge(run_mode: RunMode) -> None:
+def test_an_edit_made_while_a_run_is_paused_reaches_the_monitor(run_mode: RunMode) -> None:
     # Arrange: the run pauses in a tool, and the user withdraws the post meanwhile
     monitor = RenderingMonitor()
     model = ScriptedChatModel(
@@ -642,7 +644,7 @@ def test_a_tool_cannot_write_the_state_keys_only_the_monitor_writes(
         run_messages(agent, [HumanMessage(TASK, id="task-1")], mode=run_mode, config=config)
     run_messages(agent, [HumanMessage(NARROWING, id="turn-2")], mode=run_mode, config=config)
 
-    # Assert: the writes were dropped, with a warning, and the judge reads only the user
+    # Assert: the writes were dropped, with a warning, and the monitor reads only the user
     transcript = monitor.find_reading(tool_name="http_post").transcript
     assert read_tagged_entries(transcript, tag="user") == [TASK, NARROWING]
     assert REWRITE not in transcript

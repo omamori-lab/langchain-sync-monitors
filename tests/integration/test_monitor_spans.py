@@ -1,7 +1,7 @@
 """What a LangChain tracer receives from a monitored agent: a named span tree per step.
 
 Every step is a `monitor step` span under the model node. The agent's samples
-and a `monitor judgement` span per verdict nest in it, the judge's own calls
+and a `monitor judgement` span per verdict nest in it, the monitor's own calls
 nest in their judgement, and a `monitor decision` span, tagged with the
 outcome, closes the step. The tracer is a plain callback handler passed
 through the run's config, as LangSmith's and Langfuse's are.
@@ -42,7 +42,7 @@ from tests.support.monitors import KeywordMonitor
 from tests.support.tracing import (
     RecordedRun,
     RecordingTracer,
-    build_judge_model,
+    build_monitor_model,
     record_started_chain_names,
     run_traced_agent,
 )
@@ -53,7 +53,7 @@ STEP = "monitor step"
 JUDGEMENT = "monitor judgement"
 DECISION = "monitor decision"
 SAMPLE = "ScriptedChatModel"
-JUDGE = "monitor call"
+MONITOR_CALL = "monitor call"
 STEP_METADATA_KEYS = {
     "monitor_label",
     "monitor_agent",
@@ -162,10 +162,8 @@ def build_agent(
     protocol: ControlProtocol,
     untrusted_steps: Sequence[AIMessage],
 ) -> Runnable[Any, Any]:
-    """Build an agent whose keyword monitor also calls a judge model for every verdict."""
-    monitor = KeywordMonitor(
-        suspicion_by_keyword=SUSPICION_BY_KEYWORD, judge_model=build_judge_model()
-    )
+    """Build an agent whose keyword monitor also calls its model for every verdict."""
+    monitor = KeywordMonitor(suspicion_by_keyword=SUSPICION_BY_KEYWORD, model=build_monitor_model())
     return create_agent(
         model=ScriptedChatModel(responses=list(untrusted_steps)),
         tools=Workspace().build_tools(),
@@ -294,7 +292,7 @@ def test_judgement_spans_hold_the_verdict_and_no_proposal_text(run_mode: RunMode
     assert first.inputs == {"sample_number": 1, "monitor_class": "KeywordMonitor"}
     assert first.outputs == {"suspicion": 0.9, "reason": f"mentions {EXFILTRATION_MARK}"}
     assert second.inputs == {"sample_number": 2, "monitor_class": "KeywordMonitor"}
-    assert [child.name for child in first.children] == [JUDGE]
+    assert [child.name for child in first.children] == [MONITOR_CALL]
     below_the_step = [*tracer.find_runs(JUDGEMENT), *tracer.find_runs(DECISION)]
     assert all(EXFILTRATION_MARK not in json.dumps(run.inputs) for run in below_the_step)
 
@@ -336,12 +334,12 @@ def test_the_calls_inside_a_step_keep_their_own_tags_and_metadata(run_mode: RunM
 
     # Assert
     calls = [run for run in find_step_spans_with_descendants(tracer) if not run.is_monitor_span]
-    assert {call.name for call in calls} == {SAMPLE, JUDGE}
+    assert {call.name for call in calls} == {SAMPLE, MONITOR_CALL}
     for call in calls:
         assert call.tags == ["nostream"]
         assert read_step_metadata(call) == {}
         assert "ls_agent_type" not in call.metadata
-        assert ("ls_message_view_exclude" in call.metadata) == (call.name == JUDGE)
+        assert ("ls_message_view_exclude" in call.metadata) == (call.name == MONITOR_CALL)
 
 
 def test_parallel_resamples_each_get_their_own_judgement_under_the_step(
@@ -366,7 +364,7 @@ def test_parallel_resamples_each_get_their_own_judgement_under_the_step(
     judgements = step.find_children(JUDGEMENT)
     assert sorted(step.read_child_names()) == sorted([SAMPLE] * 3 + [JUDGEMENT] * 3 + [DECISION])
     assert sorted(judgement.inputs["sample_number"] for judgement in judgements) == [1, 2, 3]
-    assert all(judgement.read_child_names() == [JUDGE] for judgement in judgements)
+    assert all(judgement.read_child_names() == [MONITOR_CALL] for judgement in judgements)
     assert sorted(judgement.outputs["suspicion"] for judgement in judgements) == [0.1, 0.1, 0.9]
     assert tracer.find_unknown_parents() == []
     assert tracer.find_open_runs() == []

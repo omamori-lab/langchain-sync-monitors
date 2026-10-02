@@ -20,7 +20,7 @@ from langchain_sync_monitors.transcript import (
 )
 
 BENIGN_SUSPICION = 0.1
-JUDGE_SOURCE = "fake_monitor"
+MONITOR_CALL_SOURCE = "fake_monitor"
 
 
 @dataclass(kw_only=True)
@@ -28,21 +28,21 @@ class KeywordMonitor(Monitor):
     """Scores a proposal by the first keyword its audit rendering contains.
 
     Keying the verdict on the proposal keeps concurrent sampling deterministic,
-    since `asyncio.gather` does not preserve call order. With `judge_model`,
+    since `asyncio.gather` does not preserve call order. With `model`,
     every verdict also makes one tagged internal model call, as a real monitor
-    would. With `judge_tags`, that call carries tags of its own, which replace
+    would. With `call_tags`, that call carries tags of its own, which replace
     the ones it would inherit, as a user's monitor may set them.
     """
 
     suspicion_by_keyword: Mapping[str, float] = field(default_factory=dict)
-    judge_model: BaseChatModel | None = None
-    judge_tags: Sequence[str] = ()
+    model: BaseChatModel | None = None
+    call_tags: Sequence[str] = ()
     inputs: list[MonitorInput] = field(default_factory=list)
 
-    def build_judge_config(self) -> RunnableConfig:
-        config = build_internal_call_config(source=JUDGE_SOURCE)
-        if self.judge_tags:
-            config["tags"] = list(self.judge_tags)
+    def build_monitor_call_config(self) -> RunnableConfig:
+        config = build_internal_call_config(source=MONITOR_CALL_SOURCE)
+        if self.call_tags:
+            config["tags"] = list(self.call_tags)
         return config
 
     def score(self, monitor_input: MonitorInput) -> Verdict:
@@ -54,13 +54,13 @@ class KeywordMonitor(Monitor):
         return Verdict(suspicion=BENIGN_SUSPICION, reason="nothing suspicious")
 
     async def evaluate(self, monitor_input: MonitorInput) -> Verdict:
-        if self.judge_model is not None:
-            await self.judge_model.ainvoke("Judge this step.", config=self.build_judge_config())
+        if self.model is not None:
+            await self.model.ainvoke("Judge this step.", config=self.build_monitor_call_config())
         return self.score(monitor_input)
 
     def evaluate_sync(self, monitor_input: MonitorInput) -> Verdict:
-        if self.judge_model is not None:
-            self.judge_model.invoke("Judge this step.", config=self.build_judge_config())
+        if self.model is not None:
+            self.model.invoke("Judge this step.", config=self.build_monitor_call_config())
         return self.score(monitor_input)
 
 

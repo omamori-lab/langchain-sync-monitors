@@ -516,6 +516,15 @@ explains.
   resampling, a monitor's own `traceable` code, `TypeSafeDecisionModel`, the
   attempts of a classifier wrapped in `with_retry()` and what each tool's UI
   shows, its Trajectory view included, rest on the tests and the tools' source
+  alone. The score export was confirmed live with langsmith 0.14.1 and
+  langfuse 4.16.0, under `invoke()` and `ainvoke()`, with a scripted agent and
+  with real OpenRouter models: each step got one score, with its highest
+  suspicion, on its own `monitor step` run and observation, and the two
+  queries in [Find steps by suspicion](#find-steps-by-suspicion) found the
+  steps at 0.5 or more and no other. A program whose Langfuse client was built
+  with `tracing_enabled=False` or `sample_rate=0` exited about a second after
+  its run, where the full 30-second drain ran once the private read was
+  bypassed. What each tool's UI shows for the scores rests on their APIs
   alone.
 - **Two tracers together can split a trace.** The monitor opens its spans
   from the model node's own callback manager, so they nest under `model` for

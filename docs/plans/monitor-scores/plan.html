@@ -1,0 +1,313 @@
+<title>Suspicion scores in tracers</title>
+<style>
+/* Layout: one reading column, figures wider than the text, pseudocode last. House style: sumi and paper; vermilion only for the seal and a halt. */
+:root{
+  --paper:#FFFFFF;--ink:#111111;--ink-soft:#5B5B57;--line:#2B2B2B;--rule:#9A9A94;
+  --wash-1:#F2F1EC;--wash-2:#DCDBD4;--wash-3:#3A3A38;--on-wash-3:#FFFFFF;--seal:#BF3A22;--on-seal:#FFFFFF;
+  --code-bg:#F2F1EC;--kw:#111111;--str:#5B5B57;--com:#8A8A84;
+  --sans:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans","Noto Sans JP",Helvetica,Arial,sans-serif;
+  --mono:ui-monospace,SFMono-Regular,Menlo,Consolas,"Liberation Mono",monospace;
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
+  --paper:#141414;--ink:#ECEBE6;--ink-soft:#A9A8A2;--line:#D6D5CF;--rule:#6A6A66;
+  --wash-1:#1F1F1E;--wash-2:#34332F;--wash-3:#D9D8D2;--on-wash-3:#111111;--seal:#E0563B;--on-seal:#111111;
+  --code-bg:#1F1F1E;--kw:#ECEBE6;--str:#A9A8A2;--com:#7C7B76;color-scheme:dark}}
+:root[data-theme="dark"]{
+  --paper:#141414;--ink:#ECEBE6;--ink-soft:#A9A8A2;--line:#D6D5CF;--rule:#6A6A66;
+  --wash-1:#1F1F1E;--wash-2:#34332F;--wash-3:#D9D8D2;--on-wash-3:#111111;--seal:#E0563B;--on-seal:#111111;
+  --code-bg:#1F1F1E;--kw:#ECEBE6;--str:#A9A8A2;--com:#7C7B76;color-scheme:dark}
+body{background:var(--paper);color:var(--ink);font:16px/1.6 var(--sans);padding-inline:20px;padding-block:32px 64px}
+main{max-width:920px;margin:0 auto;display:flex;flex-direction:column;gap:40px}
+.text{max-width:680px}
+h1{font-size:30px;line-height:1.2;margin:0;text-wrap:balance;font-weight:650}
+h2{font-size:21px;margin:0 0 10px;text-wrap:balance;font-weight:620}
+h3{font-size:16px;margin:18px 0 6px;font-weight:620}
+p{margin:0 0 10px}
+.lede{color:var(--ink-soft);font-size:17px;max-width:680px}
+.eyebrow{font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:var(--ink-soft);margin-bottom:6px}
+code{font-family:var(--mono);font-size:.9em;background:var(--wash-1);padding:1px 5px;border-radius:4px}
+section{display:flex;flex-direction:column;gap:12px;min-width:0}
+.figure{border:1px solid var(--rule);border-radius:10px;padding:16px;overflow-x:auto;background:var(--paper)}
+.figure svg{display:block;width:100%;min-width:720px;height:auto}
+.caption{font-size:14px;color:var(--ink-soft);max-width:680px}
+.split{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:14px}
+.card{border:1px solid var(--rule);border-radius:10px;padding:14px 16px;background:var(--wash-1);min-width:0}
+.card h3{margin-top:0}
+.card ul{margin:0;padding-left:18px}
+.card li{margin:4px 0}
+.tag{display:inline-block;font-size:12px;letter-spacing:.04em;padding:1px 8px;border-radius:999px;border:1px solid var(--rule);color:var(--ink-soft)}
+.tag.now{background:var(--wash-3);color:var(--on-wash-3);border-color:var(--wash-3)}
+table{border-collapse:collapse;width:100%;min-width:640px;font-size:14.5px}
+.tablewrap{overflow-x:auto;border:1px solid var(--rule);border-radius:10px}
+th,td{text-align:left;padding:9px 12px;border-bottom:1px solid var(--wash-2);vertical-align:top}
+th{background:var(--wash-1);font-weight:620}
+tr:last-child td{border-bottom:0}
+td.new{background:var(--wash-2)}
+.muted{color:var(--ink-soft)}
+pre{margin:0;background:var(--code-bg);border:1px solid var(--rule);border-radius:10px;padding:16px;overflow-x:auto;font:13.5px/1.55 var(--mono);color:var(--ink)}
+pre .k{font-weight:700;color:var(--kw)} pre .s{color:var(--str)} pre .c{color:var(--com);font-style:italic}
+.evidence li{margin:6px 0}
+svg text{font-family:var(--sans);fill:var(--ink)}
+svg .soft{fill:var(--ink-soft);font-size:13px}
+svg .mono{font-family:var(--mono);font-size:13px;fill:var(--ink)}
+svg .title{font-size:16px;font-weight:620}
+svg .box{fill:var(--paper);stroke:var(--line);stroke-width:1.4}
+svg .wash1{fill:var(--wash-1);stroke:var(--line);stroke-width:1.4}
+svg .wash2{fill:var(--wash-2);stroke:var(--line);stroke-width:1.4}
+svg .strong{fill:var(--wash-3);stroke:var(--wash-3)}
+svg .on-strong{fill:var(--on-wash-3)}
+svg .sealbox{fill:var(--seal);stroke:var(--seal)}
+svg .on-seal{fill:var(--on-seal)}
+svg .frame{fill:none;stroke:var(--rule);stroke-width:1.2;stroke-dasharray:6 4}
+svg .edge{stroke:var(--line);stroke-width:1.5;fill:none}
+svg .dash{stroke:var(--rule);stroke-width:1.5;fill:none;stroke-dasharray:5 4}
+svg .head{fill:var(--line)}
+svg .headsoft{fill:var(--rule)}
+svg .seal{fill:var(--seal)}
+svg .axis{stroke:var(--rule);stroke-width:1.2}
+@media (max-width:520px){h1{font-size:25px}body{padding-inline:16px}}
+</style>
+
+<main>
+<header class="text">
+  <div class="eyebrow">langchain-sync-monitors · plan for review · 30 September 2026</div>
+  <h1>Suspicion scores in LangSmith and Langfuse</h1>
+  <p class="lede">Each monitored step's suspicion becomes a real score in the tracing tool you already use, so you can filter, sort and chart it. Nothing changes unless you turn it on.</p>
+</header>
+
+<section>
+  <h2>What you will see</h2>
+  <p class="text">One halted step, in each tool, at each stage. Shaded cells are what changes.</p>
+  <div class="tablewrap"><table>
+    <thead><tr><th></th><th>Today</th><th>0.1.0</th><th>0.2, with the option on</th></tr></thead>
+    <tbody>
+      <tr><td><b>LangSmith</b>: the judge's own model call</td><td>named after the model, like the agent's call</td><td class="new">named <code>monitor call</code></td><td>named <code>monitor call</code></td></tr>
+      <tr><td><b>LangSmith</b>: hide the monitor</td><td>four span names plus a metadata key</td><td class="new">exclude five span names</td><td>exclude five span names</td></tr>
+      <tr><td><b>LangSmith</b>: suspicion 0.5 or more</td><td><code>gte(metadata_value, 0.5)</code></td><td>same</td><td class="new">feedback <code>monitor_suspicion</code> ≥ 0.5: a sortable column and charts</td></tr>
+      <tr><td><b>Langfuse</b>: the judge's own model call</td><td>named after the model</td><td class="new">named <code>monitor call</code></td><td>named <code>monitor call</code></td></tr>
+      <tr><td><b>Langfuse</b>: hide the monitor</td><td class="muted">not possible for the judge's calls</td><td class="new">Observations table: name none of five</td><td>Observations table: name none of five</td></tr>
+      <tr><td><b>Langfuse</b>: suspicion 0.5 or more</td><td class="muted">not possible</td><td class="muted">not possible yet</td><td class="new">score <code>monitor_suspicion</code> ≥ 0.5, about 15 s after the step</td></tr>
+    </tbody>
+  </table></div>
+</section>
+
+<section>
+  <h2>Where it runs</h2>
+  <div class="figure">
+    <svg viewBox="0 0 900 440" role="img" aria-labelledby="f1t f1d">
+      <title id="f1t">Where the score writer runs</title>
+      <desc id="f1d">Inside the agent's process, the monitor commits each step and, when the option is on, puts the step's id, label and suspicion on a queue. One background worker empties the queue. For LangSmith it posts feedback straight to the step's run id. For Langfuse it looks up all waiting steps in one query to the real-time observations endpoint, then posts their scores in one batch. The tracers' own handlers keep sending spans as they do today.</desc>
+      <defs>
+        <marker id="a1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" class="head"/></marker>
+        <marker id="a2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" class="headsoft"/></marker>
+      </defs>
+      <rect x="16" y="20" width="560" height="400" rx="10" class="frame"/>
+      <text x="36" y="46" class="soft">your agent's process</text>
+      <rect x="620" y="20" width="264" height="400" rx="10" class="frame"/>
+      <text x="640" y="46" class="soft">the tracing services</text>
+
+      <path d="M48 64 h214 l16 16 v58 a6 6 0 0 1 -6 6 h-218 a6 6 0 0 1 -6 -6 v-58 z" class="strong"/>
+      <circle cx="170" cy="58" r="6" fill="none" stroke="var(--wash-3)" stroke-width="2"/>
+      <rect x="54" y="128" width="9" height="9" class="seal"/>
+      <text x="163" y="94" text-anchor="middle" class="title on-strong">MonitorMiddleware</text>
+      <text x="163" y="116" text-anchor="middle" class="on-strong" font-size="13.5">commits each step</text>
+
+      <rect x="340" y="72" width="200" height="64" rx="6" class="wash1"/>
+      <text x="440" y="99" text-anchor="middle" class="title">Score queue</text>
+      <text x="440" y="120" text-anchor="middle" class="soft">step id, label, suspicion</text>
+      <path d="M278 104 H336" class="edge" marker-end="url(#a1)"/>
+      <text x="307" y="95" text-anchor="middle" class="soft">if on</text>
+
+      <rect x="340" y="200" width="200" height="84" rx="6" class="wash2"/>
+      <text x="440" y="228" text-anchor="middle" class="title">Score worker</text>
+      <text x="440" y="250" text-anchor="middle" class="soft">one thread per process,</text>
+      <text x="440" y="270" text-anchor="middle" class="soft">never blocks the agent</text>
+      <path d="M440 136 V196" class="edge" marker-end="url(#a1)"/>
+
+      <rect x="48" y="200" width="236" height="84" rx="6" class="box"/>
+      <text x="166" y="228" text-anchor="middle" class="title">Tracer handlers</text>
+      <text x="166" y="250" text-anchor="middle" class="soft">send the spans to both</text>
+      <text x="166" y="270" text-anchor="middle" class="soft">tools, as today</text>
+      <path d="M163 144 V196" class="dash" marker-end="url(#a2)"/>
+
+      <rect x="48" y="330" width="492" height="66" rx="6" class="box"/>
+      <text x="294" y="357" text-anchor="middle" class="title">At exit: drain, up to a time limit</text>
+      <text x="294" y="379" text-anchor="middle" class="soft">what is left is logged and dropped, never raised</text>
+      <path d="M440 284 V326" class="edge" marker-end="url(#a1)"/>
+
+      <rect x="648" y="72" width="212" height="84" rx="6" class="box"/>
+      <text x="754" y="102" text-anchor="middle" class="title">LangSmith API</text>
+      <text x="754" y="124" text-anchor="middle" class="soft">feedback on the step's run</text>
+      <text x="754" y="144" text-anchor="middle" class="mono">run id = step id</text>
+
+      <rect x="648" y="238" width="212" height="120" rx="6" class="box"/>
+      <text x="754" y="266" text-anchor="middle" class="title">Langfuse API</text>
+      <text x="754" y="290" text-anchor="middle" class="mono">GET v2/observations</text>
+      <text x="754" y="310" text-anchor="middle" class="soft">find steps by id, in one query</text>
+      <text x="754" y="334" text-anchor="middle" class="mono">POST scores</text>
+      <text x="754" y="352" text-anchor="middle" class="soft">one batch, fixed ids</text>
+
+      <path d="M540 222 H590 V114 H644" class="edge" marker-end="url(#a1)"/>
+      <path d="M540 262 H644" class="edge" marker-end="url(#a1)"/>
+    </svg>
+  </div>
+  <p class="caption">LangSmith needs no lookup: the step's LangSmith run id is the library's own id. Langfuse gives its observations random ids, so the worker finds each step by the <code>monitor_step_id</code> the monitor already puts on it.</p>
+</section>
+
+<section>
+  <h2>One step, over time</h2>
+  <div class="figure">
+    <svg viewBox="0 0 900 300" role="img" aria-labelledby="f2t f2d">
+      <title id="f2t">One step over time</title>
+      <desc id="f2d">At zero seconds the step commits and the LangSmith feedback is sent. Within about ten seconds the Langfuse handler exports the step's spans. About ten to fifteen seconds after the step, the worker's next batch finds it on Langfuse and posts its score. At exit the worker drains what is left, up to a time limit.</desc>
+      <defs><marker id="a3" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" class="head"/></marker></defs>
+      <text x="20" y="72" class="title">Agent</text>
+      <text x="20" y="132" class="title">LangSmith</text>
+      <text x="20" y="192" class="title">Langfuse</text>
+      <text x="20" y="252" class="soft">time after the step</text>
+      <line x1="150" y1="244" x2="870" y2="244" class="axis"/>
+      <text x="170" y="266" class="soft" text-anchor="middle">0 s</text>
+      <text x="410" y="266" class="soft" text-anchor="middle">about 5 s</text>
+      <text x="650" y="266" class="soft" text-anchor="middle">about 15 s</text>
+      <text x="840" y="266" class="soft" text-anchor="middle">process exit</text>
+      <line x1="170" y1="238" x2="170" y2="250" class="axis"/><line x1="410" y1="238" x2="410" y2="250" class="axis"/><line x1="650" y1="238" x2="650" y2="250" class="axis"/><line x1="840" y1="238" x2="840" y2="250" class="axis"/>
+
+      <rect x="150" y="50" width="170" height="36" rx="6" class="strong"/><text x="235" y="73" text-anchor="middle" class="on-strong" font-size="14">step commits</text>
+      <rect x="340" y="50" width="330" height="36" rx="6" class="box"/><text x="505" y="73" text-anchor="middle" class="soft">the agent carries on; nothing waits</text>
+
+      <rect x="150" y="110" width="230" height="36" rx="6" class="wash2"/><text x="265" y="133" text-anchor="middle" font-size="14">feedback posted</text>
+      <rect x="400" y="110" width="270" height="36" rx="6" class="box"/><text x="535" y="133" text-anchor="middle" class="soft">sortable and filterable at once</text>
+
+      <rect x="150" y="170" width="300" height="36" rx="6" class="wash1"/><text x="300" y="193" text-anchor="middle" font-size="14">handler exports the spans</text>
+      <rect x="470" y="170" width="200" height="36" rx="6" class="wash2"/><text x="570" y="193" text-anchor="middle" font-size="14">batch finds it, scores</text>
+      <rect x="760" y="170" width="120" height="36" rx="6" class="box"/><text x="820" y="193" text-anchor="middle" class="soft">drain the rest</text>
+    </svg>
+  </div>
+  <p class="caption">About 14 seconds, with no flush, is what we measured on your Langfuse under both <code>invoke</code> and <code>ainvoke</code>. The worker asks once per window for every waiting step, because polling once a second got a rate-limit error at once.</p>
+</section>
+
+<section>
+  <h2>What the switch does</h2>
+  <div class="figure">
+    <svg viewBox="0 0 900 250" role="img" aria-labelledby="f3t f3d">
+      <title id="f3t">What the option does in each case</title>
+      <desc id="f3d">With the option off, the default, nothing is sent. With it on but the tool's package or credentials missing, building the monitor raises a ConfigurationError. With it on and everything present, a run that is not traced to that tool sends nothing for it, and a traced run sends the score.</desc>
+      <defs><marker id="a4" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" class="head"/></marker></defs>
+      <rect x="20" y="96" width="170" height="58" rx="6" class="box"/><text x="105" y="121" text-anchor="middle" class="title">Option on?</text><text x="105" y="142" text-anchor="middle" class="soft">off by default</text>
+      <rect x="250" y="20" width="190" height="52" rx="6" class="wash1"/><text x="345" y="51" text-anchor="middle" font-size="14">no: nothing is sent</text>
+      <path d="M190 112 H218 V46 H246" class="edge" marker-end="url(#a4)"/>
+      <rect x="250" y="120" width="190" height="58" rx="6" class="box"/><text x="345" y="144" text-anchor="middle" class="title">Package and</text><text x="345" y="164" text-anchor="middle" class="title">credentials?</text>
+      <path d="M190 146 H246" class="edge" marker-end="url(#a4)"/>
+      <rect x="500" y="196" width="220" height="44" rx="6" class="wash2"/><text x="610" y="223" text-anchor="middle" font-size="14"><tspan font-family="var(--mono)">ConfigurationError</tspan> at build</text>
+      <path d="M345 178 V218 H496" class="edge" marker-end="url(#a4)"/>
+      <text x="360" y="210" class="soft">missing</text>
+      <rect x="500" y="120" width="170" height="58" rx="6" class="box"/><text x="585" y="144" text-anchor="middle" class="title">Run traced to</text><text x="585" y="164" text-anchor="middle" class="title">that tool?</text>
+      <path d="M440 149 H496" class="edge" marker-end="url(#a4)"/>
+      <rect x="720" y="40" width="160" height="52" rx="6" class="wash1"/><text x="800" y="71" text-anchor="middle" font-size="14">no: skipped quietly</text>
+      <path d="M670 136 H696 V66 H716" class="edge" marker-end="url(#a4)"/>
+      <rect x="720" y="120" width="160" height="58" rx="6" class="strong"/><text x="800" y="154" text-anchor="middle" class="on-strong" font-size="14">yes: score sent</text>
+      <path d="M670 149 H716" class="edge" marker-end="url(#a4)"/>
+    </svg>
+  </div>
+</section>
+
+<section>
+  <h2>Pseudocode</h2>
+  <p class="text">The shape of the change, in readable Python. Names are proposals for review.</p>
+<pre><span class="c"># 1. The option, off by default. One word per tool.</span>
+monitor = MonitorMiddleware(
+    monitor=judge,
+    protocol=AutoMode(),
+    export_scores={Tracer.LANGSMITH, Tracer.LANGFUSE},   <span class="c"># default: set()</span>
+)
+
+<span class="c"># 2. When the monitor is built: fail early on a request it cannot serve.</span>
+<span class="k">def</span> check_score_export(tracers):
+    <span class="k">for</span> tracer <span class="k">in</span> tracers:
+        <span class="k">if</span> <span class="k">not</span> is_package_installed(tracer) <span class="k">or</span> <span class="k">not</span> has_credentials(tracer):
+            <span class="k">raise</span> ConfigurationError(<span class="s">f"export_scores asks for {tracer}, but its package or credentials are missing"</span>)
+
+<span class="c"># 3. When a step commits: queue the number, never wait.</span>
+<span class="k">def</span> commit_step(step_record, step_span):
+    ...                                                   <span class="c"># as today</span>
+    <span class="k">if</span> monitor.export_scores <span class="k">and</span> step_record.max_suspicion <span class="k">is not</span> None:
+        score_queue.put(PendingScore(
+            step_id=step_span.run_id,                     <span class="c"># also the monitor_step_id metadata</span>
+            name=<span class="s">f"{monitor.label}_suspicion"</span>,
+            value=step_record.max_suspicion,
+            tracers=traced_tools(step_span),              <span class="c"># only the tools this run reports to</span>
+            committed_at=now(),
+        ))
+
+<span class="c"># 4. The worker: one thread per process.</span>
+<span class="k">def</span> run_score_worker():
+    <span class="k">while</span> <span class="k">not</span> stopping:
+        waiting = score_queue.take_all(within_seconds=10)
+        send_langsmith_feedback([score <span class="k">for</span> score <span class="k">in</span> waiting <span class="k">if</span> Tracer.LANGSMITH <span class="k">in</span> score.tracers])
+        send_langfuse_scores([score <span class="k">for</span> score <span class="k">in</span> waiting <span class="k">if</span> Tracer.LANGFUSE <span class="k">in</span> score.tracers])
+
+<span class="k">def</span> send_langsmith_feedback(scores):
+    <span class="k">for</span> score <span class="k">in</span> scores:                                <span class="c"># no lookup: the run id is ours</span>
+        langsmith_client.create_feedback(
+            run_id=score.step_id, key=score.name, score=score.value,
+            feedback_id=fixed_id(score),                  <span class="c"># a retry never duplicates</span>
+            feedback_source_type=<span class="s">"model"</span>,                <span class="c"># no trace-retention extension</span>
+        )
+
+<span class="k">def</span> send_langfuse_scores(scores):
+    found = find_langfuse_steps(step_ids=[score.step_id <span class="k">for</span> score <span class="k">in</span> scores])   <span class="c"># one GET for all</span>
+    ready = [score <span class="k">for</span> score <span class="k">in</span> scores <span class="k">if</span> score.step_id <span class="k">in</span> found]
+    post_langfuse_scores_in_one_batch(ready, observations=found)          <span class="c"># fixed ids, NUMERIC</span>
+    score_queue.put_back([score <span class="k">for</span> score <span class="k">in</span> scores <span class="k">if</span> score <span class="k">not in</span> ready <span class="k">and</span> <span class="k">not</span> is_too_old(score)])
+
+<span class="k">def</span> find_langfuse_steps(step_ids):
+    response = langfuse_http.get(<span class="s">"/api/public/v2/observations"</span>, filter=[
+        name_is(<span class="s">"monitor step"</span>),
+        metadata_is_any_of(<span class="s">"monitor_step_id"</span>, step_ids),
+        started_after(oldest_committed_at(step_ids)),
+    ])
+    <span class="k">if</span> response.status == 429:
+        wait(response.retry_after)                        <span class="c"># back off, then try the next window</span>
+        <span class="k">return</span> {}
+    <span class="k">return</span> {observation.metadata[<span class="s">"monitor_step_id"</span>]: observation <span class="k">for</span> observation <span class="k">in</span> response.data}
+
+<span class="c"># 5. At exit: drain what is left, up to a limit; log what is dropped, never raise.</span>
+at_exit(lambda: drain_score_queue(limit_seconds=30))</pre>
+</section>
+
+<section>
+  <h2>What ships when</h2>
+  <div class="split">
+    <div class="card"><h3><span class="tag now">0.1.0</span> before release</h3><ul>
+      <li>The monitor's own model calls are named <code>monitor call</code>.</li>
+      <li>The score name <code>&lt;label&gt;_suspicion</code> and its place, the <code>monitor step</code> span, are documented as fixed.</li>
+      <li>The guide gives only queries that work today.</li>
+    </ul></div>
+    <div class="card"><h3><span class="tag">0.2</span> right after</h3><ul>
+      <li>The <code>export_scores</code> option and its worker.</li>
+      <li>Tests with HTTP fakes: both run modes, rate limits, retries, the exit drain, and no tracer present.</li>
+      <li>One live check on your accounts, then the guide's true suspicion queries.</li>
+    </ul></div>
+  </div>
+</section>
+
+<section>
+  <h2>Checked, and still open</h2>
+  <div class="split">
+    <div class="card evidence"><h3>Checked on your accounts</h3><ul>
+      <li>Langfuse SDK 4.16.0: the step's id is unreachable during an <code>ainvoke</code> run, and ids are random, so the library cannot score in-process.</li>
+      <li><code>GET /api/public/v2/observations</code> filtered by <code>monitor_step_id</code> found exactly the right step, under both run modes, about 14 s after the run.</li>
+      <li><code>POST /api/public/scores</code> with a fixed id: 200, and a repeat updated it rather than adding a copy.</li>
+      <li>Polling once a second returned 429: batching is required.</li>
+      <li>The v1 observations endpoint is deprecated and goes on 16 November 2026: v2 only.</li>
+    </ul></div>
+    <div class="card"><h3>Open for review</h3><ul>
+      <li>The option's name and shape (<code>export_scores</code> with a set of tools).</li>
+      <li>How long to keep a step waiting for Langfuse before dropping it, and the exit drain limit.</li>
+      <li>Short-lived processes, such as serverless handlers, may exit before the Langfuse batch: we document it and drain.</li>
+      <li>The LangSmith writer needs <code>langsmith</code> 0.6.7 or later, so it comes as an extra.</li>
+      <li>The decision-model path of the <code>monitor call</code> rename needs its own check.</li>
+    </ul></div>
+  </div>
+</section>
+</main>

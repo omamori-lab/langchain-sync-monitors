@@ -161,7 +161,7 @@ explains each of these.
 |---|---|
 | build a monitored agent step by step, with or without an API key | [Monitor your first agent](docs/tutorials/first-monitored-agent.md) |
 | read the records, the stream events and the logs | [Read the monitor log](docs/how-to/read-the-monitor-log.md) |
-| find halted and flagged steps in a tracer | [See the monitor's decisions in LangSmith and Langfuse](docs/how-to/see-decisions-in-langsmith-and-langfuse.md) |
+| find halted, flagged or suspicious steps in a tracer | [See the monitor's decisions in LangSmith and Langfuse](docs/how-to/see-decisions-in-langsmith-and-langfuse.md) |
 | look up a class or a keyword | [API](https://omamori-lab.github.io/langchain-sync-monitors/reference/api/) |
 | understand how a step flows, and why | [How the library is built](docs/explanation/design.md) |
 | see monitored agents run against real models | [Live runs of a monitored agent](docs/explanation/live-runs.md) |

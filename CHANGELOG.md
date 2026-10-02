@@ -14,6 +14,13 @@ change raises the minor version.
 
 ## [Unreleased]
 
+### Added
+
+- `export_scores`, an option of `MonitorMiddleware` that is off by default,
+  sends each step's highest suspicion as a `<label>_suspicion` score:
+  feedback in LangSmith and a numeric score in Langfuse, written by a
+  background worker, with `Tracer` naming the tools.
+
 ## [0.1.1] - 2026-10-01
 
 ### Changed

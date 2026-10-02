@@ -14,6 +14,15 @@ change raises the minor version.
 
 ## [Unreleased]
 
+### Changed
+
+- `OpenRouterDecisionModel` raises `ConfigurationError` when it is built with
+  a `base_url` that is not an `http` or `https` URL with a host, such as an
+  empty or relative one, with no part of the URL in the message; such a
+  `base_url` failed only at the first request. A relative `base_url` that
+  reached a server through an `http_client` with its own `base_url` now
+  needs the whole URL.
+
 ### Security
 
 - A password in `OpenRouterDecisionModel`'s `base_url` no longer reaches logs

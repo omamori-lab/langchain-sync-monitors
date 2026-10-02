@@ -107,10 +107,10 @@ def check_key_characters(key: str, *, source: str) -> None:
         raise ConfigurationError(message)
 
 
-def read_url_user_information(url: str) -> bytes | None:
-    """Return the user name and password httpx reads in `url`, or None when it cannot read `url`."""
+def read_httpx_url(url: str) -> httpx.URL | None:
+    """Return `url` as httpx parses it, or None when httpx cannot read it."""
     try:
-        return httpx.URL(url).userinfo
+        return httpx.URL(url)
     except httpx.InvalidURL:
         return None
 
@@ -134,14 +134,14 @@ def check_url_without_credentials(url: str, *, parameter_name: str) -> None:
     httpx reads as something else: in `https://user:123/rest@host`, `user`
     is the host, `123` the port and `/rest@host` the path.
     """
-    userinfo = read_url_user_information(url)
-    if userinfo is None:
+    parsed = read_httpx_url(url)
+    if parsed is None:
         message = (
             f"{parameter_name} is not a URL httpx can read, and it is not quoted here in "
             "case it holds a password; check its host and port, and pass the key as api_key"
         )
         raise ConfigurationError(message)
-    if userinfo:
+    if parsed.userinfo:
         message = (
             f"{parameter_name} holds a user name or password, which httpx would send in "
             "place of the key and quote in its logs: pass the key as api_key, and "
@@ -150,10 +150,36 @@ def check_url_without_credentials(url: str, *, parameter_name: str) -> None:
         raise ConfigurationError(message)
 
 
+def check_http_url_with_host(url: str, *, parameter_name: str) -> None:
+    """Refuse a URL that is not `http` or `https` with a host, such as an empty or relative one.
+
+    httpx counts a URL as absolute only when it has a scheme and a host, in
+    its url property `is_absolute_url` [@httpx2024]. The clients the model
+    opens have no `base_url` of their own to complete any other URL, so it
+    could only fail at the first request. A relative URL is refused even
+    beside a caller's client that has a `base_url`, so the endpoint is always
+    the URL given. The message quotes no part of the URL, not even its
+    scheme, which in `user:password@host` is the user name.
+    """
+    parsed = read_httpx_url(url)
+    if parsed is None or parsed.scheme not in {"http", "https"} or not parsed.host:
+        message = (
+            f"{parameter_name} is not an http or https URL with a host, and it is not quoted "
+            "here in case it holds a password; pass the whole URL, such as "
+            f"{OPENROUTER_DECISIONS_URL}"
+        )
+        raise ConfigurationError(message)
+
+
 def build_decisions_endpoint(base_url: str) -> str:
-    """Return `{base_url}/decisions`, once `base_url` is a URL httpx reads with no credentials."""
+    """Return `{base_url}/decisions`, once `base_url` is an http or https URL with no credentials.
+
+    The credentials check runs first, so a URL that holds them is refused
+    for them, whatever its scheme.
+    """
     check_instance_option(base_url, option_type=str, parameter_name="base_url")
     check_url_without_credentials(base_url, parameter_name="base_url")
+    check_http_url_with_host(base_url, parameter_name="base_url")
     return f"{base_url.rstrip('/')}/decisions"
 
 
@@ -210,8 +236,10 @@ class OpenRouterDecisionModel(DecisionModel):
     The key comes from `OPENROUTER_API_KEY` unless `api_key` is given, and a
     blank `api_key` raises `ConfigurationError`. So does a `base_url` that
     holds a user name or password, or that httpx cannot read, as
-    `check_url_without_credentials` explains, with no part of the URL in
-    the message. Pass your own `http_client` or `async_http_client` to reuse
+    `check_url_without_credentials` explains, or that is not an `http` or
+    `https` URL with a host, such as an empty or relative one, as
+    `check_http_url_with_host` explains, with no part of the URL in the
+    message. Pass your own `http_client` or `async_http_client` to reuse
     connections, change transports or decide when a client closes; a client
     you pass keeps its own timeout, and `timeout_seconds` applies only to the
     clients the model opens. Without them, the sync path opens one client for

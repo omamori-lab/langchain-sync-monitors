@@ -394,6 +394,16 @@ def test_a_base_url_with_credentials_fails_at_construction_without_showing_them(
             "https://decisions.test:8443/api/alpha/decisions",
             id="a-port",
         ),
+        pytest.param(
+            "http://decisions.test/api/alpha",
+            "http://decisions.test/api/alpha/decisions",
+            id="plain-http",
+        ),
+        pytest.param(
+            "HTTPS://decisions.test/api/alpha",
+            "https://decisions.test/api/alpha/decisions",
+            id="an-upper-case-scheme",
+        ),
     ],
 )
 async def test_a_base_url_without_credentials_is_sent_as_given(
@@ -473,6 +483,71 @@ async def test_a_base_url_httpx_cannot_read_fails_at_construction_without_showin
     secrets = (PLANTED_PASSWORD_START, PLANTED_PASSWORD)
     assert [text for text in shown if any(secret in text for secret in secrets)] == []
     assert server.requests == []
+
+
+PLANTED_USER = "planted-user-2f6e"
+"""A user name planted where httpx reads a scheme, in a `base_url` with no `//`."""
+
+BASE_URLS_WITHOUT_AN_HTTP_SCHEME_AND_A_HOST = {
+    "empty": "",
+    "only-spaces": "   ",
+    "a-bare-word": "decisions",
+    "a-path-alone": "/api",
+    "another-scheme": "ftp://host",
+    "a-scheme-and-no-host": "https:///api/alpha",
+    "a-scheme-alone": "https://",
+    "credentials-and-no-scheme": f"{PLANTED_USER}:{PLANTED_PASSWORD}@decisions.test/api",
+}
+"""Base URLs httpx reads, with no user information, that name no http or https host.
+
+The client the model opens would send none of them anywhere; the mock
+transport answers them all, so an unrefused one reaches the server.
+"""
+
+
+@pytest.mark.parametrize(
+    "base_url",
+    BASE_URLS_WITHOUT_AN_HTTP_SCHEME_AND_A_HOST.values(),
+    ids=BASE_URLS_WITHOUT_AN_HTTP_SCHEME_AND_A_HOST.keys(),
+)
+async def test_a_base_url_without_an_http_scheme_and_a_host_fails_at_construction(
+    call_path: CallPath,
+    base_url: str,
+) -> None:
+    # Arrange
+    server = DecisionsServer(responders=[answer_with({"leaks": 0.1})])
+
+    # Act
+    failure: ConfigurationError | httpx.TransportError | None = None
+    try:
+        model = server.build_model(base_url=base_url)
+        await estimate_on_path(model, questions=[LEAK_QUESTION], call_path=call_path)
+    except (ConfigurationError, httpx.TransportError) as error:
+        failure = error
+
+    # Assert: the model refused the URL when built, with nothing chained to the refusal and no
+    # part of the planted credentials in it, and nothing was sent
+    assert isinstance(failure, ConfigurationError)
+    assert str(failure).startswith("base_url is not an http or https URL with a host")
+    assert failure.__cause__ is None
+    assert failure.__context__ is None
+    shown = [str(failure), repr(failure)]
+    secrets = (PLANTED_USER, PLANTED_PASSWORD)
+    assert [text for text in shown if any(secret in text for secret in secrets)] == []
+    assert server.requests == []
+
+
+def test_a_base_url_with_credentials_and_another_scheme_is_refused_for_the_credentials() -> None:
+    # Arrange
+    server = DecisionsServer(responders=[answer_with({"leaks": 0.1})])
+
+    # Act
+    with pytest.raises(ConfigurationError) as raised:
+        server.build_model(base_url=f"ftp://user:{PLANTED_PASSWORD}@decisions.test/api")
+
+    # Assert: the credentials, the graver fault, are what the message names
+    assert str(raised.value).startswith("base_url holds a user name or password")
+    assert PLANTED_PASSWORD not in str(raised.value)
 
 
 @pytest.mark.usefixtures("three_attempts")

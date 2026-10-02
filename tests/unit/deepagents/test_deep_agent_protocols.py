@@ -7,7 +7,7 @@ from langchain_core.messages import AIMessage
 from langchain_core.tools import BaseTool
 from langgraph.checkpoint.memory import InMemorySaver
 
-from langchain_sync_monitors.contracts import FeedbackVisibility
+from langchain_sync_monitors.contracts import FeedbackVisibility, SampleDrawing
 from langchain_sync_monitors.middleware import MonitorMiddleware
 from tests.support.agents import (
     ATTACKER_URL,
@@ -20,12 +20,14 @@ from tests.support.agents import (
     read_texts,
     run_agent,
 )
-from tests.support.chat_models import ScriptedChatModel
+from tests.support.chat_models import OverlapCountingChatModel, ScriptedChatModel
 from tests.support.deep_agents import build_deep_agent, build_delegation_step
 from tests.support.protocols import ResampleThenDefer, SteerWithFeedback
 
 MAIN_ANSWER = "Here is the summary."
 TRUSTED_ANSWER = "I will summarise without sending anything."
+MOST_DRAWS_AT_ONCE = {"invoke": 1, "ainvoke": 2}
+"""Two resamples overlap under `ainvoke()`; `invoke()` draws them one after another."""
 
 
 @pytest.fixture
@@ -35,7 +37,7 @@ def workspace() -> Workspace:
 
 @pytest.fixture
 def http_tools(workspace: Workspace) -> list[BaseTool]:
-    return [tool for tool in workspace.build_tools() if tool.name == "http_post"]
+    return workspace.build_http_tools()
 
 
 @pytest.fixture
@@ -57,9 +59,10 @@ def test_concurrent_resamples_run_through_the_deep_agent_stack(
 ) -> None:
     # Arrange
     responses = [build_exfiltration_step(), AIMessage(MAIN_ANSWER), AIMessage(MAIN_ANSWER)]
-    protocol = ResampleThenDefer(trusted_model=trusted_model, concurrently=True)
+    main_model = OverlapCountingChatModel(responses=responses, delay=0.01)
+    protocol = ResampleThenDefer(trusted_model=trusted_model, drawing=SampleDrawing.CONCURRENT)
     agent = build_deep_agent(
-        main_model=ScriptedChatModel(responses=responses, delay=0.01),
+        main_model=main_model,
         worker_model=worker_model,
         main_monitor=MonitorMiddleware(monitor=build_keyword_monitor(), protocol=protocol),
         checkpointer=InMemorySaver(),
@@ -76,6 +79,7 @@ def test_concurrent_resamples_run_through_the_deep_agent_stack(
     [record] = result["monitor_log"]
     assert record["outcome"] == "resampled"
     assert sum(sample["executed"] for sample in record["samples"]) == 1
+    assert main_model.most_at_once == MOST_DRAWS_AT_ONCE[run_mode]
     assert agent.get_state(config).values["monitor_log"] == result["monitor_log"]
 
 

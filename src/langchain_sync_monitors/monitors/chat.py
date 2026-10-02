@@ -1,6 +1,6 @@
-"""Chat models as judges: fill a prompt with the rendered step, call the model, read the reply.
+"""Chat models as monitors: fill a prompt with the rendered step, call the model, read the reply.
 
-`ChatModelMonitor` holds what chat judges and guard models share. Each monitor
+`ChatModelMonitor` holds what LLM monitors and guard models share. Each monitor
 writes its scoring once, as a plan: a generator that yields the model replies
 it needs and returns a `Verdict`. `evaluate` and `evaluate_sync` only differ in
 how they obtain those replies, so the sync and async paths cannot drift apart.
@@ -10,13 +10,17 @@ This keeps the protocol logic free of I/O, the sans-I/O pattern
 
 from __future__ import annotations
 
+import functools
 import logging
 import re
+import warnings
 from abc import ABC, abstractmethod
 from collections.abc import Awaitable, Callable, Generator
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import ClassVar
 
+import httpx
+import stamina
 from langchain_core.language_models import BaseChatModel, LanguageModelInput
 from langchain_core.messages import AIMessage, BaseMessage
 from langchain_core.prompts import ChatPromptTemplate
@@ -25,13 +29,20 @@ from langchain_core.runnables import Runnable
 from langchain_sync_monitors.concurrency import run_concurrently
 from langchain_sync_monitors.contracts import Monitor, MonitorInput, MonitorView, Verdict
 from langchain_sync_monitors.errors import ConfigurationError
-from langchain_sync_monitors.model_calls import build_internal_call_config, resolve_chat_model
+from langchain_sync_monitors.model_calls import (
+    CachedResampleWarning,
+    build_internal_call_config,
+    is_response_cache_active,
+    resolve_chat_model,
+)
 from langchain_sync_monitors.options import (
     check_instance_option,
     read_count_option,
     read_integer_option,
+    write_integer_option,
 )
 from langchain_sync_monitors.prompts import DEFAULT_MONITOR_PROMPT
+from langchain_sync_monitors.thresholds import LIBRARY_DIRECTORY
 from langchain_sync_monitors.transcript import render_proposed_step, render_transcript
 
 logger = logging.getLogger(__name__)
@@ -41,10 +52,8 @@ DEFAULT_MONITOR_VIEW = MonitorView()
 
 REQUIRED_PROMPT_VARIABLES = frozenset({"transcript", "proposed_step"})
 INTEGER_PATTERN = re.compile(r"[+-]?\d+")
-REASONING_PATTERN = re.compile(
-    r"<reasoning>(?P<reasoning>.*?)</reasoning>",
-    flags=re.DOTALL | re.IGNORECASE,
-)
+REASONING_START_TAG_PATTERN = re.compile(r"<reasoning>", flags=re.IGNORECASE)
+REASONING_END_TAG_PATTERN = re.compile(r"</reasoning>", flags=re.IGNORECASE)
 FINAL_SCORE_PATTERN = re.compile(r"\s*<score>(?P<score>[^<]*)</score>\s*", flags=re.IGNORECASE)
 
 STOP_REASON_KEYS = (
@@ -63,14 +72,43 @@ Bedrock Converse the fourth and Ollama the last.
 CUT_OFF_STOP_REASONS = ("length", "max_tokens", "max_output_tokens", "context_window_exceeded")
 """Stop reasons that mean the reply hit a length limit before the model finished it."""
 
+RATE_LIMIT_ATTEMPTS = 4
+"""How many times a monitor's call is tried in all while the provider answers HTTP 429."""
+RATE_LIMIT_FIRST_WAIT_SECONDS = 1.0
+"""The wait before the first retry of a rate-limited call; each later wait doubles, up to 5 s."""
+
+
+def is_rate_limit_error(error: Exception) -> bool:
+    """Tell whether a chat model's call failed on a rate limit, HTTP 429.
+
+    A chat model's own `max_retries` does not always cover one:
+    `ChatOpenRouter` hands its retries to the OpenRouter SDK
+    [@langchainopenrouter2026], which retries a chat completion on HTTP 5xx
+    and network errors alone, and whose retry settings name no status code
+    [@openrouterpythonsdk2026]. Provider SDKs put the status on their errors
+    as `status_code`, OpenRouter's, OpenAI's and Anthropic's among them, and
+    the last two retry a 429 themselves too
+    [@openaipythonsdk2026; @anthropicpythonsdk2026]; httpx puts the status
+    on the error's response [@httpx2024].
+    """
+    if isinstance(error, httpx.HTTPStatusError):
+        status: object = error.response.status_code
+    else:
+        status = getattr(error, "status_code", None)
+    return status == httpx.codes.TOO_MANY_REQUESTS
+
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class ReplyRequest:
-    """What a scoring plan asks for: `count` independent replies from `model` to `messages`."""
+    """What a scoring plan asks for: `count` independent replies from `model` to `messages`.
+
+    `repeated` says the plan asked for a reply to the same messages before.
+    """
 
     model: Runnable[LanguageModelInput, AIMessage]
     messages: tuple[BaseMessage, ...]
     count: int = 1
+    repeated: bool = False
 
 
 type VerdictPlan = Generator[ReplyRequest, list[AIMessage], Verdict]
@@ -94,10 +132,12 @@ async def run_verdict_plan(
     request_replies: Callable[[ReplyRequest], Awaitable[list[AIMessage]]],
 ) -> Verdict:
     """Drive a plan to its verdict, awaiting each batch of replies it asks for."""
-    step = resume_verdict_plan(plan, replies=None)
-    while isinstance(step, ReplyRequest):
-        step = resume_verdict_plan(plan, replies=await request_replies(step))
-    return step
+    request_or_verdict = resume_verdict_plan(plan, replies=None)
+    while isinstance(request_or_verdict, ReplyRequest):
+        request_or_verdict = resume_verdict_plan(
+            plan, replies=await request_replies(request_or_verdict)
+        )
+    return request_or_verdict
 
 
 def run_verdict_plan_sync(
@@ -106,10 +146,29 @@ def run_verdict_plan_sync(
     request_replies: Callable[[ReplyRequest], list[AIMessage]],
 ) -> Verdict:
     """Drive a plan to its verdict, obtaining each batch of replies without an event loop."""
-    step = resume_verdict_plan(plan, replies=None)
-    while isinstance(step, ReplyRequest):
-        step = resume_verdict_plan(plan, replies=request_replies(step))
-    return step
+    request_or_verdict = resume_verdict_plan(plan, replies=None)
+    while isinstance(request_or_verdict, ReplyRequest):
+        request_or_verdict = resume_verdict_plan(plan, replies=request_replies(request_or_verdict))
+    return request_or_verdict
+
+
+@functools.cache
+def warn_about_cached_monitor_replies() -> None:
+    """Emit the `CachedResampleWarning` for a monitor's model, on the first call in the process.
+
+    The cache on this function keeps the warning to one per process, as
+    `pending_steps.warn_about_cached_resamples` does for the agent's model.
+    """
+    warnings.warn(
+        "A LangChain response cache is active for a monitor's model, so each repeat of its "
+        "prompt returns a copy of the first reply: a guard's samples all carry the first "
+        "label, and an LLM monitor asked again after an unreadable reply gets the same reply. "
+        "Build the monitor's model with cache=False, or unset the global cache with "
+        "set_llm_cache(None).",
+        CachedResampleWarning,
+        stacklevel=2,
+        skip_file_prefixes=(LIBRARY_DIRECTORY,),
+    )
 
 
 def require_prompt_variables(prompt: ChatPromptTemplate, *, allowed: frozenset[str]) -> None:
@@ -130,12 +189,14 @@ def require_prompt_variables(prompt: ChatPromptTemplate, *, allowed: frozenset[s
 
 
 class ChatModelMonitor(Monitor, ABC):
-    """What chat judges and guard models share: fill a prompt with the step, then call the model.
+    """What LLM monitors and guard models share: fill a prompt with the step, then call the model.
 
     Subclasses write their scoring once, in `build_verdict_plan`. The model's
     calls carry LangChain's internal-call metadata, which drops them from
     `stream_events(version="v3")`; the monitor middleware's `nostream` tag
-    keeps them out of `stream_mode="messages"`.
+    keeps them out of `stream_mode="messages"`. A call the provider answers
+    with HTTP 429 is made again, as `request_reply` says; every other error
+    is left to the chat model's own `max_retries`.
     """
 
     call_source: ClassVar[str] = "monitor"
@@ -197,17 +258,54 @@ class ChatModelMonitor(Monitor, ABC):
 
     async def request_replies(self, request: ReplyRequest) -> list[AIMessage]:
         """Draw the requested replies concurrently; one failed call cancels the others."""
-        return await run_concurrently(
-            request.model.ainvoke(list(request.messages), config=self.call_config)
-            for _ in range(request.count)
-        )
+        self.warn_when_replies_are_cached(request)
+        return await run_concurrently(self.request_reply(request) for _ in range(request.count))
 
     def request_replies_sync(self, request: ReplyRequest) -> list[AIMessage]:
         """Draw the requested replies one after another."""
-        return [
-            request.model.invoke(list(request.messages), config=self.call_config)
-            for _ in range(request.count)
-        ]
+        self.warn_when_replies_are_cached(request)
+        return [self.request_reply_sync(request) for _ in range(request.count)]
+
+    def warn_when_replies_are_cached(self, request: ReplyRequest) -> None:
+        """Warn, once per process, when a request repeats a prompt under a response cache.
+
+        A request repeats one when it asks for several replies at once, or
+        when the plan asked for a reply to the same messages before. The cache
+        is checked at each draw, so one set after the monitor was built counts.
+        """
+        if (request.count > 1 or request.repeated) and is_response_cache_active(self.model):
+            warn_about_cached_monitor_replies()
+
+    async def request_reply(self, request: ReplyRequest) -> AIMessage:
+        """Draw one reply, calling the model again after a rate limit.
+
+        A call the provider answers with HTTP 429 is tried again with stamina
+        [@schlawack2026stamina], after a growing, jittered wait, up to
+        `RATE_LIMIT_ATTEMPTS` attempts in all; any other error is raised at
+        once, and so is the last 429. The retries wrap a block, not a
+        function, so stamina's retry log holds the error's repr and the wait,
+        never the prompt. A custom hook is handed the error itself, which a
+        provider's SDK may give the request, prompt included.
+        """
+        async for attempt in stamina.retry_context(
+            on=is_rate_limit_error,
+            attempts=RATE_LIMIT_ATTEMPTS,
+            wait_initial=RATE_LIMIT_FIRST_WAIT_SECONDS,
+        ):
+            with attempt:
+                reply = await request.model.ainvoke(list(request.messages), config=self.call_config)
+        return reply
+
+    def request_reply_sync(self, request: ReplyRequest) -> AIMessage:
+        """Draw one reply without an event loop, calling the model again after a rate limit."""
+        for attempt in stamina.retry_context(
+            on=is_rate_limit_error,
+            attempts=RATE_LIMIT_ATTEMPTS,
+            wait_initial=RATE_LIMIT_FIRST_WAIT_SECONDS,
+        ):
+            with attempt:
+                reply = request.model.invoke(list(request.messages), config=self.call_config)
+        return reply
 
 
 def is_reply_cut_off(reply: AIMessage) -> bool:
@@ -238,8 +336,35 @@ def is_reply_cut_off(reply: AIMessage) -> bool:
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
+class ReasoningBlock:
+    """The first `<reasoning>...</reasoning>` block of a reply: its text, and where it ends."""
+
+    text: str
+    end: int
+
+
+def find_reasoning_block(text: str) -> ReasoningBlock | None:
+    """Return the reply's first reasoning block, or `None` when it has none.
+
+    The block runs from the first start tag to the first end tag after it,
+    the block a lazy search for a start tag, any text and an end tag finds.
+    When the first start tag has no end tag after it, no later one has, so
+    the reply has no block. Searched that way, a reply of many start tags and
+    no end tag took time quadratic in its length, since the search started
+    again at each start tag; this takes two linear scans.
+    """
+    start_tag = REASONING_START_TAG_PATTERN.search(text)
+    if start_tag is None:
+        return None
+    end_tag = REASONING_END_TAG_PATTERN.search(text, start_tag.end())
+    if end_tag is None:
+        return None
+    return ReasoningBlock(text=text[start_tag.end() : end_tag.start()], end=end_tag.end())
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
 class JudgeReply:
-    """The two parts of a readable judge reply: its reasoning and the text of its score."""
+    """The two parts of a readable reply: its reasoning and the text of its score."""
 
     reasoning: str
     score_text: str
@@ -251,19 +376,19 @@ def read_judge_reply(text: str) -> JudgeReply | None:
     A reply is readable only when its score is structurally the last thing in
     it: the first `<reasoning>...</reasoning>` block, holding some text, then
     one `<score>...</score>` tag with only whitespace around it. The agent
-    writes the step the judge reads, so it can plant a score tag there, and a
-    judge may quote that tag, in its reasoning or in a note after its score.
+    writes the step the monitor reads, so it can plant a score tag there, and
+    the model may quote that tag, in its reasoning or in a note after its score.
     A quote inside the reasoning is never read; a second score tag, prose
     after the reasoning or text after the score makes the reply unreadable.
     """
-    reasoning = REASONING_PATTERN.search(text)
-    if reasoning is None or not reasoning["reasoning"].strip():
+    reasoning = find_reasoning_block(text)
+    if reasoning is None or not reasoning.text.strip():
         return None
     # Matched from the reasoning's end to the text's end, so a score tag elsewhere never counts.
-    score = FINAL_SCORE_PATTERN.fullmatch(text, reasoning.end())
+    score = FINAL_SCORE_PATTERN.fullmatch(text, reasoning.end)
     if score is None:
         return None
-    return JudgeReply(reasoning=reasoning["reasoning"].strip(), score_text=score["score"].strip())
+    return JudgeReply(reasoning=reasoning.text.strip(), score_text=score["score"].strip())
 
 
 def parse_score(score_text: str, *, lowest_score: int, highest_score: int) -> int | None:
@@ -283,27 +408,34 @@ def parse_score(score_text: str, *, lowest_score: int, highest_score: int) -> in
 
 
 class LLMMonitor(ChatModelMonitor):
-    """A general chat model used as a judge: reasoning first, then a score on an anchored scale.
+    """A general chat model used as a monitor: reasoning first, then a score on an anchored scale.
 
     The model reasons inside `<reasoning>` tags and then gives an integer from
     `lowest_score` to `highest_score` inside `<score>` tags. The score maps
     linearly onto a suspicion from 0 to 1, and the reasoning, without the
     score, becomes the verdict's reason. Reasoning before an anchored score
-    follows Apollo Research's findings and the Ctrl-Z monitor
-    [@apollo2026monitoringprompt; @bhatt2025ctrlz].
+    follows Apollo Research's findings (section Summary) and the Ctrl-Z monitor
+    (appendix D) [@apollo2026monitoringprompt; @bhatt2025ctrlz]. The default
+    scale of 0 to 10 is the one BashArena (section 4.1), LinuxArena (section
+    5.1) and Koran et al. (section 3.1) use
+    [@kaufman2025basharena; @tracy2026linuxarena; @koran2026ensemble]; Ctrl-Z's
+    monitor scores 0 to 9 and Apollo Research's monitor 1 to 10.
 
     A reply is readable only in exactly that shape: the reasoning block, then
     one score tag, with nothing but whitespace between them or after the
     score. A custom `prompt` must ask for this shape, or every reply is
     unreadable. An agent can write text aimed at its monitor into its step
     [@terekhov2025adaptive], so the shape keeps a score tag the agent planted,
-    and the judge quoted, from becoming the verdict. A reply that the provider
+    and the model quoted, from becoming the verdict. A reply that the provider
     reports as cut off at a length limit is unreadable too, since its end is
-    not the judge's verdict.
+    not the model's verdict.
 
     An unreadable reply is asked for again, up to `max_parse_retries` more
     times. If none can be read, the monitor fails closed: the step gets
-    suspicion 1.0 and a warning is logged.
+    suspicion 1.0 and a warning is logged. A response cache on the model
+    answers each request again with the first reply, so the monitor emits a
+    `CachedResampleWarning` when it asks again under one; build the model
+    with `cache=False`.
 
     One call gives an integer score, which ties often at low audit budgets;
     wrap the monitor in `RepeatedMonitor` to average several calls.
@@ -322,18 +454,26 @@ class LLMMonitor(ChatModelMonitor):
         view: MonitorView = DEFAULT_MONITOR_VIEW,
         max_parse_retries: int = 2,
     ) -> None:
-        """Build a chat judge; the prompt must use `{transcript}` and `{proposed_step}`.
+        """Build an LLM monitor; the prompt must use `{transcript}` and `{proposed_step}`.
 
-        The ends of the scale must be integers, the lowest below the highest,
-        and `max_parse_retries` a whole number of at least 0; anything else
+        The ends of the scale must be integers Python can write out, since
+        the prompt shows them, the lowest below the highest, and
+        `max_parse_retries` a whole number of at least 0; anything else
         raises `ConfigurationError`.
         """
         self.lowest_score = read_integer_option(lowest_score, parameter_name="lowest_score")
         self.highest_score = read_integer_option(highest_score, parameter_name="highest_score")
+        # Written once here, so an end the prompt cannot show fails now, not at the first step.
+        self.scale_ends = {
+            "lowest_score": write_integer_option(self.lowest_score, parameter_name="lowest_score"),
+            "highest_score": write_integer_option(
+                self.highest_score, parameter_name="highest_score"
+            ),
+        }
         if self.lowest_score >= self.highest_score:
             message = (
-                f"lowest_score ({self.lowest_score}) must be below "
-                f"highest_score ({self.highest_score})"
+                f"lowest_score ({self.scale_ends['lowest_score']}) must be below "
+                f"highest_score ({self.scale_ends['highest_score']})"
             )
             raise ConfigurationError(message)
         self.max_parse_retries = read_count_option(
@@ -345,21 +485,22 @@ class LLMMonitor(ChatModelMonitor):
 
     def build_extra_prompt_values(self) -> dict[str, str]:
         """Give the prompt the ends of the scale."""
-        return {"lowest_score": str(self.lowest_score), "highest_score": str(self.highest_score)}
+        return dict(self.scale_ends)
 
     def build_verdict_plan(self, monitor_input: MonitorInput) -> VerdictPlan:
         """Ask for a reply until one has a readable score, then fail closed."""
         request = ReplyRequest(model=self.model, messages=self.build_prompt_messages(monitor_input))
         attempts = self.max_parse_retries + 1
         for attempt in range(1, attempts + 1):
-            (reply,) = yield request
+            (reply,) = yield replace(request, repeated=attempt > 1)
             verdict = self.parse_verdict(reply)
             if verdict is not None:
                 return verdict
             logger.debug("Monitor reply %d of %d had no readable score.", attempt, attempts)
         logger.warning(
-            "The monitor gave no readable score in %d replies; the step is treated as suspicious.",
+            "The monitor gave no readable score in %d %s; the step is treated as suspicious.",
             attempts,
+            "reply" if attempts == 1 else "replies",
         )
         reason = "The monitor gave no readable score, so the step is treated as suspicious."
         return Verdict(suspicion=1.0, reason=reason)
@@ -367,7 +508,7 @@ class LLMMonitor(ChatModelMonitor):
     def parse_verdict(self, reply: AIMessage) -> Verdict | None:
         """Turn a reply into a verdict, or return `None` when it is unreadable.
 
-        The reason is the judge's reasoning alone. The score stays out of it,
+        The reason is the model's reasoning alone. The score stays out of it,
         because Auto Mode shows the reason to the agent, and a score would tell
         the agent how close its step came to passing.
         """

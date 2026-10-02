@@ -12,7 +12,11 @@ from collections.abc import Iterable, Mapping, Sequence
 from typing import TYPE_CHECKING, TypeGuard, cast
 
 from langchain_sync_monitors._langchain import append_subagent_middleware
-from langchain_sync_monitors.errors import ConfigurationError, MissingExtraError
+from langchain_sync_monitors.errors import (
+    ConfigurationError,
+    MissingExtraError,
+    build_missing_extra_message,
+)
 from langchain_sync_monitors.middleware import MonitorMiddleware
 from langchain_sync_monitors.options import (
     check_instance_option,
@@ -32,10 +36,7 @@ if TYPE_CHECKING:
 type SkillSource = str | tuple[str, str]
 """A skill source Deep Agents reads: a path, or a `(path, label)` pair."""
 
-INSTALL_HINT = (
-    "monitor_subagents needs Deep Agents. "
-    "Install it with: pip install 'langchain-sync-monitors[deepagents]'"
-)
+INSTALL_HINT = build_missing_extra_message("monitor_subagents", extra="deepagents")
 
 
 def read_general_purpose_subagent() -> SubAgent:
@@ -121,6 +122,14 @@ def read_skills_option(skills: Iterable[SkillSource] | None) -> list[SkillSource
     """
     if skills is None:
         return None
+    check_skills_iterable(skills)
+    sources = list(skills)
+    check_skill_sources(sources)
+    return sources
+
+
+def check_skills_iterable(skills: object) -> None:
+    """Raise `ConfigurationError` unless `skills` is an iterable other than a string or bytes."""
     if isinstance(skills, str):
         error_message = (
             f"skills must be a list of skill source paths, not the string {skills!r}. "
@@ -132,7 +141,10 @@ def read_skills_option(skills: Iterable[SkillSource] | None) -> list[SkillSource
             f"skills must be a list of skill source paths, got {describe_option_value(skills)}"
         )
         raise ConfigurationError(error_message)
-    sources = list(skills)
+
+
+def check_skill_sources(sources: Sequence[object]) -> None:
+    """Raise `ConfigurationError` naming the first source that is not a skill source."""
     for position, source in enumerate(sources):
         if not is_skill_source(source):
             error_message = (
@@ -140,7 +152,6 @@ def read_skills_option(skills: Iterable[SkillSource] | None) -> list[SkillSource
                 f"strings, got {describe_option_value(source)}"
             )
             raise ConfigurationError(error_message)
-    return sources
 
 
 def read_subagent_specs(subagents: Iterable[SubagentSpec]) -> list[SubagentSpec]:
@@ -180,7 +191,10 @@ def check_overrides_option(overrides: Mapping[str, MonitorMiddleware] | None) ->
         raise ConfigurationError(error_message)
     for name, override in overrides.items():
         if not isinstance(name, str):
-            error_message = f"overrides must be keyed by subagent name, got the key {name!r}"
+            error_message = (
+                "overrides must be keyed by subagent name, "
+                f"got a key that is {describe_option_value(name)}"
+            )
             raise ConfigurationError(error_message)
         check_instance_option(
             override,

@@ -1,9 +1,10 @@
-"""Test doubles for the monitor tests: a scripted chat model and a scripted monitor."""
+"""Test doubles for the monitor tests: a scripted chat model, a scripted monitor, a log reader."""
 
 from __future__ import annotations
 
 from typing import Literal
 
+import pytest
 from langchain_core.callbacks import AsyncCallbackManagerForLLMRun, CallbackManagerForLLMRun
 from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import AIMessage, BaseMessage
@@ -13,6 +14,9 @@ from pydantic import Field
 from langchain_sync_monitors.contracts import Monitor, MonitorInput, Verdict
 
 type CallPath = Literal["async", "sync"]
+
+PLANTED_SECRET = "planted-secret-9f3c1e"
+"""A credential the transcript holds, in the user's words and in a tool call's argument."""
 
 
 class ScriptedChatModel(BaseChatModel):
@@ -108,3 +112,12 @@ async def evaluate_on_path(
     if call_path == "async":
         return await monitor.evaluate(monitor_input)
     return monitor.evaluate_sync(monitor_input)
+
+
+def read_logged_lines(caplog: pytest.LogCaptureFixture, *, logger: str) -> list[tuple[str, str]]:
+    """Return the level and text of every line the named logger wrote, in order."""
+    return [
+        (record.levelname, record.getMessage())
+        for record in caplog.records
+        if record.name == logger
+    ]

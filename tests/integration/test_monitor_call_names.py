@@ -1,7 +1,7 @@
 """The monitor's own model calls reach a tracer as `monitor call`, with their model still named.
 
 Each monitor kind that makes a LangChain call judges a monitored agent with a
-recording tracer attached: the chat judge, the guard on both its
+recording tracer attached: the LLM monitor, the guard on both its
 log-probability and its sampling path, and `TypeSafeDecisionModel`. Every call
 it makes is a `monitor call` run in its judgement, and carries its model as
 `ls_model_name`. The trusted model's step is the agent's own step, so it keeps
@@ -73,7 +73,7 @@ def build_agent(*, monitor: Monitor, protocol: ControlProtocol | None = None) ->
         middleware=[
             MonitorMiddleware(
                 monitor=monitor,
-                protocol=protocol or TrustedMonitoring(flag_threshold=0.8),
+                protocol=protocol or TrustedMonitoring(audit_threshold=0.8),
             ),
         ],
     )
@@ -109,7 +109,7 @@ def find_monitor_calls(tracer: RecordingTracer) -> list[RecordedRun]:
     return calls
 
 
-def test_a_chat_judge_s_calls_are_named_monitor_call(run_mode: RunMode) -> None:
+def test_an_llm_monitor_s_calls_are_named_monitor_call(run_mode: RunMode) -> None:
     # Arrange
     agent = build_agent(monitor=LLMMonitor(model=build_named_model(CALM_JUDGE_REPLY)))
 
@@ -145,7 +145,7 @@ def test_a_judge_s_own_name_gives_way_to_the_fixed_name(run_mode: RunMode) -> No
     assert len(calls) == 2
     assert all(call.metadata["ls_model_name"] == JUDGE_MODEL_NAME for call in calls)
     judgements = tracer.find_runs(JUDGEMENT)
-    assert all(judgement.inputs["monitor"] == "LLMMonitor" for judgement in judgements)
+    assert all(judgement.inputs["monitor_class"] == "LLMMonitor" for judgement in judgements)
 
 
 def test_a_guard_s_calls_are_named_monitor_call_on_both_its_paths(run_mode: RunMode) -> None:
@@ -173,6 +173,10 @@ def test_a_guard_s_calls_are_named_monitor_call_on_both_its_paths(run_mode: RunM
         assert call.metadata["lc_source"] == "guard_model_monitor"
     for judgement in tracer.find_runs(JUDGEMENT):
         assert judgement.read_child_names() == [MONITOR_CALL, MONITOR_CALL]
+        asked_for_log_probabilities = [
+            child.invocation_params.get("logprobs") for child in judgement.children
+        ]
+        assert asked_for_log_probabilities == [True, None]
 
 
 @pytest.mark.filterwarnings(IGNORE_TYPESAFE_BETA)

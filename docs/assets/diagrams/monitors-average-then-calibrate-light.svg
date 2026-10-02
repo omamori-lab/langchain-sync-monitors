@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1000" height="710" viewBox="0 0 1000 710" role="img" aria-labelledby="title desc">
   <title id="title">Average first, then calibrate</title>
-  <desc id="desc">CalibratedMonitor wraps RepeatedMonitor, which wraps LLMMonitor. The proposed step goes to the chat judge three times, and RepeatedMonitor takes the mean of the three scores, rounded to 12 decimal places, with the reason of the most suspicious call. CalibratedMonitor then ranks that mean among the honest scores, which were collected with this same stack, so the verdict&#x27;s suspicion is an honest-run percentile and its reason is still the most suspicious call&#x27;s.</desc>
+  <desc id="desc">CalibratedMonitor wraps RepeatedMonitor, which wraps LLMMonitor. The proposed step goes to the LLM monitor three times, and RepeatedMonitor takes the mean of the three scores, rounded to 12 decimal places, with the reason of the most suspicious call. CalibratedMonitor then ranks that mean among the honest scores, which were collected with RepeatedMonitor(LLMMonitor), so the verdict&#x27;s suspicion is the mean&#x27;s smoothed conformal p-value against the honest scores, and its reason is still the most suspicious call&#x27;s.</desc>
   <!-- Colours come from the brand tokens: diagrams/render.py fills this style block. -->
   <style>
     svg { color-scheme: light; }
@@ -46,12 +46,12 @@
   <path class="edge" d="M583.0,265.0 L629.0,265.0" marker-end="url(#arrow)"/>
   <rect class="box" x="278.0" y="402.0" width="305.0" height="102.0" rx="6"/>
   <text x="430.5" y="433.0" text-anchor="middle" class="title">Honest scores</text>
-  <text x="430.5" y="455.0" text-anchor="middle" class="small">collected with this same stack</text>
+  <text x="430.5" y="455.0" text-anchor="middle" class="small">collected with the monitor it wraps</text>
   <text x="430.5" y="476.0" text-anchor="middle" class="small">on steps of runs you trust</text>
   <rect class="box" x="631.0" y="402.0" width="305.0" height="102.0" rx="6"/>
   <text x="783.5" y="433.0" text-anchor="middle" class="title">Rank among honest scores</text>
-  <text x="783.5" y="455.0" text-anchor="middle" class="small">ties broken at random</text>
-  <text x="783.5" y="476.0" text-anchor="middle" class="small">gives a percentile from 0 to 1</text>
+  <text x="783.5" y="455.0" text-anchor="middle" class="small">ties broken at random, it gives</text>
+  <text x="783.5" y="476.0" text-anchor="middle" class="small">its smoothed conformal p-value, 0 to 1</text>
   <path class="edge" d="M583.0,453.0 L629.0,453.0" marker-end="url(#arrow)"/>
   <path class="edge" d="M783.5,316.0 L783.5,400.0" marker-end="url(#arrow)"/>
   <rect class="frame" x="230.0" y="100.0" width="754.0" height="428.0" rx="10"/>
@@ -64,7 +64,7 @@
   <path class="edge" d="M202.0,265.0 L276.0,265.0" marker-end="url(#arrow)"/>
   <rect class="box" x="631.0" y="576.0" width="305.0" height="102.0" rx="6"/>
   <text x="783.5" y="607.0" text-anchor="middle" class="title">Verdict</text>
-  <text x="783.5" y="629.0" text-anchor="middle" class="small">suspicion: an honest-run percentile</text>
+  <text x="783.5" y="629.0" text-anchor="middle" class="small">suspicion: the smoothed conformal p-value</text>
   <text x="783.5" y="650.0" text-anchor="middle" class="small">reason: the most suspicious call&#x27;s</text>
   <path class="edge" d="M783.5,504.0 L783.5,574.0" marker-end="url(#arrow)"/>
 </svg>

@@ -20,7 +20,11 @@ from langchain_sync_monitors.returned_records import (
     check_returned_records,
     read_tool_caller,
 )
-from langchain_sync_monitors.subagent_returns import SubagentReturn
+from langchain_sync_monitors.subagent_returns import (
+    SubagentReturn,
+    build_answered_update,
+    merge_subagent_returns,
+)
 
 LOGGER = "langchain_sync_monitors.returned_records"
 OWN_STEP = StepRecord(
@@ -237,6 +241,114 @@ def test_a_step_claiming_the_caller_s_own_that_is_no_halt_is_dropped_and_stores_
     assert "claims to be a step of the agent 'main' itself" in caplog.text
 
 
+QUOTED_SAMPLE = {
+    "suspicion": 0.9,
+    "reason": "quoted reason",
+    "proposal": "quoted proposal",
+    "executed": False,
+}
+CALLER_S_HALT = {
+    key: value
+    for key, value in build_record(agent="main", outcome="halted", samples=[QUOTED_SAMPLE]).items()
+    if key != "delegation_id"
+}
+WARNED_WRITES = {
+    "unreadable-record": (
+        [build_record(blocked_count=-100, samples=[QUOTED_SAMPLE])],
+        "The tool task wrote a record to monitor_log that is not a step record the monitor "
+        "can read: a dict with agent 'worker', monitor 'monitor', step number 1, outcome "
+        "'allowed', delegation id 'call-task', 1 sample(s). The monitor keeps it out of the "
+        "log and counts a halted subagent.",
+    ),
+    "caller-s-own-record": (
+        [CALLER_S_HALT],
+        "The tool task wrote a record to monitor_log that claims to be a step of the agent "
+        "'main' itself: a dict with agent 'main', monitor 'monitor', step number 1, outcome "
+        "'halted', 1 sample(s). Only the agent's own monitor records its steps, so the "
+        "monitor keeps it out of the log, and counts a halted subagent if it is a halt.",
+    ),
+    "overwrite": (
+        Overwrite([]),
+        "The tool task wrote an Overwrite of monitor_log, which would erase the thread's "
+        "records, so the monitor adds the records it holds instead.",
+    ),
+}
+
+
+@pytest.mark.parametrize(("written", "warning"), WARNED_WRITES.values(), ids=WARNED_WRITES.keys())
+def test_a_write_the_monitor_changes_logs_one_warning_naming_the_tool_and_the_record(
+    written: Any,
+    warning: str,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    # Arrange
+    update = {"monitor_log": written}
+
+    # Act
+    with caplog.at_level(logging.WARNING, logger=LOGGER):
+        check(update)
+
+    # Assert: the record is named by the fields that name one, never by its samples' text
+    assert [record.getMessage() for record in caplog.records if record.name == LOGGER] == [warning]
+
+
+@pytest.mark.parametrize(
+    "state",
+    [{"messages": []}, {"messages": [], "monitor_log": None}, ["not", "a", "state"]],
+    ids=["no-log", "log-none", "not-a-mapping"],
+)
+def test_a_caller_whose_state_holds_no_log_has_every_written_record_checked(
+    state: object,
+) -> None:
+    # Arrange
+    caller = read_tool_caller(
+        state, agent="main", tool_call=build_tool_call(subagent_type="worker")
+    )
+    halted = build_record(outcome="halted", blocked_count=1)
+
+    # Act
+    checked = check_command_records(Command(update={"monitor_log": [halted]}), caller=caller)
+
+    # Assert
+    assert read_written(checked, key="monitor_log") == [[halted]]
+    entry = read_entry(checked)
+    assert (entry["halted_subagents"], entry["blocks"], entry["delegation_id"]) == (
+        ["worker"],
+        {"monitor": 1},
+        None,
+    )
+
+
+def test_a_whole_record_written_outside_a_list_reaches_the_log_in_one() -> None:
+    # Arrange
+    halted = build_record(outcome="halted", blocked_count=1)
+
+    # Act
+    checked = check({"monitor_log": halted}, subagent_type="worker")
+
+    # Assert: its halt and its blocks count as those of a record in a list
+    assert read_written(checked, key="monitor_log") == [[halted]]
+    entry = read_entry(checked)
+    assert (entry["halted_subagents"], entry["blocks"]) == (["worker"], {"monitor": 1})
+
+
+def test_a_step_answering_its_own_returns_leaves_another_delegation_s_in_the_store() -> None:
+    # Arrange: a fork's store holds its parent's return and its own, each from a checked call
+    fork = Delegation(tool_call_id="call-fork", delegating_agent="main", blocks_before={})
+    parent_entry = read_entry(check({"monitor_log": [build_record(outcome="halted")]}))
+    fork_entry = read_entry(
+        check({"monitor_log": [build_record(outcome="halted")]}, state=build_state(delegation=fork))
+    )
+    stored = merge_subagent_returns([parent_entry], [fork_entry])
+    update = build_answered_update({"monitor_subagent_returns": stored, "monitor_delegation": fork})
+
+    # Act
+    merged = merge_subagent_returns(stored, update["monitor_subagent_returns"])
+
+    # Assert
+    assert merged == [parent_entry]
+
+
 def test_a_same_named_subagent_s_record_is_kept_and_named_by_the_call() -> None:
     # Arrange: a fork records under main, with its own delegation
     fork_halt = build_record(agent="main", outcome="halted", delegation_id="call-fork")
@@ -254,13 +366,21 @@ def test_a_call_reusing_the_caller_s_delegation_id_with_its_own_records_raises()
     delegation = Delegation(tool_call_id="call_0", delegating_agent="main", blocks_before={})
     nested = build_record(agent="main", outcome="halted", delegation_id="call_0")
 
-    # Act / Assert
-    with pytest.raises(ConfigurationError, match="cannot tell a subagent's steps"):
+    # Act
+    with pytest.raises(ConfigurationError) as raised:
         check(
             {"monitor_log": [nested]},
             state=build_state(delegation=delegation),
             call_id="call_0",
         )
+
+    # Assert
+    assert str(raised.value) == (
+        "The tool call call_0 reuses the id of the tool call that started the agent 'main', "
+        "and returned records under that agent's name, so the monitor cannot tell a "
+        "subagent's steps from the agent's own. Give the subagent's monitor an agent_name of "
+        "its own, or use a model provider that gives every tool call its own id."
+    )
 
 
 def test_a_call_reusing_the_caller_s_delegation_id_keeps_another_agent_s_records() -> None:
@@ -381,15 +501,15 @@ def test_a_command_for_the_parent_graph_is_left_to_the_parent_s_monitor() -> Non
 def test_the_records_in_a_parent_command_a_call_raises_are_checked_in_place() -> None:
     # Arrange: LangGraph names the graph by the time the parent's monitor sees it
     caller = read_tool_caller(build_state(), agent="main", tool_call=build_tool_call())
-    bubble = ParentCommand(
+    parent_command = ParentCommand(
         Command(graph="parent", update={"monitor_log": [build_record(outcome="halted")]})
     )
 
     # Act
-    check_parent_command_records(bubble, caller=caller)
+    check_parent_command_records(parent_command, caller=caller)
 
     # Assert
-    [command] = bubble.args
+    [command] = parent_command.args
     assert command.graph == "parent"
     assert read_entry(command)["halted_subagents"] == ["worker"]
 

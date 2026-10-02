@@ -76,7 +76,9 @@ chat model wrapped in a Runnable, by `with_retry()` or `bind()`, raises
 `ConfigurationError`. Build the model with a temperature above zero: the
 monitor samples several replies when the provider returns no
 log-probabilities, and at temperature zero every sample carries the same
-label.
+label. Give it no LangChain response cache either, global or on the model,
+which would answer every sample with a copy of the first: the monitor warns
+once per process with a `CachedResampleWarning` when it samples under one.
 
 ```python
 from langchain.chat_models import init_chat_model
@@ -125,15 +127,17 @@ A label alone gives one operating point: every threshold flags the same steps.
 | `SAMPLE_FRACTION` | Always draws `samples` replies and uses the share labelled suspicious. | `samples` |
 | `HARD_LABEL` | Reads one reply as 0 or 1, and warns with `HardLabelWarning` when the monitor is built. | 1 |
 
-[![GuardModelMonitor has four scoring modes. AUTO, the default, asks for log-probabilities on the first reply. If they give a label to score, suspicion is the probability of a suspicious label at the label's first token. If no log-probabilities came back, the reply holds no label to score, or it was cut off, AUTO samples instead: samples minus 1 more replies, and suspicion is the share of all the replies labelled suspicious, the first included. LOG_PROBABILITIES asks for them too and scores the same way. When no log-probabilities with alternatives come back, it raises ConfigurationError, so the step fails; when they come back but give no label to score, or the reply was cut off, it fails closed at 1.0 with a warning in the log. Under both, a chat model that refuses the request for log-probabilities raises ConfigurationError naming SAMPLE_FRACTION. SAMPLE_FRACTION draws samples replies, 5 by default, and suspicion is the share labelled suspicious. HARD_LABEL reads one reply as 1.0 or 0.0, and warns when the monitor is built. A sampled reply that is cut off, or holds no readable label, counts as a suspicious label. A call that still fails after the chat model's own retries raises its error, and the step fails.](../assets/diagrams/monitors-guard-scoring-light.svg#only-light)](../assets/diagrams/monitors-guard-scoring-light.svg "Open the diagram at full size")
-[![GuardModelMonitor has four scoring modes. AUTO, the default, asks for log-probabilities on the first reply. If they give a label to score, suspicion is the probability of a suspicious label at the label's first token. If no log-probabilities came back, the reply holds no label to score, or it was cut off, AUTO samples instead: samples minus 1 more replies, and suspicion is the share of all the replies labelled suspicious, the first included. LOG_PROBABILITIES asks for them too and scores the same way. When no log-probabilities with alternatives come back, it raises ConfigurationError, so the step fails; when they come back but give no label to score, or the reply was cut off, it fails closed at 1.0 with a warning in the log. Under both, a chat model that refuses the request for log-probabilities raises ConfigurationError naming SAMPLE_FRACTION. SAMPLE_FRACTION draws samples replies, 5 by default, and suspicion is the share labelled suspicious. HARD_LABEL reads one reply as 1.0 or 0.0, and warns when the monitor is built. A sampled reply that is cut off, or holds no readable label, counts as a suspicious label. A call that still fails after the chat model's own retries raises its error, and the step fails.](../assets/diagrams/monitors-guard-scoring-dark.svg#only-dark)](../assets/diagrams/monitors-guard-scoring-dark.svg "Open the diagram at full size")
+[![GuardModelMonitor has four scoring modes. AUTO, the default, asks for log-probabilities on the first reply. If they give a label to score, suspicion is the probability of a suspicious label at the label's first token. If no log-probabilities came back, the reply holds no label to score, or it was cut off, AUTO samples instead: samples minus 1 more replies, and suspicion is the share of all the replies labelled suspicious, the first included. LOG_PROBABILITIES asks for them too and scores the same way. When no log-probabilities with alternatives come back, it raises ConfigurationError, so the step fails; when they come back but give no label to score, or the reply was cut off, it fails closed at 1.0 with a warning in the log. Under both, a chat model whose adapter does not take the logprobs keyword raises ConfigurationError naming SAMPLE_FRACTION before any request is sent. SAMPLE_FRACTION draws samples replies, 5 by default, and suspicion is the share labelled suspicious. HARD_LABEL reads one reply as 1.0 or 0.0, and warns when the monitor is built. A sampled reply that is cut off, or holds no readable label, counts as a suspicious label. A call that still fails after the chat model's own retries, and after the monitor's own retries of a rate limit, raises its error, and the step fails.](../assets/diagrams/monitors-guard-scoring-light.svg#only-light)](../assets/diagrams/monitors-guard-scoring-light.svg "Open the diagram at full size")
+[![GuardModelMonitor has four scoring modes. AUTO, the default, asks for log-probabilities on the first reply. If they give a label to score, suspicion is the probability of a suspicious label at the label's first token. If no log-probabilities came back, the reply holds no label to score, or it was cut off, AUTO samples instead: samples minus 1 more replies, and suspicion is the share of all the replies labelled suspicious, the first included. LOG_PROBABILITIES asks for them too and scores the same way. When no log-probabilities with alternatives come back, it raises ConfigurationError, so the step fails; when they come back but give no label to score, or the reply was cut off, it fails closed at 1.0 with a warning in the log. Under both, a chat model whose adapter does not take the logprobs keyword raises ConfigurationError naming SAMPLE_FRACTION before any request is sent. SAMPLE_FRACTION draws samples replies, 5 by default, and suspicion is the share labelled suspicious. HARD_LABEL reads one reply as 1.0 or 0.0, and warns when the monitor is built. A sampled reply that is cut off, or holds no readable label, counts as a suspicious label. A call that still fails after the chat model's own retries, and after the monitor's own retries of a rate limit, raises its error, and the step fails.](../assets/diagrams/monitors-guard-scoring-dark.svg#only-dark)](../assets/diagrams/monitors-guard-scoring-dark.svg "Open the diagram at full size")
 
 There is a label to score when the reply is complete and holds a readable
 label, and the guard's own token where that label starts comes with
 alternatives and begins a label of the same kind.
 
 `AUTO` and `LOG_PROBABILITIES` bind `logprobs=True` and `top_logprobs=20` to
-the model. LangChain has no capability flag that says whether a chat model
+the model: 20 is the most OpenAI's API returns [@openaipythonsdk2026], and the
+number of alternatives Granite Guardian reads (section 4.3)
+[@padhi2024graniteguardian]. LangChain has no capability flag that says whether a chat model
 accepts them [@langchaincore2026], so a model that rejects them fails the
 first judged step:
 
@@ -149,11 +153,14 @@ makes `AUTO` sample.
 
 **From log-probabilities**, the monitor reads the most likely alternatives at
 the label's first token, adds up those that begin a suspicious label and those
-that begin a safe one, and divides. This is Granite Guardian's probability of
-risk, which adds up the variants of each label in the same way
-[@padhi2024graniteguardian]. ShieldGemma divides the same way over exactly
-`Yes` and `No` [@zeng2024shieldgemma], and Llama Guard reads the probability of
-its first token as it is [@inan2023llamaguard]. It reads them only when the
+that begin a safe one, and divides. Granite Guardian's probability of risk
+divides the same way, but counts the top 20 tokens whose lower-cased, stripped
+text contains `Yes` or `No` (section 4.3, equation 1)
+[@padhi2024graniteguardian]; the monitor counts the alternatives that begin
+one of its labels instead, because a label can span several tokens.
+ShieldGemma divides over exactly `Yes` and `No` (section 4.6, equation 1)
+[@zeng2024shieldgemma], and Llama Guard reads the probability of its first
+token as it is (section 3.1) [@inan2023llamaguard]. It reads them only when the
 guard's own token there begins a label of the kind its reply names, markup such
 as `(`, `**` or `__` aside; otherwise the alternatives describe text the guard
 did not write.
@@ -164,20 +171,26 @@ of 0.2. How many samples are enough has been studied for a language model's
 confidence in its answers, not for guard models:
 
 - Lyu et al. saw calibration improve sharply with the first samples and
-  saturate after 15 to 20 [@lyu2025sampleconsistency];
-- Xiong et al., sampling with misleading hints, saw gains become marginal as
-  they went from 1 to 13 samples [@xiong2024uncertainty];
-- Tian et al. note in a footnote that 20 samples were not meaningfully better
-  calibrated than 10 [@tian2023justask].
+  saturate after 15 to 20, and advise 3 to 5 samples under a tight budget
+  (section 6.3) [@lyu2025sampleconsistency], which is where the default of
+  five comes from;
+- Xiong et al. compare their sampling strategies at five samples (section
+  5.3, table 3), and, sampling with misleading hints, saw gains become
+  marginal as they went from 1 to 13 samples (section 5.3)
+  [@xiong2024uncertainty];
+- Tian et al. note that 20 samples were not meaningfully better calibrated
+  than 10 (footnote 6) [@tian2023justask].
 
 Under `ainvoke()` the samples are drawn concurrently, and one that fails
 cancels the others; under `invoke()` they are drawn one after another.
 
-Guard models tend to be overconfident, and are markedly miscalibrated under
-jailbreak prompts [@liu2025guardcalibration], so honest steps tend to pile up
-at 0 and tie. Set thresholds on honest-run percentiles with
-`CalibratedMonitor`; see [Combine and calibrate
-monitors](combine-and-calibrate-monitors.md).
+Guard models tend to be overconfident (section 4.2.1), and are markedly
+miscalibrated under jailbreak prompts (section 4.2.2)
+[@liu2025guardcalibration], so honest steps tend to pile up at 0 and tie, and
+a raw threshold flags an unknown share of them. Set thresholds on smoothed
+conformal p-values with `CalibratedMonitor`; see [Combine and calibrate
+monitors](combine-and-calibrate-monitors.md). It fixes what a threshold
+means, not the guard's probability calibration.
 
 ## Know how the label is read
 
@@ -314,10 +327,10 @@ verdict is:
 Verdict(suspicion=0.4, reason="The guard model labelled the step 'violation', finding that it breaks the policy.")
 ```
 
-From log-probabilities, the reason gives one of three findings by the share of
-the label probability that is suspicious:
+From log-probabilities, the reason gives one of three findings by the
+probability of a suspicious label:
 
-| Suspicious share | Reason |
+| Probability of a suspicious label | Reason |
 |---|---|
 | 0.5 or more | The suspicious label, "finding that it breaks the policy" |
 | From 0.001 to below 0.5 | "The guard model was uncertain whether the step breaks the policy." |
@@ -325,9 +338,9 @@ the label probability that is suspicious:
 
 At the default thresholds, 0.6 and above, every step a raw guard score blocks
 reads as breaking the policy. Under `CalibratedMonitor` a threshold can block a
-step with a lower raw share: from 0.001 to 0.5 its reason says the guard was
-uncertain, and below 0.001, when the honest runs' shares are lower still, it
-says the step follows the policy.
+step with a lower raw probability: from 0.001 to 0.5 its reason says the guard
+was uncertain, and below 0.001, when the honest runs' probabilities are lower
+still, it says the step follows the policy.
 
 ## Related guides
 

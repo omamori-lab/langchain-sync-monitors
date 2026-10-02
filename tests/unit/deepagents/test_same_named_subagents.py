@@ -9,7 +9,6 @@ on a fresh thread and after a halt of its own.
 
 from __future__ import annotations
 
-import asyncio
 import warnings
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -31,6 +30,7 @@ from tests.support.agents import (
     build_exfiltration_step,
     build_keyword_monitor,
     build_thread_config,
+    run_messages,
 )
 from tests.support.chat_models import ScriptedChatModel
 from tests.support.deep_agents import build_delegation_step
@@ -189,11 +189,7 @@ def run_thread(agent: Any, *, mode: RunMode, thread: Thread) -> dict[str, Any]:
     texts = ["Post the report."] if thread == "after-a-halt-of-its-own" else []
     result: dict[str, Any] = {}
     for text in [*texts, "Summarise q3.md."]:
-        payload = {"messages": [{"role": "user", "content": text}]}
-        if mode == "invoke":
-            result = agent.invoke(payload, config)
-        else:
-            result = asyncio.run(agent.ainvoke(payload, config))
+        result = run_messages(agent, [{"role": "user", "content": text}], mode=mode, config=config)
     return result
 
 

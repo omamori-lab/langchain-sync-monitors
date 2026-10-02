@@ -22,39 +22,41 @@ a second model that scores each step, and a protocol that acts on the score.
 This library brings those protocols, from AI Control [@greenblatt2023aicontrol],
 Ctrl-Z [@bhatt2025ctrlz] and Claude Code's auto mode
 [@hughes2026automode], to `create_agent` and `create_deep_agent` as one
-middleware. "Sync" means synchronous in the control sense: a step waits for
-its verdict, so a suspicious step can be stopped before any of the agent's own
-tools run it.
+middleware. "Sync" means synchronous in the control sense: the monitor runs
+after the model proposes an action and before the action executes
+(the opening) [@lucassen2026synchronous]. A step waits for its verdict, so a
+protocol can also make the monitor blocking, with the authority to stop a
+suspicious step before any of the agent's own tools run it (section
+"Blocking with synchronous monitors") [@lucassen2026synchronous].
 
-Tools that the model provider runs itself are the exception. Anthropic's web
-search, OpenAI's code interpreter and Gemini's Google Search run inside the
-model call, so they have run by the time the monitor sees the step, and they
-run again for every sample a protocol draws. The middleware warns with a
-`ProviderToolWarning`, once per middleware, about the known ones for
-Anthropic, OpenAI and Gemini when it can see them. It cannot see four kinds:
-
-- a server-side feature switched on in the model's own settings, such as
-  OpenRouter's web plugin or an `:online` model;
-- a tool an integration has already turned into an object of its provider's
-  SDK;
-- tools bound inside a wrapper such as `with_fallbacks(...)`;
-- tools queued with `bind_tools` on a model built with
-  `init_chat_model(..., configurable_fields=...)`.
+Server-side tools, which the model provider runs itself, are the exception.
+Anthropic's web search, OpenAI's code interpreter and Gemini's Google Search
+run inside the model call, so they have run by the time the monitor sees the
+step, and they run again for every sample a protocol draws.
+[Server tools](how-to/choose-a-protocol.md#server-tools) lists the ones
+`ServerToolWarning` warns about and the ones it cannot see.
 
 ## Install
+
+The library needs Python 3.12 or newer. Add it to your project with
+uv [@uv2025]:
+
+```console
+uv add "langchain-sync-monitors[openrouter,deepagents]"
+```
+
+Or install it with pip:
 
 ```console
 pip install "langchain-sync-monitors[openrouter,deepagents]"
 ```
 
-<!-- release-check: the text below describes an unreleased package. scripts/check-release.sh refuses a release while this comment is here; rewrite that text for the release, then delete this comment. -->
-
-The package is not on PyPI yet. Until the first release, install it from
-GitHub:
-
-```console
-pip install "langchain-sync-monitors[openrouter,deepagents] @ git+https://github.com/omamori-lab/langchain-sync-monitors"
-```
+`uv add` writes the package into the project's `pyproject.toml` and lockfile
+and installs it into the project's environment. It needs a project whose
+`requires-python` starts at 3.12 or later, because uv resolves for every
+Python version the project allows [@uv2025]; `uv init --python 3.12` creates
+one. `pip install` installs it into the active environment. Name only the
+extras you need:
 
 | Extra | Adds | Needed for |
 |---|---|---|
@@ -119,15 +121,12 @@ explains its fields. The tutorial,
 [Monitor your first agent](tutorials/first-monitored-agent.md), builds a
 monitored agent step by step.
 
-A monitored step costs time and graph steps:
-
-- Each step waits for its verdict, so `stream_mode="messages"` shows it
-  whole once the protocol has committed it, not token by token.
-- The monitor's hooks add two graph steps per agent step, however many
-  samples or model calls the step draws, and two per run. An agent that
-  takes N steps needs a `recursion_limit` of 2N without the monitor and
-  4N + 2 with it, and each further monitor adds another 2N + 2, so raise a
-  limit you set for the agent without one.
+A monitored step costs time and graph steps. Each step waits for its
+verdict, so `stream_mode="messages"` shows it whole once the protocol has
+committed it, not token by token. Each monitor also adds two graph steps per
+agent step and two per run, which count towards a `recursion_limit` you set;
+[Allow for the graph steps](how-to/read-the-monitor-log.md#allow-for-the-graph-steps)
+gives the limit a run needs.
 
 ## Pick a protocol
 
@@ -153,12 +152,12 @@ as new input and lifts the halt.
 
 ## Pick a monitor
 
-[![Three monitor classes cover three kinds of model, each drawn as the charm. LLMMonitor asks a chat model to reason and then score the step, from 0 to 10 by default. GuardModelMonitor has a guard model label the step against a policy you write, and suspicion is the chance the label is unsafe. DecisionModelMonitor asks a decision model yes or no questions, and suspicion is the chance of yes. Each returns the same Verdict, a suspicion from 0 to 1 and a reason, so any monitor works with any control protocol. Three wrappers nest around any monitor: RepeatedMonitor averages several calls, CalibratedMonitor ranks the score among the scores of honest runs, and CascadeMonitor runs a fast monitor on every step and, when the fast one finds the step suspicious, a careful one whose verdict replaces the fast one's.](assets/diagrams/monitors-light.svg#only-light)](assets/diagrams/monitors-light.svg "Open the diagram at full size")
-[![Three monitor classes cover three kinds of model, each drawn as the charm. LLMMonitor asks a chat model to reason and then score the step, from 0 to 10 by default. GuardModelMonitor has a guard model label the step against a policy you write, and suspicion is the chance the label is unsafe. DecisionModelMonitor asks a decision model yes or no questions, and suspicion is the chance of yes. Each returns the same Verdict, a suspicion from 0 to 1 and a reason, so any monitor works with any control protocol. Three wrappers nest around any monitor: RepeatedMonitor averages several calls, CalibratedMonitor ranks the score among the scores of honest runs, and CascadeMonitor runs a fast monitor on every step and, when the fast one finds the step suspicious, a careful one whose verdict replaces the fast one's.](assets/diagrams/monitors-dark.svg#only-dark)](assets/diagrams/monitors-dark.svg "Open the diagram at full size")
+[![Three monitor classes cover three kinds of model, each drawn as the charm. LLMMonitor asks a chat model to reason and then score the step, from 0 to 10 by default. GuardModelMonitor has a guard model label the step against a policy you write, and suspicion is the probability of the unsafe label. DecisionModelMonitor asks a decision model yes or no questions, and suspicion is the probability of yes. Each returns the same Verdict, a suspicion from 0 to 1 and a reason, so any monitor works with any control protocol. Three wrappers nest around any monitor: RepeatedMonitor averages several calls, CalibratedMonitor reports the score's smoothed conformal p-value against the scores of honest runs, and CascadeMonitor runs a fast monitor on every step and, when the fast one finds the step suspicious, a careful one whose verdict replaces the fast one's.](assets/diagrams/monitors-light.svg#only-light)](assets/diagrams/monitors-light.svg "Open the diagram at full size")
+[![Three monitor classes cover three kinds of model, each drawn as the charm. LLMMonitor asks a chat model to reason and then score the step, from 0 to 10 by default. GuardModelMonitor has a guard model label the step against a policy you write, and suspicion is the probability of the unsafe label. DecisionModelMonitor asks a decision model yes or no questions, and suspicion is the probability of yes. Each returns the same Verdict, a suspicion from 0 to 1 and a reason, so any monitor works with any control protocol. Three wrappers nest around any monitor: RepeatedMonitor averages several calls, CalibratedMonitor reports the score's smoothed conformal p-value against the scores of honest runs, and CascadeMonitor runs a fast monitor on every step and, when the fast one finds the step suspicious, a careful one whose verdict replaces the fast one's.](assets/diagrams/monitors-dark.svg#only-dark)](assets/diagrams/monitors-dark.svg "Open the diagram at full size")
 
 | Monitor | Scores with | Guide |
 |---|---|---|
-| `LLMMonitor` | any chat model, prompted to reason and then score the step | [Use a chat judge](how-to/use-a-chat-judge.md) |
+| `LLMMonitor` | any chat model, prompted to reason and then score the step | [Use an LLM monitor](how-to/use-an-llm-monitor.md) |
 | `GuardModelMonitor` | a guard model, such as gpt-oss-safeguard or Llama Guard, and a policy you write | [Use a guard model](how-to/use-a-guard-model.md) |
 | `DecisionModelMonitor` | a decision model that answers yes or no questions, such as Jev | [Use a decision model](how-to/use-a-decision-model.md) |
 | `RepeatedMonitor`, `CalibratedMonitor`, `CascadeMonitor` | any of the above: averaged, ranked against honest runs, or cascaded | [Combine and calibrate monitors](how-to/combine-and-calibrate-monitors.md) |
@@ -177,7 +176,7 @@ answer. Each left-out channel is one flag away:
 ```python
 from langchain_sync_monitors import Channel, LLMMonitor, MonitorView
 
-judge = LLMMonitor(
+monitor = LLMMonitor(
     model="openrouter:xiaomi/mimo-v2.6-pro",
     # Read the agent's reasoning too, on top of the default channels.
     view=MonitorView(channels=Channel.ACTIONS | Channel.REASONING),
@@ -246,11 +245,10 @@ library in research, please cite the original authors.
 
 ## Status and licence
 
-<!-- release-check: the text below describes an unreleased package. scripts/check-release.sh refuses a release while this comment is here; rewrite that text for the release, then delete this comment. -->
-
-Pre-release, version 0.1.0.dev0, and not on PyPI yet. The monitors,
-protocols, middleware and Deep Agents support are built and tested offline,
-and the API may still change before 0.1.0; the
+Alpha, and released on [PyPI](https://pypi.org/project/langchain-sync-monitors/).
+The monitors, protocols, middleware and Deep Agents support are tested offline
+and tried in [live runs](explanation/live-runs.md). Before 1.0.0, a minor
+release can break the API; the
 [changelog](https://github.com/omamori-lab/langchain-sync-monitors/blob/main/CHANGELOG.md)
 records each change. The library is released under the
 [MIT licence](https://github.com/omamori-lab/langchain-sync-monitors/blob/main/LICENSE).

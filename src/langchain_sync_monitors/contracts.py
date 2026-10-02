@@ -4,7 +4,8 @@ The rest of the package codes against these definitions, so they change only in
 a dedicated pull request. How they fit together is explained in
 `docs/explanation/design.md`.
 
-A step is one model call of the agent. The untrusted model proposes it, a
+A step is one run of the agent's model node, as defined under "The monitored
+step" in `docs/explanation/design.md`. The untrusted model proposes it, a
 `Monitor` scores it, and a `ControlProtocol` decides what the agent state
 receives. Protocols reach the model only through a `PendingStep`, which is how
 one copy of each protocol serves both `invoke()` and `ainvoke()`.
@@ -72,6 +73,22 @@ class Resampling(StrEnum):
     PARALLEL = "parallel"
 
 
+class SampleDrawing(StrEnum):
+    """How `PendingStep.sample` draws the samples of one call.
+
+    `SEQUENTIAL` draws them one after another: each sample's model call and
+    judgement finish before the next draw starts. `CONCURRENT` starts every
+    draw at once where an event loop can run them, under `ainvoke()`; under
+    `invoke()` there is none, so they are drawn one after another. Either way
+    the call returns all `count` samples. Stopping at the first acceptable
+    one, as `Resampling.SEQUENTIAL` does, is for the protocol to do, one call
+    at a time.
+    """
+
+    SEQUENTIAL = "sequential"
+    CONCURRENT = "concurrent"
+
+
 class FeedbackVisibility(StrEnum):
     """Whether the feedback on a blocked step is kept in the agent's transcript."""
 
@@ -107,7 +124,8 @@ class MonitorView:
     `most_recent_entries` keeps only the last entries of the history, at least
     one, or every entry when it is `None`; the messages of the task author are
     kept in addition. `delegation_tools` names the tools whose results are
-    subagent reports.
+    subagent reports; it defaults to the `task` tool through which Deep Agents
+    delegates to a subagent [@deepagents2026].
 
     Each option is checked when the view is built: `channels` must be a
     `Channel`, `most_recent_entries` a whole number of at least 1 or `None`,
@@ -323,12 +341,15 @@ class PendingStep(ABC):
         *,
         count: int,
         blocked_attempts: tuple[BlockedAttempt, ...] = (),
-        concurrently: bool = False,
+        drawing: SampleDrawing = SampleDrawing.SEQUENTIAL,
     ) -> tuple[Sample, ...]:
         """Draw `count` samples of the step and have the monitor judge each one.
 
         With `blocked_attempts`, each earlier blocked proposal and its feedback
         come before the request, so the agent sees why it was blocked.
+        `drawing` says whether the samples are drawn one after another or at
+        once; a value that is not a `SampleDrawing` member, such as the plain
+        string `"concurrent"`, raises `ConfigurationError`.
         """
 
     @abstractmethod

@@ -54,8 +54,8 @@ JUDGEMENT = "monitor judgement"
 DECISION = "monitor decision"
 SAMPLE = "ScriptedChatModel"
 JUDGE = "monitor call"
-LABEL_KEYS = {
-    "monitor_name",
+STEP_METADATA_KEYS = {
+    "monitor_label",
     "monitor_agent",
     "monitor_step_number",
     "monitor_protocol",
@@ -103,7 +103,7 @@ class ProtocolCase:
 
 PROTOCOL_CASES = {
     "trusted_monitoring": ProtocolCase(
-        build_protocol=lambda: TrustedMonitoring(flag_threshold=0.8),
+        build_protocol=lambda: TrustedMonitoring(audit_threshold=0.8),
         untrusted_steps=lambda: [build_exfiltration_step(), AIMessage(FINAL_ANSWER)],
         step_children=[SAMPLE, JUDGEMENT, DECISION],
         outcome="allowed",
@@ -192,7 +192,7 @@ def build_defer_to_resample_agent(
     return build_agent(protocol=protocol, untrusted_steps=steps)
 
 
-def read_labels(run: RecordedRun) -> dict[str, Any]:
+def read_step_metadata(run: RecordedRun) -> dict[str, Any]:
     return {key: value for key, value in run.metadata.items() if key.startswith("monitor_")}
 
 
@@ -291,9 +291,9 @@ def test_judgement_spans_hold_the_verdict_and_no_proposal_text(run_mode: RunMode
 
     # Assert
     first, second, _ = tracer.find_runs(JUDGEMENT)
-    assert first.inputs == {"sample_number": 1, "monitor": "KeywordMonitor"}
+    assert first.inputs == {"sample_number": 1, "monitor_class": "KeywordMonitor"}
     assert first.outputs == {"suspicion": 0.9, "reason": f"mentions {EXFILTRATION_MARK}"}
-    assert second.inputs == {"sample_number": 2, "monitor": "KeywordMonitor"}
+    assert second.inputs == {"sample_number": 2, "monitor_class": "KeywordMonitor"}
     assert [child.name for child in first.children] == [JUDGE]
     below_the_step = [*tracer.find_runs(JUDGEMENT), *tracer.find_runs(DECISION)]
     assert all(EXFILTRATION_MARK not in json.dumps(run.inputs) for run in below_the_step)
@@ -306,12 +306,14 @@ def test_every_monitor_span_names_its_step_in_flat_metadata(run_mode: RunMode) -
     # Assert
     for step in tracer.find_runs(STEP):
         spans = [step, *(child for child in step.children if child.is_monitor_span)]
-        labels = [read_labels(span) for span in spans]
-        assert all(set(label) >= LABEL_KEYS for label in labels)
-        assert {span_labels["monitor_step_id"] for span_labels in labels} == {str(step.run_id)}
-        assert labels[0]["monitor_protocol"] == "DeferToResample"
-        assert (labels[0]["monitor_name"], labels[0]["monitor_agent"]) == ("monitor", "main")
-        assert "monitor_delegation_id" not in labels[0]
+        metadata = [read_step_metadata(span) for span in spans]
+        assert all(set(span_metadata) >= STEP_METADATA_KEYS for span_metadata in metadata)
+        assert {span_metadata["monitor_step_id"] for span_metadata in metadata} == {
+            str(step.run_id)
+        }
+        assert metadata[0]["monitor_protocol"] == "DeferToResample"
+        assert (metadata[0]["monitor_label"], metadata[0]["monitor_agent"]) == ("monitor", "main")
+        assert "monitor_delegation_id" not in metadata[0]
     assert [step.metadata["monitor_step_number"] for step in tracer.find_runs(STEP)] == [1, 2]
 
 
@@ -337,7 +339,7 @@ def test_the_calls_inside_a_step_keep_their_own_tags_and_metadata(run_mode: RunM
     assert {call.name for call in calls} == {SAMPLE, JUDGE}
     for call in calls:
         assert call.tags == ["nostream"]
-        assert read_labels(call) == {}
+        assert read_step_metadata(call) == {}
         assert "ls_agent_type" not in call.metadata
         assert ("ls_message_view_exclude" in call.metadata) == (call.name == JUDGE)
 

@@ -19,9 +19,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Final
 
-from langchain.agents.middleware.types import ModelResponse
 from langchain_core.language_models import BaseChatModel
-from langchain_core.messages import AIMessage
 
 from langchain_sync_monitors.contracts import (
     BlockedAttempt,
@@ -32,7 +30,7 @@ from langchain_sync_monitors.contracts import (
     Sample,
     StepDecision,
 )
-from langchain_sync_monitors.feedback import build_monitor_message_id
+from langchain_sync_monitors.feedback import build_halt_decision
 from langchain_sync_monitors.model_calls import resolve_chat_model
 from langchain_sync_monitors.options import check_instance_option
 
@@ -62,10 +60,10 @@ def check_fallback_option(value: object, *, parameter_name: str) -> None:
 class DeferToTrustedModel(Fallback):
     """The trusted model writes the step, with the same conversation and tools.
 
-    This is the fallback of Defer to Trusted [@greenblatt2023aicontrol] and of
-    Ctrl-Z's Defer to Resample [@bhatt2025ctrlz]. The trusted model never sees
-    the rejected samples. A model string is resolved once, when the fallback is
-    built.
+    This is the fallback of Defer to Trusted (section 3.3)
+    [@greenblatt2023aicontrol] and of Ctrl-Z's Defer to Resample (section 3.2)
+    [@bhatt2025ctrlz]. The trusted model never sees the rejected samples. A
+    model string is resolved once, when the fallback is built.
     """
 
     def __init__(self, *, trusted_model: str | BaseChatModel) -> None:
@@ -106,6 +104,10 @@ class HaltRun(Fallback):
     `RubricMiddleware` does [@deepagents2026], the monitor middleware halts
     each further step itself, without drawing a sample, and with a final
     message of its own.
+
+    The flag, the standing halt and the use of `HaltRun` as Defer to
+    Resample's fallback are the library's own rules; the design explanation's
+    "Protocols and outcomes" section says why.
     """
 
     message: str = DEFAULT_HALT_MESSAGE
@@ -127,12 +129,4 @@ class HaltRun(Fallback):
         The message gets a fresh id on every call, because LangGraph's message
         reducer replaces messages that share an id.
         """
-        halt_message = AIMessage(content=self.message, id=build_monitor_message_id())
-        return StepDecision(
-            outcome=Outcome.HALTED,
-            response=ModelResponse(result=[halt_message]),
-            samples=samples,
-            executed_sample=None,
-            flagged=True,
-            blocked_attempts=blocked_attempts,
-        )
+        return build_halt_decision(self.message, samples=samples, blocked_attempts=blocked_attempts)

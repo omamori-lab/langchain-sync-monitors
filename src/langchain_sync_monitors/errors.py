@@ -16,8 +16,8 @@ class ConfigurationError(MonitorError):
     checked during a run, so the same error is raised then: a
     `monitor_delegation` in an agent's input that is not a valid
     `Delegation`, and a guard model that returns no log-probabilities with
-    alternatives under `GuardScoring.LOG_PROBABILITIES`, or rejects the
-    request for them under `GuardScoring.AUTO` or
+    alternatives under `GuardScoring.LOG_PROBABILITIES`, or whose adapter
+    does not take the `logprobs` keyword under `GuardScoring.AUTO` or
     `GuardScoring.LOG_PROBABILITIES`.
     """
 
@@ -26,8 +26,23 @@ class MissingExtraError(ConfigurationError, ImportError):
     """A feature needs an optional extra that is not installed.
 
     It is both a `ConfigurationError` and an `ImportError`, so code that
-    catches either one sees it. The message names the extra to install.
+    catches either one sees it. The message names the extra, and the uv and
+    pip commands that install it.
     """
+
+
+def build_missing_extra_message(feature: str, *, extra: str) -> str:
+    """Say that `feature` needs `extra`, and how to install it with uv or with pip.
+
+    Every `MissingExtraError` the library raises takes its message from here,
+    so the install commands are written once. The requirement is in double
+    quotes, which POSIX shells, PowerShell and Windows `cmd` all accept.
+    """
+    requirement = f'"langchain-sync-monitors[{extra}]"'
+    return (
+        f"{feature} needs the {extra} extra. "
+        f"Install it with: uv add {requirement} (or pip install {requirement})"
+    )
 
 
 class InvalidSuspicionError(MonitorError, ValueError):
@@ -48,15 +63,18 @@ class SynchronousRunError(MonitorError):
     """
 
 
-class ProviderToolWarning(UserWarning):
-    """The agent's model is given tools that the model provider runs itself.
+class ServerToolWarning(UserWarning):
+    """The agent's model is given server tools, which the model provider runs itself.
 
     A provider runs its server-side tools, such as Anthropic's `web_fetch` or
     OpenAI's `web_search`, inside the model call, before the monitor judges
     the step, and again for every sample a protocol draws, so no monitor can
-    stop them. The monitor middleware emits this warning once per middleware
-    instance. It knows the server tools of Anthropic, OpenAI and Gemini that
-    `provider_tools` lists, and reads only the tools of a model request: a
-    server-side feature set on the model itself, such as OpenRouter's web
-    plugin, runs without a warning.
+    stop them. The tools of an MCP server the application connects itself
+    are not server tools: they run on the client, as the agent's own tools,
+    and the monitor judges their calls before they run. The monitor
+    middleware emits this warning once per middleware instance. It knows the
+    server tools of Anthropic, OpenAI and Gemini that `server_tools` lists,
+    the providers' MCP connectors among them, and reads only the tools of a
+    model request: a server-side feature set on the model itself, such as
+    OpenRouter's web plugin, runs without a warning.
     """

@@ -3,16 +3,21 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
+from collections.abc import Callable
 from typing import Any
 
 import pytest
 from langchain.agents import create_agent
-from langchain.agents.middleware.types import ToolCallRequest
+from langchain.agents.middleware import ToolRetryMiddleware
+from langchain.agents.middleware.types import AgentMiddleware, ToolCallRequest
 from langchain.tools import ToolRuntime
 from langchain_core.messages import AIMessage, ToolMessage
+from langchain_core.tools import BaseTool, tool
 from langgraph.checkpoint.memory import InMemorySaver
+from langgraph.types import Command
 
-from langchain_sync_monitors.contracts import Delegation, StepRecord
+from langchain_sync_monitors.contracts import Delegation, StepRecord, SubagentHalt
 from langchain_sync_monitors.delegation import add_delegation
 from langchain_sync_monitors.errors import ConfigurationError
 from langchain_sync_monitors.middleware import MonitorMiddleware
@@ -27,7 +32,7 @@ from tests.support.agents import (
     build_thread_config,
     run_agent,
 )
-from tests.support.chat_models import ScriptedChatModel
+from tests.support.chat_models import ScriptedChatModel, build_tool_call_message
 
 RECORD_KEYS = {
     "agent",
@@ -128,6 +133,59 @@ def test_a_tool_call_hands_on_the_thread_s_blocks_by_monitor(
     assert subagent_state["monitor_delegation"] == PARENT_DELEGATION
 
 
+def call_twice_ignoring_failures(
+    middleware: MonitorMiddleware,
+    request: ToolCallRequest,
+    *,
+    handle: Callable[[ToolCallRequest], ToolMessage],
+    mode: RunMode,
+) -> None:
+    """Run one request through the monitor twice in one context, as a retry around it would."""
+    if mode == "invoke":
+        for _ in range(2):
+            with contextlib.suppress(ConnectionError):
+                middleware.wrap_tool_call(request, handle)
+        return
+
+    async def handle_async(inner: ToolCallRequest) -> ToolMessage:
+        return handle(inner)
+
+    async def call_twice() -> None:
+        for _ in range(2):
+            with contextlib.suppress(ConnectionError):
+                await middleware.awrap_tool_call(request, handle_async)
+
+    asyncio.run(call_twice())
+
+
+def test_a_call_that_failed_leaves_its_retry_handed_on_and_checked(
+    run_mode: RunMode,
+    middleware: MonitorMiddleware,
+    subagent_state: dict[str, Any],
+) -> None:
+    # Arrange: the first call fails, so the monitor must not still take it for one in check
+    request = build_tool_request(state=subagent_state, call_id="call-child")
+    seen_delegations: list[object] = []
+
+    def handle(inner: ToolCallRequest) -> ToolMessage:
+        seen_delegations.append(inner.runtime.state["monitor_delegation"])
+        if len(seen_delegations) == 1:
+            message = "the subagent's provider went away"
+            raise ConnectionError(message)
+        return ToolMessage("done", tool_call_id="call-child")
+
+    # Act
+    call_twice_ignoring_failures(middleware, request, handle=handle, mode=run_mode)
+
+    # Assert: the retry gets this call's delegation, not the one the agent inherited
+    expected = Delegation(
+        tool_call_id="call-child",
+        delegating_agent="main",
+        blocks_before={"monitor": 7, "other": 1},
+    )
+    assert seen_delegations == [expected, expected]
+
+
 def test_adding_the_delegation_twice_hands_on_an_equal_one(
     subagent_state: dict[str, Any],
 ) -> None:
@@ -218,17 +276,21 @@ def test_an_agent_without_subagents_records_and_stores_what_it_did_before(
     assert "monitor_delegation" not in agent.get_state(config).values
 
 
-def build_agent_with_delegation_input(
-    *,
-    workspace: Workspace,
-    max_total_blocks: int,
-) -> Any:
-    model = ScriptedChatModel(
+def build_exfiltrating_model() -> ScriptedChatModel:
+    return ScriptedChatModel(
         responses=[
             *(build_exfiltration_step(call_id=f"call-post-{index}") for index in range(3)),
             AIMessage("Summary."),
         ],
     )
+
+
+def build_agent_with_delegation_input(
+    *,
+    model: ScriptedChatModel,
+    workspace: Workspace,
+    max_total_blocks: int,
+) -> Any:
     monitor = MonitorMiddleware(
         monitor=build_keyword_monitor(),
         protocol=AutoMode(block_threshold=0.6, max_total_blocks=max_total_blocks),
@@ -260,21 +322,25 @@ def test_an_invalid_delegation_in_the_input_is_rejected_before_any_step(
     delegation: object,
 ) -> None:
     # Arrange
+    model = build_exfiltrating_model()
     workspace = Workspace()
-    agent = build_agent_with_delegation_input(workspace=workspace, max_total_blocks=2)
+    agent = build_agent_with_delegation_input(model=model, workspace=workspace, max_total_blocks=2)
 
     # Act
     with pytest.raises(ConfigurationError, match="monitor_delegation"):
         run_with_delegation(agent, delegation=delegation, mode=run_mode)
 
     # Assert
+    assert model.calls == []
     assert workspace.executed == []
 
 
 def test_a_valid_delegation_in_the_input_counts_towards_the_total(run_mode: RunMode) -> None:
     # Arrange
     workspace = Workspace()
-    agent = build_agent_with_delegation_input(workspace=workspace, max_total_blocks=2)
+    agent = build_agent_with_delegation_input(
+        model=build_exfiltrating_model(), workspace=workspace, max_total_blocks=2
+    )
     delegation = Delegation(
         tool_call_id="call-caller",
         delegating_agent="caller",
@@ -289,3 +355,74 @@ def test_a_valid_delegation_in_the_input_counts_towards_the_total(run_mode: RunM
     assert (record["outcome"], record["blocked_count"]) == ("halted", 1)
     assert record["delegation_id"] == "call-caller"
     assert workspace.executed == []
+
+
+SUBAGENT_HALT = StepRecord(
+    agent="researcher",
+    monitor="monitor",
+    step_number=1,
+    outcome="halted",
+    flagged=True,
+    blocked_count=0,
+    samples=[],
+)
+
+
+def build_delegate_failing_once(seen_delegations: list[object]) -> BaseTool:
+    """Return a `delegate` tool whose first call fails, and whose second returns a halt."""
+
+    @tool("delegate")
+    def delegate(description: str, runtime: ToolRuntime) -> Command[None]:
+        """Hand a task to the researcher subagent, whose provider fails once."""
+        seen_delegations.append(runtime.state.get("monitor_delegation"))
+        if len(seen_delegations) == 1:
+            message = "the researcher's provider went away"
+            raise ConnectionError(message)
+        report = ToolMessage("Stopped by the safety monitor.", tool_call_id=runtime.tool_call_id)
+        return Command[None](update={"monitor_log": [SUBAGENT_HALT], "messages": [report]})
+
+    return delegate
+
+
+def test_a_call_retried_from_outside_the_monitor_is_handed_on_and_checked_again(
+    run_mode: RunMode,
+) -> None:
+    # Arrange: a retry listed before the monitor runs the same request through it twice
+    seen_delegations: list[object] = []
+    delegation_step = build_tool_call_message(
+        tool_name="delegate",
+        call_id="call-delegate",
+        arguments={"description": "Find the sources."},
+    )
+    model = ScriptedChatModel(responses=[delegation_step, AIMessage("never drawn")])
+    monitor = MonitorMiddleware(
+        monitor=build_keyword_monitor(),
+        protocol=AutoMode(block_threshold=0.6),
+        when_subagent_halts=SubagentHalt.STOP_WHOLE_RUN,
+    )
+    stack: list[AgentMiddleware[Any, Any, Any]] = [
+        ToolRetryMiddleware(max_retries=1, initial_delay=0, jitter=False),
+        monitor,
+    ]
+    agent = create_agent(
+        model,
+        tools=[build_delegate_failing_once(seen_delegations)],
+        middleware=stack,
+    )
+
+    # Act
+    result = run_agent(agent, mode=run_mode)
+
+    # Assert: the retry received its delegation, and the halt it returned stops the run
+    expected = Delegation(
+        tool_call_id="call-delegate",
+        delegating_agent="main",
+        blocks_before={"monitor": 0},
+    )
+    assert seen_delegations == [expected, expected]
+    assert [(record["agent"], record["outcome"]) for record in result["monitor_log"]] == [
+        ("main", "allowed"),
+        ("researcher", "halted"),
+        ("main", "halted"),
+    ]
+    assert len(model.calls) == 1

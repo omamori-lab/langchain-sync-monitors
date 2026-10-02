@@ -6,8 +6,8 @@ type: software
 title: langchain-sync-monitors
 abstract: >-
   AI-control monitors for LangChain agents and Deep Agents: every step an agent
-  proposes is judged before its tools run, and a control protocol decides what
-  runs.
+  proposes is judged before any of its own tools run, and a control protocol
+  decides what runs.
 authors:
   - given-names: Antonio
     family-names: Badilla-Olivas
@@ -28,4 +28,5 @@ keywords:
   - prompt-injection
   - llm-security
   - middleware
-version: "0.1.0.dev0"
+version: "0.1.1"
+date-released: "2026-10-01"

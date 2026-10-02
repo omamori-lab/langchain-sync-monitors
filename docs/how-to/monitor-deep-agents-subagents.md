@@ -12,12 +12,14 @@ can miss. You need the `deepagents` extra, and the examples' `openrouter:`
 model strings need the `openrouter` extra:
 
 ```console
-pip install "langchain-sync-monitors[deepagents,openrouter]"
+uv add "langchain-sync-monitors[deepagents,openrouter]"
 ```
 
-Without `deepagents`, `monitor_subagents` raises `MissingExtraError` with the
-message `monitor_subagents needs Deep Agents. Install it with: pip install
-'langchain-sync-monitors[deepagents]'`.
+With pip, run `pip install "langchain-sync-monitors[deepagents,openrouter]"`
+instead; [Install](../index.md#install) says what each command needs. Without `deepagents`, `monitor_subagents` raises `MissingExtraError`
+with the message `monitor_subagents needs the deepagents extra. Install it
+with: uv add "langchain-sync-monitors[deepagents]" (or pip install
+"langchain-sync-monitors[deepagents]")`.
 
 ## Why subagents need their own monitor
 
@@ -69,16 +71,16 @@ def http_post(url: str, body: str) -> str:
     return "202 Accepted"  # A stand-in that sends nothing.
 
 
-judge = LLMMonitor(model="openrouter:xiaomi/mimo-v2.6-pro")
+llm_monitor = LLMMonitor(model="openrouter:xiaomi/mimo-v2.6-pro")
 main_monitor = MonitorMiddleware(
-    monitor=judge,
+    monitor=llm_monitor,
     protocol=AutoMode(block_threshold=0.6),
     # A subagent's halt stops the main agent too.
     when_subagent_halts=SubagentHalt.STOP_WHOLE_RUN,
 )
 # The publisher can post, so it halts at a lower score.
 publisher_monitor = MonitorMiddleware(
-    monitor=judge,
+    monitor=llm_monitor,
     protocol=DeferToResample(
         fallback=HaltRun(),
         defer_threshold=0.4,
@@ -118,8 +120,8 @@ for record in result["monitor_log"]:
 ```
 
 The model strings are examples. Any LangChain chat model works for the agents
-and for the judge: pass a provider string, or a chat model object you built.
-A subagent without a `model` of its own uses the main agent's.
+and for the LLM monitor: pass a provider string, or a chat model object you
+built. A subagent without a `model` of its own uses the main agent's.
 
 ## Options
 
@@ -226,7 +228,7 @@ default when it reaches a block limit, or Defer to Resample's when you choose
 it. The parent's halt under `STOP_WHOLE_RUN` stands: until a later run brings
 new input from the user, every further step of the parent halts without a
 sample, and two paths through middleware listed before the monitor can lift
-it early; see [A halt stands](choose-a-protocol.md#a-halt-stands).
+it early; see [A halt stands](../explanation/design.md#a-halt-stands).
 
 Auto Mode's thread total acts under either value, whether or not the
 subagent was halted. When the parent runs Auto Mode, and blocks recorded
@@ -261,13 +263,13 @@ def read_report(name: str) -> str:
     return "# Q3 report\nRevenue grew 12% to 4.1M. Churn fell from 3% to 2%."
 
 
-judge = LLMMonitor(model="openrouter:xiaomi/mimo-v2.6-pro")
+llm_monitor = LLMMonitor(model="openrouter:xiaomi/mimo-v2.6-pro")
 analyst_graph = create_agent(
     model="openrouter:deepseek/deepseek-v4.1-flash",
     tools=[read_report],
     middleware=[
         MonitorMiddleware(
-            monitor=judge,
+            monitor=llm_monitor,
             protocol=AutoMode(block_threshold=0.6),
             # Name the monitor after the subagent, and read its task as the parent's.
             agent_name="analyst",
@@ -282,7 +284,7 @@ analyst = CompiledSubAgent(
 )
 
 main_monitor = MonitorMiddleware(
-    monitor=judge,
+    monitor=llm_monitor,
     protocol=AutoMode(block_threshold=0.6),
     when_subagent_halts=SubagentHalt.STOP_WHOLE_RUN,
 )
@@ -409,9 +411,9 @@ publisher_steps = [record for record in log if record["agent"] == "publisher"]
   every declarative subagent. When a model call overflows the context, it
   summarises and runs the rest of the stack again, so the whole monitored
   step runs again with fresh samples. The samples judged before the overflow
-  reach only the warning log line and the `monitor_step_failed` event, never
-  `monitor_log`. `check_monitor_placement` cannot see this middleware, since
-  Deep Agents adds it.
+  reach only the `monitor_step_failed` event, and their suspicions the
+  warning log line, never `monitor_log`. `check_monitor_placement` cannot see
+  this middleware, since Deep Agents adds it.
 - **Forked subagents cannot be monitored yet;** see
   [Forked subagents are refused](#forked-subagents-are-refused).
 

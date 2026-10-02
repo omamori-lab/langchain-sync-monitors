@@ -1,0 +1,449 @@
+# yaml-language-server: $schema=https://coderabbit.ai/integrations/schema.v2.json
+#
+# CodeRabbit for langchain-sync-monitors.
+#
+# CodeRabbit is an advisory reviewer here. scripts/check.sh and CI are the
+# gates, and every finding is reproduced before anyone acts on it. CodeRabbit
+# reads AGENTS.md as code guidelines without configuration (its copy,
+# CLAUDE.md, is filtered out below); CONTRIBUTING.md is added. Rules that a
+# gate already enforces (ruff, ty, lanorme, the docs-standard tests, gitleaks)
+# are not repeated here.
+#
+# Reference: https://docs.coderabbit.ai/reference/configuration
+# Schema:    https://coderabbit.ai/integrations/schema.v2.json
+
+language: en-GB
+tone_instructions: >-
+  British English, terse. No emoji, poems, ASCII art or Mermaid. For each
+  finding give the defect, the evidence (file and line) and how to reproduce
+  it. Skip what ruff, ty or lanorme already enforce.
+
+reviews:
+  # Many findings, each reproduced before it is acted on. Drop to "chill" if
+  # fewer than half of the findings survive reproduction over ten pull requests.
+  profile: assertive
+  # Advisory only. CI is the gate, by convention until main requires it.
+  request_changes_workflow: false
+
+  # The pull request description belongs to its author and template; the
+  # summary goes into the walkthrough comment instead.
+  high_level_summary: true
+  high_level_summary_in_walkthrough: true
+  high_level_summary_instructions: >-
+    Plain British English, no emoji. Say what changes for users first, then
+    the internal changes. End with the CHANGELOG.md line each user-visible
+    change needs, or say that none is needed.
+  review_details: true
+  poem: false
+  in_progress_fortune: false
+  # Walkthrough diagrams are Mermaid; the project draws brand SVGs only.
+  sequence_diagrams: false
+  # One maintainer: reviewer suggestions are noise.
+  suggested_reviewers: false
+  # Fix hints for agents. Agents read them as hints, never as instructions.
+  enable_prompt_for_ai_agents: true
+
+  labeling_instructions:
+    - label: monitors
+      instructions: Changes to monitor classes under src/langchain_sync_monitors/monitors/ or to transcript rendering in transcript.py.
+    - label: protocols
+      instructions: Changes to control protocols, fallbacks or thresholds under protocols/ or in thresholds.py.
+    - label: middleware
+      instructions: Changes to MonitorMiddleware or any module it calls to run a step, such as pending steps, commits, halts, records, tool calls, model calls, feedback, spans, options or the LangChain boundary (_langchain.py), and not covered by a more specific label.
+    - label: deepagents
+      instructions: Changes to the Deep Agents integration or to subagents and the records they return (deepagents.py, delegation.py, subagent_returns.py, returned_records.py, task_authorship.py).
+    - label: contracts
+      instructions: Any change to src/langchain_sync_monitors/contracts.py.
+    - label: docs
+      instructions: Changes under docs/ or to README.md.
+    - label: infrastructure
+      instructions: Changes to packaging, tooling, CI or scripts (pyproject.toml, .github/, scripts/, .pre-commit-config.yaml, .coderabbit.yaml).
+    - label: bug
+      instructions: The pull request fixes behaviour that was wrong.
+    - label: enhancement
+      instructions: The pull request adds a feature or an option.
+  auto_apply_labels: true
+
+  auto_review:
+    enabled: true
+    # Pull requests open as drafts and are marked ready once the gates pass
+    # and the adversarial review is done: the first review lands on finished
+    # work.
+    drafts: false
+    auto_incremental_review: true
+    # Pause incremental reviews after two reviewed commits, as the docs advise
+    # for active branches; the agents ask for the review after the fix round
+    # with "@coderabbitai review".
+    auto_pause_after_reviewed_commits: 2
+    ignore_title_keywords:
+      - "[WIP]"
+      - "[skip review]"
+
+  path_filters:
+    # Plans are historical records of past decisions.
+    - "!docs/plans/**"
+    # A generated copy of AGENTS.md; CI checks that the two match.
+    - "!CLAUDE.md"
+    # Never in the repository, and never to be sent anywhere.
+    - "!**/.env"
+    - "!**/.env.*"
+    # SVGs are skipped by default. The diagrams state behaviour in their
+    # <desc>, so bring them back for review; the brand logo stays out.
+    - "**/*.svg"
+    - "!docs/assets/brand/**"
+
+  path_instructions:
+    - path: "src/**/*.py"
+      instructions: |
+        Review for defects, not style: ruff, ty and lanorme already gate style,
+        complexity, docstrings and most naming. Do not restyle correct code.
+        Safety, the library fails closed:
+        - Flag a path where a step, a tool's write, a subagent's record, a
+          forged or malformed record, a resumed or forked run, or a shared
+          agent name bypasses the monitor, a halt or Auto Mode's block counts.
+          Input the code cannot read raises ConfigurationError or MonitorError
+          or halts; it is never skipped.
+        - A record is an agent's own only when its name and its delegation id
+          both match. A tool's Command is handled in every update shape: dict,
+          pairs, Overwrite, list results, ParentCommand and parent-bound.
+        Privacy: flag a log line, error message, warning, retry hook or
+        traceback that can carry message content, a proposal, a tool argument,
+        a monitor's reason, a payload or a key. Only ids, names, counts,
+        outcomes, suspicion numbers and error types may appear. Raise
+        `from None` where a chained error would print data.
+        Code:
+        - invoke and ainvoke behave the same, and sync and async twins share
+          one helper.
+        - No per-run state on self. Every model is a parameter, never a
+          default.
+        - A public constructor checks every option, empty values included, and
+          names the bad one in a ConfigurationError.
+        - State records hold plain values, coerced to float and bool where the
+          record is built.
+        - A state key or a message the monitor writes is the named constant
+          (state_keys.py, DEFAULT_HALT_MESSAGE), never a repeated literal.
+        - Once CHANGELOG.md has a released section, renaming a shipped name
+          (an export, span name, score or metric key, or log message) breaks
+          integrations; before that, renames are free.
+        Design, from AGENTS.md "How the code is designed"; flag only these,
+        naming each smell and refactoring as refactoring.guru lists them
+        (Refused Bequest, Primitive Obsession, Replace Inheritance with
+        Delegation) and each pattern by its Gang of Four name:
+        - A new boolean or string flag that switches behaviour inside a class,
+          where a strategy object or enum passed in belongs.
+        - A subclass that is not a kind of its parent, one that refuses part
+          of it or cannot stand wherever the parent does (Liskov), where
+          holding the parent belongs; or a holder that only forwards, where
+          inheriting belongs.
+        - A module other than _langchain.py touching LangChain's untyped
+          surfaces or private attributes.
+        - A function or method not named as a verb, or a class, module or
+          package not named as a noun.
+        - A shorthand, or a coined term where software engineering, machine
+          learning, technical AI safety or AI control already has a canonical
+          one (trusted and untrusted model, suspicion score, audit, defer to
+          trusted, resample, false positive rate). Name the canonical term.
+        - Any, a bare dict or tuple, or a magic string for data whose shape is
+          known, where a StrEnum, Literal, TypedDict, pydantic model or
+          dataclass(frozen=True, slots=True, kw_only=True) belongs.
+        - Hand-rolled retries, HTTP, payload validation or statistics where
+          stamina, httpx, pydantic, statistics or bisect fit. Chat models
+          retry on their own, so they are not wrapped in stamina.
+        - asyncio.gather where asyncio.TaskGroup or run_concurrently belongs,
+          and an override without @override.
+    - path: "src/langchain_sync_monitors/_langchain.py"
+      instructions: |
+        The one module that touches LangChain's and LangGraph's untyped
+        surfaces. Each reader returns a typed value and fails closed on a
+        shape it does not know: it raises or reports the value as unreadable,
+        and never guesses. Each read of a private attribute has a safe
+        fallback, stays in this module, and has a comment saying why it is
+        needed.
+    - path: "tests/**/*.py"
+      instructions: |
+        - Flag a test that cannot fail when the behaviour it names breaks: it
+          asserts on its own fixture, on a configured mock's return value or
+          on a constant, or uses the function under test as its own oracle.
+          `x == 1.0` also accepts int 1, so assert the type where it matters.
+          Flag a test double so lenient that nothing built on it can fail.
+          Name a mutant of the code under test that the test lets survive.
+        - Behaviour the middleware reaches is tested under both invoke and
+          ainvoke.
+        - Name whichever of the positive case, the negative case, the
+          boundary and the regression test for the exact behaviour is missing.
+        - No secret-looking literal except the fake values allowlisted in
+          .gitleaks.toml.
+        - lanorme checks the # Arrange, # Act and # Assert markers; do not
+          comment on them.
+    - path: "{README.md,docs/**/*.md}"
+      instructions: |
+        - Docs state current truth only. Check each claim, number, default,
+          name and quoted message against the code word for word, and quote
+          both sides where they differ.
+        - Each citation [@key] supports exactly what its sentence says, and no
+          more. A section, table or equation goes in the prose, not inside
+          the brackets.
+        - A coined term where software engineering, machine learning,
+          technical AI safety or AI control has a canonical one. A term the
+          project must coin is defined once, on the page that owns it.
+        - The monitor judges a step "before any of the agent's own tools run",
+          never "before anything runs".
+        - Each fact is said once, on the page that owns it, and linked to
+          elsewhere. Flag a fact repeated across pages.
+        - A figure's alt text equals its SVG <desc>.
+        - lanorme and the docs tests gate British spelling, em dashes, emoji,
+          Mermaid and page structure; do not comment on them.
+    - path: "docs/assets/diagrams/*.svg"
+      instructions: |
+        Each figure is a brand SVG whose <desc> is also its alt text. Check
+        that the <desc> matches the code and the page that embeds the figure,
+        that the light and dark twins carry the same <desc>, and that no
+        <desc> contains "@". Do not comment on drawing style.
+    - path: "CHANGELOG.md"
+      instructions: |
+        One plain line per user-visible change under ## [Unreleased], in Keep a
+        Changelog sections. Flag padding, lines about internal work, and
+        history of states that were never released. A rename of a shipped
+        name gives the old and the new name.
+    - path: ".github/workflows/**"
+      instructions: |
+        Actions stay pinned, permissions stay least-privilege, no secret is
+        echoed to a log, and no untrusted input is interpolated into a run
+        step. The release must still publish only the files CI checked.
+    - path: "scripts/**"
+      instructions: |
+        A change must not weaken or skip a gate: set -euo pipefail stays, every
+        check still runs, and exit codes propagate. Flag unquoted expansions
+        and commands whose failure is ignored.
+
+  # Writing code is the agents' job, under scripts/check.sh and an adversarial
+  # review. CodeRabbit's code-writing actions would land changes outside both.
+  finishing_touches:
+    docstrings:
+      enabled: false
+    unit_tests:
+      enabled: false
+    simplify:
+      enabled: false
+    autofix:
+      enabled: false
+    fix_ci:
+      enabled: false
+    resolve_merge_conflict:
+      enabled: false
+
+  pre_merge_checks:
+    # lanorme's docstring rules (CMT-006, CMT-007) already gate this.
+    docstrings:
+      mode: "off"
+    title:
+      mode: "warning"
+      requirements: >-
+        An imperative sentence that says the change's effect in plain words,
+        in British spelling, such as "Keep every run input visible to the
+        monitor". No type prefix such as "feat:" or "fix:", and no full stop.
+    description:
+      mode: "warning"
+    issue_assessment:
+      mode: "warning"
+    # Nine checks, one under the Team limit of ten that open-source
+    # organisations get. "error" blocks nothing while request_changes_workflow
+    # is off; in this project it marks a finding that must be answered,
+    # with a reproduction, before merge.
+    custom_checks:
+      - name: "No transcript text in logs or errors"
+        mode: "error"
+        instructions: >-
+          Scope: added or changed lines under src/. Fail if any of them passes
+          transcript-derived data into a log call, warnings.warn, an exception
+          message, a retry hook or a traceback. Transcript-derived data is
+          message content, a proposed step or tool argument, a monitor's
+          reason, a model response or payload, str() or repr() of
+          any of these or of an exception that may quote them, and any API
+          key. Also fail on logger.exception or exc_info=True, and on a raise
+          that chains an exception which may carry such data without
+          "from None". Pass if every logged or raised value is an id, a name,
+          a count, an outcome, a suspicion number or an error type such as
+          type(error).__name__. Report each failure as path:line with the
+          value that leaks.
+      - name: "Fail closed on what the code cannot read"
+        mode: "error"
+        instructions: >-
+          Scope: changes under src/. Fail if the change adds or alters a path
+          that, on input it cannot read or classify, lets the step go on
+          unmonitored instead of halting or raising ConfigurationError or
+          MonitorError. Failing patterns: a malformed or forged record read
+          from state is skipped, defaulted, or logged and ignored; a record
+          counts as an agent's own on its name without its delegation id; a
+          tool's Command update shape is unhandled (dict, pairs, Overwrite,
+          list results, ParentCommand, parent-bound); a resumed or forked
+          run, or a subagent sharing an agent's name, bypasses the monitor, a
+          halt or Auto Mode's block counts; a broad except returns a
+          permissive value. Pass if every such path raises or halts. Report
+          each failure as path:line.
+      - name: "Shipped names stay stable"
+        mode: "error"
+        instructions: >-
+          Pass at once unless CHANGELOG.md has a released section, a heading
+          of the form "## [X.Y.Z] - YYYY-MM-DD". Then fail if the PR renames
+          or removes any of: a name in __all__ of
+          src/langchain_sync_monitors/__init__.py or a public constructor
+          keyword; a span name in spans.py, or MONITOR_CALL_NAME in
+          model_calls.py; a score, metric or metadata key; a constant in state_keys.py; a monitor_log
+          record field; the text of a log message or of a message the monitor
+          writes into a run, such as DEFAULT_HALT_MESSAGE. Pass if nothing
+          like that changes, or if each change has a line under
+          "## [Unreleased]" in CHANGELOG.md that names the old and the new
+          name and says whether it breaks integrations.
+      - name: "CHANGELOG line for user-visible changes"
+        mode: "warning"
+        instructions: >-
+          Fail if the PR makes a change a user would notice and adds no line
+          under "## [Unreleased]" in CHANGELOG.md. User-visible: a public
+          name, option, default, behaviour, raised error, log message, span
+          or score name, monitor_log field, documented fact, or supported
+          version. Not user-visible: tests only, CI or tooling only, internal
+          refactors with no change in behaviour, typo or wording fixes. Also
+          fail if the PR's CHANGELOG lines describe a state that was never
+          released, such as a fix to a bug added earlier in the same
+          unreleased cycle, or spread one change over several lines. Pass
+          otherwise, naming the line that covers each change.
+      - name: "Docs and figures match the code"
+        mode: "warning"
+        instructions: >-
+          For each name, option, default, number, error type or quoted
+          message the PR changes under src/, search docs/, README.md,
+          docstrings and the <desc> of each SVG in docs/assets/diagrams/ for
+          statements of it. Fail if any of them still states the old value
+          or behaviour, or if a docs line or <desc> the PR changes disagrees
+          with the code. Also fail if a figure's alt text in Markdown differs
+          from its SVG <desc>, if a light and dark pair carry different
+          <desc> text, or if a <desc> contains "@". Ignore docs/plans/, which
+          are historical records. Pass if every statement matches; for each
+          failure quote the docs line and the code line.
+      - name: "Middleware tests run under both modes"
+        mode: "warning"
+        instructions: >-
+          Applies when the PR changes behaviour in any module under
+          src/langchain_sync_monitors/ that MonitorMiddleware reaches while it
+          runs a step, including protocols/ and a monitor's evaluate and
+          evaluate_sync. Fail if the tests the PR adds or changes for that
+          behaviour run it only through invoke() or only through ainvoke(),
+          or only through evaluate_sync or only through evaluate, with no
+          parametrised or paired test for the other mode. Pass if both modes
+          are covered, naming the tests, or if no such behaviour changes.
+      - name: "Contracts change in a PR of their own"
+        mode: "warning"
+        instructions: >-
+          Fail if src/langchain_sync_monitors/contracts.py changes (a class,
+          method, signature, type or documented contract is added, removed or
+          changed) in a PR that also changes behaviour elsewhere. Changes
+          that only adapt call sites, tests, docs and CHANGELOG.md to the
+          contract change are allowed. Pass if contracts.py is untouched, or
+          if its change is the PR's only change in behaviour.
+      - name: "Protocols rest on the literature"
+        mode: "warning"
+        instructions: >-
+          Applies when the PR adds a control protocol or fallback, or changes
+          how one decides, defers, resamples, audits, halts or blocks, under
+          src/langchain_sync_monitors/protocols/, halts.py or thresholds.py.
+          Fail if the changed behaviour has no citation, [@key] with its entry
+          in docs/references.bib, to AI control or technical AI safety
+          research or to a published control evaluation or benchmark, in the
+          docstring of the code that applies it; or if the cited source does
+          not support the behaviour as written. Pass if each change is cited
+          and supported, or if its docstring says plainly that no source
+          supports it and why the project chose it. Name the source checked.
+      - name: "LangChain internals stay in _langchain.py"
+        mode: "warning"
+        instructions: >-
+          Fail if a module under src/ other than
+          src/langchain_sync_monitors/_langchain.py adds code that reads or
+          writes LangChain's, LangGraph's or Deep Agents' untyped surfaces: an
+          attribute whose name starts with an underscore on one of their
+          objects; raw agent state, runtime or Command internals handled as
+          Any or as an untyped dict; or an import from a private module, one
+          with a path segment that starts with "_", of those packages. Pass
+          if such access goes through a typed helper in _langchain.py.
+
+  tools:
+    # CI runs the ruff pinned in uv.lock as a hard gate; CodeRabbit runs its
+    # own ruff, whose version differs, so it would repeat or contradict it.
+    ruff:
+      enabled: false
+    # Betterleaks ignores .gitleaks.toml, so it would flag the fake keys the
+    # tests plant on purpose. CI scans the whole history with the allowlist.
+    gitleaks:
+      enabled: false
+    # The docs describe Presidio as opt-in while the schema defaults it to
+    # true; it is off, set explicitly.
+    presidio:
+      enabled: false
+    actionlint:
+      enabled: true
+    zizmor:
+      enabled: true
+    shellcheck:
+      enabled: true
+    yamllint:
+      enabled: true
+    osvScanner:
+      enabled: true
+    languagetool:
+      enabled: true
+      level: default
+
+chat:
+  art: false
+  # Only organisation members can talk to CodeRabbit, so outsiders cannot
+  # teach it learnings on this public repository.
+  allow_non_org_members: false
+  auto_reply: true
+
+knowledge_base:
+  opt_out: false
+  web_search:
+    enabled: true
+  code_guidelines:
+    enabled: true
+    # AGENTS.md is found by default.
+    filePatterns:
+      - "CONTRIBUTING.md"
+  learnings:
+    scope: local
+    # A learning taught in chat waits up to 14 days for the maintainer's
+    # approval in the Learnings dashboard, then applies unless rejected.
+    approval_delay: 14
+  issues:
+    scope: local
+  pull_requests:
+    scope: local
+
+issue_enrichment:
+  # The docs say enrichment is on by default; the schema says off. Set it.
+  auto_enrich:
+    enabled: true
+  planning:
+    # On demand only ("@coderabbitai plan"): plans live in docs/plans/.
+    enabled: true
+    auto_planning:
+      enabled: false
+  labeling:
+    auto_apply_labels: false
+    labeling_instructions:
+      - label: monitors
+        instructions: Monitor classes or transcript rendering.
+      - label: protocols
+        instructions: Control protocols, fallbacks or thresholds.
+      - label: middleware
+        instructions: MonitorMiddleware, pending steps, halts or records.
+      - label: deepagents
+        instructions: The Deep Agents integration or subagents.
+      - label: docs
+        instructions: Documentation.
+      - label: infrastructure
+        instructions: Packaging, tooling or CI.
+      - label: bug
+        instructions: Behaviour that is wrong.
+      - label: enhancement
+        instructions: A new feature or option.

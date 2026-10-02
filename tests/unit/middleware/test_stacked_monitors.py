@@ -125,7 +125,7 @@ class UnsetResample(DeferToResample):
 
 
 OUTER_PROTOCOLS: dict[str, tuple[ProtocolBuilder, bool]] = {
-    "trusted-monitoring": (lambda _: TrustedMonitoring(flag_threshold=THRESHOLD), True),
+    "trusted-monitoring": (lambda _: TrustedMonitoring(audit_threshold=THRESHOLD), True),
     "resample-none-then-halt": (
         lambda trusted: build_resampling(trusted, max_resamples=0, halts=True),
         True,
@@ -254,7 +254,7 @@ def test_a_monitor_inside_a_resampling_monitor_loses_the_rejected_draft_s_judgem
     )
     inner = MonitorMiddleware(
         monitor=inner_monitor,
-        protocol=TrustedMonitoring(flag_threshold=THRESHOLD),
+        protocol=TrustedMonitoring(audit_threshold=THRESHOLD),
         label="inner",
     )
     agent = create_agent(build_untrusted_model(), middleware=[outer, inner])
@@ -296,7 +296,7 @@ def test_parallel_resamples_leave_an_inner_monitor_one_record_per_resample_for_o
     outer = MonitorMiddleware(monitor=build_keyword_monitor(), protocol=protocol, label="outer")
     inner = MonitorMiddleware(
         monitor=inner_monitor,
-        protocol=TrustedMonitoring(flag_threshold=THRESHOLD),
+        protocol=TrustedMonitoring(audit_threshold=THRESHOLD),
         label="inner",
     )
     agent = create_agent(
@@ -328,7 +328,7 @@ def test_a_trusted_step_after_parallel_resamples_leaves_the_inner_monitor_its_re
     )
     outer = MonitorMiddleware(monitor=build_keyword_monitor(), protocol=protocol, label="outer")
     inner = MonitorMiddleware(
-        monitor=inner_monitor, protocol=TrustedMonitoring(flag_threshold=THRESHOLD), label="inner"
+        monitor=inner_monitor, protocol=TrustedMonitoring(audit_threshold=THRESHOLD), label="inner"
     )
     untrusted_model = ScriptedChatModel(
         responses=[AIMessage(f"{UNSAFE_DRAFT} ({index})") for index in range(4)],
@@ -367,7 +367,7 @@ def test_an_outer_monitor_judges_the_blocked_draft_an_inner_auto_mode_shows(
     outer_monitor = KeywordMonitor()
     outer = MonitorMiddleware(
         monitor=outer_monitor,
-        protocol=TrustedMonitoring(flag_threshold=THRESHOLD),
+        protocol=TrustedMonitoring(audit_threshold=THRESHOLD),
         label="outer",
     )
     inner = MonitorMiddleware(
@@ -407,7 +407,7 @@ def test_an_inner_record_marks_its_sample_executed_when_the_outer_monitor_halts(
     )
     inner = MonitorMiddleware(
         monitor=KeywordMonitor(),
-        protocol=TrustedMonitoring(flag_threshold=THRESHOLD),
+        protocol=TrustedMonitoring(audit_threshold=THRESHOLD),
         label="inner",
     )
     model = ScriptedChatModel(responses=[build_exfiltration_step()])
@@ -434,7 +434,7 @@ def test_an_auto_mode_with_one_block_in_the_thread_calls_the_model_once_per_step
     protocol = build_auto_mode(build_trusted_model(), max_consecutive_blocks=3, max_total_blocks=1)
     outer = MonitorMiddleware(monitor=build_keyword_monitor(), protocol=protocol, label="outer")
     inner = MonitorMiddleware(
-        monitor=inner_monitor, protocol=TrustedMonitoring(flag_threshold=THRESHOLD), label="inner"
+        monitor=inner_monitor, protocol=TrustedMonitoring(audit_threshold=THRESHOLD), label="inner"
     )
     stack = [outer, inner]
     model = ScriptedChatModel(
@@ -501,7 +501,7 @@ def test_one_monitor_keeping_the_higher_suspicion_rejects_what_a_cascade_lets_th
     monitors: dict[str, Monitor] = {
         "higher-suspicion-flagging-first": higher_suspicion(first=flagging, second=clearing),
         "higher-suspicion-flagging-second": higher_suspicion(first=clearing, second=flagging),
-        "cascade": CascadeMonitor(fast=flagging, careful=clearing, escalate_at=THRESHOLD),
+        "cascade": CascadeMonitor(fast=flagging, careful=clearing, escalation_threshold=THRESHOLD),
     }
     protocol = build_resampling(build_trusted_model())
     agent = create_agent(
@@ -566,12 +566,12 @@ def test_a_middleware_outside_a_sound_stack_that_raises_leaves_its_records_strea
         FailingAfterStepMiddleware(),
         MonitorMiddleware(
             monitor=KeywordMonitor(),
-            protocol=TrustedMonitoring(flag_threshold=THRESHOLD),
+            protocol=TrustedMonitoring(audit_threshold=THRESHOLD),
             label="outer",
         ),
         MonitorMiddleware(
             monitor=KeywordMonitor(),
-            protocol=TrustedMonitoring(flag_threshold=THRESHOLD),
+            protocol=TrustedMonitoring(audit_threshold=THRESHOLD),
             label="inner",
         ),
     ]

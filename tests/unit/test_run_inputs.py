@@ -3,6 +3,8 @@ put back, verbatim and in order, in the monitor's copy of a conversation that no
 
 from __future__ import annotations
 
+from types import SimpleNamespace
+
 import pytest
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, ToolMessage
 
@@ -227,6 +229,17 @@ def test_the_reducer_leaves_out_a_value_that_is_not_a_list() -> None:
     assert merged == [KEPT_TASK]
 
 
+def test_a_state_that_is_not_a_mapping_holds_no_kept_input() -> None:
+    # Arrange: an object whose attributes bear the state keys' names, which are not read
+    state = SimpleNamespace(messages=[TASK], monitor_run_inputs=[KEPT_TASK])
+
+    # Act
+    current = read_current_run_inputs(state)
+
+    # Assert
+    assert current == ()
+
+
 def test_a_history_that_holds_every_input_is_returned_unchanged() -> None:
     # Arrange
     history: list[BaseMessage] = [TASK, READ, RESULT, REPLY, NARROWING]
@@ -236,6 +249,24 @@ def test_a_history_that_holds_every_input_is_returned_unchanged() -> None:
 
     # Assert
     assert restored == tuple(history)
+
+
+def test_an_input_the_history_holds_with_its_kept_text_keeps_its_image_and_its_name() -> None:
+    # Arrange: the task arrived with a chart and a name, and the request still holds it whole
+    task = HumanMessage(
+        content=[
+            {"type": "text", "text": TASK.text},
+            {"type": "image", "url": "https://example.test/q3-chart.png"},
+        ],
+        id="task",
+        name="analyst",
+    )
+
+    # Act
+    restored = restore([task, REPLY], KEPT_TASK)
+
+    # Assert
+    assert restored == (task, REPLY)
 
 
 def test_inputs_summarised_away_come_back_before_the_summary_in_order() -> None:
@@ -464,7 +495,7 @@ def test_an_input_goes_back_before_a_message_a_tool_wrote_under_its_id_later() -
         history,
         run_inputs=[KEPT_TASK, KEPT_NARROWING],
         task_message_ids=TASK_IDS,
-        rewritten_ids=frozenset({"narrowing"}),
+        rewritten_input_ids=frozenset({"narrowing"}),
     )
 
     # Assert
@@ -473,7 +504,7 @@ def test_an_input_goes_back_before_a_message_a_tool_wrote_under_its_id_later() -
 
 
 def test_an_input_whose_neighbour_is_gone_follows_an_earlier_input_put_back_later_on() -> None:
-    # Arrange: the first turn goes back after the reply it followed; the second has no anchor
+    # Arrange: the first turn goes back after the reply it followed; the second's neighbour is gone
     first = keep("task", TASK.text, "reply")
     second = keep("narrowing", NARROWING.text, "gone")
     history: list[BaseMessage] = [READ, REPLY, RESULT]
@@ -495,7 +526,7 @@ def test_a_message_a_tool_wrote_under_an_input_s_id_does_not_mark_its_place() ->
         history,
         run_inputs=[KEPT_TASK, KEPT_NARROWING],
         task_message_ids=TASK_IDS,
-        rewritten_ids=frozenset({"narrowing"}),
+        rewritten_input_ids=frozenset({"narrowing"}),
     )
 
     # Assert
@@ -512,7 +543,7 @@ def test_an_input_a_tool_rewrote_in_place_goes_back_by_its_neighbour_to_the_same
         history,
         run_inputs=[KEPT_TASK, KEPT_NARROWING],
         task_message_ids=TASK_IDS,
-        rewritten_ids=frozenset({"narrowing"}),
+        rewritten_input_ids=frozenset({"narrowing"}),
     )
 
     # Assert

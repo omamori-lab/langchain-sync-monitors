@@ -277,17 +277,27 @@ def test_a_retried_request_hands_no_retry_hook_the_request_and_logs_no_key(
 PLANTED_PASSWORD = "planted-url-password-31c9"
 
 
+@pytest.mark.parametrize(
+    "base_url",
+    [
+        f"https://monitor:{PLANTED_PASSWORD}@service.test/api",
+        "https://monitor@service.test/api",
+        f"https://:{PLANTED_PASSWORD}@service.test/api",
+        "https://:@service.test/api",
+    ],
+    ids=["user-and-password", "user-only", "password-only", "both-empty"],
+)
 @pytest.mark.parametrize("auth", [None, ("pk-given", "sk-given")], ids=["url", "given"])
 def test_credentials_in_the_base_url_authenticate_as_httpx_would_and_stay_out_of_every_url(
     monkeypatch: pytest.MonkeyPatch,
     retry_details: list[RetryDetails],
     caplog: pytest.LogCaptureFixture,
     *,
+    base_url: str,
     auth: tuple[str, str] | None,
 ) -> None:
     # Arrange: every request meets a server error, whose text quotes the request's URL
     caplog.set_level(logging.DEBUG)
-    base_url = f"https://monitor:{PLANTED_PASSWORD}@service.test/api"
     seen: list[httpx.Request] = []
 
     def answer(request: httpx.Request) -> httpx.Response:
@@ -310,11 +320,12 @@ def test_credentials_in_the_base_url_authenticate_as_httpx_would_and_stay_out_of
             client, request=client.build_request("GET", "/sessions", params={"limit": 1})
         )
 
-    # Assert: the request authenticates as httpx's own client from that URL would, and
-    # neither its URL nor any record holds the password
+    # Assert: the request authenticates as httpx's own client from that URL would, with no
+    # header when the URL's user name and password are both empty, and neither its URL nor
+    # any record holds the password
     httpx_request, first, retried = seen
     assert response is None
-    assert first.headers["authorization"] == httpx_request.headers["authorization"]
+    assert first.headers.get("authorization") == httpx_request.headers.get("authorization")
     assert str(first.url) == str(retried.url) == "https://service.test/api/sessions?limit=1"
     assert len(retry_details) == 1
     assert find_logged_leaks(caplog.records, secrets=[PLANTED_PASSWORD]) == []

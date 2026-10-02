@@ -105,14 +105,18 @@ def build_http_client(
     Where the system's proxies cannot be looked up safely, the client skips
     them and still trusts the environment's certificates.
 
-    A user name and password in the base URL become the client's Basic
-    authentication, as httpx would apply them, unless `auth` is given, which
-    httpx prefers [@httpx2024]. The URL keeps neither, so no request's URL,
-    and no error that quotes one, holds the password.
+    A user name or password in the base URL becomes the client's Basic
+    authentication, as httpx would apply it, unless `auth` is given, which
+    httpx prefers; a URL whose user name and password are both empty, such
+    as `https://:@host`, authenticates with nothing (method
+    `Client._build_request_auth`, module `httpx/_client.py`) [@httpx2024].
+    The URL keeps neither, so no request's URL, and no error that quotes
+    one, holds the password.
     """
     url = httpx.URL(base_url)
     if url.userinfo:
-        auth = auth if auth is not None else (url.username, url.password)
+        if auth is None and (url.username or url.password):
+            auth = (url.username, url.password)
         base_url = str(url.copy_with(userinfo=b""))
     if is_system_proxy_lookup_safe():
         return httpx.Client(

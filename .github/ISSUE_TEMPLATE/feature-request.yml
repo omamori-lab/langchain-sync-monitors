@@ -1,5 +1,5 @@
 name: Feature request
-description: Suggest a new monitor, protocol or view, or a change to an existing one.
+description: Suggest a new monitor, protocol or view, or any other change to what the library does.
 labels: ["enhancement"]
 body:
   - type: markdown

@@ -165,7 +165,7 @@ explains each of these.
 | look up a class or a keyword | [API](https://omamori-lab.github.io/langchain-sync-monitors/reference/api/) |
 | understand how a step flows, and why | [How the library is built](docs/explanation/design.md) |
 | see monitored agents run against real models | [Live runs of a monitored agent](docs/explanation/live-runs.md) |
-| report a bug, a vulnerability, a question or an idea | [Report a problem](docs/index.md#report-a-problem) |
+| report a bug or a vulnerability, or ask a question or suggest an idea | [Report a problem](docs/index.md#report-a-problem) |
 
 ## Credits
 

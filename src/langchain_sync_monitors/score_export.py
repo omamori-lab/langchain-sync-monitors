@@ -34,7 +34,7 @@ sort and chart these, which they do not with metadata [@langsmith2026dashboards;
   ingested the step, 10 to 25 seconds after it in our checks. At exit it
   drains what waits, for up to 30 seconds. Nothing it does raises into a
   run; its failures are logged by `langchain_sync_monitors.score_worker`.
-- **Only numbers and ids leave the process**: the judge's reason is never
+- **Only numbers and ids leave the process**: the monitor's reason is never
   sent, since neither tool masks feedback comments or score comments.
 """
 
@@ -148,7 +148,8 @@ def check_tool_requirements(tracer: Tracer) -> None:
     if not is_package_installed(LANGFUSE_PACKAGE):
         message = (
             "export_scores asks for Tracer.LANGFUSE, but the langfuse package, whose "
-            "LangChain handler traces a run to Langfuse, is not installed: pip install langfuse"
+            "LangChain handler traces a run to Langfuse, is not installed. "
+            "Install it with: uv add langfuse (or pip install langfuse)"
         )
         raise ConfigurationError(message)
     if read_langfuse_credentials() is None:
@@ -224,22 +225,27 @@ def is_langfuse_handler_silent(handler: BaseCallbackHandler) -> bool:
     return isinstance(rate, int | float) and not isinstance(rate, bool) and rate <= 0
 
 
+def read_langfuse_destination(handler: BaseCallbackHandler) -> ScoreDestination | None:
+    """Return Langfuse as the destination, or None when its tracing is off or samples nothing.
+
+    Tracing is off by its variable or by the handler's client, and the client
+    samples nothing at a sample rate of 0.
+    """
+    if is_langfuse_tracing_off() or is_langfuse_handler_silent(handler):
+        return None
+    return ScoreDestination(tracer=Tracer.LANGFUSE)
+
+
 def read_destination(
     handler: BaseCallbackHandler,
     *,
     tracers: AbstractSet[Tracer],
 ) -> ScoreDestination | None:
-    """Return where the handler traces to, if it is the tracer of a tool among `tracers`.
-
-    Langfuse's handler gives no destination when Langfuse's tracing is off,
-    by its variable or by its client, or its client samples no trace.
-    """
+    """Return where the handler traces to, if it is the tracer of a tool among `tracers`."""
     if Tracer.LANGSMITH in tracers and isinstance(handler, LangChainTracer):
         return read_langsmith_destination(handler)
     if Tracer.LANGFUSE in tracers and is_langfuse_handler(handler):
-        if is_langfuse_tracing_off() or is_langfuse_handler_silent(handler):
-            return None
-        return ScoreDestination(tracer=Tracer.LANGFUSE)
+        return read_langfuse_destination(handler)
     return None
 
 
@@ -294,15 +300,23 @@ class ProcessScoreWorker:
         if worker is not None and self.process_id == os.getpid():
             return worker
         with self.lock:
+            # Another thread may have started the worker while this one waited for the lock.
             if self.worker is None or self.process_id != os.getpid():
-                if self.worker is not None:
-                    atexit.unregister(self.worker.stop)
-                worker = self.build_worker()
-                worker.start()
-                atexit.register(worker.stop)
-                self.process_id = os.getpid()
-                self.worker = worker
+                self.worker = self.start_worker()
             return self.worker
+
+    def start_worker(self) -> ScoreWorker:
+        """Start a worker for this process, with its exit drain in place of any older one's.
+
+        The caller holds the lock.
+        """
+        if self.worker is not None:
+            atexit.unregister(self.worker.stop)
+        worker = self.build_worker()
+        worker.start()
+        atexit.register(worker.stop)
+        self.process_id = os.getpid()
+        return worker
 
     def forget_after_fork(self) -> None:
         """In a forked child, drop the parent's worker, its exit drain and its lock."""

@@ -173,8 +173,14 @@ def record_feedback_answer(
         report.refusal = f"LangSmith answered HTTP {status}"
 
 
-def read_project_id(response: httpx.Response, *, name: str) -> str | None:
-    """Return the id of the project with this name in a projects answer, or None, logged."""
+def read_project_id(response: httpx.Response | None, *, name: str) -> str | None:
+    """Return the id of the project with this name in a projects answer, or None.
+
+    A failed request was logged where it was sent; an error answer or an
+    unknown shape is logged here.
+    """
+    if response is None:
+        return None
     if not response.is_success:
         logger.warning(
             "score export: LangSmith answered the project lookup with HTTP %d",
@@ -260,7 +266,7 @@ class LangSmithFeedbackSender:
     out in batches of up to `posts_in_flight` at once, on a `RequestPool`, and
     a send starts no batch once `send_budget_seconds` have passed on `clock`,
     so that a backlog never holds the worker's window for long. A failed post
-    or a `429` stops the send after its batch. No text, the judge's reason
+    or a `429` stops the send after its batch. No text, the monitor's reason
     included, leaves the process.
     """
 
@@ -311,6 +317,17 @@ class LangSmithFeedbackSender:
         if report.pause_seconds is not None:
             report.waiting.extend(scores)
             return
+        posts = self.build_posts(connection, scores=scores, report=report)
+        self.post_in_batches(client, posts=posts, report=report, deadline=deadline)
+
+    def build_posts(
+        self,
+        connection: LangSmithCredentials,
+        *,
+        scores: Sequence[PendingScore],
+        report: DeliveryReport,
+    ) -> list[FeedbackPost]:
+        """Return each score with its project's id; a score whose project is not known waits."""
         posts: list[FeedbackPost] = []
         for score in scores:
             project_id = self.project_ids.get((connection, score.project or ""))
@@ -318,6 +335,17 @@ class LangSmithFeedbackSender:
                 report.waiting.append(score)
             else:
                 posts.append((score, project_id))
+        return posts
+
+    def post_in_batches(
+        self,
+        client: httpx.Client,
+        *,
+        posts: Sequence[FeedbackPost],
+        report: DeliveryReport,
+        deadline: float,
+    ) -> None:
+        """Post a batch at a time until the deadline or a stopping answer; the rest wait."""
         width = self.pool.width
         for start in range(0, len(posts), width):
             if self.clock() >= deadline:
@@ -365,21 +393,22 @@ class LangSmithFeedbackSender:
         projects: set[str],
     ) -> float | None:
         """Look up the id of each project not yet known; return the pause a `429` asks for."""
-        for project in sorted(projects):
-            if (connection, project) in self.project_ids:
-                continue
+        unknown = [project for project in projects if (connection, project) not in self.project_ids]
+        for project in sorted(unknown):
             request = client.build_request("GET", "/sessions", params={"name": project, "limit": 1})
             response = send_request(client, request=request)
-            if response is None:
-                continue
             if is_rate_limited(response):
                 return read_pause_seconds(response)
             project_id = read_project_id(response, name=project)
             if project_id is not None:
                 self.project_ids[(connection, project)] = project_id
+        self.forget_oldest_project_ids()
+        return None
+
+    def forget_oldest_project_ids(self) -> None:
+        """Forget the oldest project ids, so that at most `MAX_PROJECT_IDS` stay."""
         while len(self.project_ids) > MAX_PROJECT_IDS:
             del self.project_ids[next(iter(self.project_ids))]
-        return None
 
     def close(self) -> None:
         """Stop the request threads and close every HTTP client the sender built."""

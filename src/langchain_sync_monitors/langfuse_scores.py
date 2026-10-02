@@ -7,7 +7,7 @@ import logging
 import math
 import time
 from collections.abc import Callable, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from typing import Final, Literal, TypedDict
 from uuid import UUID, uuid4
@@ -24,14 +24,12 @@ from langchain_sync_monitors.score_requests import (
     send_request,
 )
 from langchain_sync_monitors.scores import DeliveryReport, PendingScore
+from langchain_sync_monitors.spans import STEP_SPAN_NAME
 
 logger = logging.getLogger(__name__)
 
 LANGFUSE_BASE_URL: Final = "https://cloud.langfuse.com"
 """Langfuse's default base URL, as its SDK has it when neither variable is set."""
-
-STEP_SPAN_NAME: Final = "monitor step"
-"""The name of the span, and so of the observation, that each score goes on."""
 
 OBSERVATION_PAGE_SIZE: Final = 1000
 """The most observations one page of Langfuse's observations API holds [@langfuse2026api]."""
@@ -192,6 +190,25 @@ class StepLookup:
     stale_reach: float | None = None
 
 
+@dataclass(slots=True, kw_only=True)
+class LookupResult:
+    """What lookups found: each step's observation by step id, and the pause a `429` asks for."""
+
+    found: dict[str, LangfuseObservation] = field(default_factory=dict)
+    pause_seconds: float | None = None
+
+
+def split_by_queueing_time(
+    scores: Sequence[PendingScore],
+    *,
+    reach: float,
+) -> tuple[list[PendingScore], list[PendingScore]]:
+    """Return the scores queued after `reach`, the fresh ones, and those queued at or before it."""
+    fresh = [score for score in scores if score.queued_at > reach]
+    stale = [score for score in scores if score.queued_at <= reach]
+    return fresh, stale
+
+
 def read_start_window(scores: Sequence[PendingScore]) -> StartWindow:
     """Return the window in which every waiting step's span started."""
     starts = [read_step_start(score.step_id) for score in scores]
@@ -241,8 +258,14 @@ def build_score_event(
     return LangfuseScoreEvent(body=body)
 
 
-def read_observation_page(response: httpx.Response) -> ObservationPage | None:
-    """Return one page of observations, or None, logged, for an error or an unknown shape."""
+def read_observation_page(response: httpx.Response | None) -> ObservationPage | None:
+    """Return one page of observations, or None for a failed request, an error or an unknown shape.
+
+    A failed request was logged where it was sent; an error answer or an
+    unknown shape is logged here.
+    """
+    if response is None:
+        return None
     if not response.is_success:
         logger.warning(
             "score export: Langfuse answered the step lookup with HTTP %d",
@@ -344,7 +367,7 @@ class LangfuseScoreSender:
     spend too [@langfuse2026apilimits]. Each score is `NUMERIC`, on the
     step's trace and observation, in the observation's environment, with
     the score's fixed id, so a score written twice is stored once. No text,
-    the judge's reason included, leaves the process.
+    the monitor's reason included, leaves the process.
     """
 
     def __init__(
@@ -361,22 +384,34 @@ class LangfuseScoreSender:
     def send(self, scores: Sequence[PendingScore]) -> DeliveryReport:
         """Look up the steps due, fresh and stale apart, and write the scores found at once."""
         report = DeliveryReport()
-        observations: dict[str, LangfuseObservation] = {}
+        lookup = self.run_lookups(scores)
+        report.pause_seconds = lookup.pause_seconds
+        ready = [score for score in scores if str(score.step_id) in lookup.found]
+        report.waiting.extend(score for score in scores if str(score.step_id) not in lookup.found)
+        if report.pause_seconds is not None:
+            report.waiting.extend(ready)
+        elif ready:
+            self.write_scores(ready, observations=lookup.found, report=report)
+        return report
+
+    def run_lookups(self, scores: Sequence[PendingScore]) -> LookupResult:
+        """Make the lookups due, until one meets a `429`; note when each stale lookup ends."""
+        result = LookupResult()
         for lookup in self.choose_lookups(scores):
-            found, report.pause_seconds = self.find_observations(lookup.scores)
-            observations.update(found)
-            if report.pause_seconds is not None:
+            found = self.find_observations(lookup.scores)
+            result.found.update(found.found)
+            if found.pause_seconds is not None:
+                result.pause_seconds = found.pause_seconds
                 break
             if lookup.stale_reach is not None:
                 self.last_stale_lookup = self.clock()
                 self.stale_reach = lookup.stale_reach
-        ready = [score for score in scores if str(score.step_id) in observations]
-        report.waiting.extend(score for score in scores if str(score.step_id) not in observations)
-        if report.pause_seconds is not None:
-            report.waiting.extend(ready)
-        elif ready:
-            self.write_scores(ready, observations=observations, report=report)
-        return report
+        return result
+
+    def is_stale_lookup_due(self, now: float) -> bool:
+        """Tell whether the stale steps are due a lookup: the first, or a minute after the last."""
+        last = self.last_stale_lookup
+        return last is None or now - last >= STALE_LOOKUP_SECONDS
 
     def choose_lookups(self, scores: Sequence[PendingScore]) -> list[StepLookup]:
         """Return the lookups to make now: the fresh steps, and the stale ones when due.
@@ -385,37 +420,34 @@ class LangfuseScoreSender:
         the steps that turned stale since are looked up with the fresh ones.
         """
         now = self.clock()
-        due = self.last_stale_lookup is None or now - self.last_stale_lookup >= STALE_LOOKUP_SECONDS
+        due = self.is_stale_lookup_due(now)
         reach = now - STALE_AFTER_SECONDS if due else self.stale_reach
-        fresh = [score for score in scores if score.queued_at > reach]
-        stale = [score for score in scores if score.queued_at <= reach]
+        fresh, stale = split_by_queueing_time(scores, reach=reach)
         lookups = [StepLookup(scores=fresh)] if fresh else []
         if stale and due:
             lookups.append(StepLookup(scores=stale, stale_reach=reach))
         return lookups
 
-    def find_observations(
-        self,
-        scores: Sequence[PendingScore],
-    ) -> tuple[dict[str, LangfuseObservation], float | None]:
+    def find_observations(self, scores: Sequence[PendingScore]) -> LookupResult:
         """Return the waiting steps' observations found, and the pause a `429` asks for, if any."""
         wanted = {str(score.step_id) for score in scores}
         window = read_start_window(scores)
-        found: dict[str, LangfuseObservation] = {}
+        result = LookupResult()
         cursor: str | None = None
         for _ in range(MAX_OBSERVATION_PAGES):
             request = self.build_lookup(window=window, cursor=cursor)
             response = send_request(self.http_client, request=request)
-            if response is not None and is_rate_limited(response):
-                return found, read_pause_seconds(response)
-            page = None if response is None else read_observation_page(response)
+            if is_rate_limited(response):
+                result.pause_seconds = read_pause_seconds(response)
+                break
+            page = read_observation_page(response)
             if page is None:
                 break
-            found.update(match_observations(page, wanted=wanted))
+            result.found.update(match_observations(page, wanted=wanted))
             cursor = page.meta.cursor
-            if cursor is None or wanted <= found.keys():
+            if cursor is None or wanted <= result.found.keys():
                 break
-        return found, None
+        return result
 
     def build_lookup(self, *, window: StartWindow, cursor: str | None) -> httpx.Request:
         """Return the request for one page of the `monitor step` observations in the window."""

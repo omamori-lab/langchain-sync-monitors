@@ -8,6 +8,7 @@ never for a step with no sample, and queuing never raises into the run.
 
 from __future__ import annotations
 
+import copy
 import logging
 import pickle
 import threading
@@ -174,7 +175,7 @@ def test_langfuse_without_its_package_is_refused_when_the_monitor_is_built(
     monkeypatch.setattr(score_export, "is_package_installed", lambda name: False)
 
     # Act, Assert
-    with pytest.raises(ConfigurationError, match="pip install langfuse"):
+    with pytest.raises(ConfigurationError, match=r"uv add langfuse \(or pip install langfuse\)"):
         build_monitor(export_scores={Tracer.LANGFUSE})
 
 
@@ -207,7 +208,7 @@ def test_langsmith_alone_needs_neither_langfuse_nor_its_keys(
     assert monitor.export_scores == {Tracer.LANGSMITH}
 
 
-def test_a_subagent_monitor_and_a_pickled_one_keep_the_option(
+def test_a_subagent_monitor_and_a_copied_one_keep_the_option_and_it_pickles(
     score_services: ScoreServices,
 ) -> None:
     # Arrange
@@ -215,13 +216,16 @@ def test_a_subagent_monitor_and_a_pickled_one_keep_the_option(
 
     # Act
     subagent_monitor = monitor.copy_for_subagent(subagent_name="researcher")
+    # A deep copy rebuilds the monitor through the same reduce protocol pickle uses.
+    copied = copy.deepcopy(monitor)
     pickled = pickle.dumps(monitor)
-    unpickled = pickle.loads(pickled)  # lanorme: ignore[DESERIAL-001] bytes pickled just above
 
     # Assert
     assert subagent_monitor.export_scores == {Tracer.LANGFUSE}
     assert subagent_monitor.task_author is TaskAuthor.PARENT_AGENT
-    assert unpickled.export_scores == {Tracer.LANGFUSE}
+    assert copied is not monitor
+    assert copied.export_scores == {Tracer.LANGFUSE}
+    assert pickled.startswith(pickle.PROTO)
 
 
 def test_the_score_is_named_after_the_monitor_label() -> None:

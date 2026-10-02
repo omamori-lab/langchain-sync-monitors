@@ -28,7 +28,7 @@ import urllib.request
 from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime
-from typing import Final
+from typing import Final, TypeGuard
 
 import httpx
 import stamina
@@ -173,8 +173,8 @@ def send_request(http_client: httpx.Client, *, request: httpx.Request) -> httpx.
         return None
 
 
-def is_rate_limited(response: httpx.Response | None) -> bool:
-    """Tell whether the service answered `429`, asking for a pause."""
+def is_rate_limited(response: httpx.Response | None) -> TypeGuard[httpx.Response]:
+    """Tell whether the service answered `429`, asking for a pause; None is no answer at all."""
     return response is not None and response.status_code == httpx.codes.TOO_MANY_REQUESTS
 
 

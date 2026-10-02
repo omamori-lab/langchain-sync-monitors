@@ -20,11 +20,13 @@ from langchain_core.callbacks import BaseCallbackHandler
 from langchain_core.messages import AIMessage
 from langchain_core.runnables import Runnable, RunnableConfig
 
+from langchain_sync_monitors import middleware
 from langchain_sync_monitors.contracts import Monitor, MonitorInput, Verdict
+from langchain_sync_monitors.errors import MonitorError
 from langchain_sync_monitors.middleware import MonitorMiddleware
 from langchain_sync_monitors.protocols import DeferToResample, HaltRun, TrustedMonitoring
 from langchain_sync_monitors.score_worker import UNFOUND_STEP_HINTS
-from langchain_sync_monitors.scores import Tracer
+from langchain_sync_monitors.scores import PendingScore, Tracer
 from tests.support.agents import (
     RunMode,
     Workspace,
@@ -358,3 +360,72 @@ def test_a_worker_that_fails_never_reaches_the_run(
     # Assert
     assert result["messages"][-1].text == "Done."
     assert caplog.text.count("the step's score could not be queued") == 2
+
+
+def build_one_step_agent(monitor: MonitorMiddleware) -> Runnable[Any, Any]:
+    return create_agent(
+        model=ScriptedChatModel(responses=[AIMessage("Done.")]),
+        tools=Workspace().build_tools(),
+        middleware=[monitor],
+    )
+
+
+def test_a_step_whose_commit_fails_queues_no_score(
+    run_mode: RunMode,
+    score_services: ScoreServices,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Arrange: the commit raises, as a state the update cannot read would make it
+    def fail_to_commit(*args: object, **kwargs: object) -> object:
+        message = "the commit failed"
+        raise MonitorError(message)
+
+    monkeypatch.setattr(middleware, "commit_step", fail_to_commit)
+    handlers: list[BaseCallbackHandler] = [build_langsmith_tracer(MagicMock())]
+    monitor = build_monitor(tracers=frozenset({Tracer.LANGSMITH}))
+
+    # Act
+    with pytest.raises(MonitorError, match="the commit failed"):
+        run_traced(build_one_step_agent(monitor), mode=run_mode, handlers=handlers)
+    waiting = score_services.worker.waiting.count()
+    score_services.send_window()
+
+    # Assert: a step that is not in monitor_log gets no score in the tracing tool
+    assert waiting == 0
+    assert score_services.langsmith.requests == []
+
+
+def test_a_committed_step_queues_one_score_after_its_commit(
+    run_mode: RunMode,
+    score_services: ScoreServices,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Arrange: record when the commit returns and when the score is queued
+    events: list[str] = []
+    commit = middleware.commit_step
+    put = score_services.worker.put
+
+    def commit_and_note(*args: Any, **kwargs: Any) -> Any:
+        response = commit(*args, **kwargs)
+        events.append("committed")
+        return response
+
+    def put_and_note(score: PendingScore) -> None:
+        events.append("queued")
+        put(score)
+
+    monkeypatch.setattr(middleware, "commit_step", commit_and_note)
+    monkeypatch.setattr(score_services.worker, "put", put_and_note)
+    handlers: list[BaseCallbackHandler] = [build_langsmith_tracer(MagicMock())]
+    monitor = build_monitor(tracers=frozenset({Tracer.LANGSMITH}))
+
+    # Act
+    result = run_traced(build_one_step_agent(monitor), mode=run_mode, handlers=handlers)
+    waiting = score_services.worker.waiting.count()
+    score_services.send_window()
+
+    # Assert: the one step is committed, then its one score is queued and written
+    assert len(result["monitor_log"]) == 1
+    assert events == ["committed", "queued"]
+    assert waiting == 1
+    assert list(read_feedback(score_services).values()) == [("monitor_suspicion", BENIGN_SUSPICION)]

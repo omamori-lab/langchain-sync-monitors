@@ -293,14 +293,16 @@ class MonitorMiddleware(AgentMiddleware[MonitorState, AgentContext, StructuredOu
                     step.close()
             record = prepared.identity.build_record(decision)
             trace_decision_sync(traced_step, record=record)
-            queue_step_score(traced_step, record=record, monitor=self)
-            return commit_step(
+            response = commit_step(
                 request,
                 decision=decision,
                 record=record,
                 middleware_name=self.name,
                 feedback_visibility=self.feedback_visibility,
             )
+            # Only a committed step, one in monitor_log, gets a score in the tracing tools.
+            queue_step_score(traced_step, record=record, monitor=self)
+            return response
 
     @override
     async def awrap_model_call(
@@ -331,14 +333,16 @@ class MonitorMiddleware(AgentMiddleware[MonitorState, AgentContext, StructuredOu
                     step.close()
             record = prepared.identity.build_record(decision)
             await trace_decision(traced_step, record=record)
-            queue_step_score(traced_step, record=record, monitor=self)
-            return commit_step(
+            response = commit_step(
                 request,
                 decision=decision,
                 record=record,
                 middleware_name=self.name,
                 feedback_visibility=self.feedback_visibility,
             )
+            # Only a committed step, one in monitor_log, gets a score in the tracing tools.
+            queue_step_score(traced_step, record=record, monitor=self)
+            return response
 
     @override
     def wrap_tool_call(

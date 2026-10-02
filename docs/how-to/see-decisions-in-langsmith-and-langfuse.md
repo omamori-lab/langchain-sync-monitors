@@ -354,7 +354,7 @@ The score is named after the monitor's label, `<label>_suspicion`, so
 | Where it goes | The tracer's project, through its client's endpoint, key and workspace | The project that `LANGFUSE_PUBLIC_KEY` and `LANGFUSE_SECRET_KEY` reach, at `LANGFUSE_BASE_URL` or `LANGFUSE_HOST` |
 | What building the monitor needs | `LANGSMITH_API_KEY` (or `LANGCHAIN_API_KEY`) in the environment, even when the tracer's own `Client` holds a key | Both Langfuse keys and the `langfuse` package |
 | When it lands | Within about 10 seconds of the step | Once Langfuse has ingested the step, usually 10 to 25 seconds after it in our checks, at times more than 30 |
-| The requests it makes | One `POST /feedback` per score, up to 6 at once, and one project lookup per project | One step lookup and one ingestion request a window, for every waiting step |
+| The requests it makes | One `POST /feedback` per score, up to 6 at once, and one project lookup per project | Up to two step lookups a window, of up to 3 pages each: one for the fresh steps, and once a minute one for the stale ones. Then one ingestion request for the steps found. [Know what it costs](#know-what-it-costs) has the rate limits |
 
 A monitor whose tool lacks its credentials or package raises
 `ConfigurationError` when it is built. A step with no sample, such as a

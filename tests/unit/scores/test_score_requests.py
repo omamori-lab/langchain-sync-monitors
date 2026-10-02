@@ -368,6 +368,7 @@ def test_a_malformed_reply_is_retried_and_hands_a_retry_hook_no_part_of_it(
     # Assert: nor does any local of the frames in the stand-in's traceback, read by repr
     (frame_locals,) = retry_frame_locals
     assert "run_attempt_sync.failures" in frame_locals
+    assert [name for name, value in frame_locals.items() if "Request(" in value] == []
     assert find_frame_leaks(retry_frame_locals, secrets=secrets) == []
 
 

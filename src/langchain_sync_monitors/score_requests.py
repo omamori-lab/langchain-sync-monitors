@@ -19,7 +19,6 @@ macOS System Settings proxies in a forked child, which
 from __future__ import annotations
 
 import email.utils
-import functools
 import logging
 import math
 import os
@@ -168,10 +167,16 @@ def send_with_retries(http_client: httpx.Client, *, request: httpx.Request) -> h
     hook is handed the client, the request or httpx's error, whose request
     holds the key in its headers: stamina's retry log holds the wait and a
     `RetriedCallError`'s repr, which names httpx's error type and the status
-    alone. After the last attempt, httpx's error is raised.
+    alone. The retried block is a nested function, not a `functools.partial`,
+    so its repr names no request. After the last attempt, httpx's error is
+    raised.
     """
+
+    def send_once() -> httpx.Response:
+        return send_raising_on_server_error(http_client, request=request)
+
     return call_with_retries_sync(
-        functools.partial(send_raising_on_server_error, http_client, request=request),
+        send_once,
         is_retried=is_transient_failure,
         attempts=RETRY_ATTEMPTS,
         timeout=RETRY_BUDGET_SECONDS,

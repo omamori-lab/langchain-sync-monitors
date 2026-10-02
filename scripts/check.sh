@@ -10,12 +10,6 @@
 # runs the offline suite at the lowest versions the dependency bounds allow, and
 # without any extra. The pre-commit hooks run only the fast gates: ruff, ty,
 # lanorme and the offline suite, plus a gitleaks scan of the staged changes.
-#
-# The secrets scan is the command CI's secrets job runs: gitleaks reads the
-# history of every ref in the repository, which a git worktree shares with its
-# main checkout, against .gitleaks.toml. Without gitleaks on PATH, the script
-# says so and skips the scan, as in CI's gates job, which has no gitleaks; CI's
-# secrets job still scans every pull request.
 set -euo pipefail
 
 cd "$(git rev-parse --show-toplevel)"
@@ -25,9 +19,21 @@ scripts/sync-agents.sh --check
 
 echo "==> secrets (gitleaks)"
 if command -v gitleaks >/dev/null 2>&1; then
-  gitleaks git . --config .gitleaks.toml --redact --no-banner
+  # --verbose names the rule, file and commit of a finding; --redact hides the secret.
+  gitleaks_options=(--config .gitleaks.toml --redact --verbose --no-banner)
+  # The history of the checked-out commit.
+  gitleaks git . --log-opts=HEAD "${gitleaks_options[@]}"
+  # The staged changes, then the unstaged ones.
+  gitleaks git . --pre-commit --staged "${gitleaks_options[@]}"
+  gitleaks git . --pre-commit "${gitleaks_options[@]}"
+  # Each untracked file git does not ignore: gitleaks dir takes one path, and
+  # ./ keeps a name that starts with a dash from reading as an option.
+  git ls-files --others --exclude-standard -z |
+    while IFS= read -r -d '' path; do
+      gitleaks dir "./$path" "${gitleaks_options[@]}"
+    done
 else
-  echo "skipped: gitleaks is not on PATH; CI's secrets job runs this scan."
+  echo "skipped: gitleaks is not on PATH; CI's secrets job scans the whole history."
 fi
 
 echo "==> ruff"

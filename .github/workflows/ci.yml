@@ -100,4 +100,4 @@ jobs:
           tar -xzf gitleaks.tar.gz gitleaks
 
       - name: Scan the history for secrets
-        run: ./gitleaks git . --config .gitleaks.toml --redact --no-banner
+        run: ./gitleaks git . --config .gitleaks.toml --redact --verbose --no-banner

@@ -49,8 +49,7 @@ uvx pre-commit install
 
 The pre-commit hooks and `scripts/check.sh` include a secrets scan, which needs
 [gitleaks](https://github.com/gitleaks/gitleaks) on your `PATH`, for example
-from `brew install gitleaks`. CI scans the whole history with the same
-`.gitleaks.toml`.
+from `brew install gitleaks`.
 
 Live tests call real model providers. They read `OPENROUTER_API_KEY` from the
 environment only, and are skipped without it. Export the key, then run them
@@ -64,16 +63,22 @@ One script runs every gate:
 scripts/check.sh
 ```
 
-It checks that `CLAUDE.md` matches `AGENTS.md`, runs the secrets scan of CI's
-secrets job (gitleaks over the history of every ref in the repository, with
-`.gitleaks.toml`), then runs ruff, ty (type checking), the offline test suite,
-the lanorme standards (naming, complexity, docstrings, prose, docs layout), a
-strict docs build and a package build, and imports the built wheel without any
-extra. Without gitleaks on your `PATH`, the script prints one line saying it
-skipped the secrets scan, and goes on. CI runs the same script in its gates
-job, which has no gitleaks and so skips the scan; CI's secrets job runs it. CI
-also runs the offline suite at the lowest versions the dependency bounds in
-`pyproject.toml` allow, and again without any extra.
+It checks that `CLAUDE.md` matches `AGENTS.md`, scans for secrets with gitleaks
+and `.gitleaks.toml`, then runs ruff, ty (type checking), the offline test
+suite, the lanorme standards (naming, complexity, docstrings, prose, docs
+layout), a strict docs build and a package build, and imports the built wheel
+without any extra. CI runs the same script. CI also runs the offline suite at
+the lowest versions the dependency bounds in `pyproject.toml` allow, and again
+without any extra.
+
+The secrets scan covers what this checkout can commit and push: the history of
+the checked-out commit, the staged and unstaged changes, and each untracked
+file git does not ignore. It leaves out commits on other branches and in other
+worktrees, so they cannot fail this checkout's gates. A finding names its rule,
+file and commit, with the secret redacted. Without gitleaks on your `PATH`, the
+script prints one line saying it skipped the scan, and goes on; CI's gates job
+has no gitleaks, so it takes that path. CI's secrets job scans the whole
+history with the same `.gitleaks.toml`.
 
 The pre-commit hooks run the fast gates only: ruff, ty, lanorme, the offline
 test suite, a gitleaks scan of the staged changes and a few file checks. They

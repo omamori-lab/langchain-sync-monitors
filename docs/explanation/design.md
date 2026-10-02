@@ -1056,6 +1056,7 @@ wrappers, `MonitorView`, the decision models, `monitor_subagents` and
 | `ConfigurationError` | An option cannot work. Also at run time: for an invalid `monitor_delegation` in an agent's input; for a guard model that returns no log-probabilities under `GuardScoring.LOG_PROBABILITIES`, or whose adapter does not take the `logprobs` keyword under `GuardScoring.AUTO` or `LOG_PROBABILITIES`; and for a tool call that reuses the id of the call that started its agent and returns records under that agent's name ([subagents and the thread total](#subagents-and-the-thread-total)). |
 | `MissingExtraError` | A feature needs an extra that is not installed; the message names the extra, and the uv and pip commands that install it. It is a `ConfigurationError` and an `ImportError`. |
 | `SynchronousRunError` | A protocol or monitor needs an event loop under `invoke()` ([sync and async](#sync-and-async)). |
+| `RetriedCallError` | Handed to stamina's retry hooks, logged and counted in place of an error the library retries, naming its type and HTTP status alone ([Turn on log messages](../how-to/read-the-monitor-log.md#turn-on-log-messages)); never raised to the caller, who gets the error itself after the last attempt. |
 | `InvalidSuspicionError` | A `Verdict` is built with a suspicion that is NaN or outside 0 to 1. |
 | `UncalibratedThresholdWarning` | A protocol is built with a default threshold. |
 | `CachedResampleWarning` | A step is resampled, or a monitor draws a second reply to one prompt, under a response cache; once per process for each. |

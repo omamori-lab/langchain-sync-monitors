@@ -286,12 +286,17 @@ class ChatModelMonitor(Monitor, ABC):
         the call, so no retry hook is handed the prompt, or the provider's
         error, which can hold its whole reply: stamina's retry log holds the
         wait and a `RetriedCallError`'s repr, which names the provider error's
-        type and its status alone.
+        type and its status alone. The call is a nested function, whose repr
+        names it alone, since a hook can read the retried block's repr from
+        the stand-in's traceback.
         """
+        messages = list(request.messages)
+
+        async def call_model() -> AIMessage:
+            return await request.model.ainvoke(messages, config=self.call_config)
+
         return await call_with_retries(
-            functools.partial(
-                request.model.ainvoke, list(request.messages), config=self.call_config
-            ),
+            call_model,
             is_retried=is_rate_limit_error,
             attempts=RATE_LIMIT_ATTEMPTS,
             wait_initial=RATE_LIMIT_FIRST_WAIT_SECONDS,
@@ -299,10 +304,13 @@ class ChatModelMonitor(Monitor, ABC):
 
     def request_reply_sync(self, request: ReplyRequest) -> AIMessage:
         """Draw one reply without an event loop, calling the model again after a rate limit."""
+        messages = list(request.messages)
+
+        def call_model() -> AIMessage:
+            return request.model.invoke(messages, config=self.call_config)
+
         return call_with_retries_sync(
-            functools.partial(
-                request.model.invoke, list(request.messages), config=self.call_config
-            ),
+            call_model,
             is_retried=is_rate_limit_error,
             attempts=RATE_LIMIT_ATTEMPTS,
             wait_initial=RATE_LIMIT_FIRST_WAIT_SECONDS,

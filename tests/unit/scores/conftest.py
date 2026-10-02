@@ -8,6 +8,8 @@ import stamina
 from langchain_sync_monitors.score_requests import RETRY_ATTEMPTS
 from tests.support.fixtures import every_log_record as every_log_record
 from tests.support.fixtures import retry_details as retry_details
+from tests.support.fixtures import retry_frame_locals as retry_frame_locals
+from tests.support.fixtures import retry_hook_calls as retry_hook_calls
 from tests.support.score_services import score_services as score_services
 
 

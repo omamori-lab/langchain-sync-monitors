@@ -17,6 +17,9 @@ from langchain_sync_monitors.retries import (
     read_http_status,
 )
 from tests.support.fixtures import retry_details as retry_details
+from tests.support.fixtures import retry_frame_locals as retry_frame_locals
+from tests.support.fixtures import retry_hook_calls as retry_hook_calls
+from tests.support.log_records import find_frame_leaks
 from tests.unit.monitors.doubles import PLANTED_SECRET
 
 type CallPath = Literal["async", "sync"]
@@ -87,6 +90,29 @@ async def test_a_retried_error_is_handed_to_the_hooks_as_its_stand_in(
     (details,) = retry_details
     assert repr(details.caused_by) == "RetriedCallError(error_type='StatusError', http_status=429)"
     assert PLANTED_SECRET not in str(details.caused_by)
+
+
+async def test_no_frame_in_the_stand_ins_traceback_shows_a_retried_error(
+    call_path: CallPath,
+    retry_details: list[RetryDetails],
+    retry_frame_locals: list[dict[str, str]],
+) -> None:
+    # Arrange: two retried errors, whose reprs quote the secret, then a reply
+    block = ScriptedBlock(errors=[StatusError(429), StatusError(429)])
+
+    # Act
+    result = await call_on_path(block, call_path=call_path)
+
+    # Assert: each hook read the library's frames, where the errors are kept, by number alone
+    assert result == "done"
+    assert len(retry_details) == len(retry_frame_locals) == 2
+    suffix = "" if call_path == "async" else "_sync"
+    holders = [f"run_attempt{suffix}.failures", f"call_with_retries{suffix}.failures"]
+    kept = [[frame_locals[name] for name in holders] for frame_locals in retry_frame_locals]
+    assert kept == [["KeptFailures(count=1)"] * 2, ["KeptFailures(count=2)"] * 2]
+
+    # Assert: and no local in those frames quotes the secret
+    assert find_frame_leaks(retry_frame_locals, secrets=[PLANTED_SECRET]) == []
 
 
 async def test_an_error_not_retried_after_a_retried_one_is_raised_as_it_is(

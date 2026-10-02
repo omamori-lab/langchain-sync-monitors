@@ -39,7 +39,7 @@ from langchain_sync_monitors.score_requests import (
     send_request,
 )
 from langchain_sync_monitors.scores import LangSmithCredentials, PendingScore, ScoreSender, Tracer
-from tests.support.log_records import find_leaks, find_logged_leaks
+from tests.support.log_records import find_frame_leaks, find_leaks, find_logged_leaks
 from tests.support.malformed_replies import PLANTED_REPLY_HEADER, build_malformed_reply_error
 from tests.support.score_services import (
     LANGSMITH_ENDPOINT,
@@ -334,6 +334,7 @@ def test_credentials_in_the_base_url_authenticate_as_httpx_would_and_stay_out_of
 
 def test_a_malformed_reply_is_retried_and_hands_a_retry_hook_no_part_of_it(
     retry_details: list[RetryDetails],
+    retry_frame_locals: list[dict[str, str]],
     every_log_record: list[logging.LogRecord],
 ) -> None:
     # Arrange: the first reply cannot be parsed, and httpx's error quotes its header line
@@ -363,6 +364,11 @@ def test_a_malformed_reply_is_retried_and_hands_a_retry_hook_no_part_of_it(
     secrets = [PLANTED_KEY, PLANTED_REPLY_HEADER]
     assert find_logged_leaks(every_log_record, secrets=secrets) == []
     assert find_leaks(details.caused_by, secrets=secrets) == []
+
+    # Assert: nor does any local of the frames in the stand-in's traceback, read by repr
+    (frame_locals,) = retry_frame_locals
+    assert "run_attempt_sync.failures" in frame_locals
+    assert find_frame_leaks(retry_frame_locals, secrets=secrets) == []
 
 
 def test_a_malformed_reply_on_every_attempt_leaves_no_response_and_logs_its_type(

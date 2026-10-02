@@ -20,6 +20,15 @@ change raises the minor version.
   the bug report form asks for the configuration, the run mode and the log
   output.
 
+### Changed
+
+- With `prometheus-client` installed, stamina's `stamina_retries_total`
+  counter labels every retry the library makes with the `error_type`
+  `langchain_sync_monitors.errors.RetriedCallError`, in place of the error's
+  own class, such as `httpx.HTTPStatusError`, so a dashboard or alert keyed
+  on that class no longer counts these retries. The error's type and HTTP
+  status are now in the retry log's `caused_by` alone.
+
 ### Security
 
 - A chat monitor's retry on HTTP 429 no longer logs the provider's error

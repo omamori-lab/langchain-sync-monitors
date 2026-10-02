@@ -20,7 +20,7 @@ from langchain_sync_monitors.contracts import Monitor, MonitorInput
 from langchain_sync_monitors.monitors.chat import RATE_LIMIT_ATTEMPTS, LLMMonitor
 from langchain_sync_monitors.monitors.guard import GuardModelMonitor, GuardScoring
 from tests.support.flaky_models import FlakyChatModel
-from tests.support.log_records import find_leaks, find_logged_leaks
+from tests.support.log_records import find_frame_leaks, find_leaks, find_logged_leaks
 
 from .doubles import PLANTED_SECRET, CallPath, evaluate_on_path
 
@@ -297,6 +297,33 @@ async def test_a_retried_rate_limit_logs_no_part_of_the_providers_reply(
     (details,) = retry_details
     assert find_logged_leaks(every_log_record, secrets=PLANTED_REPLY_VALUES) == []
     assert find_leaks(details.caused_by, secrets=PLANTED_REPLY_VALUES) == []
+
+
+@pytest.mark.parametrize("build_error", REPLY_HOLDING_RATE_LIMITS)
+@pytest.mark.parametrize(
+    "build_monitor", [build_llm_monitor, build_guard], ids=["llm-monitor", "guard"]
+)
+async def test_no_frame_a_retry_hook_can_read_shows_the_prompt_or_the_providers_reply(
+    input_holding_a_secret: MonitorInput,
+    call_path: CallPath,
+    build_monitor: Callable[[BaseChatModel], Monitor],
+    build_error: Callable[[], Exception],
+    retry_frame_locals: list[dict[str, str]],
+) -> None:
+    # Arrange: the prompt quotes the secret, and the provider's error holds its whole reply
+    reply = AIMessage(CALM_REPLY if build_monitor is build_llm_monitor else "no_violation")
+    model = FlakyChatModel(replies=[build_error(), reply, reply, reply])
+
+    # Act
+    await evaluate_on_path(build_monitor(model), input_holding_a_secret, call_path=call_path)
+
+    # Assert: the hook read the frames that hold the call and the kept error
+    (frame_locals,) = retry_frame_locals
+    suffix = "" if call_path == "async" else "_sync"
+    assert {f"run_attempt{suffix}.block", f"run_attempt{suffix}.failures"} <= frame_locals.keys()
+
+    # Assert: and no local in them quotes the prompt or any part of the reply
+    assert find_frame_leaks(retry_frame_locals, secrets=PLANTED_REPLY_VALUES) == []
 
 
 @pytest.mark.parametrize("build_error", REPLY_HOLDING_RATE_LIMITS)

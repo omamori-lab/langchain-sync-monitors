@@ -63,6 +63,20 @@ def find_logged_leaks(
     return leaks
 
 
+def find_frame_leaks(
+    frame_locals: Iterable[Mapping[str, str]],
+    *,
+    secrets: Collection[str],
+) -> list[str]:
+    """Return the name of every frame local whose repr holds a secret."""
+    return [
+        name
+        for locals_of_one_retry in frame_locals
+        for name, text in locals_of_one_retry.items()
+        if any(secret in text for secret in secrets)
+    ]
+
+
 def find_leaks(value: object, *, secrets: Collection[str]) -> list[str]:
     """Return the HTTP objects in a value and the parts of it whose text holds a secret."""
     return search_value(value, secrets=secrets, visited={})

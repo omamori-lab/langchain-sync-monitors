@@ -386,8 +386,14 @@ hold the request, its key and transcript included. So the library retries on
 with nothing chained to it, such as
 `RetriedCallError(error_type='TooManyRequestsResponseError', http_status=429)`
 or `RetriedCallError(error_type='ConnectError', http_status=None)`. A retry
-hook of your own is handed that stand-in too. After the last attempt, the
-error the call failed with is raised, as it would be without the stand-in.
+hook of your own is handed that stand-in too. The locals of the frames in
+its traceback show the errors the library keeps by their number alone, such
+as `KeptFailures(count=1)`, and the retried call by its function's name, so
+an error reporter that records frame locals by repr records neither; code
+that reads those locals' attributes can still reach them. After the last
+attempt, the error the call failed with is raised, as it would be without
+the stand-in. stamina's logger and hooks serve the whole process, so a retry
+in your own code or in another library logs the repr of its own error.
 When `prometheus-client` is installed, stamina's retry counter labels each
 retry with the stand-in's class,
 `langchain_sync_monitors.errors.RetriedCallError` (module

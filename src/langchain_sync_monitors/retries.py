@@ -16,13 +16,19 @@ raised in its place, which names the error's type and HTTP status alone.
 After the last attempt the kept error is raised, so the caller sees the error
 it would see without the stand-in. Every other error is raised at once, as it
 is.
+
+A hook, or an error reporter that records each frame's locals by repr, can
+also read the frames in the stand-in's traceback: those of `run_attempt` and
+`call_with_retries`. So the kept error sits in `KeptFailures`, whose repr
+gives the number of errors alone, and each site passes a block whose repr
+names a function, never its arguments.
 """
 
 from __future__ import annotations
 
 import contextlib
 from collections.abc import Awaitable, Callable
-from typing import TypedDict, Unpack
+from typing import NoReturn, TypedDict, Unpack
 
 import httpx
 import stamina
@@ -31,6 +37,37 @@ from langchain_sync_monitors.errors import RetriedCallError
 
 type RetriedErrorPredicate = Callable[[Exception], bool]
 """Tells whether a retry site retries an error, as stamina's `on` predicate would."""
+
+
+class KeptFailures:
+    """The errors a call failed with and was retried after, shown by their number alone.
+
+    Its repr, such as `KeptFailures(count=2)`, is what a reporter that
+    records frame locals by repr shows in place of the errors.
+    """
+
+    __slots__ = ("_errors",)
+
+    def __init__(self) -> None:
+        """Keep no error yet."""
+        self._errors: list[Exception] = []
+
+    @property
+    def count(self) -> int:
+        """The number of errors kept."""
+        return len(self._errors)
+
+    def keep(self, error: Exception) -> None:
+        """Keep an error the site retries."""
+        self._errors.append(error)
+
+    def raise_last(self) -> NoReturn:
+        """Raise the last error kept, as it is; called outside any handler, nothing is chained."""
+        raise self._errors[-1]
+
+    def __repr__(self) -> str:
+        """Give the number of errors kept, and nothing any of them holds."""
+        return f"KeptFailures(count={self.count})"
 
 
 class RetryOptions(TypedDict, total=False):
@@ -64,7 +101,7 @@ async def run_attempt[Result](
     block: Callable[[], Awaitable[Result]],
     *,
     is_retried: RetriedErrorPredicate,
-    failures: list[Exception],
+    failures: KeptFailures,
 ) -> Result:
     """Await the block once; on an error the site retries, keep it and raise its stand-in.
 
@@ -78,15 +115,16 @@ async def run_attempt[Result](
     except Exception as error:
         if not is_retried(error):
             raise
-        failures.append(error)
-    raise build_stand_in(failures[-1]) from None
+        failures.keep(error)
+        stand_in = build_stand_in(error)
+    raise stand_in from None
 
 
 def run_attempt_sync[Result](
     block: Callable[[], Result],
     *,
     is_retried: RetriedErrorPredicate,
-    failures: list[Exception],
+    failures: KeptFailures,
 ) -> Result:
     """Run the block once without an event loop, as `run_attempt` awaits it."""
     try:
@@ -94,8 +132,9 @@ def run_attempt_sync[Result](
     except Exception as error:
         if not is_retried(error):
             raise
-        failures.append(error)
-    raise build_stand_in(failures[-1]) from None
+        failures.keep(error)
+        stand_in = build_stand_in(error)
+    raise stand_in from None
 
 
 async def call_with_retries[Result](
@@ -110,14 +149,18 @@ async def call_with_retries[Result](
     block's arguments, and they retry on the stand-in, so no hook is handed
     the error either. After the last attempt, the error from it is raised,
     outside the handler, so nothing is chained to it.
+
+    The block is a local of the frames in the stand-in's traceback, so pass
+    one whose repr names a function alone, such as a nested function, and
+    not a `functools.partial`, whose repr quotes its arguments.
     """
-    failures: list[Exception] = []
+    failures = KeptFailures()
     with contextlib.suppress(RetriedCallError):
         async for attempt in stamina.retry_context(on=RetriedCallError, **options):
             with attempt:
                 result = await run_attempt(block, is_retried=is_retried, failures=failures)
         return result
-    raise failures[-1]
+    failures.raise_last()
 
 
 def call_with_retries_sync[Result](
@@ -127,10 +170,10 @@ def call_with_retries_sync[Result](
     **options: Unpack[RetryOptions],
 ) -> Result:
     """Run the block without an event loop, as `call_with_retries` awaits it."""
-    failures: list[Exception] = []
+    failures = KeptFailures()
     with contextlib.suppress(RetriedCallError):
         for attempt in stamina.retry_context(on=RetriedCallError, **options):
             with attempt:
                 result = run_attempt_sync(block, is_retried=is_retried, failures=failures)
         return result
-    raise failures[-1]
+    failures.raise_last()

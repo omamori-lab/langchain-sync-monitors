@@ -37,7 +37,7 @@ from langchain_sync_monitors.monitors.openrouter_decisions import (
     OpenRouterDecisionModel,
     read_decisions_probabilities,
 )
-from tests.support.log_records import find_leaks, find_logged_leaks
+from tests.support.log_records import find_frame_leaks, find_leaks, find_logged_leaks
 from tests.support.malformed_replies import (
     PLANTED_REPLY_HEADER,
     build_malformed_reply_error,
@@ -347,6 +347,7 @@ async def test_a_retried_request_hands_a_retry_hook_only_the_error_type_and_stat
     call_path: CallPath,
     input_holding_a_secret: MonitorInput,
     retry_details: list[RetryDetails],
+    retry_frame_locals: list[dict[str, str]],
     every_log_record: list[logging.LogRecord],
     first_failure: Responder,
     logged_error: str,
@@ -373,6 +374,11 @@ async def test_a_retried_request_hands_a_retry_hook_only_the_error_type_and_stat
     secrets = [PLANTED_SECRET, PLANTED_KEY, PLANTED_REPLY_HEADER]
     assert find_logged_leaks(every_log_record, secrets=secrets) == []
     assert find_leaks(details.caused_by, secrets=secrets) == []
+
+    # Assert: nor does any local of the frames in the stand-in's traceback, read by repr
+    (frame_locals,) = retry_frame_locals
+    assert any(name.startswith("run_attempt") for name in frame_locals)
+    assert find_frame_leaks(retry_frame_locals, secrets=secrets) == []
 
 
 @pytest.mark.usefixtures("three_attempts")

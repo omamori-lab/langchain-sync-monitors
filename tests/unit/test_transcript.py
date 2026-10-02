@@ -1169,7 +1169,7 @@ def test_every_tag_a_transcript_can_hold_is_explained_in_the_default_prompt() ->
 
 
 def test_the_default_prompt_explains_only_tags_a_transcript_can_hold() -> None:
-    # Arrange: the reply format's own tags are the judge's, not the transcript's.
+    # Arrange: the reply format's own tags are the monitor's, not the transcript's.
     reply_tags = {"reasoning", "score"}
 
     # Act: read opening, closing, attribute and self-closing forms alike.

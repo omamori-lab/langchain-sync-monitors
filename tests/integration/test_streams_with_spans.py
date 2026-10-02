@@ -35,7 +35,7 @@ from tests.support.agents import (
 )
 from tests.support.chat_models import StreamingScriptedChatModel
 from tests.support.monitors import KeywordMonitor
-from tests.support.tracing import RecordingTracer, build_judge_model
+from tests.support.tracing import RecordingTracer, build_monitor_model
 
 type StreamMode = Literal["messages", "updates", "custom"]
 
@@ -63,7 +63,7 @@ def build_agent() -> CompiledStateGraph[Any, Any, Any, Any]:
     """Build an agent whose first step Auto Mode blocks, and whose steps stream token by token."""
     monitor = KeywordMonitor(
         suspicion_by_keyword=SUSPICION_BY_KEYWORD,
-        judge_model=build_judge_model(),
+        model=build_monitor_model(),
     )
     return create_agent(
         model=StreamingScriptedChatModel(

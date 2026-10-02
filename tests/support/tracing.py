@@ -26,7 +26,7 @@ from langchain_sync_monitors.model_calls import MONITOR_CALL_NAME
 from tests.support.agents import RunMode, run_agent
 
 MONITOR_SPAN_PREFIX = "monitor "
-JUDGE_MODEL_NAME = "judge-model"
+MONITOR_MODEL_NAME = "monitor-model"
 
 
 @dataclass(kw_only=True)
@@ -278,11 +278,11 @@ def render_run(run: RecordedRun, *, depth: int, lines: list[str]) -> None:
 class NamedFakeChatModel(GenericFakeChatModel):
     """A fake chat model with a model name, which LangChain reports as `ls_model_name`."""
 
-    model_name: str = JUDGE_MODEL_NAME
+    model_name: str = MONITOR_MODEL_NAME
 
 
-def build_judge_model() -> GenericFakeChatModel:
-    """Return a judge that answers every call, so each verdict makes one model call."""
+def build_monitor_model() -> GenericFakeChatModel:
+    """Return a monitor's model that answers every call, so each verdict makes one model call."""
     return NamedFakeChatModel(messages=itertools.repeat(AIMessage("The step looks fine.")))
 
 

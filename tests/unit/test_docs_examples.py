@@ -352,7 +352,7 @@ def test_a_call_to_a_name_never_imported_is_reported() -> None:
         CodeBlock(
             path=page,
             line_number=5,
-            source="judge = LLMMonitor(model='m')\nagent = create_agent(protocol=AutoMode())",
+            source="monitor = LLMMonitor(model='m')\nagent = create_agent(protocol=AutoMode())",
         ),
     ]
 
@@ -404,7 +404,7 @@ import langchain_sync_monitors as sync_monitors
 from langchain_sync_monitors import AutoMode, HaltRun as Halt, MonitorMiddleware
 
 protocol = AutoMode(block_threshold=0.7, when_limit_reached=Halt(message="Stopped."))
-middleware = MonitorMiddleware(monitor=judge, protocol=protocol)
+middleware = MonitorMiddleware(monitor=monitor, protocol=protocol)
 fallback = sync_monitors.DeferToTrustedModel(trusted_model="openrouter:xiaomi/mimo-v2.6-flash")
 """
 

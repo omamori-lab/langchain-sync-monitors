@@ -39,7 +39,7 @@ from tests.support.agents import (
 )
 from tests.support.chat_models import ScriptedChatModel
 from tests.support.monitors import KeywordMonitor
-from tests.support.tracing import JUDGE_MODEL_NAME, RecordingTracer, build_judge_model
+from tests.support.tracing import MONITOR_MODEL_NAME, RecordingTracer, build_monitor_model
 
 MONITOR_SPAN_NAMES = {"monitor step", "monitor judgement", "monitor decision"}
 MONITOR_CALL = "monitor call"
@@ -110,7 +110,7 @@ def find_sent_parent(runs: dict[str, SentRun], run: SentRun) -> SentRun:
 def build_agent() -> Runnable[Any, Any]:
     monitor = KeywordMonitor(
         suspicion_by_keyword=SUSPICION_BY_KEYWORD,
-        judge_model=build_judge_model(),
+        model=build_monitor_model(),
     )
     protocol = DeferToResample(fallback=HaltRun(), defer_threshold=0.6, audit_threshold=0.95)
     return create_agent(
@@ -123,7 +123,7 @@ def build_agent() -> Runnable[Any, Any]:
 
 
 def build_stacked_agent() -> Runnable[Any, Any]:
-    """Build an agent with two monitors whose judges trace themselves with `traceable`."""
+    """Build an agent with two monitors that each trace part of their work with `traceable`."""
     return create_agent(
         model=ScriptedChatModel(responses=[AIMessage("Done.")]),
         tools=[],
@@ -198,13 +198,15 @@ def test_the_spans_nest_the_same_way_in_langsmith(
         *find_sent_runs(sent_runs, "monitor judgement"),
         *find_sent_runs(sent_runs, "monitor decision"),
     ]
-    judge_calls = find_sent_runs(sent_runs, MONITOR_CALL)
+    monitor_calls = find_sent_runs(sent_runs, MONITOR_CALL)
     samples = find_sent_runs(sent_runs, "ScriptedChatModel")
     assert [find_sent_parent(sent_runs, step).name for step in steps] == ["model", "model"]
     assert {find_sent_parent(sent_runs, span).name for span in spans_below_the_step} == {
         "monitor step"
     }
-    assert {find_sent_parent(sent_runs, call).name for call in judge_calls} == {"monitor judgement"}
+    assert {find_sent_parent(sent_runs, call).name for call in monitor_calls} == {
+        "monitor judgement"
+    }
     assert [find_sent_parent(sent_runs, sample) for sample in samples[:2]] == [steps[0]] * 2
 
 
@@ -253,13 +255,13 @@ def test_langsmith_receives_the_monitor_calls_by_their_fixed_name_with_their_mod
         config=RunnableConfig(callbacks=[build_langsmith_tracer(langsmith_client)]),
     )
 
-    # Assert: three verdicts, each one judge call named for the monitor, not for its model.
+    # Assert: three verdicts, each from one call named "monitor call", not after its model.
     sent_runs = read_sent_runs(langsmith_client)
-    judge_calls = find_sent_runs(sent_runs, MONITOR_CALL)
-    assert len(judge_calls) == 3
+    monitor_calls = find_sent_runs(sent_runs, MONITOR_CALL)
+    assert len(monitor_calls) == 3
     assert find_sent_runs(sent_runs, "NamedFakeChatModel") == []
-    for call in judge_calls:
-        assert call.metadata["ls_model_name"] == JUDGE_MODEL_NAME
+    for call in monitor_calls:
+        assert call.metadata["ls_model_name"] == MONITOR_MODEL_NAME
         assert call.metadata["ls_message_view_exclude"] is True
     samples = find_sent_runs(sent_runs, "ScriptedChatModel")
     assert len(samples) == 3

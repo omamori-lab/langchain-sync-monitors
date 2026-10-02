@@ -55,7 +55,7 @@ class SlowOrFailingMonitor(Monitor):
         self.started += 1
         call_number = self.started
         if call_number == 2:
-            message = "judge timed out"
+            message = "monitor timed out"
             raise TimeoutError(message)
         await asyncio.sleep(self.delay)
         self.finished.append(call_number)
@@ -241,7 +241,7 @@ async def test_a_failed_repeat_cancels_the_other_calls_and_raises_its_own_error(
     repeated = RepeatedMonitor(monitor=inner, ensemble_size=3)
 
     # Act
-    with pytest.raises(TimeoutError, match="judge timed out"):
+    with pytest.raises(TimeoutError, match="monitor timed out"):
         await repeated.evaluate(build_scored_step(0.1))
     await asyncio.sleep(0.3)
 

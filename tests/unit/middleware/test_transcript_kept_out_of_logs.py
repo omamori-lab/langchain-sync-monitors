@@ -87,7 +87,7 @@ def build_secret_post() -> AIMessage:
 
 
 def build_quoting_monitor() -> KeywordMonitor:
-    """A monitor whose reason quotes the secret, as a judge that quotes the step does."""
+    """A monitor whose reason quotes the secret, as an LLM monitor that quotes the step does."""
     return KeywordMonitor(suspicion_by_keyword={PLANTED_SECRET: 0.95})
 
 

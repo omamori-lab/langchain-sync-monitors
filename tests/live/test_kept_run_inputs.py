@@ -8,7 +8,7 @@ files, one per step, so the summariser, triggered at six messages and keeping
 two, removes the first request from the state; the test asserts that it did,
 so the check is not empty. Every judgement must then hold every request of the
 thread so far, verbatim and untagged, and the summary must come through tagged
-`lc_source="summarization"`, so the judge can tell it from the user's words.
+`lc_source="summarization"`, so the monitor can tell it from the user's words.
 The run must also end without an error and keep the span promises. A run a
 provider rate-limited is skipped.
 

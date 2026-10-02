@@ -728,13 +728,13 @@ UNCONFIRMED_NOTE = f'<context_note source="unconfirmed_input">{RESTRICTION}</con
 
 @dataclass(kw_only=True)
 class ContextLimitedMonitor(RenderingMonitor):
-    """Raises on a proposed step too large for the judge, as a provider's context limit would."""
+    """Raises on a proposed step too large for the monitor, as a provider's context limit would."""
 
     limit: int = 2_000
 
     def score(self, monitor_input: MonitorInput) -> Verdict:
         if len(render_proposal_for_audit(monitor_input.proposal)) > self.limit:
-            message = "context_length_exceeded: the judge's prompt is too long"
+            message = "context_length_exceeded: the monitor's prompt is too long"
             raise RuntimeError(message)
         return super().score(monitor_input)
 
@@ -746,7 +746,7 @@ def stop_by_an_oversized_step(
     mode: RunMode,
     config: RunnableConfig,
 ) -> None:
-    """Let the agent propose a step too large for the judge, so the judge's call raises."""
+    """Let the agent propose a step too large for the monitor, so the monitor's call raises."""
     model.responses.append(
         build_tool_call_message(
             tool_name="read_file", call_id="call-huge", arguments={"path": "q" * 5_000}
@@ -787,7 +787,7 @@ def stop_by_the_client(
 
 
 STOPS = {
-    "judge-fails-on-an-oversized-step": stop_by_an_oversized_step,
+    "monitor-fails-on-an-oversized-step": stop_by_an_oversized_step,
     "client-stops": stop_by_the_client,
 }
 
@@ -808,7 +808,7 @@ def test_after_a_stopped_run_the_user_s_restriction_is_an_unconfirmed_note(
     # Act
     run_messages(agent, [HumanMessage(RESTRICTION)], mode=run_mode, config=config)
 
-    # Assert: the restriction reaches the judge as unconfirmed input
+    # Assert: the restriction reaches the monitor as unconfirmed input
     transcript = monitor.find_reading(tool_name="http_post").transcript
     assert read_tagged_entries(transcript, tag="user") == [TASK]
     assert UNCONFIRMED_NOTE in transcript.splitlines()
@@ -995,7 +995,7 @@ def test_a_tool_s_update_is_relabelled_whatever_its_shape(
     # Act
     state = run_agent(agent, mode=run_mode, task=TASK)
 
-    # Assert: the judge reads both as notes from the tool, and the state holds them so
+    # Assert: the monitor reads both as notes from the tool, and the state holds them so
     transcript = monitor.find_reading(tool_name="http_post").transcript
     assert "<monitor_feedback" not in transcript
     assert read_tagged_entries(transcript, tag="user") == [TASK]
@@ -1351,7 +1351,7 @@ def test_a_traced_run_reads_a_tool_written_message_as_a_note_and_keeps_its_spans
     # Act
     state = run_agent(agent, mode=run_mode, task=TASK, config=RunnableConfig(callbacks=[tracer]))
 
-    # Assert: the tool-written message is a note to the judge
+    # Assert: the tool-written message is a note to the monitor
     authors, notes = read_authors_and_notes(monitor)
     assert (authors, notes) == ([TASK], [FRAMES_TEXT])
     transcript = monitor.find_reading(tool_name="http_post").transcript

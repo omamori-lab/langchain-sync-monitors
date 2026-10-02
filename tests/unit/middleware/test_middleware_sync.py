@@ -250,10 +250,10 @@ def test_invoke_passes_on_a_monitor_error_that_is_not_about_an_event_loop(
     answering_model: ScriptedChatModel,
 ) -> None:
     # Arrange
-    monitor = EventLoopMonitor(error_text="the judge is misconfigured")
+    monitor = EventLoopMonitor(error_text="the monitor is misconfigured")
     middleware = MonitorMiddleware(monitor=monitor, protocol=AcceptFirst())
     agent = create_agent(answering_model, middleware=[middleware])
 
     # Act / Assert
-    with pytest.raises(RuntimeError, match="the judge is misconfigured"):
+    with pytest.raises(RuntimeError, match="the monitor is misconfigured"):
         run_agent(agent, mode="invoke")

@@ -479,7 +479,7 @@ def test_an_inner_monitor_that_may_block_is_named_for_feedback_in_the_transcript
 def test_blocked_attempts_are_safe_when_hidden_inside_or_shown_by_the_outermost_monitor(
     outer_visibility: FeedbackVisibility,
 ) -> None:
-    # Arrange: only a monitor inside another hands its blocked attempts to a judge
+    # Arrange: only a monitor inside another hands its blocked attempts to the one outside it
     auto_mode = build_auto_mode(max_consecutive_blocks=1, when_limit_reached=HaltRun())
     stack = [
         build_monitor(auto_mode, label="outer", feedback_visibility=outer_visibility),

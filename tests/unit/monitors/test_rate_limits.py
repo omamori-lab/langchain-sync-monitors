@@ -53,7 +53,7 @@ def library_attempts_without_waiting() -> Iterator[None]:
         yield
 
 
-def build_judge(model: BaseChatModel) -> Monitor:
+def build_llm_monitor(model: BaseChatModel) -> Monitor:
     """Return an LLM monitor over `model` that never asks again for an unreadable reply."""
     return LLMMonitor(model=model, max_parse_retries=0)
 
@@ -92,7 +92,7 @@ async def test_a_rate_limited_call_is_made_again(
     model = FlakyChatModel(replies=[build_error(), AIMessage(CALM_REPLY)])
 
     # Act
-    verdict = await evaluate_on_path(build_judge(model), monitor_input, call_path=call_path)
+    verdict = await evaluate_on_path(build_llm_monitor(model), monitor_input, call_path=call_path)
 
     # Assert
     assert verdict.suspicion == pytest.approx(0.3)
@@ -111,7 +111,7 @@ async def test_a_call_that_fails_otherwise_is_not_made_again(
 
     # Act
     with pytest.raises(type(error)) as raised:
-        await evaluate_on_path(build_judge(model), monitor_input, call_path=call_path)
+        await evaluate_on_path(build_llm_monitor(model), monitor_input, call_path=call_path)
 
     # Assert
     assert raised.value is error
@@ -128,7 +128,7 @@ async def test_a_rate_limit_on_every_attempt_is_raised_after_the_last(
 
     # Act
     with pytest.raises(ProviderStatusError) as raised:
-        await evaluate_on_path(build_judge(model), monitor_input, call_path=call_path)
+        await evaluate_on_path(build_llm_monitor(model), monitor_input, call_path=call_path)
 
     # Assert
     assert raised.value is rate_limits[-1]
@@ -153,7 +153,7 @@ async def test_each_retry_after_a_rate_limit_waits_longer_from_one_second(
 
     # Act
     with stamina.set_testing(False), pytest.raises(ProviderStatusError):
-        await evaluate_on_path(build_judge(model), monitor_input, call_path=call_path)
+        await evaluate_on_path(build_llm_monitor(model), monitor_input, call_path=call_path)
 
     # Assert: each wait doubles from one second, with up to one second of jitter, up to five
     first, second, third = (details.wait_for for details in retry_details)
@@ -179,7 +179,9 @@ async def test_a_guard_draws_again_only_the_rate_limited_sample(
     assert model.finished_calls == 3
 
 
-@pytest.mark.parametrize("build_monitor", [build_judge, build_guard], ids=["judge", "guard"])
+@pytest.mark.parametrize(
+    "build_monitor", [build_llm_monitor, build_guard], ids=["llm-monitor", "guard"]
+)
 async def test_a_retried_rate_limit_logs_no_part_of_the_prompt(
     input_holding_a_secret: MonitorInput,
     call_path: CallPath,
@@ -189,7 +191,7 @@ async def test_a_retried_rate_limit_logs_no_part_of_the_prompt(
 ) -> None:
     # Arrange
     caplog.set_level(logging.DEBUG)
-    reply = AIMessage(CALM_REPLY if build_monitor is build_judge else "no_violation")
+    reply = AIMessage(CALM_REPLY if build_monitor is build_llm_monitor else "no_violation")
     model = FlakyChatModel(replies=[ProviderStatusError(429), reply, reply, reply])
 
     # Act
@@ -207,7 +209,7 @@ OPENROUTER_REPLY = {
     "id": "gen-1",
     "object": "chat.completion",
     "created": 0,
-    "model": "provider/judge",
+    "model": "provider/monitor-model",
     "system_fingerprint": None,
     "choices": [
         {
@@ -249,13 +251,13 @@ async def test_chat_openrouter_gets_a_rate_limited_call_made_again(
         retry_config=retries,
     )
     model = langchain_openrouter.ChatOpenRouter(
-        model="provider/judge",
+        model="provider/monitor-model",
         api_key="offline-placeholder",
         client=client,
     )
 
     # Act
-    verdict = await evaluate_on_path(build_judge(model), monitor_input, call_path=call_path)
+    verdict = await evaluate_on_path(build_llm_monitor(model), monitor_input, call_path=call_path)
 
     # Assert
     assert verdict.suspicion == pytest.approx(0.3)

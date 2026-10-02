@@ -102,7 +102,7 @@ def stream_traced_custom_events(
     pytest.fail("the run was expected to fail")
 
 
-def test_a_judge_that_raises_ends_its_judgement_and_the_step_with_the_error(
+def test_a_monitor_that_raises_ends_its_judgement_and_the_step_with_the_error(
     run_mode: RunMode,
 ) -> None:
     # Arrange

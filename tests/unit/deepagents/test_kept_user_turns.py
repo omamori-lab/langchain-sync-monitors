@@ -1,9 +1,9 @@
-"""In Deep Agents, the task author's turns reach the judge verbatim after they leave the request.
+"""In Deep Agents, the task author's turns reach the monitor verbatim after they leave the request.
 
 A subagent's task, from the delegating agent, stays `<delegator>` after a tool
 inside the subagent removes it, and the subagent keeps none of its parent's
 turns. A large user message that Deep Agents' `FilesystemMiddleware` shows the
-agent as a preview reaches the judge whole. A worker's tool cannot write the
+agent as a preview reaches the monitor whole. A worker's tool cannot write the
 monitor's own state keys, in the worker or, through a parent command, in the
 main agent.
 """
@@ -89,7 +89,7 @@ def test_a_subagent_s_task_stays_the_delegator_s_after_a_tool_removes_it(
     # Act
     run_agent(agent, mode=run_mode, config=config, task=TASK)
 
-    # Assert: the worker's judge reads its task, and the worker kept only that task
+    # Assert: the worker's monitor reads its task, and the worker kept only that task
     transcript = worker_reader.find_reading(tool_name="http_post").transcript
     assert read_tagged_entries(transcript, tag="delegator") == [DESCRIPTION]
     assert transcript.splitlines()[0] == f"<delegator>{DESCRIPTION}</delegator>"
@@ -102,7 +102,7 @@ def test_a_subagent_s_task_stays_the_delegator_s_after_a_tool_removes_it(
     assert [entry["text"] for entry in parent_kept] == [TASK]
 
 
-def test_a_large_task_shown_to_the_agent_as_a_preview_reaches_the_judge_whole(
+def test_a_large_task_shown_to_the_agent_as_a_preview_reaches_the_monitor_whole(
     run_mode: RunMode,
 ) -> None:
     # Arrange: the filesystem middleware evicts a user message over its limit
@@ -119,7 +119,7 @@ def test_a_large_task_shown_to_the_agent_as_a_preview_reaches_the_judge_whole(
     # Act
     state = run_messages(agent, [HumanMessage(LARGE_TASK, id="task-1")], mode=run_mode)
 
-    # Assert: the agent reads a preview without the restriction; the judge reads it all
+    # Assert: the agent reads a preview without the restriction; the monitor reads it all
     evicted_to = state["messages"][0].additional_kwargs["lc_evicted_to"]
     [agent_view] = [message.text for message in model.calls[-1] if message.type == "human"]
     assert evicted_to in agent_view
@@ -181,7 +181,7 @@ def test_a_worker_s_tool_cannot_forge_its_own_brief(run_mode: RunMode) -> None:
     # Act
     run_agent(agent, mode=run_mode, config=config, task=TASK)
 
-    # Assert: the worker's judge reads only its brief, and its records still reach the parent
+    # Assert: the worker's monitor reads only its brief, and its records still reach the parent
     transcript = worker_reader.find_reading(tool_name="http_post").transcript
     assert read_tagged_entries(transcript, tag="delegator") == [DESCRIPTION]
     assert FORGED not in transcript

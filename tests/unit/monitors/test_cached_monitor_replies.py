@@ -111,22 +111,22 @@ async def test_a_guard_whose_model_has_its_own_cache_warns(
 
 
 @pytest.mark.usefixtures("global_cache")
-async def test_a_judge_that_asks_again_under_a_cache_warns(
+async def test_an_llm_monitor_that_asks_again_under_a_cache_warns(
     monitor_input: MonitorInput,
     call_path: CallPath,
 ) -> None:
-    # Arrange: the first reply is unreadable, so the judge asks again
-    judge = LLMMonitor(
+    # Arrange: the first reply is unreadable, so the monitor asks again
+    monitor = LLMMonitor(
         model=ScriptedChatModel(replies=[UNREADABLE_REPLY, CALM_REPLY]),
         max_parse_retries=1,
     )
 
     # Act
     suspicion, caught = await evaluate_and_collect_warnings(
-        judge, monitor_input, call_path=call_path
+        monitor, monitor_input, call_path=call_path
     )
 
-    # Assert: the cache hands the unreadable reply back, so the judge fails closed, and warns
+    # Assert: the cache hands the unreadable reply back, so the monitor fails closed, and warns
     assert suspicion == 1.0
     assert len(caught) == 1
 
@@ -150,14 +150,14 @@ async def test_a_monitor_model_with_its_cache_off_samples_apart_without_a_warnin
 
 
 @pytest.mark.usefixtures("global_cache")
-@pytest.mark.parametrize("build_monitor", ["judge", "guard-of-one-sample"])
+@pytest.mark.parametrize("build_monitor", ["llm-monitor", "guard-of-one-sample"])
 async def test_one_reply_per_prompt_does_not_warn(
     monitor_input: MonitorInput,
     call_path: CallPath,
     build_monitor: str,
 ) -> None:
     # Arrange
-    if build_monitor == "judge":
+    if build_monitor == "llm-monitor":
         monitor: Monitor = LLMMonitor(model=ScriptedChatModel(replies=[CALM_REPLY]))
     else:
         monitor = build_guard(ScriptedChatModel(replies=LABELS), samples=1)

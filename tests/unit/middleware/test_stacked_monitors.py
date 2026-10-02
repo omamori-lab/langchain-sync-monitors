@@ -494,7 +494,7 @@ def test_one_monitor_keeping_the_higher_suspicion_rejects_what_a_cascade_lets_th
     combine: str,
     expected_outcome: str,
 ) -> None:
-    # Arrange: one judge flags the unsafe draft, the other finds nothing; invoke() runs the
+    # Arrange: one monitor flags the unsafe draft, the other finds nothing; invoke() runs the
     # monitors' evaluate_sync and ainvoke() their evaluate
     flagging, clearing = build_keyword_monitor(), KeywordMonitor()
     higher_suspicion = load_design_page_monitor(tmp_path)
@@ -512,7 +512,7 @@ def test_one_monitor_keeping_the_higher_suspicion_rejects_what_a_cascade_lets_th
     # Act
     result = run_agent(agent, mode=run_mode)
 
-    # Assert: both judges read every sample, and only the cascade lets the careful judge
+    # Assert: both monitors read every sample, and only the cascade lets the careful monitor
     # clear the step the fast one flagged
     [record] = result["monitor_log"]
     assert record["outcome"] == expected_outcome

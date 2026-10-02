@@ -39,7 +39,8 @@ from langchain_sync_monitors.score_requests import (
     send_request,
 )
 from langchain_sync_monitors.scores import LangSmithCredentials, PendingScore, ScoreSender, Tracer
-from tests.support.log_records import find_logged_leaks
+from tests.support.log_records import find_leaks, find_logged_leaks
+from tests.support.malformed_replies import PLANTED_REPLY_HEADER, build_malformed_reply_error
 from tests.support.score_services import (
     LANGSMITH_ENDPOINT,
     PROJECT_NAME,
@@ -271,7 +272,7 @@ def test_a_retried_request_hands_no_retry_hook_the_request_and_logs_no_key(
     assert find_logged_leaks(caplog.records, secrets=secrets) == []
     (details,) = retry_details
     assert (details.name, details.args, details.kwargs) == ("<context block>", (), {})
-    assert not any(secret in repr(details.caused_by) for secret in secrets)
+    assert find_leaks(details.caused_by, secrets=secrets) == []
 
 
 PLANTED_PASSWORD = "planted-url-password-31c9"
@@ -329,6 +330,69 @@ def test_credentials_in_the_base_url_authenticate_as_httpx_would_and_stay_out_of
     assert str(first.url) == str(retried.url) == "https://service.test/api/sessions?limit=1"
     assert len(retry_details) == 1
     assert find_logged_leaks(caplog.records, secrets=[PLANTED_PASSWORD]) == []
+
+
+def test_a_malformed_reply_is_retried_and_hands_a_retry_hook_no_part_of_it(
+    retry_details: list[RetryDetails],
+    every_log_record: list[logging.LogRecord],
+) -> None:
+    # Arrange: the first reply cannot be parsed, and httpx's error quotes its header line
+    seen: list[httpx.Request] = []
+
+    def answer(request: httpx.Request) -> httpx.Response:
+        seen.append(request)
+        if len(seen) == 1:
+            raise build_malformed_reply_error()
+        return httpx.Response(200, json={"ok": True})
+
+    client = httpx.Client(transport=httpx.MockTransport(answer), headers={"x-api-key": PLANTED_KEY})
+
+    # Act
+    response = send_request(client, request=client.build_request("GET", "https://service.test/"))
+
+    # Assert: the request was sent again, and stamina logged the error's type alone
+    assert response is not None
+    assert response.status_code == 200
+    assert len(seen) == 2
+    (details,) = retry_details
+    expected = "RetriedCallError(error_type='RemoteProtocolError', http_status=None)"
+    assert repr(details.caused_by) == expected
+
+    # Assert: no record on any logger, and nothing a retry hook is handed, holds the key, the
+    # reply's header or a live httpx object
+    secrets = [PLANTED_KEY, PLANTED_REPLY_HEADER]
+    assert find_logged_leaks(every_log_record, secrets=secrets) == []
+    assert find_leaks(details.caused_by, secrets=secrets) == []
+
+
+def test_a_malformed_reply_on_every_attempt_leaves_no_response_and_logs_its_type(
+    retry_details: list[RetryDetails],
+    every_log_record: list[logging.LogRecord],
+) -> None:
+    # Arrange
+    seen: list[httpx.Request] = []
+
+    def answer(request: httpx.Request) -> httpx.Response:
+        seen.append(request)
+        raise build_malformed_reply_error()
+
+    client = httpx.Client(transport=httpx.MockTransport(answer))
+
+    # Act
+    response = send_request(
+        client, request=client.build_request("GET", "https://service.test/items")
+    )
+
+    # Assert: the sender gives up as before, naming the path and the error's type
+    assert response is None
+    assert len(seen) == 2
+    assert len(retry_details) == 1
+    assert [
+        record.getMessage()
+        for record in every_log_record
+        if record.name == "langchain_sync_monitors.score_requests"
+    ] == ["score export: GET /items failed with RemoteProtocolError"]
+    assert find_logged_leaks(every_log_record, secrets=[PLANTED_REPLY_HEADER]) == []
 
 
 def test_a_server_error_then_a_success_returns_the_success() -> None:

@@ -20,6 +20,16 @@ change raises the minor version.
   the bug report form asks for the configuration, the run mode and the log
   output.
 
+### Security
+
+- A chat monitor's retry on HTTP 429 no longer logs the provider's error
+  reply, which held the account's `user_id` and the response headers.
+- A Decisions API or score-export retry no longer logs the bytes of a reply
+  httpx could not parse, such as a header line. Every retry now logs, and
+  hands a retry hook, a `RetriedCallError` that names the error's type and
+  HTTP status alone, never the request or the reply; after the last attempt,
+  the error itself is raised, as before.
+
 ## [0.1.2] - 2026-10-02
 
 ### Added

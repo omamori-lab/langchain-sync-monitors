@@ -315,7 +315,7 @@ async def test_a_retried_rate_limit_is_logged_by_its_status_and_type_alone(
     await evaluate_on_path(build_llm_monitor(model), monitor_input, call_path=call_path)
 
     # Assert: the retry names the status and the provider's error type, with nothing chained
-    expected = f"RateLimitedCallError(status_code=429, error_type={type(error).__name__!r})"
+    expected = f"RetriedCallError(error_type={type(error).__name__!r}, http_status=429)"
     (details,) = retry_details
     (record,) = [record for record in every_log_record if record.name == "stamina"]
     assert repr(details.caused_by) == vars(record)["stamina.caused_by"] == expected
@@ -447,7 +447,7 @@ async def test_chat_openrouter_logs_no_part_of_a_rate_limit_reply(
     assert verdict.suspicion == pytest.approx(0.3)
     assert len(requests) == 2
     (details,) = retry_details
-    expected = "RateLimitedCallError(status_code=429, error_type='TooManyRequestsResponseError')"
+    expected = "RetriedCallError(error_type='TooManyRequestsResponseError', http_status=429)"
     assert repr(details.caused_by) == expected
 
     # Assert: no record on any logger, and nothing a retry hook is handed, holds a planted value

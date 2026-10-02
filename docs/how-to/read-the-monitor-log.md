@@ -369,22 +369,29 @@ Decisions API request sent again, each chat monitor call made again after
 HTTP 429, and each score-export request sent again after a server error or a
 network failure. The record holds the
 error's repr and the wait (section "Standard library's `logging`")
-[@schlawack2026instrumentation]; the request, its transcript and key
-included, is never handed to it. For a Decisions API or score-export request,
-the error is httpx's, whose repr can quote the request's URL but never its
-headers or its body (method `Response.raise_for_status`, module
-`httpx/_models.py`) [@httpx2024]. A score-export URL holds no key and no text
-of a run, as
-[Know what it costs](see-decisions-in-langsmith-and-langfuse.md#know-what-it-costs)
-says. For a chat monitor's call, the error is the provider SDK's, whose repr
-can quote the provider's error reply. `ChatOpenRouter` raises the OpenRouter
-SDK's error unchanged (module `langchain_openrouter/chat_models.py`)
-[@langchainopenrouter2026]. That error is a dataclass whose repr holds the
-reply's body and headers (class `OpenRouterError`, module
-`openrouter/errors/openroutererror.py`), and an HTTP 429 reply's body can name
-the account's `user_id` (class `TooManyRequestsResponseErrorData`, module
+[@schlawack2026instrumentation], but the error is a stand-in, never the
+one the call failed with. That error can hold what the call sent or
+received. `ChatOpenRouter` raises the OpenRouter SDK's error unchanged
+(module `langchain_openrouter/chat_models.py`) [@langchainopenrouter2026]: a
+dataclass whose repr holds the reply's body and headers (class
+`OpenRouterError`, module `openrouter/errors/openroutererror.py`), and an
+HTTP 429 reply's body can name the account's `user_id` (class
+`TooManyRequestsResponseErrorData`, module
 `openrouter/errors/toomanyrequestsresponse_error.py`)
-[@openrouterpythonsdk2026]. Check such a line before you share it.
+[@openrouterpythonsdk2026]. httpx's error for a reply it cannot parse quotes
+the reply's bytes, such as a header line (function `_decode_header_lines`,
+module `h11/_readers.py`) [@httpx2024; @smith2025h11], and httpx's errors
+hold the request, its key and transcript included. So the library retries on
+`RetriedCallError`, whose repr names the error's type and HTTP status alone,
+with nothing chained to it, such as
+`RetriedCallError(error_type='TooManyRequestsResponseError', http_status=429)`
+or `RetriedCallError(error_type='ConnectError', http_status=None)`. A retry
+hook of your own is handed that stand-in too. After the last attempt, the
+error the call failed with is raised, as it would be without the stand-in.
+When `prometheus-client` is installed, stamina's retry counter labels each
+retry with the stand-in's class,
+`langchain_sync_monitors.errors.RetriedCallError` (module
+`stamina/instrumentation/_prometheus.py`) [@schlawack2026stamina].
 
 When structlog is installed, stamina logs each retry through structlog
 instead of Python's `logging` (section

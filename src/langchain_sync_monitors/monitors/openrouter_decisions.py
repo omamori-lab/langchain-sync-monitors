@@ -13,7 +13,6 @@ from contextlib import AbstractAsyncContextManager, nullcontext
 from typing import Literal, TypedDict
 
 import httpx
-import stamina
 from pydantic import BaseModel, Field, SecretStr, ValidationError
 
 from langchain_sync_monitors._langchain import TraceSpan, open_traced_run, open_traced_run_sync
@@ -25,6 +24,7 @@ from langchain_sync_monitors.options import (
     check_optional_instance_option,
     read_positive_number_option,
 )
+from langchain_sync_monitors.retries import call_with_retries, call_with_retries_sync
 from langchain_sync_monitors.spans import CLASSIFIER_SPAN_NAME, MONITOR_TAG, MONITOR_WORK_METADATA
 
 OPENROUTER_DECISIONS_URL = "https://openrouter.ai/api/alpha"
@@ -121,11 +121,11 @@ def check_url_without_credentials(url: str, *, parameter_name: str) -> None:
     httpx reads a user name and password in a request's URL as Basic
     authentication, which replaces the bearer key in the `Authorization`
     header, and quotes the whole URL in its own request log and in the
-    `HTTPStatusError` that stamina logs on a retry [@httpx2024;
-    @schlawack2026stamina]. So such a URL can never carry the key, and puts
-    the password in the logs. A URL httpx cannot read is refused too, since
-    no request could be sent to it, and httpx's own error can quote part of a
-    password: a `#`, `/` or `?` ends a URL's authority, so in
+    `HTTPStatusError` it raises [@httpx2024]. So such a URL can never carry
+    the key, and puts the password in the log and in the error. A URL httpx
+    cannot read is refused too, since no request could be sent to it, and
+    httpx's own error can quote part of a password: a `#`, `/` or `?` ends a
+    URL's authority, so in
     `https://user:abc#rest@host` httpx reads `abc` as the port and quotes it.
     Neither message quotes any part of the URL, and nothing is chained to it,
     since the refusal is raised outside the handler that caught httpx's error.
@@ -240,8 +240,10 @@ class OpenRouterDecisionModel(DecisionModel):
     sent with httpx [@httpx2024]. The response is validated with pydantic
     [@pydantic2026]. Transport errors, rate limits and server errors are
     retried with stamina [@schlawack2026stamina]; other HTTP errors raise
-    `httpx.HTTPStatusError` at once. stamina logs each retry with its error,
-    never the request, so neither the context nor the key reaches a log.
+    `httpx.HTTPStatusError` at once. stamina logs each retry with a
+    `RetriedCallError` in place of httpx's error, as `retries` explains, so
+    neither the context, nor the key, nor any part of the reply reaches a log
+    or a retry hook.
     Each request is one `monitor classifier`
     span in LangChain tracers, around its retries, with the model and the
     questions as inputs and the answers as outputs; the context stays out,
@@ -405,42 +407,35 @@ class OpenRouterDecisionModel(DecisionModel):
     async def request_decisions(self, body: DecisionsRequestBody) -> bytes:
         """POST the request, retrying transient failures, and return the response body.
 
-        The retries wrap a block, not a function, so no retry hook is handed
-        the body as an argument, where stamina's own hooks would log it
-        [@schlawack2026stamina]; its state is the transcript and the proposed
-        step. Those hooks log the error only as its repr, which holds neither
-        the body nor the key. A custom hook is handed the error itself, whose
-        `request` still holds both.
+        `call_with_retries` retries the POST [@schlawack2026stamina], so no
+        retry hook is handed the body, whose state is the transcript and the
+        proposed step, nor httpx's error, whose request holds the body and the
+        key; after the last attempt, httpx's error is raised.
         """
-        async for attempt in stamina.retry_context(
-            on=is_retryable_http_error,
-            attempts=RETRY_ATTEMPTS,
-        ):
-            with attempt:
-                async with self.open_async_client() as client:
-                    response = await client.post(
-                        self.endpoint,
-                        json=body,
-                        headers=self.build_headers(),
-                    )
-                # httpx reads the body before `post` returns, so the response outlives its client.
-                response.raise_for_status()
+
+        async def post() -> httpx.Response:
+            async with self.open_async_client() as client:
+                response = await client.post(self.endpoint, json=body, headers=self.build_headers())
+            # httpx reads the body before `post` returns, so the response outlives its client.
+            response.raise_for_status()
+            return response
+
+        response = await call_with_retries(
+            post, is_retried=is_retryable_http_error, attempts=RETRY_ATTEMPTS
+        )
         return response.content
 
     def request_decisions_sync(self, body: DecisionsRequestBody) -> bytes:
-        """POST the request without an event loop, retrying transient failures.
+        """POST the request without an event loop, retrying transient failures, as above."""
 
-        The retries wrap a block, as in `request_decisions`, so no retry hook is handed the
-        body as an argument.
-        """
-        for attempt in stamina.retry_context(on=is_retryable_http_error, attempts=RETRY_ATTEMPTS):
-            with attempt:
-                response = self.http_client.post(
-                    self.endpoint,
-                    json=body,
-                    headers=self.build_headers(),
-                )
-                response.raise_for_status()
+        def post() -> httpx.Response:
+            response = self.http_client.post(self.endpoint, json=body, headers=self.build_headers())
+            response.raise_for_status()
+            return response
+
+        response = call_with_retries_sync(
+            post, is_retried=is_retryable_http_error, attempts=RETRY_ATTEMPTS
+        )
         return response.content
 
 

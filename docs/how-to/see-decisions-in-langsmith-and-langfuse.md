@@ -391,11 +391,11 @@ full rules, forked processes included.
   traceback. A request sent again is logged by stamina's logger, `stamina`,
   at `WARNING`, as `stamina.retry_scheduled` (module
   `stamina/instrumentation/_logging.py`) [@schlawack2026stamina], with the
-  wait and the error's repr (section "Standard library's `logging`")
-  [@schlawack2026instrumentation]. The error is httpx's, whose repr can quote
-  the request's URL but never its headers or body (method
-  `Response.raise_for_status`, module `httpx/_models.py`) [@httpx2024]. That
-  URL holds no key and no text of a run: the
+  wait and the repr of a stand-in for httpx's error (section "Standard
+  library's `logging`") [@schlawack2026instrumentation], which names the
+  error's type and HTTP status alone, never the request, its headers or the
+  reply. httpx's own `HTTP Request` line at INFO quotes the request's URL,
+  which holds no key and no text of a run: the
   tool's endpoint, without any user name or password, the path, and a
   lookup's query. The query names the LangSmith project, or asks Langfuse for
   the `monitor step` observations that started in a time window, a page at a

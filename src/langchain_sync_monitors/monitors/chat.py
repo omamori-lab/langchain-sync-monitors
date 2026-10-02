@@ -10,7 +10,6 @@ This keeps the protocol logic free of I/O, the sans-I/O pattern
 
 from __future__ import annotations
 
-import contextlib
 import functools
 import logging
 import re
@@ -21,7 +20,6 @@ from dataclasses import dataclass, replace
 from typing import ClassVar
 
 import httpx
-import stamina
 from langchain_core.language_models import BaseChatModel, LanguageModelInput
 from langchain_core.messages import AIMessage, BaseMessage
 from langchain_core.prompts import ChatPromptTemplate
@@ -29,7 +27,7 @@ from langchain_core.runnables import Runnable
 
 from langchain_sync_monitors.concurrency import run_concurrently
 from langchain_sync_monitors.contracts import Monitor, MonitorInput, MonitorView, Verdict
-from langchain_sync_monitors.errors import ConfigurationError, RateLimitedCallError
+from langchain_sync_monitors.errors import ConfigurationError
 from langchain_sync_monitors.model_calls import (
     CachedResampleWarning,
     build_internal_call_config,
@@ -43,6 +41,7 @@ from langchain_sync_monitors.options import (
     write_integer_option,
 )
 from langchain_sync_monitors.prompts import DEFAULT_MONITOR_PROMPT
+from langchain_sync_monitors.retries import call_with_retries, call_with_retries_sync
 from langchain_sync_monitors.thresholds import LIBRARY_DIRECTORY
 from langchain_sync_monitors.transcript import render_proposed_step, render_transcript
 
@@ -97,38 +96,6 @@ def is_rate_limit_error(error: Exception) -> bool:
     else:
         status = getattr(error, "status_code", None)
     return status == httpx.codes.TOO_MANY_REQUESTS
-
-
-async def run_model_call(call: Awaitable[AIMessage], *, rate_limits: list[Exception]) -> AIMessage:
-    """Await one model call; on a rate limit, keep the provider's error and raise a stand-in.
-
-    Any other error is raised as it is. A rate limit's error goes to
-    `rate_limits`, out of reach of stamina's retry hooks, which are handed
-    the `RateLimitedCallError` raised in its place. That error is raised after
-    the handler that caught the provider's error has ended, so the provider's
-    error is not its `__context__`: `from None` only hides a chained error
-    from a traceback, and a hook could still read it.
-    """
-    try:
-        return await call
-    except Exception as error:
-        if not is_rate_limit_error(error):
-            raise
-        rate_limits.append(error)
-    raise RateLimitedCallError(error_type=type(rate_limits[-1]).__name__) from None
-
-
-def run_model_call_sync(
-    call: Callable[[], AIMessage], *, rate_limits: list[Exception]
-) -> AIMessage:
-    """Make one model call without an event loop, as `run_model_call` awaits one."""
-    try:
-        return call()
-    except Exception as error:
-        if not is_rate_limit_error(error):
-            raise
-        rate_limits.append(error)
-    raise RateLimitedCallError(error_type=type(rate_limits[-1]).__name__) from None
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -315,46 +282,31 @@ class ChatModelMonitor(Monitor, ABC):
         A call the provider answers with HTTP 429 is tried again with stamina
         [@schlawack2026stamina], after a growing, jittered wait, up to
         `RATE_LIMIT_ATTEMPTS` attempts in all; any other error is raised at
-        once, and so is the provider's last 429. The retries wrap a block, not
-        a function, so no retry hook is handed the prompt as an argument. They
-        retry on the `RateLimitedCallError` that `run_model_call` raises in
-        place of the provider's error, so no hook is handed the provider's
-        reply either: stamina's retry log holds the wait and that error's
-        repr, which names the status and the provider error's type alone.
+        once, and so is the provider's last 429. `call_with_retries` retries
+        the call, so no retry hook is handed the prompt, or the provider's
+        error, which can hold its whole reply: stamina's retry log holds the
+        wait and a `RetriedCallError`'s repr, which names the provider error's
+        type and its status alone.
         """
-        rate_limits: list[Exception] = []
-        with contextlib.suppress(RateLimitedCallError):
-            async for attempt in stamina.retry_context(
-                on=RateLimitedCallError,
-                attempts=RATE_LIMIT_ATTEMPTS,
-                wait_initial=RATE_LIMIT_FIRST_WAIT_SECONDS,
-            ):
-                with attempt:
-                    reply = await run_model_call(
-                        request.model.ainvoke(list(request.messages), config=self.call_config),
-                        rate_limits=rate_limits,
-                    )
-            return reply
-        # The last attempt was rate limited too. Raised here, outside the handler, the
-        # provider's own error reaches the caller with nothing chained to it.
-        raise rate_limits[-1]
+        return await call_with_retries(
+            functools.partial(
+                request.model.ainvoke, list(request.messages), config=self.call_config
+            ),
+            is_retried=is_rate_limit_error,
+            attempts=RATE_LIMIT_ATTEMPTS,
+            wait_initial=RATE_LIMIT_FIRST_WAIT_SECONDS,
+        )
 
     def request_reply_sync(self, request: ReplyRequest) -> AIMessage:
         """Draw one reply without an event loop, calling the model again after a rate limit."""
-        rate_limits: list[Exception] = []
-        call = functools.partial(
-            request.model.invoke, list(request.messages), config=self.call_config
+        return call_with_retries_sync(
+            functools.partial(
+                request.model.invoke, list(request.messages), config=self.call_config
+            ),
+            is_retried=is_rate_limit_error,
+            attempts=RATE_LIMIT_ATTEMPTS,
+            wait_initial=RATE_LIMIT_FIRST_WAIT_SECONDS,
         )
-        with contextlib.suppress(RateLimitedCallError):
-            for attempt in stamina.retry_context(
-                on=RateLimitedCallError,
-                attempts=RATE_LIMIT_ATTEMPTS,
-                wait_initial=RATE_LIMIT_FIRST_WAIT_SECONDS,
-            ):
-                with attempt:
-                    reply = run_model_call_sync(call, rate_limits=rate_limits)
-            return reply
-        raise rate_limits[-1]
 
 
 def is_reply_cut_off(reply: AIMessage) -> bool:

@@ -63,29 +63,27 @@ class SynchronousRunError(MonitorError):
     """
 
 
-class RateLimitedCallError(MonitorError):
-    """A chat monitor's model call that the provider answered with HTTP 429.
+class RetriedCallError(MonitorError):
+    """The stand-in for an error the library retries, naming its type and HTTP status alone.
 
-    A chat monitor retries a rate-limited call on this error in place of the
-    provider's own. stamina hands the error it retries on to every retry
-    hook, and its logging hook logs the error's repr [@schlawack2026stamina].
-    A provider's error can hold its whole reply: OpenRouter's
-    `TooManyRequestsResponseError` is a dataclass whose repr holds the reply's
-    body, the account's `user_id` included, and its headers
-    [@openrouterpythonsdk2026]. This error names the status and the type of the
-    provider's error, nothing else, and has nothing chained to it. It never
-    leaves the monitor: after the last attempt, the provider's own error is
-    raised.
+    The library retries with stamina, which hands the error it retries on to
+    every retry hook, and whose logging hook logs the error's repr
+    [@schlawack2026stamina]. The error a call failed with can hold what it
+    sent or received, so each retry site retries on this error in its place,
+    as `retries` explains. Nothing is chained to it. It never leaves the
+    library: after the last attempt, the error it stood in for is raised.
     """
 
-    def __init__(self, *, error_type: str) -> None:
-        """Name the type of the provider's error, and nothing it holds."""
-        super().__init__(f"the provider answered HTTP 429 with {error_type}")
+    def __init__(self, *, error_type: str, http_status: int | None) -> None:
+        """Name the type of the error stood in for and its HTTP status, and nothing it holds."""
+        status = "no HTTP status" if http_status is None else f"HTTP {http_status}"
+        super().__init__(f"a call failed with {error_type} ({status}) and is retried")
         self.error_type = error_type
+        self.http_status = http_status
 
     def __repr__(self) -> str:
-        """Name the status and the type of the provider's error, as stamina's retry log shows it."""
-        return f"RateLimitedCallError(status_code=429, error_type={self.error_type!r})"
+        """Name the error's type and HTTP status, as stamina's retry log shows them."""
+        return f"RetriedCallError(error_type={self.error_type!r}, http_status={self.http_status!r})"
 
 
 class ServerToolWarning(UserWarning):

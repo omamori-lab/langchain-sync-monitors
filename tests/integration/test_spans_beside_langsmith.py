@@ -255,7 +255,7 @@ def test_langsmith_receives_the_monitor_calls_by_their_fixed_name_with_their_mod
         config=RunnableConfig(callbacks=[build_langsmith_tracer(langsmith_client)]),
     )
 
-    # Assert: three verdicts, each one model call named for the monitor, not for its model.
+    # Assert: three verdicts, each from one call named "monitor call", not after its model.
     sent_runs = read_sent_runs(langsmith_client)
     monitor_calls = find_sent_runs(sent_runs, MONITOR_CALL)
     assert len(monitor_calls) == 3

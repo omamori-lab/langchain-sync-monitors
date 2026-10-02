@@ -29,7 +29,7 @@ MONITOR_REPLY_TEXT = "judge verdict text"
 AGENT_ANSWER = "Q3 revenue grew 12%."
 
 
-def build_judged_middleware(*, call_tags: Sequence[str] = ()) -> MonitorMiddleware:
+def build_model_calling_middleware(*, call_tags: Sequence[str] = ()) -> MonitorMiddleware:
     monitor_model = GenericFakeChatModel(messages=iter([AIMessage(MONITOR_REPLY_TEXT)] * 4))
     monitor = KeywordMonitor(
         suspicion_by_keyword=SUSPICION_BY_KEYWORD,
@@ -40,8 +40,8 @@ def build_judged_middleware(*, call_tags: Sequence[str] = ()) -> MonitorMiddlewa
 
 
 @pytest.fixture
-def judged_middleware() -> MonitorMiddleware:
-    return build_judged_middleware()
+def model_calling_middleware() -> MonitorMiddleware:
+    return build_model_calling_middleware()
 
 
 def test_each_committed_step_is_streamed_as_a_custom_event(run_mode: RunMode) -> None:
@@ -73,11 +73,11 @@ def stream_message_metadata(agent: Runnable[Any, Any], *, mode: RunMode) -> list
 
 def test_monitor_calls_never_reach_the_messages_stream(
     run_mode: RunMode,
-    judged_middleware: MonitorMiddleware,
+    model_calling_middleware: MonitorMiddleware,
 ) -> None:
     # Arrange
     model = ScriptedChatModel(responses=[AIMessage(AGENT_ANSWER)])
-    agent = create_agent(model, middleware=[judged_middleware])
+    agent = create_agent(model, middleware=[model_calling_middleware])
 
     # Act
     chunks = stream_message_metadata(agent, mode=run_mode)
@@ -97,7 +97,7 @@ def test_monitor_calls_are_dropped_from_the_run_messages_projection(
     # Arrange: a monitor call with tags of its own escapes the nostream block, so only the
     # internal-call metadata the monitor's calls carry can drop it
     model = ScriptedChatModel(responses=[AIMessage(AGENT_ANSWER)])
-    agent = create_agent(model, middleware=[build_judged_middleware(call_tags=call_tags)])
+    agent = create_agent(model, middleware=[build_model_calling_middleware(call_tags=call_tags)])
 
     # Act
     run = agent.stream_events(build_task_input(), version="v3")

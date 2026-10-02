@@ -109,7 +109,7 @@ def build_http_client(
     authentication, as httpx would apply it, unless `auth` is given, which
     httpx prefers; a URL whose user name and password are both empty, such
     as `https://:@host`, authenticates with nothing (method
-    `Client._build_request_auth`, module `httpx/_client.py`) [@httpx2024].
+    `BaseClient._build_request_auth`, module `httpx/_client.py`) [@httpx2024].
     The URL keeps neither, so no request's URL, and no error that quotes
     one, holds the password.
     """

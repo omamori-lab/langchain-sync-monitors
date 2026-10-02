@@ -197,7 +197,7 @@ class FakeLangfuse:
             "name": STEP_SPAN_NAME,
             "startTime": started.isoformat(),
             "environment": environment,
-            "metadata": {"monitor_step_id": step_id, "monitor_name": "monitor"},
+            "metadata": {"monitor_step_id": step_id, "monitor_label": "monitor"},
         }
         self.observations.append(observation)
         return observation

@@ -54,7 +54,7 @@ def build_monitor(
 ) -> MonitorMiddleware:
     return MonitorMiddleware(
         monitor=build_keyword_monitor(),
-        protocol=TrustedMonitoring(flag_threshold=0.8),
+        protocol=TrustedMonitoring(audit_threshold=0.8),
         label=label,
         export_scores=tracers,
     )
@@ -235,7 +235,7 @@ def test_the_score_is_the_record_float_even_for_an_integer_verdict(
     # Arrange
     monitor = MonitorMiddleware(
         monitor=CertainMonitor(),
-        protocol=TrustedMonitoring(flag_threshold=0.8),
+        protocol=TrustedMonitoring(audit_threshold=0.8),
         export_scores=frozenset({Tracer.LANGSMITH}),
     )
     handlers: list[BaseCallbackHandler] = [build_langsmith_tracer(MagicMock())]

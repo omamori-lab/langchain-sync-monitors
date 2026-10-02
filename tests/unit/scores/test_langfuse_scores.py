@@ -414,7 +414,7 @@ def test_only_the_wanted_steps_match_among_the_observations_found() -> None:
     wanted = str(build_step_id())
     service.add_step(wanted)
     service.add_step(str(build_step_id()))
-    service.add_step(str(build_step_id()))["metadata"] = {"monitor_name": "monitor"}
+    service.add_step(str(build_step_id()))["metadata"] = {"monitor_label": "monitor"}
     page = ObservationPage.model_validate({"data": service.observations})
 
     # Act

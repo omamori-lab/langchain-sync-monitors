@@ -89,7 +89,7 @@ def build_own_client() -> MagicMock:
 def build_monitor(**options: Any) -> MonitorMiddleware:
     return MonitorMiddleware(
         monitor=build_keyword_monitor(),
-        protocol=TrustedMonitoring(flag_threshold=0.8),
+        protocol=TrustedMonitoring(audit_threshold=0.8),
         **options,
     )
 

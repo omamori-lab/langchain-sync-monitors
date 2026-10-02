@@ -10,34 +10,42 @@ gives the citations of the other pages, numbered in order of first use, and
 appends the footnotes, each with the text mkdocs-bibtex formats from
 ``docs/references.bib``. Only the page's text is rewritten: a citation inside
 a tag or one of its attributes, inside code, or inside an element whose content
-HTML reads as plain text stays as it is. A key missing from the bibliography,
-or a page that already has footnotes of its own, is logged as a warning, which
-fails a strict build.
+a browser reads as plain text stays as it is. A key missing from the
+bibliography is logged as a warning, which fails a strict build, and so is a
+page that already has footnotes of its own, whose docstring citations then
+stay as written.
 
 The hook finds the citations with the standard library's HTML parser, which is
 fast but does not read markup as a browser does. It differs on some comments,
 on the content of a script and on end tags that a browser ignores, so it can
 take for text a citation that a browser reads inside code, a link or a button.
 So the hook then reads the page it wrote with html5lib [@html5lib2020], which
-parses HTML by the algorithm browsers follow (section 13.2)
-[@whatwg2026html], and keeps a footnote reference only where a browser finds
-it, outside every link, button, code element and element whose content HTML
-reads as plain text. A footnote reference is itself a link, and HTML forbids a
-link inside another (section 4.5.1) or inside a button (section 4.10.6). A
+implements the HTML parsing algorithm browsers follow (section 13.2)
+[@whatwg2026html], with scripting on, as in a browser that runs the theme's
+scripts. It keeps a footnote reference only where a browser finds it, outside
+every link, button, code element and element whose content a browser reads as
+plain text. A footnote reference is itself a link, and HTML forbids a link
+inside another (section 4.5.1) or inside a button (section 4.10.6). A
 cross-reference is still an ``autoref`` element here, and mkdocs-autorefs
 [@mkdocsautorefs2026] turns it into a link after this hook runs, so the hook
 reads each one as a link, found with mkdocs-autorefs's own pattern.
+html5lib's last release dates from 2020 and does not implement the template
+element (section 4.12.3): it reads one as an ordinary element, where a browser
+keeps its content out of the page and ignores an end tag in it that closes an
+element outside. So a page that holds a template stays as written, with a
+warning.
 
 Any other citation stays as written, with a warning naming the page, so a
 strict build fails until someone moves the citation or fixes the markup around
 it. That covers a citation whose reference a browser would drop or put where
-no link may go, and one that a browser shows as text where the standard
-library's parser read markup. The hook does not move a reference out of a link:
-the link's text can run on past the words a citation supports, and only the
-docstring's author knows where it belongs. Last, the page with its footnotes
-must read as the page as written, with each reference in place of its citation
-and the footnote list at the end; if it does not, the hook warns and returns
-the page as written.
+no link may go, and one that a browser shows as text where the hook found no
+citation, as when it is written with character references or follows markup
+the standard library's parser reads otherwise. The hook does not move a
+reference out of a link: the link's text can run on past the words a citation
+supports, and only the docstring's author knows where it belongs. Last, the
+page with its footnotes must read as the page as written, with each reference
+in place of its citation and the footnote list at the end; if it does not, the
+hook warns and returns the page as written.
 """
 
 from __future__ import annotations
@@ -47,6 +55,7 @@ import re
 from collections import Counter
 from collections.abc import Callable, Collection, Iterator
 from dataclasses import dataclass
+from html import unescape
 from html.parser import HTMLParser
 from typing import override
 from xml.dom.minidom import DocumentFragment, Element, Node, Text
@@ -64,8 +73,10 @@ logger = logging.getLogger("mkdocs.hooks.citations")
 CITATION_PATTERN = re.compile(r"\[(@[\w:.-]+(?:;\s*@[\w:.-]+)*)\]")
 KEY_PATTERN = re.compile(r"@([\w:.-]+)")
 NEWLINE_PATTERN = re.compile("\n")
-# Code, and the elements whose content HTML reads as plain text rather than markup.
-VERBATIM_TAGS = frozenset({"code", "pre", "script", "style", "textarea", "title"})
+# A template start tag, which html5lib reads as an ordinary element and a browser does not.
+TEMPLATE_PATTERN = re.compile(r"<template(?=[\s/>]|$)", re.IGNORECASE)
+# Code, and the elements whose content a browser that runs scripts reads as plain text.
+VERBATIM_TAGS = frozenset({"code", "noscript", "pre", "script", "style", "textarea", "title"})
 # The elements that may not hold a footnote reference, itself a link: links, the
 # cross-references that mkdocs-autorefs turns into links, buttons and verbatim elements.
 REFERENCE_FREE_TAGS = frozenset({"a", "autoref", "button", *VERBATIM_TAGS})
@@ -278,10 +289,12 @@ def link_cross_references(html: str) -> str:
 
 def parse_page(html: str) -> DocumentFragment:
     """Return the page as a browser reads it once its cross-references are links."""
+    # Scripting on, as in a browser that runs the theme's scripts: noscript content is then text.
     fragment = html5lib.parseFragment(
         link_cross_references(html),
         container="div",
         treebuilder="dom",
+        scripting=True,
     )
     # Join adjacent text, so two pages that read the same walk the same.
     fragment.normalize()
@@ -354,7 +367,9 @@ def render_placed_references(
 
     Taking a citation out can change how a browser reads the ones after it, as
     when a footnote reference closed the link it sat in, so the page is written
-    and read again until every reference left reads as written.
+    and read again until every reference left reads as written. Each round
+    parses the whole page, so n citations in one link take n + 1 rounds; only a
+    page that already fails a strict build pays for more than one.
     """
     while True:
         rendering = render_references(
@@ -386,18 +401,20 @@ def find_citations_shown_as_text(tree: DocumentFragment) -> Counter[str]:
     return shown
 
 
-def warn_about_citations_read_as_markup(
+def warn_about_citations_not_found(
     original: DocumentFragment,
     *,
     citations: list[PageCitation],
     page_path: str,
 ) -> None:
-    """Warn about each citation a browser shows as text where the hook's parser read markup."""
+    """Warn about each citation a browser shows as text that the hook did not find in the text."""
     found = Counter(citation.text for citation in citations)
     for text in find_citations_shown_as_text(original) - found:
         logger.warning(
-            "%s: a browser shows %s as text, but the hook's parser read it as markup, so it "
-            "stays as written; check the markup before it.",
+            "%s: a browser shows %s as text, but the hook did not find it in the page's text, "
+            "as when it is written with character references or follows markup the hook's "
+            "parser reads otherwise, so it stays as written; check how it is written and the "
+            "markup before it.",
             page_path,
             text,
         )
@@ -430,6 +447,25 @@ def is_read_as_original(rendering: Rendering, *, original: DocumentFragment) -> 
     return list(TREE_WALKER(tree)) == list(TREE_WALKER(original))
 
 
+def find_reason_to_keep_citations(html: str, *, citations: list[PageCitation]) -> str | None:
+    """Return why every citation on the page stays as written, or None if the hook can place them.
+
+    A page with a template stays as written even without a citation the hook
+    found, since html5lib cannot tell which citations a browser shows on it.
+    """
+    if TEMPLATE_PATTERN.search(html):
+        return (
+            "it holds a template element, which html5lib cannot read as a browser does, so its "
+            "citations stay as written."
+        )
+    if citations and FOOTNOTE_LIST_START in html:
+        return (
+            "it has footnotes of its own, so the citations in its docstrings stay as written; "
+            "cite sources in its Markdown or in its docstrings, not both."
+        )
+    return None
+
+
 def render_citations(
     html: str,
     *,
@@ -438,10 +474,14 @@ def render_citations(
     page_path: str,
 ) -> str:
     """Return the page with the citations in its text as footnotes, or unchanged without any."""
-    if CITATION_PATTERN.search(html) is None:
+    if CITATION_PATTERN.search(unescape(html)) is None:
         return html
     citations = find_citations(html)
     unknown = find_unknown_citations(citations, known_keys=known_keys, page_path=page_path)
+    reason = find_reason_to_keep_citations(html, citations=citations)
+    if reason is not None:
+        logger.warning("%s: %s", page_path, reason)
+        return html
     rendering = render_placed_references(
         html,
         citations=citations,
@@ -450,7 +490,7 @@ def render_citations(
         page_path=page_path,
     )
     original = parse_page(html + rendering.footnotes)
-    warn_about_citations_read_as_markup(original, citations=citations, page_path=page_path)
+    warn_about_citations_not_found(original, citations=citations, page_path=page_path)
     if not rendering.references:
         return html
     if not is_read_as_original(rendering, original=original):
@@ -460,8 +500,6 @@ def render_citations(
             page_path,
         )
         return html
-    if FOOTNOTE_LIST_START in html:
-        logger.warning("%s cites sources in both its Markdown and its docstrings.", page_path)
     return rendering.html + rendering.footnotes
 
 

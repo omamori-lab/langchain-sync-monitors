@@ -33,10 +33,8 @@ FIRST_REFERENCE = (
     '<sup id="fnref:first2026"><a class="footnote-ref" href="#fn:first2026">1</a></sup>'
 )
 # The elements a footnote link may not sit in, for the tests' own reading of a page.
-LINK_FREE_NAMES = frozenset(
-    {"a", "autoref", "button", "code", "pre", "script", "style", "textarea", "title"},
-)
-VERBATIM_NAMES = frozenset({"code", "pre", "script", "style", "textarea", "title"})
+VERBATIM_NAMES = frozenset({"code", "noscript", "pre", "script", "style", "textarea", "title"})
+LINK_FREE_NAMES = frozenset({"a", "autoref", "button", *VERBATIM_NAMES})
 CITATION_TEXT_PATTERN = re.compile(r"\[@[^\]]+\]")
 
 
@@ -66,9 +64,9 @@ def read_ancestor_names(node: Node) -> list[str]:
 
 
 def parse_test_page(html: str) -> Document:
-    """Return the test page as a browser reads it, as a document."""
+    """Return the test page as a browser that runs scripts reads it, as a document."""
     html5lib = importlib.import_module("html5lib")
-    return html5lib.parse(f"<!DOCTYPE html><body>{html}", treebuilder="dom")
+    return html5lib.parse(f"<!DOCTYPE html><body>{html}", treebuilder="dom", scripting=True)
 
 
 def find_misread_footnote_links(html: str) -> list[str]:
@@ -153,6 +151,8 @@ def test_a_page_without_citations_is_unchanged(hook: ModuleType) -> None:
         '<p title="a > [@first2026]">Text</p>',
         "<p><a href='#' data-cite='[@first2026]'>Text</a></p>",
         "<p><!-- a comment that cites [@first2026] -->Text</p>",
+        "<p><noscript>[@first2026]</noscript></p>",
+        "<p><noscript><code>[@first2026]</code></noscript></p>",
     ],
     ids=[
         "code",
@@ -164,6 +164,8 @@ def test_a_page_without_citations_is_unchanged(hook: ModuleType) -> None:
         "attribute-after-a-quoted-angle-bracket",
         "single-quoted-attribute",
         "comment",
+        "noscript",
+        "code-in-noscript",
     ],
 )
 def test_a_citation_a_browser_does_not_show_as_text_stays_quietly(
@@ -313,6 +315,7 @@ def test_a_citation_in_link_text_stays_as_written_and_warns(
         '<a href="#x"><marquee></a>[@first2026]</marquee></a>',
         "<button><table><tr><td></button>[@first2026]</td></tr></table></button>",
         "<p><select><option>[@first2026]</option></select></p>",
+        '<p><a href="#x">see <noscript></a></noscript>[@first2026]</p>',
     ],
     ids=[
         "inside-an-inline-element-in-a-link",
@@ -335,6 +338,7 @@ def test_a_citation_in_link_text_stays_as_written_and_warns(
         "in-a-link-past-an-end-tag-a-marquee-ignores",
         "in-a-button-past-an-end-tag-a-table-cell-ignores",
         "in-an-option-that-drops-the-reference",
+        "in-a-link-past-an-end-tag-in-noscript",
     ],
 )
 def test_a_citation_where_a_browser_would_not_keep_its_reference_stays_and_warns(
@@ -369,6 +373,8 @@ def test_a_citation_where_a_browser_would_not_keep_its_reference_stays_and_warns
         "<svg><button/></svg><p>",
         '<svg><autoref identifier="x"/></svg><p>',
         "<table><tr><td>x</td></tr></table><p>",
+        "<p><noscript><p>x</p></noscript> ",
+        "<p><templates>x</templates> ",
     ],
     ids=[
         "a-link",
@@ -385,6 +391,8 @@ def test_a_citation_where_a_browser_would_not_keep_its_reference_stays_and_warns
         "a-self-closing-svg-button",
         "a-self-closing-svg-cross-reference-with-no-end-tag-after",
         "a-table",
+        "a-noscript",
+        "an-element-whose-name-starts-with-template",
     ],
 )
 def test_a_citation_after_markup_a_browser_closes_renders_without_a_warning(
@@ -486,23 +494,72 @@ def test_a_page_its_footnotes_would_change_stays_as_written_and_warns(
     ]
 
 
-def test_a_citation_a_browser_shows_but_the_parser_read_as_code_warns(
+@pytest.mark.parametrize(
+    "page",
+    [
+        # The table cell closes the code in a browser, but the standard
+        # library's parser waits for its end tag.
+        "<table><tr><td><code>x</td></tr></table><p>[@first2026]</p>",
+        "<p>Write &#91;@first2026&#93; to cite.</p>",
+        "<p>Write &#91;@first2026&#93; to cite, as [@second2026] does.</p>",
+        "<p>Write &lsqb;@first2026&rsqb; to cite.</p>",
+        "<p>Write [@first&#50;026] to cite.</p>",
+    ],
+    ids=[
+        "after-code-a-table-cell-closes",
+        "in-character-references",
+        "in-character-references-beside-a-citation",
+        "in-named-character-references",
+        "with-a-character-reference-in-its-key",
+    ],
+)
+def test_a_citation_a_browser_shows_that_the_hook_did_not_find_stays_and_warns(
     hook: ModuleType,
     caplog: pytest.LogCaptureFixture,
+    page: str,
 ) -> None:
-    # Arrange: the table cell closes the code in a browser, but the standard
-    # library's parser waits for its end tag.
-    page = "<table><tr><td><code>x</td></tr></table><p>[@first2026]</p>"
-
     # Act
+    with caplog.at_level(logging.WARNING, logger=HOOK_LOGGER):
+        rendered = render_test_page(page, hook=hook)
+
+    # Assert
+    assert "fn:first2026" not in rendered
+    assert rendered.startswith(page.removesuffix("[@second2026] does.</p>"))
+    assert [record.getMessage() for record in caplog.records] == [
+        f"{PAGE_PATH}: a browser shows [@first2026] as text, but the hook did not find it in "
+        "the page's text, as when it is written with character references or follows markup "
+        "the hook's parser reads otherwise, so it stays as written; check how it is written "
+        "and the markup before it.",
+    ]
+
+
+@pytest.mark.parametrize(
+    "page",
+    [
+        '<p><a href="#x">see <template></a></template>[@first2026]</p>',
+        '<p><a href="#x">see <TEMPLATE></a></TEMPLATE>[@first2026]</p>',
+        "<template><p>[@first2026]</p></template><p>[@second2026]</p>",
+    ],
+    ids=[
+        "in-a-link-past-an-end-tag-a-template-ignores",
+        "in-a-link-past-an-end-tag-an-upper-case-template-ignores",
+        "in-template-content-a-browser-does-not-show",
+    ],
+)
+def test_a_page_that_holds_a_template_stays_as_written_and_warns(
+    hook: ModuleType,
+    caplog: pytest.LogCaptureFixture,
+    page: str,
+) -> None:
+    # Act: html5lib reads a template as an ordinary element, so no oracle here.
     with caplog.at_level(logging.WARNING, logger=HOOK_LOGGER):
         rendered = render_test_page(page, hook=hook)
 
     # Assert
     assert rendered == page
     assert [record.getMessage() for record in caplog.records] == [
-        f"{PAGE_PATH}: a browser shows [@first2026] as text, but the hook's parser read it as "
-        "markup, so it stays as written; check the markup before it.",
+        f"{PAGE_PATH}: it holds a template element, which html5lib cannot read as a browser "
+        "does, so its citations stay as written.",
     ]
 
 
@@ -542,21 +599,53 @@ def test_an_unknown_key_in_link_text_warns_once_about_the_key(
     assert "missing2026" in caplog.records[0].getMessage()
 
 
-def test_a_page_with_footnotes_of_its_own_warns(
+@pytest.mark.parametrize(
+    "page",
+    [
+        '<p>A [@first2026] source.</p>\n<div class="footnote"><ol></ol></div>',
+        (
+            '<p>A Markdown citation<sup id="fnref:first2026"><a class="footnote-ref" '
+            'href="#fn:first2026">1</a></sup> and a docstring one [@first2026].</p>\n'
+            '<div class="footnote">\n<hr />\n<ol>\n<li id="fn:first2026">\n<p>Entry.</p>\n'
+            "</li>\n</ol>\n</div>"
+        ),
+    ],
+    ids=["another-key", "the-same-key"],
+)
+def test_a_page_with_footnotes_of_its_own_keeps_its_citations_and_warns(
+    hook: ModuleType,
+    caplog: pytest.LogCaptureFixture,
+    page: str,
+) -> None:
+    # Act
+    with caplog.at_level(logging.WARNING, logger=HOOK_LOGGER):
+        rendered = render_test_page(page, hook=hook)
+
+    # Assert
+    assert rendered == page
+    assert [record.getMessage() for record in caplog.records] == [
+        f"{PAGE_PATH}: it has footnotes of its own, so the citations in its docstrings stay as "
+        "written; cite sources in its Markdown or in its docstrings, not both.",
+    ]
+
+
+def test_a_page_with_footnotes_of_its_own_and_a_citation_in_code_stays_quietly(
     hook: ModuleType,
     caplog: pytest.LogCaptureFixture,
 ) -> None:
     # Arrange
-    page = '<p>A [@first2026] source.</p>\n<div class="footnote"><ol></ol></div>'
+    page = (
+        "<p>Write <code>[@first2026]</code> to cite.</p>\n"
+        '<div class="footnote"><ol><li id="fn:x"><p>Entry.</p></li></ol></div>'
+    )
 
     # Act
     with caplog.at_level(logging.WARNING, logger=HOOK_LOGGER):
-        render_test_page(page, hook=hook)
+        rendered = render_test_page(page, hook=hook)
 
     # Assert
-    assert [record.getMessage() for record in caplog.records] == [
-        f"{PAGE_PATH} cites sources in both its Markdown and its docstrings.",
-    ]
+    assert rendered == page
+    assert caplog.records == []
 
 
 def test_the_site_runs_the_hook_with_the_bibliography(hook: ModuleType) -> None:

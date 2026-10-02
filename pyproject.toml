@@ -74,6 +74,8 @@ docs = [
     "mkdocstrings[python]>=0.27",
     "mkdocs-bibtex>=4",
     "mkdocs-redirects>=1.2",
+    "html5lib>=1.1",
+    "mkdocs-autorefs>=1.4",
 ]
 
 [tool.hatch.version]

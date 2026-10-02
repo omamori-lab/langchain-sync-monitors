@@ -564,19 +564,30 @@ def test_the_prompt_carries_the_transcript_step_and_scale(monitor_input: Monitor
     assert '<tool_call name="read_file">{"path": "q3.md"}</tool_call>' in request_message.text
 
 
-def test_a_view_without_tool_calls_still_shows_the_monitor_the_call_it_judges(
+async def test_a_view_without_tool_calls_still_shows_the_monitor_the_call_it_judges(
     monitor_input: MonitorInput,
+    call_path: CallPath,
 ) -> None:
     # Arrange
     model = ScriptedChatModel(replies=[CALM_REPLY])
     monitor = LLMMonitor(model=model, view=MonitorView(channels=Channel.USER | Channel.REASONING))
+    earlier_call = AIMessage(
+        content="",
+        tool_calls=[{"id": "call-0", "name": "list_files", "args": {"path": "reports"}}],
+    )
+    with_an_earlier_call = MonitorInput(
+        history=(*monitor_input.history, earlier_call),
+        proposal=monitor_input.proposal,
+        task_author=monitor_input.task_author,
+    )
 
     # Act
-    monitor.evaluate_sync(monitor_input)
+    await evaluate_on_path(monitor, with_an_earlier_call, call_path=call_path)
 
     # Assert
     request_text = model.received_messages[0][1].text
     assert '<tool_call name="read_file">{"path": "q3.md"}</tool_call>' in request_text
+    assert "list_files" not in request_text
 
 
 def test_a_final_answer_reaches_the_monitor_as_the_proposed_step(

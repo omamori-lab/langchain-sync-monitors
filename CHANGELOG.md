@@ -14,14 +14,18 @@ change raises the minor version.
 
 ## [Unreleased]
 
-### Fixed
+### Security
 
-- A password in `OpenRouterDecisionModel`'s `base_url` no longer reaches logs.
-  httpx quoted it in its request log line and in the error stamina logs on a
-  retry, and sent it as Basic authentication in place of the key. A
-  `base_url` that holds a user name or password now raises
-  `ConfigurationError` when the model is built, with no part of the URL in
-  the message; pass the key as `api_key`.
+- A password in `OpenRouterDecisionModel`'s `base_url` no longer reaches logs
+  or errors. httpx quoted it in its request log line and in the error stamina
+  logs on a retry, and sent it as Basic authentication in place of the key. A
+  `base_url` httpx could not read failed at the first request with
+  `httpx.InvalidURL`, which could quote the start of the password as the
+  port. Both now raise `ConfigurationError` when the model is built, with no
+  part of the URL in the message; pass the key as `api_key`. A `base_url`
+  with a user name or password used to send requests, so a gateway that took
+  their Basic authentication in place of the key now needs an `http_client`
+  you pass with its own `auth`.
 
 ## [0.1.1] - 2026-10-01
 

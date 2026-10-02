@@ -107,22 +107,40 @@ def check_key_characters(key: str, *, source: str) -> None:
         raise ConfigurationError(message)
 
 
+def read_url_user_information(url: str) -> bytes | None:
+    """Return the user name and password httpx reads in `url`, or None when it cannot read `url`."""
+    try:
+        return httpx.URL(url).userinfo
+    except httpx.InvalidURL:
+        return None
+
+
 def check_url_without_credentials(url: str, *, parameter_name: str) -> None:
-    """Refuse a URL that carries a user name or password, quoting no part of it.
+    """Refuse a URL that carries a user name or password, or that httpx cannot read.
 
     httpx reads a user name and password in a request's URL as Basic
     authentication, which replaces the bearer key in the `Authorization`
     header, and quotes the whole URL in its own request log and in the
     `HTTPStatusError` that stamina logs on a retry [@httpx2024;
     @schlawack2026stamina]. So such a URL can never carry the key, and puts
-    the password in the logs. A URL httpx cannot read is left to the request,
-    which fails before anything is sent, with an error that quotes no user
-    name or password.
+    the password in the logs. A URL httpx cannot read is refused too, since
+    no request could be sent to it, and httpx's own error can quote part of a
+    password: a `#`, `/` or `?` ends a URL's authority, so in
+    `https://user:abc#rest@host` httpx reads `abc` as the port and quotes it.
+    Neither message quotes any part of the URL, and nothing is chained to it,
+    since the refusal is raised outside the handler that caught httpx's error.
+
+    The check sees the URL as httpx reads it, so it cannot refuse a password
+    httpx reads as something else: in `https://user:123/rest@host`, `user`
+    is the host, `123` the port and `/rest@host` the path.
     """
-    try:
-        userinfo = httpx.URL(url).userinfo
-    except httpx.InvalidURL:
-        return
+    userinfo = read_url_user_information(url)
+    if userinfo is None:
+        message = (
+            f"{parameter_name} is not a URL httpx can read, and it is not quoted here in "
+            "case it holds a password; check its host and port, and pass the key as api_key"
+        )
+        raise ConfigurationError(message)
     if userinfo:
         message = (
             f"{parameter_name} holds a user name or password, which httpx would send in "
@@ -133,7 +151,7 @@ def check_url_without_credentials(url: str, *, parameter_name: str) -> None:
 
 
 def build_decisions_endpoint(base_url: str) -> str:
-    """Return `{base_url}/decisions`, once `base_url` is a string with no user name or password."""
+    """Return `{base_url}/decisions`, once `base_url` is a URL httpx reads with no credentials."""
     check_instance_option(base_url, option_type=str, parameter_name="base_url")
     check_url_without_credentials(base_url, parameter_name="base_url")
     return f"{base_url.rstrip('/')}/decisions"
@@ -191,15 +209,15 @@ class OpenRouterDecisionModel(DecisionModel):
 
     The key comes from `OPENROUTER_API_KEY` unless `api_key` is given, and a
     blank `api_key` raises `ConfigurationError`. So does a `base_url` that
-    holds a user name or password, as `check_url_without_credentials`
-    explains, with no part of the URL in the message. Pass your own
-    `http_client` or `async_http_client` to reuse connections, change
-    transports or decide when a client closes; a client you pass keeps its
-    own timeout, and `timeout_seconds` applies only to the clients the model
-    opens.
-    Without them, the sync path opens one client for the model's lifetime,
-    which is never closed, and the async path opens and closes a client per
-    request, since a pooled async client cannot move between event loops.
+    holds a user name or password, or that httpx cannot read, as
+    `check_url_without_credentials` explains, with no part of the URL in
+    the message. Pass your own `http_client` or `async_http_client` to reuse
+    connections, change transports or decide when a client closes; a client
+    you pass keeps its own timeout, and `timeout_seconds` applies only to the
+    clients the model opens. Without them, the sync path opens one client for
+    the model's lifetime, which is never closed, and the async path opens and
+    closes a client per request, since a pooled async client cannot move
+    between event loops.
 
     Retries stop after `RETRY_ATTEMPTS` attempts, or once an attempt fails 45
     seconds or more after the first began, stamina's default time budget.

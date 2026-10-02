@@ -415,22 +415,63 @@ async def test_a_base_url_without_credentials_is_sent_as_given(
     assert probabilities == {"leaks": 0.1}
 
 
-async def test_a_base_url_httpx_cannot_read_fails_at_the_request_without_showing_credentials(
+PLANTED_PASSWORD_START = "planted-start-5c0d"
+"""The start of a password that httpx, failing to read the URL, would quote as its port."""
+
+UNREADABLE_BASE_URLS = {
+    "a-port-that-is-no-number": f"https://user:{PLANTED_PASSWORD}@decisions.test:port/api",
+    "a-hash-in-the-password": (
+        f"https://user:{PLANTED_PASSWORD_START}#{PLANTED_PASSWORD}@decisions.test/api"
+    ),
+    "a-slash-in-the-password": (
+        f"https://user:{PLANTED_PASSWORD_START}/{PLANTED_PASSWORD}@decisions.test/api"
+    ),
+    "a-question-mark-in-the-password": (
+        f"https://user:{PLANTED_PASSWORD_START}?{PLANTED_PASSWORD}@decisions.test/api"
+    ),
+    "a-password-and-no-host": f"https://user:{PLANTED_PASSWORD}/api",
+}
+"""Base URLs httpx cannot read; in all but the first, it would quote part of the password.
+
+A `#`, `/` or `?` ends a URL's authority, so in the middle three httpx reads
+the password's start as the port, and in the last the whole password.
+"""
+
+
+@pytest.mark.usefixtures("three_attempts")
+@pytest.mark.parametrize(
+    "base_url",
+    UNREADABLE_BASE_URLS.values(),
+    ids=UNREADABLE_BASE_URLS.keys(),
+)
+async def test_a_base_url_httpx_cannot_read_fails_at_construction_without_showing_any_part(
     call_path: CallPath,
+    base_url: str,
     every_log_record: list[logging.LogRecord],
+    retry_details: list[RetryDetails],
 ) -> None:
-    # Arrange: the port is not a number, so httpx cannot read the URL to find its user name
+    # Arrange
     server = DecisionsServer(responders=[answer_with({"leaks": 0.1})])
-    model = server.build_model(base_url=f"https://user:{PLANTED_PASSWORD}@decisions.test:port/api")
 
     # Act
-    with pytest.raises(httpx.InvalidURL) as raised:
+    failure: ConfigurationError | httpx.InvalidURL | None = None
+    try:
+        model = server.build_model(base_url=base_url)
         await estimate_on_path(model, questions=[LEAK_QUESTION], call_path=call_path)
+    except (ConfigurationError, httpx.InvalidURL) as error:
+        failure = error
 
-    # Assert: nothing was sent, and neither the error nor any record quotes the secret
-    shown = [str(raised.value), repr(raised.value)]
+    # Assert: the model refused the URL when built, with nothing chained to the refusal, and
+    # no error, record, retry hook or URL sent holds any part of the password
+    assert isinstance(failure, ConfigurationError)
+    assert str(failure).startswith("base_url is not a URL httpx can read")
+    assert failure.__cause__ is None
+    assert failure.__context__ is None
+    shown = [str(failure), repr(failure)]
+    shown += [f"stamina hook: {details.caused_by!r}" for details in retry_details]
     shown += [f"{record.name}: {vars(record)!r}" for record in every_log_record]
-    assert [text for text in shown if PLANTED_PASSWORD in text] == []
+    secrets = (PLANTED_PASSWORD_START, PLANTED_PASSWORD)
+    assert [text for text in shown if any(secret in text for secret in secrets)] == []
     assert server.requests == []
 
 

@@ -378,8 +378,9 @@ full rules, forked processes included.
   `429` holds every call to that tool until its `Retry-After`, for at most 5
   minutes.
 - **The agent never waits.** One background thread per process sends the
-  scores, every 10 seconds. A failure is logged by
-  `langchain_sync_monitors.score_worker` and never reaches the run.
+  scores, every 10 seconds. A failure never reaches the run. It is logged,
+  mostly by `langchain_sync_monitors.score_worker`, with the tool, the
+  error's type and any HTTP status, but never the error's text or traceback.
 
 ### Know what happens at exit
 

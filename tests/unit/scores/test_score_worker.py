@@ -49,9 +49,12 @@ def pause_for(seconds: float) -> Answer:
     return answer
 
 
+ERROR_TEXT = "text from the transcript"
+"""The text of each error the tests raise, which no log may carry."""
+
+
 def fail(scores: Sequence[PendingScore]) -> DeliveryReport:
-    message = "the sender broke"
-    raise RuntimeError(message)
+    raise RuntimeError(ERROR_TEXT)
 
 
 @dataclass
@@ -72,8 +75,7 @@ class ScriptedSender:
 
     def close(self) -> None:
         if self.fails_to_close:
-            message = "the connection pool broke"
-            raise RuntimeError(message)
+            raise RuntimeError(ERROR_TEXT)
         self.closed = True
 
 
@@ -134,6 +136,11 @@ def read_messages(caplog: pytest.LogCaptureFixture) -> list[str]:
 
 def read_record(caplog: pytest.LogCaptureFixture, message: str) -> logging.LogRecord:
     return next(record for record in caplog.records if record.getMessage() == message)
+
+
+def is_logged_by_type_alone(caplog: pytest.LogCaptureFixture, message: str) -> bool:
+    """Tell whether the message was logged with no traceback, and no error text in any log."""
+    return read_record(caplog, message).exc_info is None and ERROR_TEXT not in caplog.text
 
 
 def test_one_window_hands_each_tool_all_its_waiting_scores_in_one_call(
@@ -303,10 +310,9 @@ def test_a_sender_that_raises_leaves_its_scores_waiting_and_the_other_tool_is_se
     # Assert
     assert case.read_waiting(Tracer.LANGSMITH) == [score]
     assert case.read_waiting(Tracer.LANGFUSE) == []
-    record = read_record(caplog, "score export: sending to langsmith failed")
-    exception = record.exc_info
-    assert exception
-    assert exception[0] is RuntimeError
+    assert is_logged_by_type_alone(
+        caplog, "score export: sending to langsmith failed with RuntimeError"
+    )
 
 
 def test_a_tool_without_credentials_has_its_scores_dropped(
@@ -340,8 +346,7 @@ def test_a_sender_that_cannot_be_built_is_logged_once_and_its_scores_dropped(
 
     def refuse_to_build(tracer: Tracer) -> ScoreSender | None:
         builds.append(tracer)
-        message = "LANGSMITH_API_KEY holds a control or non-ASCII character"
-        raise ConfigurationError(message)
+        raise ConfigurationError(ERROR_TEXT)
 
     case.worker.build_sender = refuse_to_build
     case.put()
@@ -356,9 +361,10 @@ def test_a_sender_that_cannot_be_built_is_logged_once_and_its_scores_dropped(
     assert builds == [Tracer.LANGSMITH]
     assert case.worker.waiting.count() == 0
     assert read_messages(caplog)[0] == (
-        "score export: cannot write to langsmith: "
-        "LANGSMITH_API_KEY holds a control or non-ASCII character"
+        "score export: cannot write to langsmith: building its sender failed with "
+        "ConfigurationError"
     )
+    assert is_logged_by_type_alone(caplog, read_messages(caplog)[0])
 
 
 def test_scores_past_the_waiting_limit_are_dropped(caplog: pytest.LogCaptureFixture) -> None:
@@ -477,10 +483,9 @@ def test_a_sender_that_fails_to_close_is_logged(caplog: pytest.LogCaptureFixture
         case.worker.drain()
 
     # Assert
-    record = read_record(caplog, "score export: closing the langsmith sender failed")
-    exception = record.exc_info
-    assert exception
-    assert exception[0] is RuntimeError
+    assert is_logged_by_type_alone(
+        caplog, "score export: closing the langsmith sender failed with RuntimeError"
+    )
     assert case.senders[Tracer.LANGFUSE].closed
 
 
@@ -584,8 +589,7 @@ def test_a_window_that_fails_is_logged_and_never_raises(
     case.put()
 
     def break_the_window() -> None:
-        message = "the queue broke"
-        raise RuntimeError(message)
+        raise RuntimeError(ERROR_TEXT)
 
     monkeypatch.setattr(case.worker.waiting, "take_incoming", break_the_window)
 
@@ -594,10 +598,7 @@ def test_a_window_that_fails_is_logged_and_never_raises(
         case.worker.send_window()
 
     # Assert
-    record = read_record(caplog, "score export: a send window failed")
-    exception = record.exc_info
-    assert exception
-    assert exception[0] is RuntimeError
+    assert is_logged_by_type_alone(caplog, "score export: a send window failed with RuntimeError")
 
 
 def test_a_sender_that_fails_to_build_in_any_way_stops_neither_the_other_tool_nor_give_up(
@@ -609,8 +610,7 @@ def test_a_sender_that_fails_to_build_in_any_way_stops_neither_the_other_tool_no
 
     def build_sender(tracer: Tracer) -> ScoreSender | None:
         if tracer is Tracer.LANGFUSE:
-            message = "Invalid port: 'abc'"
-            raise ValueError(message)
+            raise ValueError(ERROR_TEXT)
         return langsmith
 
     case.worker.build_sender = build_sender
@@ -627,8 +627,9 @@ def test_a_sender_that_fails_to_build_in_any_way_stops_neither_the_other_tool_no
     assert len(langsmith.calls) == 31
     assert case.worker.waiting.count() == 0
     messages = read_messages(caplog)
+    assert ERROR_TEXT not in caplog.text
     assert messages[:2] == [
-        "score export: cannot write to langfuse: Invalid port: 'abc'",
+        "score export: cannot write to langfuse: building its sender failed with ValueError",
         "score export: langfuse scores are dropped in this process: it cannot be reached "
         "with the settings given",
     ]

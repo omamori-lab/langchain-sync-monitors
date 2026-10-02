@@ -162,14 +162,15 @@ def test_a_server_error_is_retried_and_then_leaves_no_response(
             client, request=client.build_request("GET", "https://service.test/items")
         )
 
-    # Assert: the log names the path and the error, never a header
+    # Assert: the log names the path, the error's type and the last status, never a header
     assert response is None
     assert len(seen) == 2
     assert [
         record.getMessage()
         for record in caplog.records
         if record.name == "langchain_sync_monitors.score_requests"
-    ] == ["score export: GET /items failed with HTTPStatusError"]
+    ] == ["score export: GET /items failed with HTTPStatusError (HTTP 503)"]
+    assert all(record.exc_info is None for record in caplog.records)
 
 
 def test_a_server_error_then_a_success_returns_the_success() -> None:

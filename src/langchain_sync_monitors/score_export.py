@@ -378,7 +378,7 @@ def queue_step_score(
 
     Nothing is queued when the monitor exports to no tool, when the step span
     had no handler, or when the step judged no sample. It never raises: a
-    failure is logged, and the run goes on.
+    failure is logged by the error's type alone, and the run goes on.
     """
     value = find_max_suspicion(record["samples"])
     if not monitor.export_scores or traced_step.run_id is None or value is None:
@@ -393,8 +393,10 @@ def queue_step_score(
                 name=build_score_name(monitor.label),
                 value=value,
             )
-    except Exception:
-        logger.warning("score export: the step's score could not be queued", exc_info=True)
+    except Exception as error:
+        logger.warning(
+            "score export: the step's score could not be queued: %s", type(error).__name__
+        )
 
 
 def put_step_scores(

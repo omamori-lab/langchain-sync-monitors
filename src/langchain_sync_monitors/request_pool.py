@@ -21,11 +21,11 @@ logger = logging.getLogger(__name__)
 
 
 def run_safely[Item, Result](call: Callable[[Item], Result], *, item: Item) -> Result | None:
-    """Return the call's result, or None, logged, when it raises."""
+    """Return the call's result, or None, logged by the error's type alone, when it raises."""
     try:
         return call(item)
-    except Exception:
-        logger.warning("score export: a request failed", exc_info=True)
+    except Exception as error:
+        logger.warning("score export: a request failed with %s", type(error).__name__)
         return None
 
 

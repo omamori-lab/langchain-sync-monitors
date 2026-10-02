@@ -346,9 +346,10 @@ def test_a_worker_that_fails_never_reaches_the_run(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
     # Arrange
+    error_text = "text from the transcript"
+
     def break_the_queue(score: object) -> None:
-        message = "the queue broke"
-        raise RuntimeError(message)
+        raise RuntimeError(error_text)
 
     monkeypatch.setattr(score_services.worker, "put", break_the_queue)
     handlers: list[BaseCallbackHandler] = [LangfuseHandler()]
@@ -359,7 +360,8 @@ def test_a_worker_that_fails_never_reaches_the_run(
 
     # Assert
     assert result["messages"][-1].text == "Done."
-    assert caplog.text.count("the step's score could not be queued") == 2
+    assert caplog.text.count("the step's score could not be queued: RuntimeError") == 2
+    assert error_text not in caplog.text
 
 
 def build_one_step_agent(monitor: MonitorMiddleware) -> Runnable[Any, Any]:

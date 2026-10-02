@@ -30,6 +30,8 @@ way to reach a client, builds a new one when none matches its key, and the
 global OpenTelemetry provider belongs to the program.
 
 Failures, a sender's exceptions included, are logged and never reach a run.
+A log names the error's type, and the tool when there is one, never the
+error's text or its traceback, which can quote a request or a URL.
 The first time a tool's scores are dropped because their steps were never
 found, the worker also says, once, what can cause it.
 
@@ -277,15 +279,17 @@ class ScoreWorker:
                     now=self.clock(), limit_seconds=self.timings.give_up_seconds
                 )
                 self.explain_unfound_steps(gave_up)
-            except Exception:
-                logger.warning("score export: a send window failed", exc_info=True)
+            except Exception as error:
+                logger.warning("score export: a send window failed with %s", type(error).__name__)
 
     def send_waiting_safely(self, tracer: Tracer) -> None:
         """Send one tool's waiting scores, so that its failure never stops the other tool."""
         try:
             self.send_waiting(tracer)
-        except Exception:
-            logger.warning("score export: sending to %s failed", tracer, exc_info=True)
+        except Exception as error:
+            logger.warning(
+                "score export: sending to %s failed with %s", tracer, type(error).__name__
+            )
 
     def send_waiting(self, tracer: Tracer) -> None:
         """Hand the tool all its waiting scores at once, unless it asked for a pause."""
@@ -333,7 +337,11 @@ class ScoreWorker:
                 self.senders[tracer] = self.build_sender(tracer)
             except Exception as error:
                 self.senders[tracer] = None
-                logger.warning("score export: cannot write to %s: %s", tracer, error)
+                logger.warning(
+                    "score export: cannot write to %s: building its sender failed with %s",
+                    tracer,
+                    type(error).__name__,
+                )
             if self.senders[tracer] is None:
                 logger.warning(
                     "score export: %s scores are dropped in this process: it cannot be reached "
@@ -377,5 +385,9 @@ class ScoreWorker:
                 continue
             try:
                 sender.close()
-            except Exception:
-                logger.debug("score export: closing the %s sender failed", tracer, exc_info=True)
+            except Exception as error:
+                logger.debug(
+                    "score export: closing the %s sender failed with %s",
+                    tracer,
+                    type(error).__name__,
+                )

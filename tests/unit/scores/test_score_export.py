@@ -418,9 +418,10 @@ def test_a_failure_to_queue_is_logged_and_never_raised(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
     # Arrange
+    error_text = "text from the transcript"
+
     def break_the_queue(score: object) -> None:
-        message = "the queue broke"
-        raise RuntimeError(message)
+        raise RuntimeError(error_text)
 
     monkeypatch.setattr(score_services.worker, "put", break_the_queue)
     traced_step = build_traced_step(LangfuseHandler())
@@ -433,8 +434,13 @@ def test_a_failure_to_queue_is_logged_and_never_raised(
             monitor=MonitorSettings(export_scores=frozenset({Tracer.LANGFUSE})),
         )
 
-    # Assert
-    assert "the step's score could not be queued" in caplog.text
+    # Assert: the log names the error's type, never its text or its traceback
+    [record] = [record for record in caplog.records if record.name == score_export.__name__]
+    assert record.getMessage() == (
+        "score export: the step's score could not be queued: RuntimeError"
+    )
+    assert record.exc_info is None
+    assert error_text not in caplog.text
 
 
 def test_the_process_worker_starts_once_with_its_exit_drain_and_again_after_a_fork(

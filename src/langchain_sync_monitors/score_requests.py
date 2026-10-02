@@ -159,7 +159,8 @@ def send_with_retries(http_client: httpx.Client, *, request: httpx.Request) -> h
 def send_request(http_client: httpx.Client, *, request: httpx.Request) -> httpx.Response | None:
     """Send the request with retries, or return None, logged, when it still failed.
 
-    The log names the request's path and the error's type, never a header.
+    The log names the request's path and `describe_failure`'s account of
+    the error, never a header.
     """
     try:
         return send_with_retries(http_client, request=request)
@@ -168,9 +169,19 @@ def send_request(http_client: httpx.Client, *, request: httpx.Request) -> httpx.
             "score export: %s %s failed with %s",
             request.method,
             request.url.path,
-            type(error).__name__,
+            describe_failure(error),
         )
         return None
+
+
+def describe_failure(error: httpx.HTTPError) -> str:
+    """Return the error's type, with the status of a server's error answer, but never its text.
+
+    An httpx error's text can quote the request's URL, so it is left out.
+    """
+    if isinstance(error, httpx.HTTPStatusError):
+        return f"{type(error).__name__} (HTTP {error.response.status_code})"
+    return type(error).__name__
 
 
 def is_rate_limited(response: httpx.Response | None) -> TypeGuard[httpx.Response]:

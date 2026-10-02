@@ -13,6 +13,9 @@ from langchain_sync_monitors.request_pool import RequestPool
 
 POOL_LOGGER = "langchain_sync_monitors.request_pool"
 
+ERROR_TEXT = "text a request carried"
+"""The text of the error a call raises, which the log must not carry."""
+
 EXIT_SECONDS = 60.0
 """How long a process that leaves a pool open may take to exit; a hung one never does."""
 
@@ -30,8 +33,7 @@ print(len(sender.pool.threads), len(pool.threads))
 def multiply_or_refuse(item: int) -> int:
     """Return ten times the item, or raise for the item 2."""
     if item == 2:
-        message = "refused"
-        raise ValueError(message)
+        raise ValueError(ERROR_TEXT)
     return item * 10
 
 
@@ -67,9 +69,12 @@ def test_a_call_that_raises_gives_none_logged_and_the_others_their_results(
     runner.join(timeout=5.0)
     pool.close()
 
-    # Assert
+    # Assert: the log names the error's type, never its text or its traceback
     assert results == [[10, None, 30]]
-    assert "score export: a request failed" in caplog.messages
+    [record] = [record for record in caplog.records if record.name == POOL_LOGGER]
+    assert record.getMessage() == "score export: a request failed with ValueError"
+    assert record.exc_info is None
+    assert ERROR_TEXT not in caplog.text
 
 
 def test_every_thread_of_the_pool_is_a_daemon() -> None:

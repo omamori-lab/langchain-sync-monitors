@@ -676,7 +676,7 @@ def test_a_base_url_with_credentials_and_another_scheme_is_refused_for_the_crede
     with pytest.raises(ConfigurationError) as raised:
         server.build_model(base_url=f"ftp://user:{PLANTED_PASSWORD}@decisions.test/api")
 
-    # Assert: the credentials, the graver fault, are what the message names
+    # Assert: any scheme with a host is accepted, but not with credentials
     assert str(raised.value).startswith("base_url holds a user name or password")
     assert PLANTED_PASSWORD not in str(raised.value)
 

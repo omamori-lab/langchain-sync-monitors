@@ -277,6 +277,163 @@ async def test_a_retried_request_logs_no_part_of_the_transcript_or_the_key(
         assert PLANTED_KEY not in text
 
 
+PLANTED_PASSWORD = "planted-password-71b3"
+"""A password planted in `base_url`, which httpx would send as Basic authentication."""
+
+
+class RecordCollector(logging.Handler):
+    """Keep every record it is handed, whatever its level."""
+
+    def __init__(self) -> None:
+        super().__init__(level=logging.DEBUG)
+        self.records: list[logging.LogRecord] = []
+
+    def emit(self, record: logging.LogRecord) -> None:
+        self.records.append(record)
+
+
+@pytest.fixture
+def every_log_record(caplog: pytest.LogCaptureFixture) -> Iterator[list[logging.LogRecord]]:
+    """Collect every record at every level, from every logger, propagating or not.
+
+    Every logger that exists, httpx's and stamina's included, is set to DEBUG,
+    and the collector sits on the root logger and on each logger that does not
+    propagate. A logger made later inherits the root's DEBUG level and
+    propagates. caplog restores the levels afterwards.
+    """
+    collector = RecordCollector()
+    caplog.set_level(logging.DEBUG)
+    loggers = [
+        logger
+        for logger in logging.root.manager.loggerDict.values()
+        if isinstance(logger, logging.Logger)
+    ]
+    for logger in loggers:
+        caplog.set_level(logging.DEBUG, logger=logger.name)
+    holders = [logging.root, *(logger for logger in loggers if not logger.propagate)]
+    for holder in holders:
+        holder.addHandler(collector)
+    yield collector.records
+    for holder in holders:
+        holder.removeHandler(collector)
+
+
+@pytest.mark.usefixtures("three_attempts")
+async def test_a_password_in_the_base_url_reaches_no_log_and_no_request(
+    call_path: CallPath,
+    every_log_record: list[logging.LogRecord],
+    retry_details: list[RetryDetails],
+) -> None:
+    # Arrange: a server error, so stamina logs a retry and httpx logs both requests
+    server = DecisionsServer(responders=[fail_with(503), answer_with({"leaks": 0.1})])
+    base_url = f"https://user:{PLANTED_PASSWORD}@decisions.test/api/alpha"
+
+    # Act
+    refusal: ConfigurationError | None = None
+    try:
+        model = server.build_model(base_url=base_url)
+        await estimate_on_path(model, questions=[LEAK_QUESTION], call_path=call_path)
+    except ConfigurationError as error:
+        refusal = error
+
+    # Assert: no record, no retry hook and no URL sent holds the password, and the model
+    # refused the URL
+    logged = [
+        *(f"stamina hook: {details.caused_by!r}" for details in retry_details),
+        *(f"{record.name}: {vars(record)!r}" for record in every_log_record),
+    ]
+    sent = [str(request.url) for request in server.requests]
+    assert [text for text in logged if PLANTED_PASSWORD in text] == []
+    assert [url for url in sent if PLANTED_PASSWORD in url] == []
+    assert isinstance(refusal, ConfigurationError)
+
+
+BASE_URLS_WITH_CREDENTIALS = {
+    "user-and-password": f"https://user:{PLANTED_PASSWORD}@decisions.test/api/alpha",
+    "password-alone": f"https://:{PLANTED_PASSWORD}@decisions.test/api/alpha",
+    "user-alone": f"https://{PLANTED_PASSWORD}@decisions.test/api/alpha",
+    "with-a-port-and-a-slash": f"https://user:{PLANTED_PASSWORD}@decisions.test:8443/api/alpha/",
+    "with-an-at-sign-inside": f"https://user:{PLANTED_PASSWORD}@x@decisions.test/api/alpha",
+}
+"""Base URLs whose user information httpx reads, each holding the planted secret."""
+
+
+@pytest.mark.parametrize(
+    "base_url",
+    BASE_URLS_WITH_CREDENTIALS.values(),
+    ids=BASE_URLS_WITH_CREDENTIALS.keys(),
+)
+def test_a_base_url_with_credentials_fails_at_construction_without_showing_them(
+    base_url: str,
+) -> None:
+    # Arrange
+    server = DecisionsServer(responders=[answer_with({"leaks": 0.1})])
+
+    # Act
+    with pytest.raises(ConfigurationError, match="base_url holds a user name") as raised:
+        server.build_model(base_url=base_url)
+
+    # Assert: neither the error nor anything chained to it quotes the secret
+    error = raised.value
+    shown = [str(error), repr(error), repr(error.__cause__), repr(error.__context__)]
+    assert [text for text in shown if PLANTED_PASSWORD in text] == []
+    assert "api_key" in str(error)
+    assert server.requests == []
+
+
+@pytest.mark.parametrize(
+    ("base_url", "endpoint"),
+    [
+        pytest.param(
+            "https://decisions.test/api/a@b",
+            "https://decisions.test/api/a@b/decisions",
+            id="at-sign-in-the-path",
+        ),
+        pytest.param(
+            "https://decisions.test:8443/api/alpha",
+            "https://decisions.test:8443/api/alpha/decisions",
+            id="a-port",
+        ),
+    ],
+)
+async def test_a_base_url_without_credentials_is_sent_as_given(
+    call_path: CallPath,
+    base_url: str,
+    endpoint: str,
+) -> None:
+    # Arrange
+    server = DecisionsServer(responders=[answer_with({"leaks": 0.1})])
+    model = server.build_model(base_url=base_url)
+
+    # Act
+    probabilities = await estimate_on_path(model, questions=[LEAK_QUESTION], call_path=call_path)
+
+    # Assert
+    (request,) = server.requests
+    assert str(request.url) == endpoint
+    assert request.headers["Authorization"] == "Bearer unit-test-key"
+    assert probabilities == {"leaks": 0.1}
+
+
+async def test_a_base_url_httpx_cannot_read_fails_at_the_request_without_showing_credentials(
+    call_path: CallPath,
+    every_log_record: list[logging.LogRecord],
+) -> None:
+    # Arrange: the port is not a number, so httpx cannot read the URL to find its user name
+    server = DecisionsServer(responders=[answer_with({"leaks": 0.1})])
+    model = server.build_model(base_url=f"https://user:{PLANTED_PASSWORD}@decisions.test:port/api")
+
+    # Act
+    with pytest.raises(httpx.InvalidURL) as raised:
+        await estimate_on_path(model, questions=[LEAK_QUESTION], call_path=call_path)
+
+    # Assert: nothing was sent, and neither the error nor any record quotes the secret
+    shown = [str(raised.value), repr(raised.value)]
+    shown += [f"{record.name}: {vars(record)!r}" for record in every_log_record]
+    assert [text for text in shown if PLANTED_PASSWORD in text] == []
+    assert server.requests == []
+
+
 @pytest.mark.usefixtures("three_attempts")
 async def test_a_client_error_is_not_retried(call_path: CallPath) -> None:
     # Arrange

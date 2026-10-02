@@ -14,6 +14,15 @@ change raises the minor version.
 
 ## [Unreleased]
 
+### Fixed
+
+- A password in `OpenRouterDecisionModel`'s `base_url` no longer reaches logs.
+  httpx quoted it in its request log line and in the error stamina logs on a
+  retry, and sent it as Basic authentication in place of the key. A
+  `base_url` that holds a user name or password now raises
+  `ConfigurationError` when the model is built, with no part of the URL in
+  the message; pass the key as `api_key`.
+
 ## [0.1.1] - 2026-10-01
 
 ### Changed

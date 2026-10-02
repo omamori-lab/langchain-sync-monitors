@@ -107,6 +107,38 @@ def check_key_characters(key: str, *, source: str) -> None:
         raise ConfigurationError(message)
 
 
+def check_url_without_credentials(url: str, *, parameter_name: str) -> None:
+    """Refuse a URL that carries a user name or password, quoting no part of it.
+
+    httpx reads a user name and password in a request's URL as Basic
+    authentication, which replaces the bearer key in the `Authorization`
+    header, and quotes the whole URL in its own request log and in the
+    `HTTPStatusError` that stamina logs on a retry [@httpx2024;
+    @schlawack2026stamina]. So such a URL can never carry the key, and puts
+    the password in the logs. A URL httpx cannot read is left to the request,
+    which fails before anything is sent, with an error that quotes no user
+    name or password.
+    """
+    try:
+        userinfo = httpx.URL(url).userinfo
+    except httpx.InvalidURL:
+        return
+    if userinfo:
+        message = (
+            f"{parameter_name} holds a user name or password, which httpx would send in "
+            "place of the key and quote in its logs: pass the key as api_key, and "
+            f"{parameter_name} without them"
+        )
+        raise ConfigurationError(message)
+
+
+def build_decisions_endpoint(base_url: str) -> str:
+    """Return `{base_url}/decisions`, once `base_url` is a string with no user name or password."""
+    check_instance_option(base_url, option_type=str, parameter_name="base_url")
+    check_url_without_credentials(base_url, parameter_name="base_url")
+    return f"{base_url.rstrip('/')}/decisions"
+
+
 def read_openrouter_api_key(api_key: SecretStr | None) -> SecretStr:
     """Return the key given, or, when it is None, the one in `OPENROUTER_API_KEY`.
 
@@ -158,10 +190,13 @@ class OpenRouterDecisionModel(DecisionModel):
     its resolution.
 
     The key comes from `OPENROUTER_API_KEY` unless `api_key` is given, and a
-    blank `api_key` raises `ConfigurationError`. Pass your own `http_client`
-    or `async_http_client` to reuse connections, change transports or decide
-    when a client closes; a client you pass keeps its own timeout, and
-    `timeout_seconds` applies only to the clients the model opens.
+    blank `api_key` raises `ConfigurationError`. So does a `base_url` that
+    holds a user name or password, as `check_url_without_credentials`
+    explains, with no part of the URL in the message. Pass your own
+    `http_client` or `async_http_client` to reuse connections, change
+    transports or decide when a client closes; a client you pass keeps its
+    own timeout, and `timeout_seconds` applies only to the clients the model
+    opens.
     Without them, the sync path opens one client for the model's lifetime,
     which is never closed, and the async path opens and closes a client per
     request, since a pooled async client cannot move between event loops.
@@ -188,7 +223,7 @@ class OpenRouterDecisionModel(DecisionModel):
             parameter_name="model",
             hint="Pass the model's OpenRouter id, such as 'typesafe/jev-1.13'.",
         )
-        check_instance_option(base_url, option_type=str, parameter_name="base_url")
+        endpoint = build_decisions_endpoint(base_url)
         timeout_seconds = read_positive_number_option(
             timeout_seconds,
             parameter_name="timeout_seconds",
@@ -207,7 +242,7 @@ class OpenRouterDecisionModel(DecisionModel):
         )
         self.model = model
         self.api_key = read_openrouter_api_key(api_key)
-        self.endpoint = f"{base_url.rstrip('/')}/decisions"
+        self.endpoint = endpoint
         self.timeout_seconds = timeout_seconds
         self.http_client = http_client or httpx.Client(timeout=timeout_seconds)
         self.async_http_client = async_http_client

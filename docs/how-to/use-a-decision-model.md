@@ -37,7 +37,7 @@ monitor = DecisionModelMonitor(
 | Setting | Behaviour |
 |---|---|
 | Key | Read from `OPENROUTER_API_KEY` when the model is built, unless you pass `api_key=SecretStr(...)`. A missing key raises `ConfigurationError` at once. A blank `api_key`, or one that is not a `SecretStr`, raises too, rather than fall back to the variable. Either key is stripped of surrounding whitespace, and one that still holds a control or non-ASCII character raises `ConfigurationError`, with no part of the key in the message. |
-| Endpoint | `{base_url}/decisions`, with `base_url` defaulting to `https://openrouter.ai/api/alpha`. The Decisions API is in alpha. |
+| Endpoint | `{base_url}/decisions`, with `base_url` defaulting to `https://openrouter.ai/api/alpha`. The Decisions API is in alpha. A `base_url` that holds a user name or password, such as `https://user:password@host`, raises `ConfigurationError` when the model is built, with no part of the URL in the message: httpx would send them as Basic authentication in place of the key, and quote them in its logs. Pass the key as `api_key`. |
 | Timeout | `timeout_seconds`, 30 by default, a positive, finite number of seconds; `None` or an `httpx.Timeout` raises `ConfigurationError`. It applies only to the clients the model opens itself. A client you pass keeps its own timeout. |
 | Connections | Pass `http_client` or `async_http_client`, both `httpx` clients, to reuse connections or decide when a client closes. Without them, `invoke()` uses one client for the model's lifetime, which the library never closes, and `ainvoke()` opens and closes a client per request, since a pooled async client cannot move between event loops. |
 
@@ -221,7 +221,9 @@ raises `httpx.HTTPStatusError` at once. A request httpx refuses to send, such
 as one to a URL whose scheme it does not support, raises at once too, since it
 would fail the same way every time. stamina logs each retry as
 `stamina.retry_scheduled` with its error and wait, never the request, so
-neither the transcript nor the key reaches the log.
+neither the transcript nor the key reaches the log. The error quotes the
+request's URL, as httpx's own `HTTP Request` line at INFO does, and that URL
+holds no password, since a `base_url` with one is refused.
 
 The library adds no retries around `TypeSafeDecisionModel`; an error from the
 classifier is raised as it is.

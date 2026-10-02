@@ -116,7 +116,7 @@ def read_httpx_url(url: str) -> httpx.URL | None:
 
 
 def check_url_without_credentials(url: str, *, parameter_name: str) -> None:
-    """Refuse a URL that carries a user name or password, or that httpx cannot read.
+    """Refuse a URL with a user name or password as httpx parses it, or that httpx cannot read.
 
     httpx reads a user name and password in a request's URL as Basic
     authentication, which replaces the bearer key in the `Authorization`
@@ -129,10 +129,7 @@ def check_url_without_credentials(url: str, *, parameter_name: str) -> None:
     `https://user:abc#rest@host` httpx reads `abc` as the port and quotes it.
     Neither message quotes any part of the URL, and nothing is chained to it,
     since the refusal is raised outside the handler that caught httpx's error.
-
-    The check sees the URL as httpx reads it, so it cannot refuse a password
-    httpx reads as something else: in `https://user:123/rest@host`, `user`
-    is the host, `123` the port and `/rest@host` the path.
+    `OpenRouterDecisionModel` states the password this check cannot see.
     """
     parsed = read_httpx_url(url)
     if parsed is None:
@@ -239,11 +236,15 @@ class OpenRouterDecisionModel(DecisionModel):
     `check_url_without_credentials` explains, or that is not an `http` or
     `https` URL with a host, such as an empty or relative one, as
     `check_http_url_with_host` explains, with no part of the URL in the
-    message. Pass your own `http_client` or `async_http_client` to reuse
-    connections, change transports or decide when a client closes; a client
-    you pass keeps its own timeout, and `timeout_seconds` applies only to the
-    clients the model opens. Without them, the sync path opens one client for
-    the model's lifetime, which is never closed, and the async path opens and
+    message. A password httpx parses as a port and the rest of the URL, as
+    in `https://user:123/rest@host`, is not refused, and logs and errors can
+    quote it with the URL: keep credentials out of `base_url`.
+
+    Pass your own `http_client` or `async_http_client` to reuse connections,
+    change transports or decide when a client closes; a client you pass
+    keeps its own timeout, and `timeout_seconds` applies only to the clients
+    the model opens. Without them, the sync path opens one client for the
+    model's lifetime, which is never closed, and the async path opens and
     closes a client per request, since a pooled async client cannot move
     between event loops.
 

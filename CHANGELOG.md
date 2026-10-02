@@ -14,6 +14,36 @@ change raises the minor version.
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-10-01
+
+### Changed
+
+- The install instructions lead with `uv add`, with `pip install` as the
+  alternative.
+- `MissingExtraError` messages name `uv add` as well as `pip install`.
+- The docs and docstrings call `LLMMonitor`'s family an LLM monitor, the AI
+  control literature's term, not a chat judge. The guide "Use a chat judge" is
+  now [Use an LLM monitor](https://omamori-lab.github.io/langchain-sync-monitors/how-to/use-an-llm-monitor/),
+  and its old address redirects there.
+- The `CachedResampleWarning` about a monitor's cached model says "an LLM
+  monitor" where it said "a chat judge"; a warning filter that matches the old
+  text needs the new one.
+- The `UncalibratedThresholdWarning` for a threshold compared with one
+  sample's score says `CalibratedMonitor`'s scores are "smoothed conformal
+  p-values against honest scores", where it said "honest-run percentiles"; a
+  warning filter that matches the old text needs the new one.
+
+### Fixed
+
+- Ten figures, and the prose and docstrings beside them, are corrected: a
+  failed step runs none of the agent's own tools; Defer to Resample hands the
+  step to its fallback only when no sample passes; `CalibratedMonitor`
+  reports a smoothed conformal p-value; a guard model whose chat model cannot
+  take log-probabilities fails in its adapter, which rejects the `logprobs`
+  keyword before any request is sent; the monitor's own feedback renders as
+  `<monitor_feedback>`; and input after a run that stopped early is recorded
+  as no input.
+
 ## [0.1.0] - 2026-10-01
 
 ### Added
@@ -102,5 +132,6 @@ change raises the minor version.
 - The full list is in
   [Known limits and open paths](https://omamori-lab.github.io/langchain-sync-monitors/explanation/design/#known-limits-and-open-paths).
 
-[Unreleased]: https://github.com/omamori-lab/langchain-sync-monitors/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/omamori-lab/langchain-sync-monitors/compare/v0.1.1...HEAD
+[0.1.1]: https://github.com/omamori-lab/langchain-sync-monitors/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/omamori-lab/langchain-sync-monitors/releases/tag/v0.1.0

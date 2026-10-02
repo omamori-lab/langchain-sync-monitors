@@ -72,6 +72,11 @@ plugins:
       # Only bracketed [@key] citations, so a bare @word, such as a decorator in a
       # code example, is never read as a citation key.
       enable_inline_citations: false
+  # A renamed page keeps its old address: the old path serves a page that
+  # sends the reader on to the new one.
+  - redirects:
+      redirect_maps:
+        how-to/use-a-chat-judge.md: how-to/use-an-llm-monitor.md
   - mkdocstrings:
       handlers:
         python:
@@ -123,7 +128,7 @@ nav:
           - Use Auto Mode: how-to/use-auto-mode.md
           - Monitor Deep Agents subagents: how-to/monitor-deep-agents-subagents.md
       - Monitors:
-          - Use a chat judge: how-to/use-a-chat-judge.md
+          - Use an LLM monitor: how-to/use-an-llm-monitor.md
           - Use a guard model: how-to/use-a-guard-model.md
           - Use a decision model: how-to/use-a-decision-model.md
           - Combine and calibrate monitors: how-to/combine-and-calibrate-monitors.md

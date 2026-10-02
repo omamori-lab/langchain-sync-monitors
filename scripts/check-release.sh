@@ -54,12 +54,43 @@ if [[ -z "${release_date}" ]]; then
 else
   # The section runs to the next "## [" heading. Link references, which Keep a
   # Changelog puts at the end of the file, and outer blank lines are dropped.
+  # A wrapped line is joined to the line it continues, because GitHub renders
+  # each line break in Release notes as a break: a line continues the one
+  # before it unless either is blank, or it starts a heading, a list item, a
+  # table row or a code fence; nothing is joined to a heading or a table row.
+  # A fence of backticks or tildes closes only on a run of the same character
+  # at least as long, and the lines inside it are kept as they are.
   # The awk sticks to what gawk, mawk and BSD awk all read the same way.
   notes="$(awk -v heading="## [${version}] - " '
     index($0, heading) == 1 { grab = 1; next }
     grab && /^## \[/ { exit }
     grab && /^\[.+\]: http/ { next }
-    grab { lines[++count] = $0 }
+    grab && fence {
+      lines[++count] = $0
+      text = $0
+      sub(/^[ \t]+/, "", text)
+      if (substr(text, 1, length(fence)) == fence) {
+        rest = substr(text, length(fence) + 1)
+        sub("^" (substr(fence, 1, 1) == "`" ? "`" : "~") "*", "", rest)
+        if (rest ~ /^[ \t]*$/) fence = ""
+      }
+      next
+    }
+    grab && match($0, /^[ \t]*(```+|~~~+)/) {
+      fence = substr($0, RSTART, RLENGTH)
+      sub(/^[ \t]+/, "", fence)
+      lines[++count] = $0
+      joinable = 0
+      next
+    }
+    grab && /^[ \t]*$/ { lines[++count] = $0; joinable = 0; next }
+    grab && joinable && $0 !~ /^[ \t]*([-*+] |[0-9]+\. |#|\|)/ {
+      text = $0
+      sub(/^[ \t]+/, "", text)
+      lines[count] = lines[count] " " text
+      next
+    }
+    grab { lines[++count] = $0; joinable = ($0 !~ /^[ \t]*(#|\|)/) }
     END {
       first = 1
       while (first <= count && lines[first] ~ /^[ \t]*$/) first++

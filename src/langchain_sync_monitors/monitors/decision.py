@@ -29,7 +29,11 @@ from typing import TYPE_CHECKING
 from langchain_core.runnables import Runnable
 
 from langchain_sync_monitors.contracts import Monitor, MonitorInput, MonitorView, Verdict
-from langchain_sync_monitors.errors import MissingExtraError, MonitorError
+from langchain_sync_monitors.errors import (
+    MissingExtraError,
+    MonitorError,
+    build_missing_extra_message,
+)
 from langchain_sync_monitors.model_calls import build_internal_call_config
 from langchain_sync_monitors.monitors.chat import DEFAULT_MONITOR_VIEW
 from langchain_sync_monitors.monitors.decision_questions import (
@@ -117,10 +121,7 @@ def load_typesafe_module() -> ModuleType:
     try:
         return importlib.import_module("langchain_typesafe")
     except ImportError as error:
-        message = (
-            "TypeSafeDecisionModel needs the typesafe extra: "
-            "pip install 'langchain-sync-monitors[typesafe]'"
-        )
+        message = build_missing_extra_message("TypeSafeDecisionModel", extra="typesafe")
         raise MissingExtraError(message) from error
 
 
@@ -247,7 +248,8 @@ class DecisionModelMonitor(Monitor):
     Every answer is checked, whichever `DecisionModel` gave it: a skipped
     question, or an answer that is not a finite number from 0 to 1 (an
     `int`, a `float`, a `Decimal` or another real number, but not a `bool`),
-    raises `MonitorError`, so the step fails and nothing it proposed runs.
+    raises `MonitorError`, so the step fails, and none of the agent's own
+    tools run.
     """
 
     def __init__(

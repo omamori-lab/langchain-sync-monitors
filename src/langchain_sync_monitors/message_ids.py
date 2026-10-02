@@ -4,7 +4,7 @@ Deep Agents keeps `messages` in a channel whose reducer adds a message
 without an id as it is, and LangGraph gives an id to a message written as a
 message or a dictionary, not to one written as a string or a `(role, text)`
 tuple [@deepagents2026; @langgraph2026]. The monitor records human messages
-by id, so a run's input given that way would never be recorded: the judge
+by id, so a run's input given that way would never be recorded: the monitor
 would read the user's task as a note, and a halt would stand. So the
 monitor gives each untagged human message without an id a fresh one at the
 start of a run, before recording the input (`run_inputs`), and at the end

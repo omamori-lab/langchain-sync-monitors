@@ -316,10 +316,11 @@ class MonitorStepEvent(TypedDict):
 class MonitorStepFailedEvent(TypedDict):
     """The event a monitor writes to `stream_mode="custom"` when a step fails uncommitted.
 
-    A call inside the step raised before the protocol decided, so no record
-    reaches `monitor_log`. The event keeps what the monitor had judged by then:
-    `samples` holds each judged sample, none of them executed, and `error`
-    names the exception, which the middleware raises again after the event.
+    A call inside the step raised, or the protocol returned a malformed
+    decision, so no record reaches `monitor_log`. The event keeps what the
+    monitor had judged by then: `samples` holds each judged sample, none of
+    them executed, and `error` names the exception, which the middleware
+    raises again after the event.
     """
 
     type: Literal["monitor_step_failed"]

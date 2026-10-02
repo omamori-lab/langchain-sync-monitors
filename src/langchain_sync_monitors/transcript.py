@@ -221,7 +221,7 @@ def build_unrecognised_block_entry(
     block of reasoning, such as Anthropic's `thinking`, sits with the
     reasoning instead, so a view without it still leaves it out. A refusal is
     text the model wrote to the user, so it renders as the agent's prose,
-    which is how the judge reads it in a final answer. A block that carries
+    which is how the monitor reads it in a final answer. A block that carries
     the id of one of the message's tool calls repeats that call, which is
     rendered already, so it renders as nothing.
     """

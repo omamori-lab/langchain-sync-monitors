@@ -2,8 +2,9 @@
 
 Each wrapper is a `Monitor` itself, so it stacks around any monitor family, and
 around other wrappers, without the control protocols noticing. A common stack
-averages a few calls first, then expresses the result as an honest-run
-percentile: `CalibratedMonitor(monitor=RepeatedMonitor(monitor=judge,
+averages a few calls first, then reports the result as a smoothed conformal
+p-value against honest scores:
+`CalibratedMonitor(monitor=RepeatedMonitor(monitor=llm_monitor,
 ensemble_size=3), honest_scores=scores)`.
 
 The wrappers change the suspicion and pass on the wrapped monitor's reason word
@@ -39,7 +40,7 @@ class RepeatedMonitor(Monitor):
     which LinuxArena calls the ensemble size (appendix C)
     [@tracy2026linuxarena].
 
-    A single call of a chat judge gives an integer score, and integer scores tie
+    A single call of an LLM monitor gives an integer score, and integer scores tie
     so often that a low audit budget cannot be set: the budget falls inside a
     group of tied steps. Averaging repeated calls adds resolution at low false
     positive rates, as BashArena shows (section 4.3) [@kaufman2025basharena];

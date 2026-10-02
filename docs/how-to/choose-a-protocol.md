@@ -251,7 +251,7 @@ gives, and each enum option a member of its enum; anything else raises
 - [Use Defer to Trusted](use-defer-to-trusted.md)
 - [Use Defer to Resample](use-defer-to-resample.md)
 - [Use Auto Mode](use-auto-mode.md)
-- [Use a chat judge](use-a-chat-judge.md) for the monitor most setups start with.
+- [Use an LLM monitor](use-an-llm-monitor.md) for the monitor most setups start with.
 - [Combine and calibrate monitors](combine-and-calibrate-monitors.md) for thresholds that mean an audit budget.
 - [Read the monitor log](read-the-monitor-log.md) for what each protocol records.
 

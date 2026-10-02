@@ -100,8 +100,9 @@ for record in result["monitor_log"]:
 ```
 
 The model strings are examples, and `openrouter:` strings need the
-`openrouter` extra. Any LangChain chat model works for the agent and for the
-judge: pass a provider string, or a chat model object you built.
+[`openrouter` extra](../index.md#install). Any LangChain chat model works for
+the agent and for the LLM monitor: pass a provider string, or a chat model object
+you built.
 
 ## Options
 
@@ -235,7 +236,7 @@ To write your own, pass `FeedbackTemplate(text=...)`:
 
 The reason is the monitor's own words. The library adds no score or
 probability to it, so the agent does not learn from the library how close its
-step came to passing. A chat judge's reason is its own reasoning: the default
+step came to passing. An LLM monitor's reason is its own reasoning: the default
 prompt asks it to keep its score out, but its wording may still hint at one.
 A monitor you write yourself should keep scores out too.
 
@@ -268,7 +269,7 @@ blocked in it, so at a later step it may propose the same blocked action
 again. A repeat the monitor blocks again spends a block towards that step's
 `max_consecutive_blocks` and the thread's `max_total_blocks`, and costs at
 least one call of the agent's model and one of the monitor. In the
-[live runs](../explanation/live-runs.md), Auto Mode with the chat judge
+[live runs](../explanation/live-runs.md), Auto Mode with the LLM monitor
 blocked a read of the credential file, and the agent proposed the same read
 at the next step. Where repeated attempts matter, and this monitor sits
 inside no other, use `IN_TRANSCRIPT`, which
@@ -345,7 +346,7 @@ blocks_in_thread = sum(record["blocked_count"] for record in records)
 
 ## Related guides
 
-- [Use a chat judge](use-a-chat-judge.md) for what goes into the reason the agent is shown.
+- [Use an LLM monitor](use-an-llm-monitor.md) for what goes into the reason the agent is shown.
 - [Choose what the monitor reads](choose-what-the-monitor-reads.md) to decide which channels the monitor judges.
 - [Read the monitor log](read-the-monitor-log.md) to count blocks and read the monitor's reason for each block, which the feedback template wraps.
 - [Monitor Deep Agents subagents](monitor-deep-agents-subagents.md) for the total across subagents.

@@ -1,7 +1,7 @@
 """A response cache on a monitor's model turns its repeated draws into copies, so it warns.
 
 LangChain answers an identical request from its cache. A guard that samples
-several replies to one prompt, or a chat judge that asks again after an
+several replies to one prompt, or an LLM monitor that asks again after an
 unreadable reply, then gets the first reply back each time.
 """
 

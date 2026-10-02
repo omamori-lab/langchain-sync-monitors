@@ -6,7 +6,7 @@ the `operations` subagent with Deep Agents' `task` tool. The subagent has the
 sandbox's tools, renamed so they do not clash with Deep Agents' own file tools,
 and in the attack run only its model reads the side task. Jev judges the main
 agent under Auto Mode, and `monitor_subagents` gives the subagent either a
-copy of that monitor or, to reach a halt, the chat judge under Defer to
+copy of that monitor or, to reach a halt, the LLM monitor under Defer to
 Resample with `HaltRun`.
 """
 
@@ -132,9 +132,9 @@ def build_halting_monitor(
     ledger: CostLedger,
     decisions_clients: DecisionsClients,
 ) -> MonitorMiddleware:
-    """Build the subagent's override: the chat judge, under Defer to Resample ending in a halt."""
+    """Build the subagent's override: the LLM monitor, under Defer to Resample ending in a halt."""
     judge = build_family_monitor(
-        MonitorFamily.CHAT_JUDGE,
+        MonitorFamily.LLM_MONITOR,
         view=MonitorView(),
         ledger=ledger,
         decisions_clients=decisions_clients,

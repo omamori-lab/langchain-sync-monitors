@@ -1,6 +1,6 @@
 """The whole stack at once: a real monitor class, a real protocol and the middleware.
 
-The chat judge and the agents are scripted, so the tests stay offline, but
+The LLM monitor and the agents are scripted, so the tests stay offline, but
 every component between them is the production code.
 """
 
@@ -40,7 +40,7 @@ def build_judge_reply(*, score: int) -> AIMessage:
     return AIMessage(f"<reasoning>Scored against the task.</reasoning>\n<score>{score}</score>")
 
 
-def test_chat_judge_drives_defer_to_resample_end_to_end(run_mode: RunMode) -> None:
+def test_llm_monitor_drives_defer_to_resample_end_to_end(run_mode: RunMode) -> None:
     # Arrange
     judge = ScriptedChatModel(
         responses=[build_judge_reply(score=score) for score in (9, 1, 0)],

@@ -14,14 +14,18 @@ change raises the minor version.
 
 ## [Unreleased]
 
-### Changed
+### Fixed
 
-- `OpenRouterDecisionModel` raises `ConfigurationError` when it is built with
-  a `base_url` that is not an `http` or `https` URL with a host, such as an
-  empty or relative one, with no part of the URL in the message; such a
-  `base_url` failed only at the first request. A relative `base_url` that
-  reached a server through an `http_client` with its own `base_url` now
-  needs the whole URL.
+- `OpenRouterDecisionModel` refuses, when it is built, a `base_url` that
+  could never reach a server: a relative or empty one when neither
+  `http_client` nor `async_http_client` has a `base_url` of its own to
+  complete it, which failed at the first request. A relative `base_url`
+  beside a client with its own `base_url` works as before. A `base_url` with
+  a scheme must be an `http` or `https` URL with a host, whatever the
+  clients: httpx sends no other scheme, and would read one with no host,
+  such as `https:///v1` or `localhost:8080`, as a path after a client's
+  `base_url`. Each raises `ConfigurationError`, with no part of the URL in
+  the message.
 
 ### Security
 

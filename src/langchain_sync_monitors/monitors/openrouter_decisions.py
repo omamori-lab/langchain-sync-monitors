@@ -148,36 +148,68 @@ def check_url_without_credentials(url: str, *, parameter_name: str) -> None:
         raise ConfigurationError(message)
 
 
-def check_http_url_with_host(url: str, *, parameter_name: str) -> None:
-    """Refuse a URL that is not `http` or `https` with a host, such as an empty or relative one.
+def has_own_base_url(client: httpx.Client | httpx.AsyncClient | None) -> bool:
+    """Return whether `client` was passed with a `base_url` of its own, as httpx reads it."""
+    return client is not None and str(client.base_url) != ""
 
-    httpx counts a URL as absolute only when it has a scheme and a host, in
-    its url property `is_absolute_url` [@httpx2024]. The clients the model
-    opens have no `base_url` of their own to complete any other URL, so it
-    could only fail at the first request. A relative URL is refused even
-    beside a caller's client that has a `base_url`, so the endpoint is always
-    the URL given. The message quotes no part of the URL, not even its
-    scheme, which in `user:password@host` is the user name.
+
+def is_relative_or_http_url_with_host(url: httpx.URL) -> bool:
+    """Return whether `url` has no scheme, or an `http` or `https` scheme and a host."""
+    return not url.scheme or (url.scheme in {"http", "https"} and bool(url.host))
+
+
+def check_reachable_url(
+    url: str,
+    *,
+    clients: Sequence[httpx.Client | httpx.AsyncClient | None],
+    parameter_name: str,
+) -> None:
+    """Refuse a URL with a scheme but no http or https host, or a relative one nothing completes.
+
+    A URL with a scheme must be `http` or `https` with a host, whatever the
+    clients, since httpx's own transports send no other [@httpx2024]. httpx
+    would put one with a scheme and no host, such as `https:user:password@host`,
+    after a client's `base_url` as a path, which would carry what reads as a
+    user name and password into its logs. A URL with no scheme, such as an
+    empty or relative one, is built on the `base_url` of the client that
+    sends it [@httpx2024]: the request goes to that `base_url` followed by
+    the URL's path. So it is refused only when none of `clients`, those the
+    caller passed, has a `base_url`, since the clients the model opens have
+    none, and it could only fail at the first request. The message quotes no
+    part of the URL, not even its scheme, which in `user:password@host` is
+    the user name.
     """
     parsed = read_httpx_url(url)
-    if parsed is None or parsed.scheme not in {"http", "https"} or not parsed.host:
+    if parsed is None or not is_relative_or_http_url_with_host(parsed):
         message = (
             f"{parameter_name} is not an http or https URL with a host, and it is not quoted "
             "here in case it holds a password; pass the whole URL, such as "
             f"{OPENROUTER_DECISIONS_URL}"
         )
         raise ConfigurationError(message)
+    if not parsed.scheme and not any(has_own_base_url(client) for client in clients):
+        message = (
+            f"{parameter_name} is not an http or https URL with a host, and neither http_client "
+            "nor async_http_client has a base_url to complete it; pass the whole URL, such as "
+            f"{OPENROUTER_DECISIONS_URL}, or a client with a base_url of its own"
+        )
+        raise ConfigurationError(message)
 
 
-def build_decisions_endpoint(base_url: str) -> str:
-    """Return `{base_url}/decisions`, once `base_url` is an http or https URL with no credentials.
+def build_decisions_endpoint(
+    base_url: str,
+    *,
+    clients: Sequence[httpx.Client | httpx.AsyncClient | None],
+) -> str:
+    """Return `{base_url}/decisions`, once `base_url` holds no credentials and can reach a server.
 
-    The credentials check runs first, so a URL that holds them is refused
-    for them, whatever its scheme.
+    `clients` are those the caller passed, whose `base_url` can complete a
+    relative `base_url`. The credentials check runs first, so a URL that
+    holds them is refused for them, whatever its scheme and the clients.
     """
     check_instance_option(base_url, option_type=str, parameter_name="base_url")
     check_url_without_credentials(base_url, parameter_name="base_url")
-    check_http_url_with_host(base_url, parameter_name="base_url")
+    check_reachable_url(base_url, clients=clients, parameter_name="base_url")
     return f"{base_url.rstrip('/')}/decisions"
 
 
@@ -234,13 +266,14 @@ class OpenRouterDecisionModel(DecisionModel):
     The key comes from `OPENROUTER_API_KEY` unless `api_key` is given, and a
     blank `api_key` raises `ConfigurationError`. So does a `base_url` that
     holds a user name or password, or that httpx cannot read, as
-    `check_url_without_credentials` explains, or that is not an `http` or
-    `https` URL with a host, such as an empty or relative one, as
-    `check_http_url_with_host` explains, with no part of the URL in the
-    message. An unencoded `/`, `?` or `#` in a user name or password hides
-    them from httpx, which reads what comes before that character as the
-    host and port. Such a `base_url` is refused only when that is no host
-    and port httpx can read, as in `https://user:abc#rest@host`;
+    `check_url_without_credentials` explains, and, as `check_reachable_url`
+    explains, one with a scheme that is not an `http` or `https` URL with a
+    host, whatever the clients, or a relative or empty one when no client
+    passed has a `base_url` of its own. No message quotes any part of the
+    URL. An unencoded `/`, `?` or `#` in a user name or password hides them
+    from httpx, which reads what comes before that character as the host and
+    port. Such a `base_url` is refused only when that is no host and port
+    httpx can read, as in `https://user:abc#rest@host`;
     `https://user:/rest@host`, `https://user:123/rest@host` and
     `https://user/rest:password@host` are built. Their requests, key
     included, go to a host read from the user name, and logs and errors can
@@ -253,7 +286,14 @@ class OpenRouterDecisionModel(DecisionModel):
     the model opens. Without them, the sync path opens one client for the
     model's lifetime, which is never closed, and the async path opens and
     closes a client per request, since a pooled async client cannot move
-    between event loops.
+    between event loops. A relative or empty `base_url` goes after the
+    `base_url` of the client that sends it: with `base_url="/v1"` and
+    `http_client=httpx.Client(base_url="https://gateway.example/api")`, the
+    sync path posts to `https://gateway.example/api/v1/decisions`. Each path
+    sends with its own client only, so a path whose client you do not pass
+    opens one without a `base_url`, and its first request raises
+    `httpx.UnsupportedProtocol`. Pass a client with a `base_url` for each
+    path you use.
 
     Retries stop after `RETRY_ATTEMPTS` attempts, or once an attempt fails 45
     seconds or more after the first began, stamina's default time budget.
@@ -277,7 +317,6 @@ class OpenRouterDecisionModel(DecisionModel):
             parameter_name="model",
             hint="Pass the model's OpenRouter id, such as 'typesafe/jev-1.13'.",
         )
-        endpoint = build_decisions_endpoint(base_url)
         timeout_seconds = read_positive_number_option(
             timeout_seconds,
             parameter_name="timeout_seconds",
@@ -294,6 +333,8 @@ class OpenRouterDecisionModel(DecisionModel):
             parameter_name="async_http_client",
             hint="Pass an httpx.AsyncClient, or None for one per request.",
         )
+        # The clients are checked first, so reading their base_url cannot fail.
+        endpoint = build_decisions_endpoint(base_url, clients=[http_client, async_http_client])
         self.model = model
         self.api_key = read_openrouter_api_key(api_key)
         self.endpoint = endpoint

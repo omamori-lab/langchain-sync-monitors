@@ -55,6 +55,9 @@ LEAK_QUESTION = YesNoQuestion(
     no_means="No secret leaves the system.",
 )
 
+GATEWAY_BASE_URL = "https://gateway.test/api"
+"""A client's own `base_url`, which completes a relative `base_url` given to the model."""
+
 
 class DecisionsServer:
     """A fake Decisions API that plays scripted responses and records each request."""
@@ -73,15 +76,44 @@ class DecisionsServer:
         *,
         base_url: str = "https://decisions.test/api/alpha",
         api_key: SecretStr | None = None,
+        client_base_url: str = "",
     ) -> OpenRouterDecisionModel:
-        """Return a decision model whose sync and async clients reach this server."""
+        """Return a decision model whose sync and async clients reach this server.
+
+        Both clients have `client_base_url` as their own `base_url`; by
+        default they have none.
+        """
         transport = httpx.MockTransport(self.respond)
         return OpenRouterDecisionModel(
             model="typesafe/jev-1.13",
             api_key=api_key,
             base_url=base_url,
-            http_client=httpx.Client(transport=transport),
-            async_http_client=httpx.AsyncClient(transport=transport),
+            http_client=httpx.Client(transport=transport, base_url=client_base_url),
+            async_http_client=httpx.AsyncClient(transport=transport, base_url=client_base_url),
+        )
+
+    def build_model_with_one_client(
+        self,
+        *,
+        base_url: str,
+        client_path: CallPath,
+    ) -> OpenRouterDecisionModel:
+        """Return a decision model given only `client_path`'s client, with `GATEWAY_BASE_URL`.
+
+        That client reaches this server; the other path opens its own client,
+        as the model does for any client not passed.
+        """
+        transport = httpx.MockTransport(self.respond)
+        if client_path == "async":
+            return OpenRouterDecisionModel(
+                model="typesafe/jev-1.13",
+                base_url=base_url,
+                async_http_client=httpx.AsyncClient(transport=transport, base_url=GATEWAY_BASE_URL),
+            )
+        return OpenRouterDecisionModel(
+            model="typesafe/jev-1.13",
+            base_url=base_url,
+            http_client=httpx.Client(transport=transport, base_url=GATEWAY_BASE_URL),
         )
 
 
@@ -543,8 +575,9 @@ BASE_URLS_WITHOUT_AN_HTTP_SCHEME_AND_A_HOST = {
 }
 """Base URLs httpx reads, with no user information, that name no http or https host.
 
-The client the model opens would send none of them anywhere; the mock
-transport answers them all, so an unrefused one reaches the server.
+The clients here have no `base_url` of their own to complete the relative
+ones, and a client the model opens would send none of them anywhere; the
+mock transport answers them all, so an unrefused one reaches the server.
 """
 
 
@@ -591,6 +624,165 @@ def test_a_base_url_with_credentials_and_another_scheme_is_refused_for_the_crede
     # Assert: the credentials, the graver fault, are what the message names
     assert str(raised.value).startswith("base_url holds a user name or password")
     assert PLANTED_PASSWORD not in str(raised.value)
+
+
+@pytest.mark.parametrize(
+    ("base_url", "endpoint"),
+    [
+        pytest.param("/v1", f"{GATEWAY_BASE_URL}/v1/decisions", id="a-path"),
+        pytest.param("v1/", f"{GATEWAY_BASE_URL}/v1/decisions", id="a-path-with-no-leading-slash"),
+        pytest.param("", f"{GATEWAY_BASE_URL}/decisions", id="empty"),
+    ],
+)
+async def test_a_relative_base_url_goes_after_the_base_url_of_the_client_that_sends_it(
+    call_path: CallPath,
+    base_url: str,
+    endpoint: str,
+) -> None:
+    # Arrange: only the client of the path under test is passed, as a setup that only ever
+    # uses that path does
+    server = DecisionsServer(responders=[answer_with({"leaks": 0.1})])
+    model = server.build_model_with_one_client(base_url=base_url, client_path=call_path)
+
+    # Act
+    probabilities = await estimate_on_path(model, questions=[LEAK_QUESTION], call_path=call_path)
+
+    # Assert
+    (request,) = server.requests
+    assert str(request.url) == endpoint
+    assert request.headers["Authorization"] == "Bearer unit-test-key"
+    assert probabilities == {"leaks": 0.1}
+
+
+async def test_a_relative_base_url_fails_on_the_path_whose_client_was_not_passed(
+    call_path: CallPath,
+) -> None:
+    # Arrange: only the other path's client is passed, so this path opens one with no base_url
+    server = DecisionsServer(responders=[answer_with({"leaks": 0.1})])
+    other_path: CallPath = "sync" if call_path == "async" else "async"
+    model = server.build_model_with_one_client(base_url="/v1", client_path=other_path)
+
+    # Act
+    with pytest.raises(httpx.UnsupportedProtocol):
+        await estimate_on_path(model, questions=[LEAK_QUESTION], call_path=call_path)
+
+    # Assert: as documented, the first request fails, and nothing reaches the server
+    assert server.requests == []
+
+
+PLANTED_PATH = "planted-path-4e9a"
+"""A path planted in a relative `base_url`, which no refusal may quote."""
+
+RELATIVE_BASE_URLS = {
+    "a-path": f"/{PLANTED_PATH}",
+    "a-path-with-no-leading-slash": PLANTED_PATH,
+    "a-host-and-no-scheme": f"//{PLANTED_PATH}/api",
+    "empty": "",
+}
+"""Base URLs with no scheme, which only a client's own `base_url` can complete."""
+
+
+@pytest.mark.parametrize("base_url", RELATIVE_BASE_URLS.values(), ids=RELATIVE_BASE_URLS.keys())
+async def test_a_relative_base_url_with_no_client_fails_at_construction(
+    call_path: CallPath,
+    base_url: str,
+) -> None:
+    # Arrange: no client is passed, so each path would open one with no base_url, and an
+    # unrefused URL would fail at the request instead
+    failure: ConfigurationError | httpx.TransportError | None = None
+
+    # Act
+    try:
+        model = OpenRouterDecisionModel(model="typesafe/jev-1.13", base_url=base_url)
+        await estimate_on_path(model, questions=[LEAK_QUESTION], call_path=call_path)
+    except (ConfigurationError, httpx.TransportError) as error:
+        failure = error
+
+    # Assert: the model refused the URL when built, naming the clients that could complete it,
+    # with nothing chained to the refusal and no part of the URL in it
+    assert isinstance(failure, ConfigurationError)
+    assert str(failure).startswith(
+        "base_url is not an http or https URL with a host, and neither http_client nor "
+        "async_http_client has a base_url"
+    )
+    assert failure.__cause__ is None
+    assert failure.__context__ is None
+    assert PLANTED_PATH not in str(failure)
+    assert PLANTED_PATH not in repr(failure)
+
+
+BASE_URLS_WITH_A_SCHEME_AND_NO_HTTP_HOST = {
+    "another-scheme": "ftp://decisions.test/api",
+    "a-host-read-as-a-scheme": "localhost:8080",
+    "an-http-scheme-and-no-host": "https:///v1",
+    "credentials-after-an-http-scheme": f"https:user:{PLANTED_PASSWORD}@decisions.test/api",
+    "credentials-and-no-scheme": f"{PLANTED_USER}:{PLANTED_PASSWORD}@decisions.test/api",
+}
+"""Base URLs with a scheme, but no http or https host, that httpx would not send or would merge.
+
+httpx's transports send no `ftp` URL. Beside a client with its own
+`base_url`, httpx would put each of the others after that `base_url` as a
+path, the planted password included.
+"""
+
+
+@pytest.mark.parametrize(
+    "base_url",
+    BASE_URLS_WITH_A_SCHEME_AND_NO_HTTP_HOST.values(),
+    ids=BASE_URLS_WITH_A_SCHEME_AND_NO_HTTP_HOST.keys(),
+)
+async def test_a_base_url_with_a_scheme_and_no_http_host_is_refused_whatever_the_clients(
+    call_path: CallPath,
+    base_url: str,
+) -> None:
+    # Arrange: both clients have a base_url of their own
+    server = DecisionsServer(responders=[answer_with({"leaks": 0.1})])
+
+    # Act
+    failure: ConfigurationError | None = None
+    try:
+        model = server.build_model(base_url=base_url, client_base_url=GATEWAY_BASE_URL)
+        await estimate_on_path(model, questions=[LEAK_QUESTION], call_path=call_path)
+    except ConfigurationError as error:
+        failure = error
+
+    # Assert: the model refused the URL when built, with no part of the planted credentials in
+    # the refusal, and nothing was sent
+    assert isinstance(failure, ConfigurationError)
+    assert str(failure).startswith("base_url is not an http or https URL with a host, and it is")
+    shown = [str(failure), repr(failure)]
+    secrets = (PLANTED_USER, PLANTED_PASSWORD)
+    assert [text for text in shown if any(secret in text for secret in secrets)] == []
+    assert server.requests == []
+
+
+@pytest.mark.parametrize(
+    "base_url",
+    [
+        pytest.param(f"//user:{PLANTED_PASSWORD}@decisions.test/v1", id="user-and-password"),
+        pytest.param(f"//{PLANTED_PASSWORD}@decisions.test/v1", id="user-alone"),
+    ],
+)
+async def test_a_relative_base_url_with_credentials_is_refused_for_them_beside_a_client_base_url(
+    call_path: CallPath,
+    base_url: str,
+) -> None:
+    # Arrange: the path's client has a base_url of its own, which would complete the URL
+    server = DecisionsServer(responders=[answer_with({"leaks": 0.1})])
+
+    # Act
+    failure: ConfigurationError | None = None
+    try:
+        model = server.build_model_with_one_client(base_url=base_url, client_path=call_path)
+        await estimate_on_path(model, questions=[LEAK_QUESTION], call_path=call_path)
+    except ConfigurationError as error:
+        failure = error
+
+    # Assert: the credentials check still runs first, and nothing was sent
+    assert isinstance(failure, ConfigurationError)
+    assert str(failure).startswith("base_url holds a user name or password")
+    assert PLANTED_PASSWORD not in str(failure)
+    assert server.requests == []
 
 
 @pytest.mark.usefixtures("three_attempts")

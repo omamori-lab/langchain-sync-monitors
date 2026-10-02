@@ -84,7 +84,7 @@ from langchain_sync_monitors.thresholds import (
     resolve_threshold,
 )
 
-__version__ = "0.1.3.dev0"
+__version__ = "0.1.3"
 
 __all__ = [
     "ATTACK_CRITERIA",

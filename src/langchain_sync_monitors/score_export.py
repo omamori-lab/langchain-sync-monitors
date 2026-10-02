@@ -11,8 +11,10 @@ sort and chart these, which they do not with metadata [@langsmith2026dashboards;
 - **Checked when the monitor is built.** A tool whose credentials are
   missing, or Langfuse without the `langfuse` package, raises
   `ConfigurationError`. The credentials are the variables each tool's SDK
-  reads: `LANGSMITH_API_KEY`, and `LANGFUSE_PUBLIC_KEY` with
-  `LANGFUSE_SECRET_KEY`.
+  reads: `LANGSMITH_API_KEY` or `LANGCHAIN_API_KEY`, and
+  `LANGFUSE_PUBLIC_KEY` with `LANGFUSE_SECRET_KEY`. The LangSmith key must
+  be in the environment even when a tracer's own client holds one, since
+  that client is known only during a run.
 - **Only a traced run sends, and only where it is traced.** The handlers of
   the step span name the tools the run is traced to. For LangSmith's
   `LangChainTracer`, the feedback goes to the tracer's project, through its
@@ -31,9 +33,13 @@ sort and chart these, which they do not with metadata [@langsmith2026dashboards;
 - **The agent never waits.** The score goes on the queue of one worker
   thread per process, which `score_worker` describes: it writes to
   LangSmith within a window of the step, and to Langfuse once Langfuse has
-  ingested the step, 10 to 25 seconds after it in our checks. At exit it
-  drains what waits, for up to 30 seconds. Nothing it does raises into a
-  run; its failures are logged by `langchain_sync_monitors.score_worker`.
+  ingested the step, usually 10 to 25 seconds after it in our checks and at
+  times more than 30. At exit it drains what waits, for up to 30 seconds,
+  before Langfuse's own exit flush. The last steps' Langfuse scores are
+  written only if the program flushed Langfuse, or its flush interval sent
+  the spans, and Langfuse ingests them within the drain; otherwise they are
+  dropped. Nothing it does raises into a run; its failures are logged by
+  `langchain_sync_monitors.score_worker`.
 - **Only numbers and ids leave the process**: the monitor's reason is never
   sent, since neither tool masks feedback comments or score comments.
 """
@@ -140,8 +146,10 @@ def check_tool_requirements(tracer: Tracer) -> None:
     if tracer is Tracer.LANGSMITH:
         if read_langsmith_credentials() is None:
             message = (
-                "export_scores asks for Tracer.LANGSMITH, but LANGSMITH_API_KEY is not set: "
-                "set the key LangSmith's tracer uses, or leave Tracer.LANGSMITH out"
+                "export_scores asks for Tracer.LANGSMITH, but neither LANGSMITH_API_KEY nor "
+                "LANGCHAIN_API_KEY is set: set the key LangSmith's tracer uses in the "
+                "environment, even when the tracer's own client holds it, or leave "
+                "Tracer.LANGSMITH out"
             )
             raise ConfigurationError(message)
         return

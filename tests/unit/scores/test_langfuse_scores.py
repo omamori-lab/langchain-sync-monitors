@@ -30,6 +30,7 @@ from langchain_sync_monitors.langfuse_scores import (
     build_langfuse_sender,
     match_observations,
     read_langfuse_credentials,
+    read_start_window,
     read_step_start,
     record_ingestion_answer,
 )
@@ -282,23 +283,54 @@ def test_a_rate_limit_on_a_later_page_keeps_every_score_waiting() -> None:
 def test_each_event_is_recorded_by_its_own_status() -> None:
     # Arrange
     service = FakeLangfuse()
-    written, refused, retried = build_score(), build_score(), build_score()
+    written, refused, retried, rate_limited = (build_score() for _ in range(4))
     service.add_step(str(written.step_id))
     refused_observation = service.add_step(str(refused.step_id))
     retried_observation = service.add_step(str(retried.step_id))
+    rate_limited_observation = service.add_step(str(rate_limited.step_id))
     service.ingestion_errors = {
         refused_observation["id"]: 400,
         retried_observation["id"]: 500,
+        rate_limited_observation["id"]: 429,
     }
 
     # Act
-    report = build_sender(service).send([written, refused, retried])
+    report = build_sender(service).send([written, refused, retried, rate_limited])
 
     # Assert
     assert report.written == [written]
     assert report.refused == [refused]
-    assert report.waiting == [retried]
+    assert report.waiting == [retried, rate_limited]
     assert report.refusal == "Langfuse answered HTTP 400 for a score"
+
+
+@pytest.mark.parametrize(
+    ("status", "waits"),
+    [
+        (400, False),
+        (409, False),
+        (428, False),
+        (429, True),
+        (430, False),
+        (499, False),
+        (500, True),
+        (503, True),
+    ],
+)
+def test_an_event_refused_with_a_429_or_a_server_error_waits_and_any_other_is_refused(
+    status: int,
+    waits: bool,
+) -> None:
+    # Arrange
+    score = build_score()
+    answer = IngestionAnswer(errors=[IngestionEventStatus(id="event", status=status)])
+    report = DeliveryReport()
+
+    # Act
+    record_ingestion_answer(report, events={"event": score}, answer=answer)
+
+    # Assert
+    assert (report.waiting, report.refused) == (([score], []) if waits else ([], [score]))
 
 
 INGESTION_ANSWERS = {
@@ -462,6 +494,48 @@ def test_a_step_id_of_another_version_reaches_back_an_hour() -> None:
     # Assert
     assert before - UNKNOWN_START_REACH - timedelta(seconds=1) <= started
     assert started <= datetime.now(UTC) - UNKNOWN_START_REACH
+
+
+def test_the_window_of_a_step_id_of_another_version_reaches_from_an_hour_ago_to_now() -> None:
+    # Arrange
+    score = build_score(step_id=uuid4())
+    before = datetime.now(UTC)
+
+    # Act
+    window = read_start_window([score])
+
+    # Assert
+    after = datetime.now(UTC)
+    assert before - UNKNOWN_START_REACH - START_TIME_MARGIN <= window.earliest
+    assert window.earliest <= after - UNKNOWN_START_REACH - START_TIME_MARGIN
+    assert before + START_TIME_MARGIN <= window.latest <= after + START_TIME_MARGIN
+
+
+def test_the_window_of_version_7_steps_reaches_only_a_margin_past_the_latest() -> None:
+    # Arrange
+    earlier = build_score(step_id=build_step_id_seconds_ago(30))
+    later = build_score(step_id=build_step_id_seconds_ago(10))
+
+    # Act
+    window = read_start_window([later, earlier])
+
+    # Assert
+    assert window.earliest == read_step_start(earlier.step_id) - START_TIME_MARGIN
+    assert window.latest == read_step_start(later.step_id) + START_TIME_MARGIN
+
+
+def test_a_step_whose_id_is_of_another_version_and_that_started_just_now_is_found() -> None:
+    # Arrange
+    service = FakeLangfuse()
+    score = build_score(step_id=uuid4())
+    service.add_step(str(score.step_id), started=datetime.now(UTC))
+
+    # Act
+    report = build_sender(service).send([score])
+
+    # Assert
+    assert report.written == [score]
+    assert [item["value"] for item in service.scores.values()] == [score.value]
 
 
 def test_the_credentials_come_from_the_variables_langfuse_reads(

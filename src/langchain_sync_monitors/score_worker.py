@@ -15,10 +15,23 @@ At exit, the worker sends what still waits, once every `drain_window_seconds`,
 a shorter window that finds a step Langfuse has just ingested sooner, until
 nothing waits or `drain_seconds` have passed, and logs what it drops. A tool
 paused past the drain's end has its scores dropped at once. The thread is a
-daemon, so a drain that overruns never keeps the process alive. Failures,
-a sender's exceptions included, are logged and never reach a run. The first
-time a tool's scores are dropped because their steps were never found, the
-worker also says, once, what can cause it.
+daemon, so a drain that overruns never keeps the process alive.
+
+The drain's exit hook is registered with the first score. A Langfuse client
+registers its own exit hook, which sends the spans it still buffers, when it
+is built [@langfuse2026], so before the score of a step it traced, and
+`atexit` runs the hooks last in, first out. The drain therefore runs before
+that flush, and finds the last steps only if the program flushed them or the
+client's flush interval sent them, and only once Langfuse has ingested them,
+which its SDK says may take 15 to 30 seconds after a flush [@langfuse2026],
+and can take longer than the drain.
+The worker does not flush them itself: Langfuse's `get_client()`, the public
+way to reach a client, builds a new one when none matches its key, and the
+global OpenTelemetry provider belongs to the program.
+
+Failures, a sender's exceptions included, are logged and never reach a run.
+The first time a tool's scores are dropped because their steps were never
+found, the worker also says, once, what can cause it.
 
 Waiting scores are lost when the process ends without running `atexit`: on
 `os._exit`, which a `multiprocessing` child started by fork calls, on SIGKILL,
@@ -72,8 +85,11 @@ UNFOUND_STEP_HINTS: Final = {
         "sampled its trace out (a sample_rate or LANGFUSE_SAMPLE_RATE below 1), when its "
         "client's tracing was off in a way the monitor could not read, when its spans never "
         "reached Langfuse, as after a DNS or network failure, or when Langfuse ingested it "
-        "later than the wait. A process that exits with such a step waiting spends the "
-        "whole exit drain on it"
+        "later than the wait. At exit, a step is also missed when its spans are still "
+        "buffered, since the exit drain runs before Langfuse's own exit flush: call "
+        "Langfuse's get_client().flush() before exit, or keep LANGFUSE_FLUSH_INTERVAL well "
+        f"under {DRAIN_SECONDS:.0f} seconds. A process that exits with such a step waiting "
+        "spends the whole exit drain on it"
     ),
 }
 """What can leave a tool's steps unfound, said once per process when its scores are dropped."""

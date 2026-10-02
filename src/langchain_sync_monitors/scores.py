@@ -32,9 +32,10 @@ class Tracer(StrEnum):
       key and workspace. Langfuse scores use `LANGFUSE_PUBLIC_KEY`,
       `LANGFUSE_SECRET_KEY` and `LANGFUSE_BASE_URL`, and go only on steps
       found in that project, so a handler built with other keys or another
-      host gets none. Building the monitor needs `LANGSMITH_API_KEY` for
-      LangSmith, and the Langfuse keys and the `langfuse` package for
-      Langfuse.
+      host gets none. Building the monitor needs `LANGSMITH_API_KEY`, or
+      `LANGCHAIN_API_KEY`, in the environment for LangSmith, even when the
+      tracer's own client holds a key, and the Langfuse keys and the
+      `langfuse` package for Langfuse.
     - **What sends nothing.** A run with LangSmith tracing turned off by
       `tracing_context(enabled=False)`, a LangSmith client in OpenTelemetry
       mode, whose run ids are not the steps' ids and which is warned once
@@ -53,10 +54,19 @@ class Tracer(StrEnum):
       exit drain, thirty seconds, on it.
     - **When.** A background thread sends the scores, so the agent never
       waits: LangSmith's within about ten seconds, Langfuse's once Langfuse
-      has ingested the step, ten to twenty-five seconds later in our checks.
-      At exit it keeps sending for up to thirty seconds, every five, then
-      logs what it drops; a process that exits right after its last step may
-      drop Langfuse scores still waiting.
+      has ingested the step, usually ten to twenty-five seconds later in our
+      checks, and at times more than thirty; Langfuse's SDK says data may not
+      be queryable for fifteen to thirty seconds after a flush
+      [@langfuse2026]. At exit it keeps sending for up to thirty seconds,
+      every five, then logs what it drops. That drain runs before Langfuse's
+      own exit flush, so a script should call Langfuse's
+      `get_client().flush()` before it ends; otherwise its last steps reach
+      Langfuse only when the client's flush interval sends them, five
+      seconds by default [@langfuse2026], and a `LANGFUSE_FLUSH_INTERVAL`
+      of twenty-five seconds or more sends them too late. When Langfuse
+      ingests the last steps later than the drain lasts, their scores are
+      dropped all the same; a program that must keep them keeps running, as
+      a server does.
     - **When scores are lost.** When the process ends without running
       `atexit`: on `os._exit`, which a `multiprocessing` child started by fork
       calls, on SIGKILL, on SIGTERM without a handler, and when a Jupyter

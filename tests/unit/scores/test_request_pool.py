@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import logging
+import subprocess
+import sys
 import threading
 
 import pytest
@@ -10,6 +12,19 @@ import pytest
 from langchain_sync_monitors.request_pool import RequestPool
 
 POOL_LOGGER = "langchain_sync_monitors.request_pool"
+
+EXIT_SECONDS = 60.0
+"""How long a process that leaves a pool open may take to exit; a hung one never does."""
+
+LEAVES_POOLS_OPEN = """
+from langchain_sync_monitors.langsmith_scores import LangSmithFeedbackSender
+from langchain_sync_monitors.request_pool import RequestPool
+
+# Neither is closed: the threads still wait for tasks when the interpreter exits.
+sender = LangSmithFeedbackSender()
+pool = RequestPool(size=3)
+print(len(sender.pool.threads), len(pool.threads))
+"""
 
 
 def multiply_or_refuse(item: int) -> int:
@@ -55,6 +70,35 @@ def test_a_call_that_raises_gives_none_logged_and_the_others_their_results(
     # Assert
     assert results == [[10, None, 30]]
     assert "score export: a request failed" in caplog.messages
+
+
+def test_every_thread_of_the_pool_is_a_daemon() -> None:
+    # Arrange
+    pool = RequestPool(size=4)
+
+    # Act
+    daemons = [thread.daemon for thread in pool.threads]
+    pool.close()
+
+    # Assert
+    assert daemons == [True, True, True, True]
+
+
+def test_a_process_exits_at_once_with_its_pools_left_open() -> None:
+    # Arrange: a thread that is not a daemon would hold the interpreter at exit for good
+    command = [sys.executable, "-c", LEAVES_POOLS_OPEN]
+
+    # Act
+    try:
+        finished = subprocess.run(
+            command, capture_output=True, text=True, check=False, timeout=EXIT_SECONDS
+        )
+    except subprocess.TimeoutExpired:
+        pytest.fail(f"the process did not exit within {EXIT_SECONDS:.0f} seconds")
+
+    # Assert
+    assert finished.returncode == 0, finished.stderr
+    assert finished.stdout.split() == ["6", "3"]
 
 
 def test_closing_the_pool_ends_every_thread_and_later_calls_run_in_turn() -> None:

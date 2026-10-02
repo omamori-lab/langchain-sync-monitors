@@ -188,9 +188,16 @@ class FakeLangfuse:
             successes.append({"id": event["id"], "status": 201})
         return httpx.Response(207, json={"successes": successes, "errors": errors})
 
-    def add_step(self, step_id: str, *, environment: str = "default") -> dict[str, Any]:
-        """Ingest a step whose span started half a second after its id was made, as spans do."""
-        started = read_step_start(UUID(step_id)) + SPAN_START_DELAY
+    def add_step(
+        self,
+        step_id: str,
+        *,
+        environment: str = "default",
+        started: datetime | None = None,
+    ) -> dict[str, Any]:
+        """Ingest a step whose span started at `started`, or, as spans do, just after its id."""
+        if started is None:
+            started = read_step_start(UUID(step_id)) + SPAN_START_DELAY
         observation = {
             "id": uuid4().hex[:16],
             "traceId": uuid4().hex,

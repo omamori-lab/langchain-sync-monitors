@@ -198,7 +198,7 @@ from langfuse.langchain import CallbackHandler
 # The handler turns each run of this call into a Langfuse observation.
 langfuse_handler = CallbackHandler()
 result = agent.invoke(inputs, config={"callbacks": [langfuse_handler]})
-# Send the spans now, as a notebook or a server must; a script also sends them at exit.
+# Send the spans now, as a notebook, a server or a script that exports scores must.
 get_client().flush()
 ```
 
@@ -321,8 +321,10 @@ for observation in observations.data:
 For flagged steps, filter on the key `monitor_flagged` with the value
 `"true"`, a string. The API returns 50 observations a page unless `limit`
 asks for more, up to 1,000; pass `observations.meta.cursor` back as `cursor`
-for the next page. By its source, Langfuse ingests spans asynchronously, so a
-step can take some seconds after `flush()` to appear in a query.
+for the next page. Langfuse ingests spans asynchronously, and its SDK says
+that flushed data may not be queryable for 15 to 30 seconds
+[@langfuse2026], so a step can take that long after `flush()` to appear in
+a query.
 
 ## Send suspicion as a score
 
@@ -350,8 +352,8 @@ The score is named after the monitor's label, `<label>_suspicion`, so
 |---|---|---|
 | What the score is | Feedback on the step span's run, whose id is the step's `monitor_step_id` | A `NUMERIC` score on the step's observation, found by its `monitor_step_id` |
 | Where it goes | The tracer's project, through its client's endpoint, key and workspace | The project that `LANGFUSE_PUBLIC_KEY` and `LANGFUSE_SECRET_KEY` reach, at `LANGFUSE_BASE_URL` or `LANGFUSE_HOST` |
-| What building the monitor needs | `LANGSMITH_API_KEY` | Both Langfuse keys and the `langfuse` package |
-| When it lands | Within about 10 seconds of the step | Once Langfuse has ingested the step, 10 to 25 seconds after it in our checks |
+| What building the monitor needs | `LANGSMITH_API_KEY` (or `LANGCHAIN_API_KEY`) in the environment, even when the tracer's own `Client` holds a key | Both Langfuse keys and the `langfuse` package |
+| When it lands | Within about 10 seconds of the step | Once Langfuse has ingested the step, usually 10 to 25 seconds after it in our checks, at times more than 30 |
 | The requests it makes | One `POST /feedback` per score, up to 6 at once, and one project lookup per project | One step lookup and one ingestion request a window, for every waiting step |
 
 A monitor whose tool lacks its credentials or package raises
@@ -383,9 +385,30 @@ full rules, forked processes included.
 
 At exit, the worker keeps sending what waits, every 5 seconds, for up to 30
 seconds, then logs and drops what is left. A script that ends right after its
-last step so waits for its Langfuse scores, about 15 seconds in our checks,
-and the whole 30 seconds when a step is never found in the project the writer
-looks in. That happens when:
+last step so waits for its last Langfuse scores, usually 7 to 20 seconds in
+our checks. Two things can make it drop them instead:
+
+- **Spans still buffered.** A Langfuse client registers its own exit hook,
+  which sends the spans it still buffers, when it is built [@langfuse2026],
+  so before the first score is queued, and Python runs exit hooks last in,
+  first out [@cpython2026]. The drain therefore runs before that flush, and
+  the last steps reach Langfuse during the drain only if the client's flush
+  interval sends them: `LANGFUSE_FLUSH_INTERVAL`, 5 seconds by default
+  [@langfuse2026]. At 25 seconds or more, the drain finds none of them, and
+  drops their scores after its full 30 seconds. Call `get_client().flush()`
+  before the script ends, as [Attach Langfuse](#attach-langfuse) does. With
+  an interval of 60 seconds, a script that flushed wrote both of its steps'
+  scores and exited 7 seconds after its run; without the flush, it dropped
+  both after 31 seconds.
+- **Slow ingestion.** Langfuse's ingestion time varies, and its SDK says
+  flushed data may not be queryable for 15 to 30 seconds [@langfuse2026].
+  When it passes the drain's 30 seconds, as it did for every run, flushed or
+  not, in one stretch of our checks, the last steps' scores are dropped at
+  exit. A program that must keep them should keep running, as a server
+  does, or accept the loss.
+
+The drain also spends its whole 30 seconds when a step is never found in the
+project the writer looks in. That happens when:
 
 - the Langfuse handler was built with other keys, or another host, than the
   environment's, so its steps sit in a project the writer cannot see, and

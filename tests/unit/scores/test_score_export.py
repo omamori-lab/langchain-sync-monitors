@@ -163,8 +163,24 @@ def test_langsmith_without_its_key_is_refused_when_the_monitor_is_built(
     clear_credentials(monkeypatch)
 
     # Act, Assert
-    with pytest.raises(ConfigurationError, match="LANGSMITH_API_KEY is not set"):
+    with pytest.raises(
+        ConfigurationError, match="neither LANGSMITH_API_KEY nor LANGCHAIN_API_KEY is set"
+    ):
         build_monitor(export_scores={Tracer.LANGSMITH})
+
+
+def test_langsmith_with_only_langchain_api_key_is_built(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Arrange
+    clear_credentials(monkeypatch)
+    monkeypatch.setenv("LANGCHAIN_API_KEY", "langchain-key")
+
+    # Act
+    monitor = build_monitor(export_scores={Tracer.LANGSMITH})
+
+    # Assert
+    assert monitor.export_scores == {Tracer.LANGSMITH}
 
 
 def test_langfuse_without_its_package_is_refused_when_the_monitor_is_built(

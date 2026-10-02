@@ -26,10 +26,12 @@ from langchain_sync_monitors.langsmith_scores import (
     build_langsmith_client,
     read_client_connection,
     read_langsmith_credentials,
+    record_batch_answers,
 )
 from langchain_sync_monitors.score_requests import REQUEST_TIMEOUT_SECONDS
 from langchain_sync_monitors.scores import (
     SCORE_ID_NAMESPACE,
+    DeliveryReport,
     LangSmithCredentials,
     PendingScore,
     Tracer,
@@ -284,6 +286,58 @@ def test_a_rate_limit_pauses_the_tool_and_leaves_the_rest_waiting() -> None:
     assert report.waiting == scores[1:]
     assert report.pause_seconds == 12.0
     assert len(service.find_requests("POST", "/feedback")) == 2
+
+
+def test_a_batch_whose_posts_ask_for_different_pauses_takes_the_longest() -> None:
+    # Arrange: the longer pause comes first, so the last answer alone would ask for less
+    scores = [build_score(), build_score(), build_score()]
+    batch = [(score, PROJECT_ID) for score in scores]
+    responses = [
+        httpx.Response(429, headers={"Retry-After": "30"}),
+        httpx.Response(429, headers={"Retry-After": "5"}),
+        httpx.Response(200, json={}),
+    ]
+    report = DeliveryReport()
+
+    # Act
+    record_batch_answers(report, batch=batch, responses=responses)
+
+    # Assert
+    assert report.pause_seconds == 30.0
+    assert report.waiting == scores[:2]
+    assert report.written == scores[2:]
+
+
+def test_the_project_id_is_taken_only_from_the_project_of_the_same_name() -> None:
+    # Arrange: the projects answer lists a project of another name first
+    projects = [
+        {"id": "other-project-id", "name": f"{PROJECT_NAME}-archive"},
+        {"id": PROJECT_ID, "name": PROJECT_NAME},
+    ]
+    service = FakeLangSmith(queued_answers=[httpx.Response(200, json=projects)])
+    score = build_score()
+
+    # Act
+    report = build_sender(service).send([score])
+
+    # Assert
+    assert report.written == [score]
+    [post] = service.find_requests("POST", "/feedback")
+    assert read_request_json(post)["session_id"] == PROJECT_ID
+
+
+def test_a_projects_answer_without_the_project_leaves_its_score_waiting() -> None:
+    # Arrange
+    projects = [{"id": "other-project-id", "name": "another-project"}]
+    service = FakeLangSmith(queued_answers=[httpx.Response(200, json=projects)])
+    score = build_score()
+
+    # Act
+    report = build_sender(service).send([score])
+
+    # Assert
+    assert report.waiting == [score]
+    assert service.find_requests("POST", "/feedback") == []
 
 
 def test_a_rate_limited_project_lookup_pauses_every_score() -> None:

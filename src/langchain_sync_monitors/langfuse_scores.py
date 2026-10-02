@@ -47,7 +47,10 @@ START_TIME_MARGIN: Final = timedelta(seconds=5)
 """How far before the earliest and after the latest waiting step's start the lookup reaches."""
 
 UNKNOWN_START_REACH: Final = timedelta(hours=1)
-"""How far back the lookup reaches for a step whose id does not say when it began."""
+"""How far back the lookup reaches for a step whose id does not say when it began.
+
+The lookup for such a step reaches forward to now, the latest it can have begun.
+"""
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -87,6 +90,11 @@ def read_step_start(step_id: UUID) -> datetime:
     if step_id.version == 7:
         return datetime.fromtimestamp((step_id.int >> 80) / 1000, tz=UTC)
     return datetime.now(UTC) - UNKNOWN_START_REACH
+
+
+def read_latest_step_start(step_id: UUID, *, now: datetime) -> datetime:
+    """Return the latest the step can have begun: when its version 7 id was made, else now."""
+    return read_step_start(step_id) if step_id.version == 7 else now
 
 
 class StepMetadata(BaseModel):
@@ -210,11 +218,17 @@ def split_by_queueing_time(
 
 
 def read_start_window(scores: Sequence[PendingScore]) -> StartWindow:
-    """Return the window in which every waiting step's span started."""
-    starts = [read_step_start(score.step_id) for score in scores]
+    """Return the window in which every waiting step's span started.
+
+    A step whose id does not say when it began widens the window from
+    `UNKNOWN_START_REACH` ago to now.
+    """
+    now = datetime.now(UTC)
+    earliest = min(read_step_start(score.step_id) for score in scores)
+    latest = max(read_latest_step_start(score.step_id, now=now) for score in scores)
     return StartWindow(
-        earliest=min(starts) - START_TIME_MARGIN,
-        latest=max(starts) + START_TIME_MARGIN,
+        earliest=earliest - START_TIME_MARGIN,
+        latest=latest + START_TIME_MARGIN,
     )
 
 

@@ -372,29 +372,37 @@ full rules, forked processes included.
   is true [@langsmith2026retention].
 - **Rate limits.** Each LangSmith feedback is one request. Langfuse's lookups
   spend its general API rate limit, which every project and key of an
-  organisation shares [@langfuse2026apilimits]. One process looks up the
+  organisation shares (the "General API" row of the table under "Rate
+  Limits", and section "How rate limits are calculated")
+  [@langfuse2026apilimits]. One process looks up the
   fresh steps every 10 seconds and the stale ones once a minute, up to 3
   pages each: at most 21 requests a minute, and 7 when each lookup fits one
   page of 1,000 observations. A minute that holds the 30-second exit drain,
   which looks every 5 seconds, takes about half as many again, up to 33. A
   page that meets a server error or a network failure is sent once more, so
   up to twice as many in all. The scores go in through the ingestion API,
-  which has a limit of its own. A `429` holds every call to that tool until
+  which has a limit of its own (the "Tracing" row of the same table)
+  [@langfuse2026apilimits]. A `429` holds every call to that tool until
   its `Retry-After`, for at most 5 minutes.
 - **The agent never waits.** One background thread per process sends the
   scores, every 10 seconds. A failure never reaches the run. The library's
   own loggers, mostly `langchain_sync_monitors.score_worker`, log it with the
   tool, the error's type and any HTTP status, but never the error's text or
   traceback. A request sent again is logged by stamina's logger, `stamina`,
-  at `WARNING`, as `stamina.retry_scheduled`, with the wait and the error's
-  repr, which can quote the request's URL but never its headers or body
-  [@schlawack2026stamina]. That URL holds no key and no text of a run: the
+  at `WARNING`, as `stamina.retry_scheduled` (module
+  `stamina/instrumentation/_logging.py`) [@schlawack2026stamina], with the
+  wait and the error's repr (section "Standard library's `logging`")
+  [@schlawack2026instrumentation]. The error is httpx's, whose repr can quote
+  the request's URL but never its headers or body (method
+  `Response.raise_for_status`, module `httpx/_models.py`) [@httpx2024]. That
+  URL holds no key and no text of a run: the
   tool's endpoint, without any user name or password, the path, and a
   lookup's query. The query names the LangSmith project, or asks Langfuse for
   the `monitor step` observations that started in a time window, a page at a
   time. When structlog is installed, stamina logs the retry through structlog
-  instead, at `WARNING` too, with the same fields, the error's repr as
-  `caused_by` included, as
+  instead (section "Defaults"), at `WARNING` too, with the same fields, the
+  error's repr as `caused_by` included (section "structlog")
+  [@schlawack2026instrumentation], as
   [Turn on log messages](read-the-monitor-log.md#turn-on-log-messages) says.
 
 ### Know what happens at exit

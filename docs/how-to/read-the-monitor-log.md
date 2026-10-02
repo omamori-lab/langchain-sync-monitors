@@ -363,23 +363,35 @@ of samples. The proposals, the reasons and the errors' messages stay in
 step, such as the provider's own, propagates unchanged.
 
 A retry logs through stamina's own logger, `stamina`, at `WARNING`, as
-`stamina.retry_scheduled`: each Decisions API request sent again, each chat
-monitor call made again after HTTP 429, and each score-export request sent
-again after a server error or a network failure. The record holds the
-error's repr and the wait; the request, its transcript and key included, is
-never handed to it. For a Decisions API or score-export request, the error is
-httpx's, whose repr can quote the request's URL but never its headers or its
-body. A score-export URL holds no key and no text of a run, as
+`stamina.retry_scheduled` (module
+`stamina/instrumentation/_logging.py`) [@schlawack2026stamina]: each
+Decisions API request sent again, each chat monitor call made again after
+HTTP 429, and each score-export request sent again after a server error or a
+network failure. The record holds the
+error's repr and the wait (section "Standard library's `logging`")
+[@schlawack2026instrumentation]; the request, its transcript and key
+included, is never handed to it. For a Decisions API or score-export request,
+the error is httpx's, whose repr can quote the request's URL but never its
+headers or its body (method `Response.raise_for_status`, module
+`httpx/_models.py`) [@httpx2024]. A score-export URL holds no key and no text
+of a run, as
 [Know what it costs](see-decisions-in-langsmith-and-langfuse.md#know-what-it-costs)
 says.
 
 When structlog is installed, stamina logs each retry through structlog
-instead of Python's `logging`, to structlog's logger `stamina`, at `WARNING`,
-as `stamina.retry_scheduled` [@schlawack2026stamina]. The event holds the same
-fields, named without the `stamina.` prefix of the `logging` record's extras,
-such as `stamina.caused_by`: the error's repr as `caused_by`,
-the wait as `wait_for`, the retry's number, the time waited so far, and the
-retried block's name, `<context block>`, with no arguments. structlog's default
+instead of Python's `logging` (section
+"Defaults") [@schlawack2026instrumentation]: its default hooks hold the
+structlog hook or the `logging` one, never both (function `get_default_hooks`, module
+`stamina/instrumentation/_hooks.py`) [@schlawack2026stamina]. It logs to
+structlog's logger `stamina`, at `WARNING`, as `stamina.retry_scheduled`
+(module `stamina/instrumentation/_structlog.py`) [@schlawack2026stamina].
+The event holds the same fields, named without the `stamina.` prefix of the
+`logging` record's extras, such as `stamina.caused_by` (sections "structlog"
+and "Standard library's `logging`") [@schlawack2026instrumentation]: the
+error's repr as `caused_by`, the wait as `wait_for`, the retry's number, the
+time waited so far, and the retried block's name, `<context block>`, with no
+arguments (function `retry_context`, module `stamina/_core.py`)
+[@schlawack2026stamina]. structlog's default
 set-up prints the event to standard output, so a `logging` handler on `stamina`
 sees it only when structlog is set up to pass its events to `logging`.
 

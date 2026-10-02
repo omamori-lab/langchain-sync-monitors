@@ -14,6 +14,8 @@ change raises the minor version.
 
 ## [Unreleased]
 
+## [0.1.2] - 2026-10-02
+
 ### Added
 
 - `export_scores`, an option of `MonitorMiddleware` that is off by default,
@@ -157,6 +159,7 @@ change raises the minor version.
 - The full list is in
   [Known limits and open paths](https://omamori-lab.github.io/langchain-sync-monitors/explanation/design/#known-limits-and-open-paths).
 
-[Unreleased]: https://github.com/omamori-lab/langchain-sync-monitors/compare/v0.1.1...HEAD
+[Unreleased]: https://github.com/omamori-lab/langchain-sync-monitors/compare/v0.1.2...HEAD
+[0.1.2]: https://github.com/omamori-lab/langchain-sync-monitors/compare/v0.1.1...v0.1.2
 [0.1.1]: https://github.com/omamori-lab/langchain-sync-monitors/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/omamori-lab/langchain-sync-monitors/releases/tag/v0.1.0

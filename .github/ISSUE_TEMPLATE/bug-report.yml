@@ -5,10 +5,22 @@ body:
   - type: markdown
     attributes:
       value: |
-        Thank you for reporting a bug. If it lets a step get past a monitor, or is
-        any other vulnerability, do not open an issue: report it privately, as
-        [SECURITY.md](https://github.com/omamori-lab/langchain-sync-monitors/security/policy)
-        describes.
+        Thank you for reporting a bug.
+
+        **A step that runs when it should have been stopped is a vulnerability: do
+        not open an issue for it.** That covers a step that runs without being
+        judged, one that runs after the protocol blocked, deferred or halted it,
+        one whose verdict its own text sets, such as a score planted in the step,
+        one that content in the transcript lets through by changing how the
+        monitor's view is rendered or how its reply is read, and one that an
+        error or an unreadable monitor reply lets through. Report it, and any
+        other vulnerability, through the
+        [private form](https://github.com/omamori-lab/langchain-sync-monitors/security/advisories/new),
+        as [SECURITY.md](https://github.com/omamori-lab/langchain-sync-monitors/security/policy)
+        describes. A monitor model that misjudges a harmful step and scores it too
+        low, while the library renders its view and reads its reply correctly, is
+        not one: report that here. If you cannot tell which it is, use the private
+        form.
 
   - type: input
     id: package-version
@@ -16,7 +28,7 @@ body:
       label: langchain-sync-monitors version
       description: |
         The output of `python -c "import langchain_sync_monitors as package; print(package.__version__)"`.
-      placeholder: 0.1.0
+      placeholder: 0.x.y
     validations:
       required: true
 
@@ -26,9 +38,41 @@ body:
       label: Environment
       description: |
         The Python version, the operating system, and the versions of langchain,
-        langchain-core and langgraph, plus deepagents, langchain-openrouter and
-        langchain-typesafe if you use them. `pip list` or `uv pip list` shows them.
+        langchain-core and langgraph; of deepagents, langchain-openrouter and
+        langchain-typesafe if you use them; and of langsmith and langfuse if you
+        trace with them or set `export_scores`. `pip list` or `uv pip list` shows
+        them.
       render: text
+    validations:
+      required: true
+
+  - type: dropdown
+    id: run-mode
+    attributes:
+      label: Run mode
+      description: |
+        How the agent ran, since a bug can show under one call only. `stream()`
+        runs as `invoke()` does, and `astream()` as `ainvoke()`.
+      options:
+        - invoke()
+        - ainvoke()
+        - Both
+        - Not sure
+    validations:
+      required: true
+
+  - type: textarea
+    id: configuration
+    attributes:
+      label: Configuration
+      description: |
+        The code that builds the `MonitorMiddleware`: the monitor class and any
+        wrappers around it, its `MonitorView` or channels, the control protocol
+        with its thresholds and fallback, and any other option you set. Add the
+        `create_agent` or `create_deep_agent` call it goes into, with
+        `monitor_subagents` if you use it. If your reproduction below builds it
+        the same way, write `# as in the reproduction`.
+      render: python
     validations:
       required: true
 
@@ -37,9 +81,11 @@ body:
     attributes:
       label: Minimal reproduction
       description: |
-        The smallest script that shows the problem. Where you can, use a fake chat
-        model, such as LangChain's `GenericFakeChatModel`, so it runs without an API
-        key. Leave out API keys and other secrets.
+        The smallest script that shows the problem. Where you can, use fake chat
+        models, such as LangChain's `GenericFakeChatModel`, for the agent and the
+        monitor, so it runs without an API key;
+        [Run it without a key](https://omamori-lab.github.io/langchain-sync-monitors/tutorials/first-monitored-agent/#run-it-without-a-key)
+        shows how.
       render: python
     validations:
       required: true
@@ -56,12 +102,40 @@ body:
     id: actual-behaviour
     attributes:
       label: Actual behaviour
-      description: What happened instead, with the full traceback or the relevant `monitor_log` records.
+      description: |
+        What happened instead, with the full traceback or the relevant
+        `monitor_log` records. A record quotes the transcript in each sample's
+        proposal and reason, so cut what is private.
     validations:
       required: true
+
+  - type: textarea
+    id: log-output
+    attributes:
+      label: Log output
+      description: |
+        The library's log lines, with the `langchain_sync_monitors` logger at
+        `DEBUG`, as
+        [Turn on log messages](https://omamori-lab.github.io/langchain-sync-monitors/how-to/read-the-monitor-log/#turn-on-log-messages)
+        shows. By design they hold ids, names, counts, outcomes, suspicions and
+        error types, never the transcript's text, so they are safe to paste.
+        Two exceptions: stamina's retry lines, under the logger `stamina`, hold
+        the error's repr, which can quote a request's URL or a provider's error
+        reply, account ids included, as that section says, so check them before
+        you paste; and other libraries' own debug lines make no such promise, so
+        set `DEBUG` on the library's logger alone.
+      render: text
 
   - type: textarea
     id: context
     attributes:
       label: Anything else
       description: Anything else that helps, such as a workaround you found.
+
+  - type: checkboxes
+    id: redaction
+    attributes:
+      label: Before you submit
+      options:
+        - label: I removed API keys, credentials and any private transcript content from this report.
+          required: true

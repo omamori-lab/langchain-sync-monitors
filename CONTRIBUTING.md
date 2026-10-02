@@ -16,6 +16,8 @@ change must pass, how to send a pull request and how to cut a release.
   by area (`monitors`, `protocols`, `middleware`, `deepagents`, `docs`).
 - For anything larger than a fix, comment on the issue first so the design can
   be agreed before the code.
+- To report a bug or a vulnerability, or to ask a question or suggest an
+  idea, see [Report a problem](docs/index.md#report-a-problem).
 
 ## Principles
 

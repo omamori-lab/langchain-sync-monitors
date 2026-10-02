@@ -253,4 +253,30 @@ release can break the API; the
 records each change. The library is released under the
 [MIT licence](https://github.com/omamori-lab/langchain-sync-monitors/blob/main/LICENSE).
 
+## Report a problem
+
+For a bug, fill in the
+[bug report form](https://github.com/omamori-lab/langchain-sync-monitors/issues/new?template=bug-report.yml).
+It asks for what we need to reproduce the bug and fix it, and for your word
+that you removed API keys and private transcript text:
+
+| The form asks for | Because |
+|---|---|
+| the versions of the library, Python, LangChain and LangGraph | a bug can come from a dependency as well as from the library |
+| the code that builds the `MonitorMiddleware` | any monitor works with any view and protocol, so a bug can live in one combination |
+| whether the agent ran with `invoke()` or `ainvoke()` | a bug can show under one call only |
+| the smallest script that shows it, with fake chat models where you can | we can run it without your API key |
+| what you expected, where the docs say so, and what happened | the docs decide which behaviour is right |
+| the library's log lines, if you can | they show what the monitor did at each step; [Turn on log messages](how-to/read-the-monitor-log.md#turn-on-log-messages) says what they hold |
+
+For a vulnerability, such as a step that runs when it should have been
+stopped, do not open an issue: report it privately through
+[GitHub's private form](https://github.com/omamori-lab/langchain-sync-monitors/security/advisories/new).
+[SECURITY.md](https://github.com/omamori-lab/langchain-sync-monitors/security/policy)
+says what counts as one and what happens after you report it.
+
+For a question or an idea,
+[open an issue](https://github.com/omamori-lab/langchain-sync-monitors/issues/new/choose):
+the feature request form for an idea, or a blank issue for a question.
+
 ## References

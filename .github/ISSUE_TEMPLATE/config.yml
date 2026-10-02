@@ -2,7 +2,7 @@ blank_issues_enabled: true
 contact_links:
   - name: Report a vulnerability
     url: https://github.com/omamori-lab/langchain-sync-monitors/security/policy
-    about: Report a way to get a step past a monitor, or any other vulnerability, privately as SECURITY.md describes. Please do not open a public issue.
+    about: Report a step that runs when it should have been stopped, such as one whose own text sets its verdict, or any other vulnerability, privately as SECURITY.md describes; please do not open a public issue. A monitor model that misjudges a harmful step and scores it too low, while the library renders its view and reads its reply correctly, is an ordinary bug; if you cannot tell which it is, report it privately.
   - name: Read the documentation
     url: https://omamori-lab.github.io/langchain-sync-monitors/
     about: Tutorials, how-to guides, the API reference and explanations.

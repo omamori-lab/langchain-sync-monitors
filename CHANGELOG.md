@@ -14,6 +14,8 @@ change raises the minor version.
 
 ## [Unreleased]
 
+## [0.1.3] - 2026-10-02
+
 ### Added
 
 - The docs home says how to report a bug, a vulnerability or a question, and
@@ -184,7 +186,8 @@ change raises the minor version.
 - The full list is in
   [Known limits and open paths](https://omamori-lab.github.io/langchain-sync-monitors/explanation/design/#known-limits-and-open-paths).
 
-[Unreleased]: https://github.com/omamori-lab/langchain-sync-monitors/compare/v0.1.2...HEAD
+[Unreleased]: https://github.com/omamori-lab/langchain-sync-monitors/compare/v0.1.3...HEAD
+[0.1.3]: https://github.com/omamori-lab/langchain-sync-monitors/compare/v0.1.2...v0.1.3
 [0.1.2]: https://github.com/omamori-lab/langchain-sync-monitors/compare/v0.1.1...v0.1.2
 [0.1.1]: https://github.com/omamori-lab/langchain-sync-monitors/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/omamori-lab/langchain-sync-monitors/releases/tag/v0.1.0

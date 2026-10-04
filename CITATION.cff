@@ -28,5 +28,5 @@ keywords:
   - prompt-injection
   - llm-security
   - middleware
-version: "0.1.3"
-date-released: "2026-10-02"
+version: "0.1.4"
+date-released: "2026-10-04"

@@ -671,6 +671,57 @@ def test_unrecognised_reasoning_follows_the_view_and_a_repeated_call_is_not_show
     assert with_reasoning.splitlines()[2:-1] == [call]
 
 
+KEPT_REFUSAL = "I can't share the staff code."
+
+KEPT_REFUSAL_SHAPES = {
+    # Chat Completions: the refusal sits outside the content, which LangChain gives no block for.
+    "chat-completions": AIMessage(
+        "",
+        additional_kwargs={"refusal": KEPT_REFUSAL},
+        response_metadata={"model_provider": "openai"},
+    ),
+    # Responses at output_version="v0": the translator also gives it as a refusal block.
+    "responses-v0": AIMessage(
+        [],
+        additional_kwargs={"refusal": KEPT_REFUSAL},
+        response_metadata={"model_provider": "openai"},
+    ),
+}
+
+
+@pytest.mark.parametrize("reply", KEPT_REFUSAL_SHAPES.values(), ids=KEPT_REFUSAL_SHAPES.keys())
+def test_a_refusal_kept_outside_the_content_is_judged_once(reply: AIMessage) -> None:
+    # Act
+    judged = render_proposed_step(reply, view=MonitorView())
+    history = render_transcript([reply], view=MonitorView(), task_author=TaskAuthor.USER)
+
+    # Assert: the judged step shows it once; the default view leaves prose out of the history
+    assert judged.splitlines() == [
+        "<proposed_step>",
+        f"<agent>{KEPT_REFUSAL}</agent>",
+        "</proposed_step>",
+    ]
+    assert history == ""
+
+
+@pytest.mark.parametrize(
+    "refusal", [None, "", " \n", 7], ids=["none", "empty", "blank", "not-a-string"]
+)
+def test_a_kept_refusal_without_text_adds_no_agent_entry(refusal: object) -> None:
+    # Arrange
+    reply = AIMessage(
+        "",
+        additional_kwargs={"refusal": refusal},
+        response_metadata={"model_provider": "openai"},
+    )
+
+    # Act
+    judged = render_proposed_step(reply, view=MonitorView())
+
+    # Assert
+    assert "<agent>" not in judged
+
+
 def test_a_refusal_is_read_as_the_agent_s_prose() -> None:
     # Arrange: OpenAI gives a refusal as its own item, which LangChain does not map
     refusal = "I can't help with posting credentials."

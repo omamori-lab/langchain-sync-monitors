@@ -56,6 +56,9 @@ PROSE_BLOCK_TYPES = frozenset({"refusal"})
 OpenAI gives a refusal as a `refusal` item, which LangChain keeps as a block it does not map.
 """
 
+REFUSAL_KEY = "refusal"
+"""The key under which langchain-openai keeps a refusal in `additional_kwargs`."""
+
 GROUNDING_METADATA_KEY = "grounding_metadata"
 """The key of a Gemini reply's `response_metadata` that holds what its grounding tools did."""
 
@@ -330,11 +333,7 @@ def build_agent_entries(
         known_call_ids={call["id"] for call in calls if call["id"]},
     )
     yield from build_grounding_entries(message)
-    if message.text.strip():
-        yield TranscriptEntry(
-            channel=Channel.AGENT_TEXT,
-            text=wrap_in_tag(tag="agent", content=message.text),
-        )
+    yield from build_text_entries(message)
     for tool_call in message.tool_calls:
         yield TranscriptEntry(channel=Channel.TOOL_CALLS, text=render_tool_call(tool_call))
     for invalid_tool_call in message.invalid_tool_calls:
@@ -342,6 +341,42 @@ def build_agent_entries(
             channel=Channel.TOOL_CALLS,
             text=render_malformed_tool_call(invalid_tool_call),
         )
+
+
+def build_text_entries(message: AIMessage) -> Iterator[TranscriptEntry]:
+    """Yield the text a message gives the user: its content's text, then a refusal kept aside."""
+    texts = [message.text, read_kept_refusal(message) or ""]
+    for text in texts:
+        if text.strip():
+            yield TranscriptEntry(
+                channel=Channel.AGENT_TEXT,
+                text=wrap_in_tag(tag="agent", content=text),
+            )
+
+
+def read_kept_refusal(message: AIMessage) -> str | None:
+    """Return a refusal langchain-openai keeps only in `additional_kwargs`, or None.
+
+    Under OpenAI's Chat Completions API, langchain-openai keeps a refusal in
+    `additional_kwargs` and leaves the content empty [@langchainopenai2026],
+    and LangChain's translator gives no block for it [@langchaincore2026], so
+    the monitor would not read text the user may see. Under the Responses
+    API at `output_version="v0"` the translator gives the same field as a
+    refusal block, which is read there, so it is not read twice.
+    """
+    refusal = message.additional_kwargs.get(REFUSAL_KEY)
+    if not isinstance(refusal, str) or not refusal.strip():
+        return None
+    if any(is_refusal_block(block) for block in message.content_blocks):
+        return None
+    return refusal
+
+
+def is_refusal_block(block: ContentBlock) -> bool:
+    """Tell whether a content block is a refusal LangChain could not map."""
+    if block["type"] != "non_standard":
+        return False
+    return read_unrecognised_block_name(read_unrecognised_block_value(block)) == REFUSAL_KEY
 
 
 def read_message_source(message: BaseMessage) -> str | None:

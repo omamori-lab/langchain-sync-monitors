@@ -47,6 +47,10 @@ the action the protocol gates, so part of it is shown whatever the view:
 | Its reasoning | when the view holds `REASONING` |
 | What its server tools returned | when the view holds `TOOL_RESULTS` |
 
+A refusal is read from the provider's own refusal block, or, under OpenAI's
+Chat Completions API, from `additional_kwargs["refusal"]`, where
+langchain-openai keeps it outside the content [@langchainopenai2026].
+
 The step commits its text to the conversation, where a chat interface shows
 it to the user, whether the step is a final answer or calls a tool. So the
 monitor reads that text whatever the view: left out, a message could reach the

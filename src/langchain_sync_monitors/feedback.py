@@ -33,6 +33,7 @@ from langchain_sync_monitors.transcript import (
     GROUNDING_METADATA_KEY,
     MONITOR_FEEDBACK_SOURCE,
     PROSE_BLOCK_TYPES,
+    REFUSAL_KEY,
 )
 
 WITHHELD_TEXT_MESSAGE: Final = "[Safety monitor] This step was blocked, so its text is withheld."
@@ -40,9 +41,6 @@ WITHHELD_TEXT_MESSAGE: Final = "[Safety monitor] This step was blocked, so its t
 
 CITATION_KEYS = frozenset({"annotations", "citations"})
 """The keys of a text block that cite sources for its text: OpenAI's and Anthropic's."""
-
-REFUSAL_KEY = "refusal"
-"""The key of `additional_kwargs` where langchain-openai keeps a refusal outside the content."""
 
 GROUNDING_SUPPORTS_KEY = "grounding_supports"
 """The key of Gemini's grounding metadata that quotes each grounded sentence of the answer."""

@@ -142,8 +142,9 @@ The two limits count different things:
 - `max_consecutive_blocks` counts blocks within one step, since a step ends as
   soon as an attempt is accepted. With the default of 3, the third blocked
   attempt of a step goes to the fallback, and the agent has seen feedback
-  twice. With `FeedbackVisibility.IN_TRANSCRIPT`, all three blocked attempts
-  and their feedback are committed before the fallback's step.
+  twice. With `FeedbackVisibility.IN_TRANSCRIPT`, all three blocked attempts,
+  their text withheld, and their feedback are committed before the fallback's
+  step.
 - `max_total_blocks` counts every block recorded under this monitor's `label`
   in the conversation thread: the sum of `blocked_count` over the records in
   `monitor_log` whose `monitor` is that label, the subagents' records
@@ -251,18 +252,22 @@ A blocked attempt is answered in a way every provider accepts:
 
 `feedback_visibility` decides whether these stay in the conversation:
 
-[![Inside one Auto Mode step, attempt 1 is drawn on the conversation so far. It calls http_post with the key, scores 0.90 and is blocked. Attempt 2 is drawn on the conversation so far, attempt 1, and attempt 1's feedback as an error tool result; it is the final answer, scores 0.10 and runs. Then the step is committed to the agent's messages. With FeedbackVisibility.HIDDEN, the default, they keep the conversation and attempt 2, and leave out attempt 1 and its feedback. With FeedbackVisibility.IN_TRANSCRIPT, they keep attempt 1, its feedback, then attempt 2. Either way, monitor_log keeps both attempts.](../assets/diagrams/protocol-feedback-visibility-light.svg#only-light)](../assets/diagrams/protocol-feedback-visibility-light.svg "Open the diagram at full size")
-[![Inside one Auto Mode step, attempt 1 is drawn on the conversation so far. It calls http_post with the key, scores 0.90 and is blocked. Attempt 2 is drawn on the conversation so far, attempt 1, and attempt 1's feedback as an error tool result; it is the final answer, scores 0.10 and runs. Then the step is committed to the agent's messages. With FeedbackVisibility.HIDDEN, the default, they keep the conversation and attempt 2, and leave out attempt 1 and its feedback. With FeedbackVisibility.IN_TRANSCRIPT, they keep attempt 1, its feedback, then attempt 2. Either way, monitor_log keeps both attempts.](../assets/diagrams/protocol-feedback-visibility-dark.svg#only-dark)](../assets/diagrams/protocol-feedback-visibility-dark.svg "Open the diagram at full size")
+[![Inside one Auto Mode step, attempt 1 is drawn on the conversation so far. It calls http_post with the key, scores 0.90 and is blocked. Attempt 2 is drawn on the conversation so far, attempt 1, and attempt 1's feedback as an error tool result; it is the final answer, scores 0.10 and runs. Then the step is committed to the agent's messages. With FeedbackVisibility.HIDDEN, the default, they keep the conversation and attempt 2, and leave out attempt 1 and its feedback. With FeedbackVisibility.IN_TRANSCRIPT, they keep attempt 1 with its text withheld, its feedback, then attempt 2. Either way, monitor_log keeps both attempts.](../assets/diagrams/protocol-feedback-visibility-light.svg#only-light)](../assets/diagrams/protocol-feedback-visibility-light.svg "Open the diagram at full size")
+[![Inside one Auto Mode step, attempt 1 is drawn on the conversation so far. It calls http_post with the key, scores 0.90 and is blocked. Attempt 2 is drawn on the conversation so far, attempt 1, and attempt 1's feedback as an error tool result; it is the final answer, scores 0.10 and runs. Then the step is committed to the agent's messages. With FeedbackVisibility.HIDDEN, the default, they keep the conversation and attempt 2, and leave out attempt 1 and its feedback. With FeedbackVisibility.IN_TRANSCRIPT, they keep attempt 1 with its text withheld, its feedback, then attempt 2. Either way, monitor_log keeps both attempts.](../assets/diagrams/protocol-feedback-visibility-dark.svg#only-dark)](../assets/diagrams/protocol-feedback-visibility-dark.svg "Open the diagram at full size")
 
 - With `HIDDEN`, the default, only the retries within the step see the blocked
   attempts and their feedback. The agent's messages show the accepted step
   alone, and `monitor_log` keeps the blocked attempts.
 - With `IN_TRANSCRIPT`, the blocked attempts and their feedback are committed
-  before the accepted step. The agent remembers the blocked attempts on later steps, and so does the
-  monitor, which reads earlier feedback as `<monitor_feedback>`. A blocked
-  attempt's text is committed with it and streams, so the user sees a message
-  the monitor blocked for what it tells them: keep `HIDDEN` where the agent's
-  text reaches users. Keep
+  before the accepted step. The agent remembers the blocked attempts on later
+  steps, and so does the monitor, which reads earlier feedback as
+  `<monitor_feedback>`. A chat interface shows committed text to the user, so
+  each attempt is committed with its text withheld: it reads
+  `WITHHELD_TEXT_MESSAGE`, "[Safety monitor] This step was blocked, so its text
+  is withheld.", and keeps its tool calls, reasoning and other blocks. The
+  feedback is tagged as the monitor's, with `lc_source` and `name` both
+  `"monitor"`, and carries the monitor's reason, which may say what was
+  blocked; an interface can leave those messages out. Keep
   `HIDDEN` for an Auto Mode monitor that sits inside another monitor: a
   monitor outside it would judge the first blocked attempt instead of the
   step that runs, and `check_monitor_placement` warns about such a list.

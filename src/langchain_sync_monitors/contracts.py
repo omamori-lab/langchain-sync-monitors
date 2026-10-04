@@ -91,7 +91,11 @@ class SampleDrawing(StrEnum):
 
 
 class FeedbackVisibility(StrEnum):
-    """Whether the feedback on a blocked step is kept in the agent's transcript."""
+    """Whether the feedback on a blocked step is kept in the agent's transcript.
+
+    `IN_TRANSCRIPT` commits each blocked attempt, its text withheld, and its
+    feedback before the accepted step; `HIDDEN` commits neither.
+    """
 
     HIDDEN = "hidden"
     IN_TRANSCRIPT = "in_transcript"

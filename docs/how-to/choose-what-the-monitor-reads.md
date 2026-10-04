@@ -53,8 +53,8 @@ monitor reads that text whatever the view: left out, a message could reach the
 user beside any harmless call without being judged. Once the step has run, its
 text is part of the history, and the view decides whether later judgements
 read it; the default view leaves it out. Under Auto Mode with
-`FeedbackVisibility.IN_TRANSCRIPT`, the text of a blocked attempt is committed
-too, so the user sees it; see [What the agent sees](use-auto-mode.md#what-the-agent-sees).
+`FeedbackVisibility.IN_TRANSCRIPT`, a blocked attempt is committed with its
+text withheld; see [What the agent sees](use-auto-mode.md#what-the-agent-sees).
 
 ## Set a view
 

@@ -34,7 +34,7 @@ from langchain_sync_monitors.contracts import (
     StepRecord,
 )
 from langchain_sync_monitors.errors import MonitorError
-from langchain_sync_monitors.feedback import build_blocked_attempt_messages
+from langchain_sync_monitors.feedback import build_committed_attempt_messages
 from langchain_sync_monitors.halts import build_halt_inputs_update
 from langchain_sync_monitors.pending_steps import MonitoredStep
 from langchain_sync_monitors.records import build_sample_record, render_value
@@ -145,15 +145,15 @@ def commit_step(
 
     The record is also written to `stream_mode="custom"`, once the response
     and the update are built, so a commit that fails streams no record.
-    With `FeedbackVisibility.IN_TRANSCRIPT`, each blocked attempt and its
-    feedback come before the step's own messages. The untagged human
+    With `FeedbackVisibility.IN_TRANSCRIPT`, each blocked attempt, its text
+    withheld, and its feedback come before the step's own messages. The untagged human
     messages in the state that the monitor had not seen are recorded as
     seen, so the next run does not take them for its input, and the
     subagent halts and blocks the step answered are removed.
     """
     messages = list(decision.response.result)
     if feedback_visibility is FeedbackVisibility.IN_TRANSCRIPT:
-        messages = [*build_blocked_attempt_messages(decision.blocked_attempts), *messages]
+        messages = [*build_committed_attempt_messages(decision.blocked_attempts), *messages]
     response = ModelResponse(
         result=messages,
         structured_response=decision.response.structured_response,

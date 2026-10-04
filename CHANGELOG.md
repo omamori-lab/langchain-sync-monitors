@@ -20,6 +20,10 @@ change raises the minor version.
   beside a tool call as well as in a final answer, since a chat interface
   shows that text to the user. Under the default view, a message written
   beside a harmless tool call reached the user without being judged.
+- Under `FeedbackVisibility.IN_TRANSCRIPT`, Auto Mode commits a blocked
+  attempt with its text withheld, as `WITHHELD_TEXT_MESSAGE`, keeping its tool
+  calls, reasoning and other blocks. The text the monitor blocked was
+  committed and streamed to the user.
 
 ## [0.1.3] - 2026-10-02
 

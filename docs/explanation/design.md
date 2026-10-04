@@ -29,7 +29,8 @@ sample, the trusted model's step or a halt message. `monitor_log` receives one
 survive as evidence. Rejected samples and the monitor's own model calls reach
 neither the agent's messages nor the message stream, with one exception:
 under `MonitorMiddleware(feedback_visibility=FeedbackVisibility.IN_TRANSCRIPT)`,
-Auto Mode's blocked attempts and their feedback are committed before the step.
+Auto Mode's blocked attempts, their text withheld, and their feedback are
+committed before the step.
 
 ### Where the middleware sits
 
@@ -352,7 +353,10 @@ the parent's total. Crashed and parallel subagents escape the count
 keeps. With `FeedbackVisibility.HIDDEN`, the default, only the retries see
 the blocked attempts and their feedback, and the transcript keeps the
 accepted step alone. With `IN_TRANSCRIPT`, each blocked attempt and its
-feedback are committed before it. A blocked tool call is answered by one
+feedback are committed before it. A chat interface shows committed text to the
+user, so the attempt's text is replaced by `WITHHELD_TEXT_MESSAGE`; its tool
+calls, reasoning and other blocks stay, since some providers need an earlier
+reply back as they sent it. This is the library's own rule. A blocked tool call is answered by one
 error tool message per call, so every tool call keeps a matching result.
 Every message the monitor inserts gets a fresh id, `monitor-<uuid4>`,
 because LangGraph replaces messages that share an id. The default feedback
@@ -872,7 +876,7 @@ monitored agent does not stream tokens as the model writes them
 
 | Stream | What it carries |
 |---|---|
-| `stream_mode="messages"` | Only committed steps, each whole. With `IN_TRANSCRIPT`, blocked attempts and their feedback stream with the step that follows them. A custom monitor's call made with its own `tags` streams too. |
+| `stream_mode="messages"` | Only committed steps, each whole. With `IN_TRANSCRIPT`, blocked attempts, their text withheld, and their feedback stream with the step that follows them. A custom monitor's call made with its own `tags` streams too. |
 | `stream_mode="updates"` | Every node's writes, `monitor_log` and the private keys included. The monitor's hooks write back the human messages they tag under their own ids, so such a message can arrive twice: once from the node that wrote it, and once tagged. After a run that stopped early, the user's new message comes back tagged too. In a Deep Agent, input given as a string or a tuple comes back as the whole history in an `Overwrite`, with an id ([task authorship and notes](#task-authorship-and-notes)). Merge messages by id, as LangGraph's message reducer does [@langgraph2026]; a message a node writes as a dictionary without an id arrives first with no id, so its tagged copy cannot be matched to it. |
 | `stream_mode="values"` | The whole state after each step, `monitor_log` and the private keys included. |
 | `stream_mode="custom"` | A `MonitorStepEvent` for each committed step and a `MonitorStepFailedEvent` for each failed one. A subagent writes its events inside its own graph, so they reach the parent's stream only with `subgraphs=True`. |

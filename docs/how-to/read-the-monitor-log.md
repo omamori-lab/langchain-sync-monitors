@@ -282,9 +282,9 @@ read `stream_mode="messages"` instead, or the experimental
 `stream_events(version="v3")`, whose message projection also carries only
 committed steps. A consumer that builds the conversation from `updates` should
 merge messages by id, as LangGraph's message reducer does [@langgraph2026],
-not append them. With `FeedbackVisibility.IN_TRANSCRIPT`, a blocked attempt
-and its feedback are committed as part of the conversation, so they stream
-with the step that follows them.
+not append them. With `FeedbackVisibility.IN_TRANSCRIPT`, a blocked attempt,
+its text withheld, and its feedback are committed as part of the
+conversation, so they stream with the step that follows them.
 
 The monitor keeps seven private keys in the state: `monitor_task_messages`,
 `monitor_seen_human_messages`, `monitor_run_inputs`,

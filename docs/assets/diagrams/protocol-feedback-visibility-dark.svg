@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1000" height="771" viewBox="0 0 1000 771" role="img" aria-labelledby="title desc">
   <title id="title">What the agent sees after a block</title>
-  <desc id="desc">Inside one Auto Mode step, attempt 1 is drawn on the conversation so far. It calls http_post with the key, scores 0.90 and is blocked. Attempt 2 is drawn on the conversation so far, attempt 1, and attempt 1&#x27;s feedback as an error tool result; it is the final answer, scores 0.10 and runs. Then the step is committed to the agent&#x27;s messages. With FeedbackVisibility.HIDDEN, the default, they keep the conversation and attempt 2, and leave out attempt 1 and its feedback. With FeedbackVisibility.IN_TRANSCRIPT, they keep attempt 1, its feedback, then attempt 2. Either way, monitor_log keeps both attempts.</desc>
+  <desc id="desc">Inside one Auto Mode step, attempt 1 is drawn on the conversation so far. It calls http_post with the key, scores 0.90 and is blocked. Attempt 2 is drawn on the conversation so far, attempt 1, and attempt 1&#x27;s feedback as an error tool result; it is the final answer, scores 0.10 and runs. Then the step is committed to the agent&#x27;s messages. With FeedbackVisibility.HIDDEN, the default, they keep the conversation and attempt 2, and leave out attempt 1 and its feedback. With FeedbackVisibility.IN_TRANSCRIPT, they keep attempt 1 with its text withheld, its feedback, then attempt 2. Either way, monitor_log keeps both attempts.</desc>
   <!-- Colours come from the brand tokens: diagrams/render.py fills this style block. -->
   <style>
     svg { color-scheme: dark; }
@@ -67,7 +67,7 @@
   <rect class="box" x="532.0" y="529.0" width="428.0" height="34" rx="6"/>
   <text x="552.0" y="551.0" text-anchor="start" class="">the conversation so far</text>
   <rect class="box" x="532.0" y="573.0" width="428.0" height="34" rx="6"/>
-  <text x="552.0" y="595.0" text-anchor="start"><tspan class="">attempt 1: </tspan><tspan class="mono">http_post</tspan><tspan class=""> with the key</tspan></text>
+  <text x="552.0" y="595.0" text-anchor="start"><tspan class="">attempt 1: </tspan><tspan class="mono">http_post</tspan><tspan class="">, its text withheld</tspan></text>
   <rect class="box" x="532.0" y="617.0" width="428.0" height="34" rx="6"/>
   <text x="552.0" y="639.0" text-anchor="start" class="">its feedback, an error tool result</text>
   <rect class="box" x="532.0" y="661.0" width="428.0" height="34" rx="6"/>

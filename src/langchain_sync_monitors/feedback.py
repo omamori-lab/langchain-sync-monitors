@@ -2,7 +2,9 @@
 
 A blocked proposal is kept, answered by the feedback, so the conversation stays
 valid for every provider: each tool call, malformed ones included, gets its own
-error result, and a blocked final answer gets one tagged human message. A halt
+error result, and a blocked final answer gets one tagged human message. When a
+blocked proposal is committed, its text is withheld, so the user never reads
+what the monitor blocked. A halt
 is a flagged decision whose one message is the monitor's final word. Every
 message inserted here gets a fresh id, because LangGraph merges messages that
 share an id and would leave tool results without their call.
@@ -11,6 +13,8 @@ share an id and would leave tool results without their call.
 from __future__ import annotations
 
 from collections.abc import Sequence
+from dataclasses import replace
+from typing import Final
 from uuid import uuid4
 
 from langchain.agents.middleware.types import ModelResponse
@@ -24,7 +28,10 @@ from langchain_core.messages import (
 )
 
 from langchain_sync_monitors.contracts import BlockedAttempt, Outcome, Sample, StepDecision
-from langchain_sync_monitors.transcript import MONITOR_FEEDBACK_SOURCE
+from langchain_sync_monitors.transcript import MONITOR_FEEDBACK_SOURCE, PROSE_BLOCK_TYPES
+
+WITHHELD_TEXT_MESSAGE: Final = "[Safety monitor] This step was blocked, so its text is withheld."
+"""The text a blocked attempt keeps when `FeedbackVisibility.IN_TRANSCRIPT` commits it."""
 
 MONITOR_MESSAGE_NAME = "monitor"
 """The `name` on feedback messages. Some providers drop it, so the text carries its own marker."""
@@ -117,3 +124,64 @@ def build_feedback_messages(*, attempt: BlockedAttempt) -> list[BaseMessage]:
 def build_blocked_attempt_messages(attempts: Sequence[BlockedAttempt]) -> list[BaseMessage]:
     """Return the messages of every blocked attempt of a step, in the order they happened."""
     return [message for attempt in attempts for message in build_feedback_messages(attempt=attempt)]
+
+
+def build_committed_attempt_messages(attempts: Sequence[BlockedAttempt]) -> list[BaseMessage]:
+    """Return what `FeedbackVisibility.IN_TRANSCRIPT` commits of a step's blocked attempts.
+
+    These are the messages the step's retries saw, with each proposal's text
+    withheld, since a chat interface shows committed text to the user.
+    """
+    withheld = [
+        replace(attempt, proposal=build_withheld_proposal(attempt.proposal)) for attempt in attempts
+    ]
+    return build_blocked_attempt_messages(withheld)
+
+
+def build_withheld_proposal(proposal: AIMessage) -> AIMessage:
+    """Return a copy of a blocked proposal whose text is `WITHHELD_TEXT_MESSAGE`.
+
+    Only what the user would read changes: string content, and the text of
+    each text block and refusal. The tool calls stay, since the feedback
+    answers them, and so do the reasoning and every other block, with a text
+    block's other keys, such as an id or a signature, because some providers
+    need an earlier reply back as they sent it. Blank text stays blank. This
+    is the library's own rule, not one from a control evaluation.
+    """
+    content = proposal.content
+    if isinstance(content, str):
+        return proposal.model_copy(update={"content": replace_prose(content)})
+    withheld = [replace_block_prose(block) for block in content]
+    return proposal.model_copy(update={"content": withheld})
+
+
+def replace_prose(text: str) -> str:
+    """Return `WITHHELD_TEXT_MESSAGE` in place of text, or the text itself when it is blank."""
+    return WITHHELD_TEXT_MESSAGE if text.strip() else text
+
+
+def replace_block_prose(block: str | dict[str, object]) -> str | dict[str, object]:
+    """Return a content block with its text withheld: a plain string, a text block or a refusal.
+
+    A refusal arrives as the provider's own block, or wrapped as a
+    `non_standard` block whose `value` is that block.
+    """
+    if isinstance(block, str):
+        return replace_prose(block)
+    value = block.get("value")
+    if block.get("type") == "non_standard" and isinstance(value, dict):
+        return {**block, "value": replace_block_prose(value)}
+    key = read_prose_key(block)
+    if key is None:
+        return block
+    return {**block, key: replace_prose(str(block[key]))}
+
+
+def read_prose_key(block: dict[str, object]) -> str | None:
+    """Return the key a text block or a refusal holds its text under, or None for other blocks.
+
+    A text block holds its text under `text`, and a refusal under its own type.
+    """
+    key = str(block.get("type"))
+    is_prose = key == "text" or key in PROSE_BLOCK_TYPES
+    return key if is_prose and isinstance(block.get(key), str) else None

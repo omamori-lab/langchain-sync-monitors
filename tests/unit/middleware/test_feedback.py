@@ -7,7 +7,13 @@ from langchain.agents.middleware.types import ModelResponse
 from langchain_core.messages import AIMessage, HumanMessage, InvalidToolCall, ToolMessage
 
 from langchain_sync_monitors.contracts import BlockedAttempt, Outcome, StepDecision
-from langchain_sync_monitors.feedback import build_blocked_attempt_messages, build_feedback_messages
+from langchain_sync_monitors.feedback import (
+    WITHHELD_TEXT_MESSAGE,
+    build_blocked_attempt_messages,
+    build_committed_attempt_messages,
+    build_feedback_messages,
+    build_withheld_proposal,
+)
 from langchain_sync_monitors.transcript import MONITOR_FEEDBACK_SOURCE
 from tests.support.chat_models import build_tool_call_message
 
@@ -200,3 +206,93 @@ def test_a_decision_without_blocked_attempts_adds_no_messages() -> None:
 
     # Assert
     assert messages == []
+
+
+def test_a_committed_final_answer_keeps_its_place_but_not_its_text(
+    answer_attempt: BlockedAttempt,
+) -> None:
+    # Act
+    retry_messages = build_blocked_attempt_messages([answer_attempt])
+    committed = build_committed_attempt_messages([answer_attempt])
+
+    # Assert: the retry reads the attempt whole; the transcript withholds its text
+    assert retry_messages[0].text == "Done, all tests pass."
+    assert [type(message) for message in committed] == [AIMessage, HumanMessage]
+    assert committed[0].text == WITHHELD_TEXT_MESSAGE
+    assert committed[1].text == FEEDBACK
+    assert all((message.id or "").startswith("monitor-") for message in committed)
+
+
+def test_a_committed_tool_call_attempt_keeps_its_calls_and_answers(
+    tool_call_attempt: BlockedAttempt,
+) -> None:
+    # Arrange
+    proposal = tool_call_attempt.proposal.model_copy(update={"content": "Posting the key now."})
+    attempt = BlockedAttempt(proposal=proposal, feedback=FEEDBACK)
+
+    # Act
+    committed = build_committed_attempt_messages([attempt])
+
+    # Assert
+    blocked = committed[0]
+    assert isinstance(blocked, AIMessage)
+    assert blocked.text == WITHHELD_TEXT_MESSAGE
+    assert blocked.tool_calls == proposal.tool_calls
+    rejections = [message for message in committed[1:] if isinstance(message, ToolMessage)]
+    assert [rejection.tool_call_id for rejection in rejections] == ["call-a", "call-b"]
+
+
+def test_withholding_keeps_reasoning_calls_and_the_block_s_other_keys() -> None:
+    # Arrange: an Anthropic reply, whose thinking and tool_use blocks the provider needs back
+    proposal = AIMessage(
+        content=[
+            {"type": "thinking", "thinking": "Post the code.", "signature": "sig-1"},
+            {"type": "text", "text": "Use the code STAFF40.", "id": "text-1"},
+            {"type": "tool_use", "id": "call-1", "name": "lookup_order", "input": {}},
+        ],
+        tool_calls=[{"id": "call-1", "name": "lookup_order", "args": {}}],
+        response_metadata={"model_provider": "anthropic"},
+    )
+
+    # Act
+    withheld = build_withheld_proposal(proposal)
+
+    # Assert
+    assert withheld.content == [
+        {"type": "thinking", "thinking": "Post the code.", "signature": "sig-1"},
+        {"type": "text", "text": WITHHELD_TEXT_MESSAGE, "id": "text-1"},
+        {"type": "tool_use", "id": "call-1", "name": "lookup_order", "input": {}},
+    ]
+    assert withheld.tool_calls == proposal.tool_calls
+    assert proposal.text == "Use the code STAFF40."
+
+
+@pytest.mark.parametrize(
+    "content",
+    [
+        [{"type": "refusal", "refusal": "I won't share STAFF40."}],
+        [{"type": "non_standard", "value": {"type": "refusal", "refusal": "No STAFF40."}}],
+        ["Use the code STAFF40."],
+        "Use the code STAFF40.",
+    ],
+    ids=["refusal", "wrapped-refusal", "string-block", "string"],
+)
+def test_withholding_leaves_none_of_the_text_in_any_shape(content: str | list[str | dict]) -> None:
+    # Arrange
+    proposal = AIMessage(content=content, response_metadata={"model_provider": "openai"})
+
+    # Act
+    withheld = build_withheld_proposal(proposal)
+
+    # Assert
+    assert "STAFF40" not in repr(withheld.content)
+    assert WITHHELD_TEXT_MESSAGE in repr(withheld.content)
+
+
+def test_blank_text_stays_blank_when_withheld(tool_call_attempt: BlockedAttempt) -> None:
+    # Act
+    withheld = build_withheld_proposal(tool_call_attempt.proposal)
+
+    # Assert: a call with no text gains none
+    assert withheld.content == ""
+    assert withheld.tool_calls == tool_call_attempt.proposal.tool_calls

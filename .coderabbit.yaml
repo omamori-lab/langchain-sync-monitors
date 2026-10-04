@@ -201,8 +201,9 @@ reviews:
         <desc> contains "@". Do not comment on drawing style.
     - path: "CHANGELOG.md"
       instructions: |
-        One plain line per user-visible change under ## [Unreleased], in Keep a
-        Changelog sections. Flag padding, lines about internal work, and
+        One plain bullet per user-visible change under ## [Unreleased], in Keep
+        a Changelog sections. A bullet wraps at about 80 columns, as every
+        released entry does; do not flag a bullet for spanning several lines. Flag padding, lines about internal work, and
         history of states that were never released. A rename of a shipped
         name gives the old and the new name.
     - path: ".github/workflows/**"

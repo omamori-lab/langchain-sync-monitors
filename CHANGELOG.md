@@ -14,6 +14,13 @@ change raises the minor version.
 
 ## [Unreleased]
 
+### Security
+
+- Every monitor now reads, as the agent's text, the refusal langchain-openai
+  keeps in `additional_kwargs` for a Chat Completions reply. LangChain gives
+  no content block for it, so such a refusal was committed without being
+  judged.
+
 ## [0.1.4] - 2026-10-04
 
 ### Security

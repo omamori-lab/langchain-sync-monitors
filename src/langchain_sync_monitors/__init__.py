@@ -42,6 +42,7 @@ from langchain_sync_monitors.errors import (
     ServerToolWarning,
     SynchronousRunError,
 )
+from langchain_sync_monitors.feedback import WITHHELD_TEXT_MESSAGE
 from langchain_sync_monitors.middleware import MonitorMiddleware
 from langchain_sync_monitors.model_calls import CachedResampleWarning
 from langchain_sync_monitors.monitor_state import MonitorState
@@ -92,6 +93,7 @@ __all__ = [
     "DEFAULT_HALT_MESSAGE",
     "DEFAULT_MONITOR_PROMPT",
     "IS_THE_STEP_SUSPICIOUS",
+    "WITHHELD_TEXT_MESSAGE",
     "Aggregation",
     "AutoMode",
     "BlockedAttempt",

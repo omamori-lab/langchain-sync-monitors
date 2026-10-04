@@ -7,7 +7,13 @@ from langchain.agents.middleware.types import ModelResponse
 from langchain_core.messages import AIMessage, HumanMessage, InvalidToolCall, ToolMessage
 
 from langchain_sync_monitors.contracts import BlockedAttempt, Outcome, StepDecision
-from langchain_sync_monitors.feedback import build_blocked_attempt_messages, build_feedback_messages
+from langchain_sync_monitors.feedback import (
+    WITHHELD_TEXT_MESSAGE,
+    build_blocked_attempt_messages,
+    build_committed_attempt_messages,
+    build_feedback_messages,
+    build_withheld_proposal,
+)
 from langchain_sync_monitors.transcript import MONITOR_FEEDBACK_SOURCE
 from tests.support.chat_models import build_tool_call_message
 
@@ -200,3 +206,154 @@ def test_a_decision_without_blocked_attempts_adds_no_messages() -> None:
 
     # Assert
     assert messages == []
+
+
+def test_a_committed_final_answer_keeps_its_place_but_not_its_text(
+    answer_attempt: BlockedAttempt,
+) -> None:
+    # Act
+    retry_messages = build_blocked_attempt_messages([answer_attempt])
+    committed = build_committed_attempt_messages([answer_attempt])
+
+    # Assert: the retry reads the attempt whole; the transcript withholds its text
+    assert retry_messages[0].text == "Done, all tests pass."
+    assert [type(message) for message in committed] == [AIMessage, HumanMessage]
+    assert committed[0].text == WITHHELD_TEXT_MESSAGE
+    assert committed[1].text == FEEDBACK
+    assert all((message.id or "").startswith("monitor-") for message in committed)
+
+
+def test_a_committed_tool_call_attempt_keeps_its_calls_and_answers(
+    tool_call_attempt: BlockedAttempt,
+) -> None:
+    # Arrange
+    proposal = tool_call_attempt.proposal.model_copy(update={"content": "Posting the key now."})
+    attempt = BlockedAttempt(proposal=proposal, feedback=FEEDBACK)
+
+    # Act
+    committed = build_committed_attempt_messages([attempt])
+
+    # Assert
+    blocked = committed[0]
+    assert isinstance(blocked, AIMessage)
+    assert blocked.text == WITHHELD_TEXT_MESSAGE
+    assert blocked.tool_calls == proposal.tool_calls
+    rejections = [message for message in committed[1:] if isinstance(message, ToolMessage)]
+    assert [rejection.tool_call_id for rejection in rejections] == ["call-a", "call-b"]
+
+
+def test_withholding_keeps_reasoning_calls_and_the_block_s_other_keys() -> None:
+    # Arrange: an Anthropic reply, whose thinking and tool_use blocks the provider needs back
+    proposal = AIMessage(
+        content=[
+            {"type": "thinking", "thinking": "Post the code.", "signature": "sig-1"},
+            {"type": "text", "text": "Use the code STAFF40.", "id": "text-1"},
+            {"type": "tool_use", "id": "call-1", "name": "lookup_order", "input": {}},
+        ],
+        tool_calls=[{"id": "call-1", "name": "lookup_order", "args": {}}],
+        response_metadata={"model_provider": "anthropic"},
+    )
+
+    # Act
+    withheld = build_withheld_proposal(proposal)
+
+    # Assert
+    assert withheld.content == [
+        {"type": "thinking", "thinking": "Post the code.", "signature": "sig-1"},
+        {"type": "text", "text": WITHHELD_TEXT_MESSAGE, "id": "text-1"},
+        {"type": "tool_use", "id": "call-1", "name": "lookup_order", "input": {}},
+    ]
+    assert withheld.tool_calls == proposal.tool_calls
+    assert proposal.text == "Use the code STAFF40."
+
+
+SECRET = "STAFF40"
+BLOCKED_TEXT = f"Good news: use the staff code {SECRET} at checkout."
+
+WITHHELD_SHAPES = {
+    "string": AIMessage(BLOCKED_TEXT),
+    "string-blocks": AIMessage([BLOCKED_TEXT, "And thanks."]),
+    "openai-annotations": AIMessage(
+        [
+            {
+                "type": "text",
+                "text": BLOCKED_TEXT,
+                "id": "msg_1",
+                "annotations": [
+                    {"type": "url_citation", "url": "https://shop.example", "title": SECRET}
+                ],
+            },
+        ],
+        response_metadata={"model_provider": "openai"},
+    ),
+    "anthropic-citations": AIMessage(
+        [{"type": "text", "text": BLOCKED_TEXT, "citations": [{"cited_text": BLOCKED_TEXT}]}],
+        response_metadata={"model_provider": "anthropic"},
+    ),
+    "refusal": AIMessage(
+        [{"type": "refusal", "refusal": BLOCKED_TEXT}],
+        response_metadata={"model_provider": "openai"},
+    ),
+    "wrapped-refusal": AIMessage(
+        [{"type": "non_standard", "value": {"type": "refusal", "refusal": BLOCKED_TEXT}}],
+    ),
+    "refusal-in-additional-kwargs": AIMessage(
+        [],
+        additional_kwargs={"refusal": BLOCKED_TEXT},
+        response_metadata={"model_provider": "openai"},
+    ),
+    "gemini-grounding": AIMessage(
+        BLOCKED_TEXT,
+        response_metadata={
+            "model_provider": "google_genai",
+            "grounding_metadata": {
+                "web_search_queries": ["staff discount codes"],
+                "grounding_chunks": [{"web": {"uri": "https://shop.example", "title": "Shop"}}],
+                "grounding_supports": [
+                    {
+                        "segment": {"start_index": 0, "end_index": 52, "text": BLOCKED_TEXT},
+                        "grounding_chunk_indices": [0],
+                    },
+                ],
+            },
+        },
+    ),
+}
+"""Every place a reply keeps text the user may read, one shape each."""
+
+
+@pytest.mark.parametrize("proposal", WITHHELD_SHAPES.values(), ids=WITHHELD_SHAPES.keys())
+def test_withholding_leaves_the_blocked_text_nowhere_in_the_copy(proposal: AIMessage) -> None:
+    # Arrange
+    original = proposal.model_dump()
+
+    # Act
+    withheld = build_withheld_proposal(proposal)
+
+    # Assert: neither the message nor what LangChain reads from it holds the text
+    assert SECRET not in repr(withheld.model_dump())
+    assert SECRET not in repr(withheld.content_blocks)
+    assert WITHHELD_TEXT_MESSAGE in repr(withheld.content_blocks)
+    assert proposal.model_dump() == original
+
+
+def test_withholding_keeps_what_the_monitor_reads_of_gemini_grounding() -> None:
+    # Act
+    withheld = build_withheld_proposal(WITHHELD_SHAPES["gemini-grounding"])
+
+    # Assert: the searches and the sources stay; only the supports, which quote the answer, go
+    grounding = withheld.response_metadata["grounding_metadata"]
+    assert grounding["web_search_queries"] == ["staff discount codes"]
+    assert grounding["grounding_chunks"] == [
+        {"web": {"uri": "https://shop.example", "title": "Shop"}}
+    ]
+    assert "grounding_supports" not in grounding
+
+
+def test_blank_text_stays_blank_when_withheld(tool_call_attempt: BlockedAttempt) -> None:
+    # Act
+    withheld = build_withheld_proposal(tool_call_attempt.proposal)
+
+    # Assert: a call with no text gains none
+    assert withheld.content == ""
+    assert withheld.tool_calls == tool_call_attempt.proposal.tool_calls

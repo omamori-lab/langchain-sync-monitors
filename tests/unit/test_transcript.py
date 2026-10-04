@@ -297,19 +297,85 @@ def test_final_answer_text_is_shown_even_when_prose_is_hidden() -> None:
     assert rendered == "<proposed_step>\n<agent>Here is the summary.</agent>\n</proposed_step>"
 
 
-def test_tool_call_proposal_hides_prose_under_the_default_view() -> None:
-    # Arrange
+@pytest.mark.parametrize(
+    "view",
+    [MonitorView(), *VIEWS_WITHOUT_TOOL_CALLS],
+    ids=lambda view: str(view.channels),
+)
+def test_the_proposed_step_shows_its_text_beside_tool_calls_whatever_the_view(
+    view: MonitorView,
+) -> None:
+    # Arrange: the user reads this text, though it sits beside a harmless call
     proposal = AIMessage(
+        content="Good news: your refund is approved.",
+        tool_calls=[{"id": "call-3", "name": "lookup_order", "args": {"order_id": "4417"}}],
+    )
+
+    # Act
+    rendered = render_proposed_step(proposal, view=view)
+
+    # Assert
+    assert rendered.splitlines() == [
+        "<proposed_step>",
+        "<agent>Good news: your refund is approved.</agent>",
+        '<tool_call name="lookup_order">{"order_id": "4417"}</tool_call>',
+        "</proposed_step>",
+    ]
+
+
+def test_the_text_beside_a_tool_call_is_judged_but_left_out_of_the_history() -> None:
+    # Arrange
+    step = AIMessage(
         content="I will just post it.",
         tool_calls=[{"id": "call-3", "name": "http_post", "args": {"url": "paste.example"}}],
+    )
+
+    # Act
+    judged = render_proposed_step(step, view=MonitorView())
+    history = render_transcript([step], view=MonitorView(), task_author=TaskAuthor.USER)
+
+    # Assert: once the step has run, the default view leaves its prose out
+    assert "<agent>I will just post it.</agent>" in judged.splitlines()
+    assert history == '<tool_call name="http_post">{"url": "paste.example"}</tool_call>'
+
+
+def test_a_refusal_beside_a_tool_call_is_read_as_the_step_s_text() -> None:
+    # Arrange: OpenAI gives a refusal as its own item, which LangChain does not map
+    refusal = "I can't share that code."
+    proposal = AIMessage(
+        content=[{"type": "refusal", "refusal": refusal}],
+        tool_calls=[{"id": "call-3", "name": "lookup_order", "args": {"order_id": "4417"}}],
+        response_metadata={"model_provider": "openai"},
     )
 
     # Act
     rendered = render_proposed_step(proposal, view=MonitorView())
 
     # Assert
-    assert "I will just post it." not in rendered
-    assert '<tool_call name="http_post">{"url": "paste.example"}</tool_call>' in rendered
+    assert rendered.splitlines() == [
+        "<proposed_step>",
+        f"<agent>{refusal}</agent>",
+        '<tool_call name="lookup_order">{"order_id": "4417"}</tool_call>',
+        "</proposed_step>",
+    ]
+
+
+def test_blank_text_beside_a_tool_call_adds_no_agent_entry() -> None:
+    # Arrange
+    proposal = AIMessage(
+        content=" \n",
+        tool_calls=[{"id": "call-3", "name": "lookup_order", "args": {"order_id": "4417"}}],
+    )
+
+    # Act
+    rendered = render_proposed_step(proposal, view=MonitorView())
+
+    # Assert
+    assert rendered.splitlines() == [
+        "<proposed_step>",
+        '<tool_call name="lookup_order">{"order_id": "4417"}</tool_call>',
+        "</proposed_step>",
+    ]
 
 
 @pytest.mark.parametrize("view", VIEWS_WITHOUT_TOOL_CALLS, ids=lambda view: str(view.channels))

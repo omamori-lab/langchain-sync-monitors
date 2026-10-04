@@ -34,6 +34,7 @@ from langchain_sync_monitors.contracts import (
     StepDecision,
     StepRecord,
 )
+from langchain_sync_monitors.feedback import WITHHELD_TEXT_MESSAGE
 from langchain_sync_monitors.middleware import MonitorMiddleware
 from langchain_sync_monitors.monitors import CascadeMonitor
 from langchain_sync_monitors.placement import check_monitor_placement
@@ -353,7 +354,7 @@ def test_a_trusted_step_after_parallel_resamples_leaves_the_inner_monitor_its_re
     ("visibility", "expected_judged", "expected_named"),
     [
         (FeedbackVisibility.HIDDEN, SAFE_ANSWER, []),
-        (FeedbackVisibility.IN_TRANSCRIPT, UNSAFE_DRAFT, ["inner[main]"]),
+        (FeedbackVisibility.IN_TRANSCRIPT, WITHHELD_TEXT_MESSAGE, ["inner[main]"]),
     ],
     ids=["hidden", "in-transcript"],
 )
@@ -363,7 +364,8 @@ def test_an_outer_monitor_judges_the_blocked_draft_an_inner_auto_mode_shows(
     expected_judged: str,
     expected_named: list[str],
 ) -> None:
-    # Arrange: the inner Auto Mode blocks the first draft, which the outer monitor never sees
+    # Arrange: the inner Auto Mode blocks the first draft. Under IN_TRANSCRIPT the outer
+    # monitor judges that draft, committed first with its text withheld, not the step that runs.
     outer_monitor = KeywordMonitor()
     outer = MonitorMiddleware(
         monitor=outer_monitor,

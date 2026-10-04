@@ -85,6 +85,10 @@ name `langchain_sync_monitors` exports, grouped by what it is for.
         - HIDDEN
         - IN_TRANSCRIPT
 
+::: langchain_sync_monitors.WITHHELD_TEXT_MESSAGE
+    options:
+      members: false
+
 ::: langchain_sync_monitors.SubagentHalt
     options:
       members:

@@ -56,6 +56,9 @@ PROSE_BLOCK_TYPES = frozenset({"refusal"})
 OpenAI gives a refusal as a `refusal` item, which LangChain keeps as a block it does not map.
 """
 
+GROUNDING_METADATA_KEY = "grounding_metadata"
+"""The key of a Gemini reply's `response_metadata` that holds what its grounding tools did."""
+
 GROUNDING_QUERY_KEYS = ("web_search_queries", "image_search_queries")
 """The keys of Gemini's `grounding_metadata` that hold the searches its server tools ran."""
 
@@ -221,7 +224,7 @@ def build_unrecognised_block_entry(
     block of reasoning, such as Anthropic's `thinking`, sits with the
     reasoning instead, so a view without it still leaves it out. A refusal is
     text the model wrote to the user, so it renders as the agent's prose,
-    which is how the monitor reads it in a final answer. A block that carries
+    which is how the monitor reads it in the step it judges. A block that carries
     the id of one of the message's tool calls repeats that call, which is
     rendered already, so it renders as nothing.
     """
@@ -282,7 +285,7 @@ def build_grounding_entries(message: AIMessage) -> Iterator[TranscriptEntry]:
     reads for citations [@langchaincore2026], with no `server_tool_call`
     block. The queries are the call, and the sources found are its result.
     """
-    metadata = message.response_metadata.get("grounding_metadata")
+    metadata = message.response_metadata.get(GROUNDING_METADATA_KEY)
     if not isinstance(metadata, Mapping):
         return
     queries = {key: metadata[key] for key in GROUNDING_QUERY_KEYS if metadata.get(key)}
@@ -525,19 +528,17 @@ def render_proposed_step(proposal: AIMessage, *, view: MonitorView) -> str:
     """Render the step the agent proposes, wrapped in a `proposed_step` tag.
 
     The view decides what the monitor reads of the history, not of the step it
-    judges: the step's tool calls, malformed ones and server tool calls
-    included, are its action, so they are shown whatever the view. A
-    proposal without tool calls is a final answer, and the answer is then the
-    step's action, so its text is shown even when the view leaves out agent
-    prose. A proposal whose calls are all malformed is a final answer too,
-    because none of them can run; they are shown with it, as evidence of what
-    the agent tried. So is a proposal whose only calls the provider already
-    ran, which are shown with it.
+    judges. The step's tool calls, malformed ones and server tool calls
+    included, are its action, so they are shown whatever the view. Its text,
+    a refusal included, is shown whatever the view too: the step commits it
+    to the conversation, where a chat interface shows it to the user, whether
+    it is a final answer or sits beside a tool call. Left out, it would let a
+    message the monitor must judge reach the user beside any harmless call.
+    Malformed calls cannot run but are shown as evidence of what the agent
+    tried. The step's reasoning, and what its server tools returned, follow
+    the view's channels.
     """
-    is_final_answer = not proposal.tool_calls
-    channels = view.channels | Channel.TOOL_CALLS
-    if is_final_answer:
-        channels |= Channel.AGENT_TEXT
+    channels = view.channels | Channel.TOOL_CALLS | Channel.AGENT_TEXT
     entries = build_agent_entries(
         proposal,
         tool_names_by_call=read_server_tool_names_by_call(proposal),

@@ -64,7 +64,7 @@ library takes four things from Hughes's account of it:
   results"; figure 3) [@hughes2026automode]. `Channel.ACTIONS`, the
   library's default view, follows it, with differences: it shows a call's
   name and all its arguments, and it also reads `<tool_error>` entries,
-  subagent reports and the text of a final answer. When a subagent returns,
+  subagent reports and the text of the step it judges. When a subagent returns,
   the post's classifier reviews its whole action history, and a flag only
   adds a warning (section "Multi-agent handoffs") [@hughes2026automode]; the
   library shows the report to the parent's monitor as a `<subagent_report>`.

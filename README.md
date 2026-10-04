@@ -109,7 +109,7 @@ Three monitor families, [LLM monitors](docs/how-to/use-an-llm-monitor.md), [guar
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/assets/diagrams/monitor-view-dark.svg">
-  <img alt="Every entry of the transcript belongs to one channel. The default view, Channel.ACTIONS, reads USER (every turn of the user, kept verbatim even after summarisation, context notes and feedback), TOOL_CALLS (tool calls and errors) and SUBAGENT_REPORTS (what subagents report), and leaves out REASONING, AGENT_TEXT and TOOL_RESULTS, each one flag away. The proposed step's tool calls are always shown, and its text when it is a final answer; the rest of the step follows the view's channels. A MonitorView chooses the channels, can keep only the most recent entries besides the user's turns, and names the tools whose results are subagent reports. The monitor reads the chosen entries as escaped, tagged text ending with the proposed step, then scores the step." src="docs/assets/diagrams/monitor-view-light.svg">
+  <img alt="Every entry of the transcript belongs to one channel. The default view, Channel.ACTIONS, reads USER (every turn of the user, kept verbatim even after summarisation, context notes and feedback), TOOL_CALLS (tool calls and errors) and SUBAGENT_REPORTS (what subagents report), and leaves out REASONING, AGENT_TEXT and TOOL_RESULTS, each one flag away. The proposed step's tool calls and text are always shown; the rest of the step follows the view's channels. A MonitorView chooses the channels, can keep only the most recent entries besides the user's turns, and names the tools whose results are subagent reports. The monitor reads the chosen entries as escaped, tagged text ending with the proposed step, then scores the step." src="docs/assets/diagrams/monitor-view-light.svg">
 </picture>
 
 What the monitor reads by default, and each channel it leaves out: [Choose what the monitor reads](docs/how-to/choose-what-the-monitor-reads.md).
@@ -130,9 +130,9 @@ A monitor in every Deep Agents subagent: [Monitor Deep Agents subagents](docs/ho
   Anthropic, OpenAI and Gemini when it can see them; it cannot see some, such
   as OpenRouter's web plugin.
 - **What the monitor reads.** By default it reads the task, the tool calls, the
-  subagent reports and a proposed final answer. It does not read the agent's
-  reasoning, the text the agent writes beside a tool call, or raw tool
-  output; each is one flag away.
+  subagent reports and the text of the step it judges. It does not read the
+  agent's reasoning, the text the agent wrote beside its earlier tool calls,
+  or raw tool output; each is one flag away.
 - **Halts.** A halt stands until a later run brings a message the monitor
   records as new input from the user. A middleware listed before the monitor
   can still lift it, with an untagged human message written from its

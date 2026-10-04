@@ -35,14 +35,15 @@ from langchain_sync_monitors.options import (
 class Channel(Flag):
     """The parts of a transcript a monitor can read.
 
-    The default, `ACTIONS`, leaves out the agent's reasoning, its prose and raw
-    tool output, following Claude Code's auto mode classifier
+    The default, `ACTIONS`, leaves out the agent's reasoning, its earlier prose
+    and raw tool output, following Claude Code's auto mode classifier
     [@hughes2026automode]; reasoning is one flag away, since reading it catches
     more misbehaviour [@baker2025monitoring] but can also mislead a monitor
     [@arnav2025cotredhanded]. Whether a call ran travels with what it belongs
     to: a tool error with the call, and monitor feedback and context notes
     with the task. The channels select what a monitor reads of the history;
-    the step it judges always shows its tool calls, whatever the channels.
+    the step it judges always shows its tool calls and its text, whatever the
+    channels.
     """
 
     USER = auto()
@@ -90,7 +91,11 @@ class SampleDrawing(StrEnum):
 
 
 class FeedbackVisibility(StrEnum):
-    """Whether the feedback on a blocked step is kept in the agent's transcript."""
+    """Whether the feedback on a blocked step is kept in the agent's transcript.
+
+    `IN_TRANSCRIPT` commits each blocked attempt, its text withheld, and its
+    feedback before the accepted step; `HIDDEN` commits neither.
+    """
 
     HIDDEN = "hidden"
     IN_TRANSCRIPT = "in_transcript"

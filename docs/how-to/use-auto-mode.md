@@ -259,7 +259,10 @@ A blocked attempt is answered in a way every provider accepts:
   alone, and `monitor_log` keeps the blocked attempts.
 - With `IN_TRANSCRIPT`, the blocked attempts and their feedback are committed
   before the accepted step. The agent remembers the blocked attempts on later steps, and so does the
-  monitor, which reads earlier feedback as `<monitor_feedback>`. Keep
+  monitor, which reads earlier feedback as `<monitor_feedback>`. A blocked
+  attempt's text is committed with it and streams, so the user sees a message
+  the monitor blocked for what it tells them: keep `HIDDEN` where the agent's
+  text reaches users. Keep
   `HIDDEN` for an Auto Mode monitor that sits inside another monitor: a
   monitor outside it would judge the first blocked attempt instead of the
   step that runs, and `check_monitor_placement` warns about such a list.

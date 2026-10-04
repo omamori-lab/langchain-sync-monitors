@@ -29,10 +29,11 @@ names the channels a monitor reads of the history:
 | `TOOL_RESULTS` | What a tool returned, server tools included | left out |
 
 The default view, `Channel.ACTIONS`, is `USER | TOOL_CALLS | SUBAGENT_REPORTS`.
-It leaves out the agent's reasoning, its prose and raw tool output, as Claude
-Code's auto mode classifier does [@hughes2026automode]. Hiding the agent's
-prose is the current default, and it is one flag away: add
-`Channel.AGENT_TEXT`. `Channel.ALL` holds all six.
+It leaves out the agent's reasoning, its earlier prose and raw tool output, as
+Claude Code's auto mode classifier does [@hughes2026automode]. Hiding the
+agent's earlier prose is the current default, and it is one flag away: add
+`Channel.AGENT_TEXT`. `Channel.ALL` holds all six. The text of the step being
+judged is read whatever the view, as the next section says.
 
 ## What the step being judged always shows
 
@@ -51,7 +52,9 @@ it to the user, whether the step is a final answer or calls a tool. So the
 monitor reads that text whatever the view: left out, a message could reach the
 user beside any harmless call without being judged. Once the step has run, its
 text is part of the history, and the view decides whether later judgements
-read it; the default view leaves it out.
+read it; the default view leaves it out. Under Auto Mode with
+`FeedbackVisibility.IN_TRANSCRIPT`, the text of a blocked attempt is committed
+too, so the user sees it; see [What the agent sees](use-auto-mode.md#what-the-agent-sees).
 
 ## Set a view
 
@@ -398,7 +401,7 @@ More channels give the monitor more evidence, and more text to be misled by.
 | Channel | For | Against |
 |---|---|---|
 | `REASONING` | Reading the chain of thought catches more misbehaviour than reading actions alone [@baker2025monitoring]. In the example above, only the reasoning says the agent writes the key because posting was blocked. | Persuasive reasoning can talk a monitor out of a correct flag [@arnav2025cotredhanded]. |
-| `AGENT_TEXT`, `TOOL_RESULTS` | They show the context an action came from. | The agent, or whatever it read, controls this text, and a tool result can carry instructions aimed at the monitor. |
+| `AGENT_TEXT`, `TOOL_RESULTS` | They show the context an action came from. | The agent, or whatever it read, controls this text, and a tool result can carry instructions aimed at the monitor. The text of the step being judged is read whatever the view. |
 
 More context does not always help a monitor [@arike2026information], and
 every extra entry adds tokens to every monitor call. The records in

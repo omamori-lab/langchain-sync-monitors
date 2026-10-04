@@ -258,8 +258,9 @@ Under the default view the monitor reads the user's messages, the tool calls and
 the subagent reports. It does not read the agent's reasoning, tool results or
 the agent's prose in earlier steps. Of the step it judges, it reads the tool
 calls and the text, which the user may read, whether the step is a final
-answer or calls a tool. Pass `view=` to change the rest; [Choose what the monitor reads](choose-what-the-monitor-reads.md)
-explains the options.
+answer or calls a tool. Pass `view=` to change the rest;
+[Choose what the monitor reads](choose-what-the-monitor-reads.md) explains
+the options.
 
 ## Related guides
 

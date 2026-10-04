@@ -339,6 +339,27 @@ def test_the_text_beside_a_tool_call_is_judged_but_left_out_of_the_history() -> 
     assert history == '<tool_call name="http_post">{"url": "paste.example"}</tool_call>'
 
 
+def test_a_refusal_beside_a_tool_call_is_read_as_the_step_s_text() -> None:
+    # Arrange: OpenAI gives a refusal as its own item, which LangChain does not map
+    refusal = "I can't share that code."
+    proposal = AIMessage(
+        content=[{"type": "refusal", "refusal": refusal}],
+        tool_calls=[{"id": "call-3", "name": "lookup_order", "args": {"order_id": "4417"}}],
+        response_metadata={"model_provider": "openai"},
+    )
+
+    # Act
+    rendered = render_proposed_step(proposal, view=MonitorView())
+
+    # Assert
+    assert rendered.splitlines() == [
+        "<proposed_step>",
+        f"<agent>{refusal}</agent>",
+        '<tool_call name="lookup_order">{"order_id": "4417"}</tool_call>',
+        "</proposed_step>",
+    ]
+
+
 def test_blank_text_beside_a_tool_call_adds_no_agent_entry() -> None:
     # Arrange
     proposal = AIMessage(

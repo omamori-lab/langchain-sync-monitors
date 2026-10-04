@@ -218,7 +218,7 @@ Sent: []
 
 A live LLM monitor writes a longer reason in its own words, and its scores can
 differ slightly from run to run. A live agent's `proposal` can also hold its
-reasoning, and text it wrote beside a tool call, which the monitor did not read.
+reasoning, which the monitor did not read.
 The shape of the log is the same:
 
 | Step | The agent proposed | Suspicion | What happened |

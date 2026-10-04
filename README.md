@@ -130,9 +130,9 @@ A monitor in every Deep Agents subagent: [Monitor Deep Agents subagents](docs/ho
   Anthropic, OpenAI and Gemini when it can see them; it cannot see some, such
   as OpenRouter's web plugin.
 - **What the monitor reads.** By default it reads the task, the tool calls, the
-  subagent reports and a proposed final answer. It does not read the agent's
-  reasoning, the text the agent writes beside a tool call, or raw tool
-  output; each is one flag away.
+  subagent reports and the text of the step it judges. It does not read the
+  agent's reasoning, the text the agent wrote beside its earlier tool calls,
+  or raw tool output; each is one flag away.
 - **Halts.** A halt stands until a later run brings a message the monitor
   records as new input from the user. A middleware listed before the monitor
   can still lift it, with an untagged human message written from its

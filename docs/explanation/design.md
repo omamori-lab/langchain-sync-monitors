@@ -373,12 +373,13 @@ reports, `task` by default.
 [![Every entry of the transcript belongs to one channel. The default view, Channel.ACTIONS, reads USER (every turn of the user, kept verbatim even after summarisation, context notes and feedback), TOOL_CALLS (tool calls and errors) and SUBAGENT_REPORTS (what subagents report), and leaves out REASONING, AGENT_TEXT and TOOL_RESULTS, each one flag away. The proposed step's tool calls and text are always shown; the rest of the step follows the view's channels. A MonitorView chooses the channels, can keep only the most recent entries besides the user's turns, and names the tools whose results are subagent reports. The monitor reads the chosen entries as escaped, tagged text ending with the proposed step, then scores the step.](../assets/diagrams/monitor-view-dark.svg#only-dark)](../assets/diagrams/monitor-view-dark.svg "Open the diagram at full size")
 
 The default view, `Channel.ACTIONS`, reads `USER`, `TOOL_CALLS` and
-`SUBAGENT_REPORTS`. It leaves out the agent's reasoning, its prose and raw
-tool output, as Claude Code's auto mode classifier leaves out the agent's
-messages and tool outputs [@hughes2026automode]. So by default the monitor
-does not read the text the agent writes beside a tool call
+`SUBAGENT_REPORTS`. It leaves out the agent's reasoning, its earlier prose
+and raw tool output, as Claude Code's auto mode classifier leaves out the
+agent's messages and tool outputs [@hughes2026automode]. So by default the
+monitor does not read the text the agent wrote beside its earlier tool calls,
+though it reads the text of the step it judges
 ([what the monitor does not see](#what-the-monitor-does-not-see)). Adding
-`Channel.AGENT_TEXT` to the view shows that text, and adding
+`Channel.AGENT_TEXT` to the view shows that earlier text, and adding
 `Channel.REASONING` the chain of thought;
 [where the ideas come from](background.md#what-a-monitor-reads) sums up what
 studies of reading the chain of thought found.

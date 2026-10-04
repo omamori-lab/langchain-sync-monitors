@@ -525,19 +525,17 @@ def render_proposed_step(proposal: AIMessage, *, view: MonitorView) -> str:
     """Render the step the agent proposes, wrapped in a `proposed_step` tag.
 
     The view decides what the monitor reads of the history, not of the step it
-    judges: the step's tool calls, malformed ones and server tool calls
-    included, are its action, so they are shown whatever the view. A
-    proposal without tool calls is a final answer, and the answer is then the
-    step's action, so its text is shown even when the view leaves out agent
-    prose. A proposal whose calls are all malformed is a final answer too,
-    because none of them can run; they are shown with it, as evidence of what
-    the agent tried. So is a proposal whose only calls the provider already
-    ran, which are shown with it.
+    judges. The step's tool calls, malformed ones and server tool calls
+    included, are its action, so they are shown whatever the view. Its text,
+    a refusal included, is shown whatever the view too: the step commits it
+    to the conversation, where a chat interface shows it to the user, whether
+    it is a final answer or sits beside a tool call. Left out, it would let a
+    message the monitor must judge reach the user beside any harmless call.
+    Malformed calls cannot run but are shown as evidence of what the agent
+    tried. The step's reasoning, and what its server tools returned, follow
+    the view's channels.
     """
-    is_final_answer = not proposal.tool_calls
-    channels = view.channels | Channel.TOOL_CALLS
-    if is_final_answer:
-        channels |= Channel.AGENT_TEXT
+    channels = view.channels | Channel.TOOL_CALLS | Channel.AGENT_TEXT
     entries = build_agent_entries(
         proposal,
         tool_names_by_call=read_server_tool_names_by_call(proposal),

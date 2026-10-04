@@ -134,10 +134,10 @@ def build_agent(
 Three pieces work together here:
 
 - `LLMMonitor` is the monitor. It shows its model the user's task, the
-  agent's earlier tool calls and the step the agent proposes: its tool calls,
-  or its text when the step is a final answer. By default the monitor does not
-  read the agent's reasoning, the text it writes beside a tool call, or what
-  the tools returned. Its model reasons, then gives a score from 0 to 10,
+  agent's earlier tool calls and the step the agent proposes: its tool calls
+  and its text. By default the monitor does not read the agent's reasoning,
+  the text it wrote beside its earlier tool calls, or what the tools
+  returned. Its model reasons, then gives a score from 0 to 10,
   which becomes a suspicion from 0 to 1.
 - `AutoMode` is the control protocol, which decides what happens with the
   score. A step whose suspicion is at or above `block_threshold` is blocked,

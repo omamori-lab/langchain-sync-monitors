@@ -369,8 +369,8 @@ Every transcript entry belongs to one `Channel`: `USER`, `REASONING`,
 entries to keep, and the names of the tools whose results count as subagent
 reports, `task` by default.
 
-[![Every entry of the transcript belongs to one channel. The default view, Channel.ACTIONS, reads USER (every turn of the user, kept verbatim even after summarisation, context notes and feedback), TOOL_CALLS (tool calls and errors) and SUBAGENT_REPORTS (what subagents report), and leaves out REASONING, AGENT_TEXT and TOOL_RESULTS, each one flag away. The proposed step's tool calls are always shown, and its text when it is a final answer; the rest of the step follows the view's channels. A MonitorView chooses the channels, can keep only the most recent entries besides the user's turns, and names the tools whose results are subagent reports. The monitor reads the chosen entries as escaped, tagged text ending with the proposed step, then scores the step.](../assets/diagrams/monitor-view-light.svg#only-light)](../assets/diagrams/monitor-view-light.svg "Open the diagram at full size")
-[![Every entry of the transcript belongs to one channel. The default view, Channel.ACTIONS, reads USER (every turn of the user, kept verbatim even after summarisation, context notes and feedback), TOOL_CALLS (tool calls and errors) and SUBAGENT_REPORTS (what subagents report), and leaves out REASONING, AGENT_TEXT and TOOL_RESULTS, each one flag away. The proposed step's tool calls are always shown, and its text when it is a final answer; the rest of the step follows the view's channels. A MonitorView chooses the channels, can keep only the most recent entries besides the user's turns, and names the tools whose results are subagent reports. The monitor reads the chosen entries as escaped, tagged text ending with the proposed step, then scores the step.](../assets/diagrams/monitor-view-dark.svg#only-dark)](../assets/diagrams/monitor-view-dark.svg "Open the diagram at full size")
+[![Every entry of the transcript belongs to one channel. The default view, Channel.ACTIONS, reads USER (every turn of the user, kept verbatim even after summarisation, context notes and feedback), TOOL_CALLS (tool calls and errors) and SUBAGENT_REPORTS (what subagents report), and leaves out REASONING, AGENT_TEXT and TOOL_RESULTS, each one flag away. The proposed step's tool calls and text are always shown; the rest of the step follows the view's channels. A MonitorView chooses the channels, can keep only the most recent entries besides the user's turns, and names the tools whose results are subagent reports. The monitor reads the chosen entries as escaped, tagged text ending with the proposed step, then scores the step.](../assets/diagrams/monitor-view-light.svg#only-light)](../assets/diagrams/monitor-view-light.svg "Open the diagram at full size")
+[![Every entry of the transcript belongs to one channel. The default view, Channel.ACTIONS, reads USER (every turn of the user, kept verbatim even after summarisation, context notes and feedback), TOOL_CALLS (tool calls and errors) and SUBAGENT_REPORTS (what subagents report), and leaves out REASONING, AGENT_TEXT and TOOL_RESULTS, each one flag away. The proposed step's tool calls and text are always shown; the rest of the step follows the view's channels. A MonitorView chooses the channels, can keep only the most recent entries besides the user's turns, and names the tools whose results are subagent reports. The monitor reads the chosen entries as escaped, tagged text ending with the proposed step, then scores the step.](../assets/diagrams/monitor-view-dark.svg#only-dark)](../assets/diagrams/monitor-view-dark.svg "Open the diagram at full size")
 
 The default view, `Channel.ACTIONS`, reads `USER`, `TOOL_CALLS` and
 `SUBAGENT_REPORTS`. It leaves out the agent's reasoning, its prose and raw
@@ -386,11 +386,12 @@ studies of reading the chain of thought found.
 The step being judged comes last, in a `<proposed_step>` tag, and the view
 applies to it only in part. Its tool calls and malformed calls are always
 shown, because they are the action the protocol gates, and so are its
-server tool calls whenever the reply keeps a block for them. A step with no
-tool calls is a final answer, and its text is then always shown; a step whose
-only calls are malformed, or are server tool calls, counts as one. The
-rest of the step, such as its reasoning or a tool-calling step's text,
-follows the view's channels.
+server tool calls whenever the reply keeps a block for them. Its text is
+always shown too, a final answer's or the text beside a tool call, because
+the step commits it to the conversation, where a chat interface shows it to
+the user. This is the library's own rule: the classifier the default view
+follows reads no prose [@hughes2026automode]. The rest of the step, its
+reasoning and what its server tools returned, follows the view's channels.
 
 Each entry is a tag, and its content is HTML-escaped, so text inside a tool
 result cannot close a tag and pose as another entry. A note's tag names its
@@ -1086,10 +1087,11 @@ limit is linked from where it arises above.
 
 ### What the monitor does not see
 
-- **The agent's prose, by default.** Under `Channel.ACTIONS` the monitor does
-  not read the text the agent writes beside a tool call, as in Claude Code's
-  auto mode [@hughes2026automode]; it reads a final answer's text. Adding
-  `Channel.AGENT_TEXT` to the view shows it.
+- **The agent's earlier prose, by default.** Under `Channel.ACTIONS` the
+  monitor does not read the text the agent wrote beside its earlier tool
+  calls, as in Claude Code's auto mode [@hughes2026automode]; it reads the
+  text of the step it judges. Adding `Channel.AGENT_TEXT` to the view shows
+  it.
 - **Server tools that leave no block.** A server tool whose reply leaves
   no block LangChain keeps is invisible to the monitor: Gemini's URL context,
   whose metadata langchain-google-genai does not keep, and the search of

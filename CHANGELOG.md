@@ -14,6 +14,13 @@ change raises the minor version.
 
 ## [Unreleased]
 
+### Security
+
+- Every monitor now reads the text of the step it judges whatever its view,
+  beside a tool call as well as in a final answer, since a chat interface
+  shows that text to the user. Under the default view, a message written
+  beside a harmless tool call reached the user without being judged.
+
 ## [0.1.3] - 2026-10-02
 
 ### Added

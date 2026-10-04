@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1000" height="615" viewBox="0 0 1000 615" role="img" aria-labelledby="title desc">
   <title id="title">What the monitor reads</title>
-  <desc id="desc">Every entry of the transcript belongs to one channel. The default view, Channel.ACTIONS, reads USER (every turn of the user, kept verbatim even after summarisation, context notes and feedback), TOOL_CALLS (tool calls and errors) and SUBAGENT_REPORTS (what subagents report), and leaves out REASONING, AGENT_TEXT and TOOL_RESULTS, each one flag away. The proposed step&#x27;s tool calls are always shown, and its text when it is a final answer; the rest of the step follows the view&#x27;s channels. A MonitorView chooses the channels, can keep only the most recent entries besides the user&#x27;s turns, and names the tools whose results are subagent reports. The monitor reads the chosen entries as escaped, tagged text ending with the proposed step, then scores the step.</desc>
+  <desc id="desc">Every entry of the transcript belongs to one channel. The default view, Channel.ACTIONS, reads USER (every turn of the user, kept verbatim even after summarisation, context notes and feedback), TOOL_CALLS (tool calls and errors) and SUBAGENT_REPORTS (what subagents report), and leaves out REASONING, AGENT_TEXT and TOOL_RESULTS, each one flag away. The proposed step&#x27;s tool calls and text are always shown; the rest of the step follows the view&#x27;s channels. A MonitorView chooses the channels, can keep only the most recent entries besides the user&#x27;s turns, and names the tools whose results are subagent reports. The monitor reads the chosen entries as escaped, tagged text ending with the proposed step, then scores the step.</desc>
   <!-- Colours come from the brand tokens: diagrams/render.py fills this style block. -->
   <style>
     svg { color-scheme: dark; }
@@ -46,12 +46,12 @@
   <text x="226.0" y="312.0" text-anchor="start" class="small">the agent&#x27;s reasoning</text>
   <rect class="box dashed" x="32.0" y="336.0" width="180.0" height="34" rx="6"/>
   <text x="122.0" y="358.0" text-anchor="middle" class="mono  soft">AGENT_TEXT</text>
-  <text x="226.0" y="358.0" text-anchor="start" class="small">the agent&#x27;s prose</text>
+  <text x="226.0" y="358.0" text-anchor="start" class="small">the agent&#x27;s earlier prose</text>
   <rect class="box dashed" x="32.0" y="382.0" width="180.0" height="34" rx="6"/>
   <text x="122.0" y="404.0" text-anchor="middle" class="mono  soft">TOOL_RESULTS</text>
   <text x="226.0" y="404.0" text-anchor="start" class="small">raw tool output</text>
-  <text x="32.0" y="450.0" text-anchor="start" class="small">The proposed step&#x27;s tool calls are always shown,</text>
-  <text x="32.0" y="472.0" text-anchor="start" class="small">and its text when it is a final answer.</text>
+  <text x="32.0" y="450.0" text-anchor="start" class="small">The proposed step&#x27;s tool calls and text</text>
+  <text x="32.0" y="472.0" text-anchor="start" class="small">are always shown.</text>
   <rect class="box" x="536.0" y="112.0" width="432.0" height="102.0" rx="6"/>
   <text x="752.0" y="143.0" text-anchor="middle" class="title">MonitorView</text>
   <text x="752.0" y="165.0" text-anchor="middle"><tspan class="mono">channels</tspan><tspan class="small">, </tspan><tspan class="mono">most_recent_entries</tspan><tspan class="small">,</tspan></text>

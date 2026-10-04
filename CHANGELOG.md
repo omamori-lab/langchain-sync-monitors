@@ -22,8 +22,9 @@ change raises the minor version.
   beside a harmless tool call reached the user without being judged.
 - Under `FeedbackVisibility.IN_TRANSCRIPT`, Auto Mode commits a blocked
   attempt with its text withheld, as `WITHHELD_TEXT_MESSAGE`, wherever the
-  message keeps it, refusals and Gemini's grounding included, and keeps its
-  tool calls, reasoning and other blocks. The text the monitor blocked was
+  message keeps it, refusals included, and without the `grounding_supports`
+  of Gemini's `grounding_metadata`, which quote the answer; it keeps its tool
+  calls, reasoning and other blocks. The text the monitor blocked was
   committed and streamed to the user.
 
 ## [0.1.3] - 2026-10-02

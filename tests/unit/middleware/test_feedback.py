@@ -267,26 +267,87 @@ def test_withholding_keeps_reasoning_calls_and_the_block_s_other_keys() -> None:
     assert proposal.text == "Use the code STAFF40."
 
 
-@pytest.mark.parametrize(
-    "content",
-    [
-        [{"type": "refusal", "refusal": "I won't share STAFF40."}],
-        [{"type": "non_standard", "value": {"type": "refusal", "refusal": "No STAFF40."}}],
-        ["Use the code STAFF40."],
-        "Use the code STAFF40.",
-    ],
-    ids=["refusal", "wrapped-refusal", "string-block", "string"],
-)
-def test_withholding_leaves_none_of_the_text_in_any_shape(content: str | list[str | dict]) -> None:
+SECRET = "STAFF40"
+BLOCKED_TEXT = f"Good news: use the staff code {SECRET} at checkout."
+
+WITHHELD_SHAPES = {
+    "string": AIMessage(BLOCKED_TEXT),
+    "string-blocks": AIMessage([BLOCKED_TEXT, "And thanks."]),
+    "openai-annotations": AIMessage(
+        [
+            {
+                "type": "text",
+                "text": BLOCKED_TEXT,
+                "id": "msg_1",
+                "annotations": [
+                    {"type": "url_citation", "url": "https://shop.example", "title": SECRET}
+                ],
+            },
+        ],
+        response_metadata={"model_provider": "openai"},
+    ),
+    "anthropic-citations": AIMessage(
+        [{"type": "text", "text": BLOCKED_TEXT, "citations": [{"cited_text": BLOCKED_TEXT}]}],
+        response_metadata={"model_provider": "anthropic"},
+    ),
+    "refusal": AIMessage(
+        [{"type": "refusal", "refusal": BLOCKED_TEXT}],
+        response_metadata={"model_provider": "openai"},
+    ),
+    "wrapped-refusal": AIMessage(
+        [{"type": "non_standard", "value": {"type": "refusal", "refusal": BLOCKED_TEXT}}],
+    ),
+    "refusal-in-additional-kwargs": AIMessage(
+        [],
+        additional_kwargs={"refusal": BLOCKED_TEXT},
+        response_metadata={"model_provider": "openai"},
+    ),
+    "gemini-grounding": AIMessage(
+        BLOCKED_TEXT,
+        response_metadata={
+            "model_provider": "google_genai",
+            "grounding_metadata": {
+                "web_search_queries": ["staff discount codes"],
+                "grounding_chunks": [{"web": {"uri": "https://shop.example", "title": "Shop"}}],
+                "grounding_supports": [
+                    {
+                        "segment": {"start_index": 0, "end_index": 52, "text": BLOCKED_TEXT},
+                        "grounding_chunk_indices": [0],
+                    },
+                ],
+            },
+        },
+    ),
+}
+"""Every place a reply keeps text the user may read, one shape each."""
+
+
+@pytest.mark.parametrize("proposal", WITHHELD_SHAPES.values(), ids=WITHHELD_SHAPES.keys())
+def test_withholding_leaves_the_blocked_text_nowhere_in_the_copy(proposal: AIMessage) -> None:
     # Arrange
-    proposal = AIMessage(content=content, response_metadata={"model_provider": "openai"})
+    original = proposal.model_dump()
 
     # Act
     withheld = build_withheld_proposal(proposal)
 
-    # Assert
-    assert "STAFF40" not in repr(withheld.content)
-    assert WITHHELD_TEXT_MESSAGE in repr(withheld.content)
+    # Assert: neither the message nor what LangChain reads from it holds the text
+    assert SECRET not in repr(withheld.model_dump())
+    assert SECRET not in repr(withheld.content_blocks)
+    assert WITHHELD_TEXT_MESSAGE in repr(withheld.content_blocks)
+    assert proposal.model_dump() == original
+
+
+def test_withholding_keeps_what_the_monitor_reads_of_gemini_grounding() -> None:
+    # Act
+    withheld = build_withheld_proposal(WITHHELD_SHAPES["gemini-grounding"])
+
+    # Assert: the searches and the sources stay; only the supports, which quote the answer, go
+    grounding = withheld.response_metadata["grounding_metadata"]
+    assert grounding["web_search_queries"] == ["staff discount codes"]
+    assert grounding["grounding_chunks"] == [
+        {"web": {"uri": "https://shop.example", "title": "Shop"}}
+    ]
+    assert "grounding_supports" not in grounding
 
 
 def test_blank_text_stays_blank_when_withheld(tool_call_attempt: BlockedAttempt) -> None:

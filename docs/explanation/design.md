@@ -354,10 +354,11 @@ keeps. With `FeedbackVisibility.HIDDEN`, the default, only the retries see
 the blocked attempts and their feedback, and the transcript keeps the
 accepted step alone. With `IN_TRANSCRIPT`, each blocked attempt and its
 feedback are committed before it. A chat interface shows committed text to the
-user, so the attempt's text is replaced by `WITHHELD_TEXT_MESSAGE`; its tool
-calls, reasoning and other blocks stay, since some providers need an earlier
-reply back as they sent it. This is the library's own rule. A blocked tool call is answered by one
-error tool message per call, so every tool call keeps a matching result.
+user, so the attempt's text is replaced by `WITHHELD_TEXT_MESSAGE`, wherever
+the message keeps it; its tool calls, reasoning and other blocks stay, since
+some providers need an earlier reply back as they sent it. This is the
+library's own rule. A blocked tool call is answered by one error tool message
+per call, so every tool call keeps a matching result.
 Every message the monitor inserts gets a fresh id, `monitor-<uuid4>`,
 because LangGraph replaces messages that share an id. The default feedback
 and halt texts say they come from the safety monitor, because some providers

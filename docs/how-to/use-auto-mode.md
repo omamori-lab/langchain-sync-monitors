@@ -264,8 +264,10 @@ A blocked attempt is answered in a way every provider accepts:
   `<monitor_feedback>`. A chat interface shows committed text to the user, so
   each attempt is committed with its text withheld: it reads
   `WITHHELD_TEXT_MESSAGE`, "[Safety monitor] This step was blocked, so its text
-  is withheld.", and keeps its tool calls, reasoning and other blocks. The
-  feedback is tagged as the monitor's, with `lc_source` and `name` both
+  is withheld.", wherever the message keeps it, and keeps its tool calls,
+  reasoning and other blocks. The tool calls keep their arguments, so a
+  blocked structured answer under `ToolStrategy`, which is a tool call, stays
+  as it was. The feedback is tagged as the monitor's, with `lc_source` and `name` both
   `"monitor"`, and carries the monitor's reason, which may say what was
   blocked; an interface can leave those messages out. Keep
   `HIDDEN` for an Auto Mode monitor that sits inside another monitor: a

@@ -146,8 +146,9 @@ def commit_step(
     The record is also written to `stream_mode="custom"`, once the response
     and the update are built, so a commit that fails streams no record.
     With `FeedbackVisibility.IN_TRANSCRIPT`, each blocked attempt, its text
-    withheld, and its feedback come before the step's own messages. The untagged human
-    messages in the state that the monitor had not seen are recorded as
+    withheld, and its feedback come before the step's own messages. The
+    untagged human messages in the state that the monitor had not seen are
+    recorded as
     seen, so the next run does not take them for its input, and the
     subagent halts and blocks the step answered are removed.
     """

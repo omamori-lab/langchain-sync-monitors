@@ -56,6 +56,9 @@ PROSE_BLOCK_TYPES = frozenset({"refusal"})
 OpenAI gives a refusal as a `refusal` item, which LangChain keeps as a block it does not map.
 """
 
+GROUNDING_METADATA_KEY = "grounding_metadata"
+"""The key of a Gemini reply's `response_metadata` that holds what its grounding tools did."""
+
 GROUNDING_QUERY_KEYS = ("web_search_queries", "image_search_queries")
 """The keys of Gemini's `grounding_metadata` that hold the searches its server tools ran."""
 
@@ -282,7 +285,7 @@ def build_grounding_entries(message: AIMessage) -> Iterator[TranscriptEntry]:
     reads for citations [@langchaincore2026], with no `server_tool_call`
     block. The queries are the call, and the sources found are its result.
     """
-    metadata = message.response_metadata.get("grounding_metadata")
+    metadata = message.response_metadata.get(GROUNDING_METADATA_KEY)
     if not isinstance(metadata, Mapping):
         return
     queries = {key: metadata[key] for key in GROUNDING_QUERY_KEYS if metadata.get(key)}

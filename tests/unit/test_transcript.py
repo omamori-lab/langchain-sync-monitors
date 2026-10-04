@@ -691,17 +691,39 @@ KEPT_REFUSAL_SHAPES = {
 
 @pytest.mark.parametrize("reply", KEPT_REFUSAL_SHAPES.values(), ids=KEPT_REFUSAL_SHAPES.keys())
 def test_a_refusal_kept_outside_the_content_is_judged_once(reply: AIMessage) -> None:
+    # Arrange
+    text_view = MonitorView(channels=Channel.ACTIONS | Channel.AGENT_TEXT)
+
     # Act
     judged = render_proposed_step(reply, view=MonitorView())
     history = render_transcript([reply], view=MonitorView(), task_author=TaskAuthor.USER)
+    history_with_text = render_transcript([reply], view=text_view, task_author=TaskAuthor.USER)
 
-    # Assert: the judged step shows it once; the default view leaves prose out of the history
+    # Assert: shown once when judged, and in the history only with AGENT_TEXT
     assert judged.splitlines() == [
         "<proposed_step>",
         f"<agent>{KEPT_REFUSAL}</agent>",
         "</proposed_step>",
     ]
     assert history == ""
+    assert history_with_text == f"<agent>{KEPT_REFUSAL}</agent>"
+
+
+def test_a_kept_refusal_unlike_the_refusal_block_is_read_too() -> None:
+    # Arrange: a block with one refusal must not hide a different one kept aside
+    reply = AIMessage(
+        [{"type": "refusal", "refusal": "I cannot help."}],
+        additional_kwargs={"refusal": "Use the staff code STAFF40."},
+    )
+
+    # Act
+    judged = render_proposed_step(reply, view=MonitorView())
+
+    # Assert
+    assert read_tagged_entries(judged, tag="agent") == [
+        "I cannot help.",
+        "Use the staff code STAFF40.",
+    ]
 
 
 @pytest.mark.parametrize(

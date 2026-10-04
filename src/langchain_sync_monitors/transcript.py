@@ -345,9 +345,8 @@ def build_agent_entries(
 
 def build_text_entries(message: AIMessage) -> Iterator[TranscriptEntry]:
     """Yield the text a message gives the user: its content's text, then a refusal kept aside."""
-    texts = [message.text, read_kept_refusal(message) or ""]
-    for text in texts:
-        if text.strip():
+    for text in (message.text, read_kept_refusal(message)):
+        if text is not None and text.strip():
             yield TranscriptEntry(
                 channel=Channel.AGENT_TEXT,
                 text=wrap_in_tag(tag="agent", content=text),
@@ -360,23 +359,31 @@ def read_kept_refusal(message: AIMessage) -> str | None:
     Under OpenAI's Chat Completions API, langchain-openai keeps a refusal in
     `additional_kwargs` and leaves the content empty [@langchainopenai2026],
     and LangChain's translator gives no block for it [@langchaincore2026], so
-    the monitor would not read text the user may see. Under the Responses
-    API at `output_version="v0"` the translator gives the same field as a
-    refusal block, which is read there, so it is not read twice.
+    the monitor would not read text the user may see. A streamed reply does
+    not keep the field there. Under the Responses API at
+    `output_version="v0"` the translator gives the same field as a refusal
+    block, which is read there, so a refusal whose text a block already
+    shows is not read twice; one with other text is read, so no refusal goes
+    unread.
     """
     refusal = message.additional_kwargs.get(REFUSAL_KEY)
     if not isinstance(refusal, str) or not refusal.strip():
         return None
-    if any(is_refusal_block(block) for block in message.content_blocks):
-        return None
-    return refusal
+    return None if refusal in read_block_refusals(message) else refusal
 
 
-def is_refusal_block(block: ContentBlock) -> bool:
-    """Tell whether a content block is a refusal LangChain could not map."""
-    if block["type"] != "non_standard":
-        return False
-    return read_unrecognised_block_name(read_unrecognised_block_value(block)) == REFUSAL_KEY
+def read_block_refusals(message: AIMessage) -> set[str]:
+    """Return the text of every refusal block LangChain gives for a message."""
+    values = [
+        read_unrecognised_block_value(block)
+        for block in message.content_blocks
+        if block["type"] == "non_standard"
+    ]
+    return {
+        str(value[REFUSAL_KEY])
+        for value in values
+        if read_unrecognised_block_name(value) == REFUSAL_KEY and REFUSAL_KEY in value
+    }
 
 
 def read_message_source(message: BaseMessage) -> str | None:

@@ -1,4 +1,4 @@
-# langchain-sync-monitors
+# Langchain Sync Monitors
 
 **A monitor for every step your LangChain agent or Deep Agent proposes, and a control protocol that decides what runs.**
 
@@ -11,14 +11,12 @@
 
 An agent with tools can do harm in a single step: post a credential, delete a
 file, run a command. AI control research guards against this with a monitor,
-a second model that scores each step, and a protocol that acts on the score.
+a second model that scores each step on suspicion, and a protocol that acts on the score.
 This library brings those protocols, from AI Control, Ctrl-Z and Claude Code's
 auto mode, to `create_agent` and `create_deep_agent` as one middleware.
-"Sync" means synchronous in the control sense of
+In this context, "Sync" means synchronous means _per step_.
 [Blocking live failures with synchronous monitors](https://blog.redwoodresearch.org/p/blocking-live-failures-with-synchronous)
-(Lucassen and Kaufman, Redwood Research, 2026): a step waits for its
-verdict, so a suspicious step can be stopped before any of the agent's own
-tools run it.
+(Lucassen and Kaufman, Redwood Research, 2026).
 
 ## Install
 

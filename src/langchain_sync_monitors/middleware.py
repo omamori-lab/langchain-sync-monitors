@@ -212,8 +212,10 @@ class MonitorMiddleware(AgentMiddleware[MonitorState, AgentContext, StructuredOu
     when_subagent_halts: SubagentHalt = SubagentHalt.STOP_SUBAGENT_ONLY
     export_scores: AbstractSet[Tracer] = frozenset()
 
-    state_schema = MonitorState
-    transformers = (InternalCallTransformer,)
+    # langchain declares both as writable attributes and only reads them from a middleware;
+    # this frozen dataclass keeps them read-only.
+    state_schema = MonitorState  # ty: ignore[invalid-attribute-override]
+    transformers = (InternalCallTransformer,)  # ty: ignore[invalid-attribute-override]
 
     def __post_init__(self) -> None:
         """Reject an option of the wrong type, such as a plain string where an enum belongs."""

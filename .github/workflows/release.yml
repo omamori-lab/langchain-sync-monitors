@@ -267,10 +267,10 @@ jobs:
             exit 1
           fi
 
-      # Pinned to the commit of release v1.14.2, which cannot move as a tag or
+      # Pinned to the commit of release v1.14.3, which cannot move as a tag or
       # a branch can.
       - name: Publish to PyPI through trusted publishing
-        uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33 # v1.14.2
+        uses: pypa/gh-action-pypi-publish@7245906fb61fa33a13554f9d5fb856fe61758086 # v1.14.3
         with:
           print-hash: true
 

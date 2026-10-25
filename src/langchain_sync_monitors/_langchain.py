@@ -10,7 +10,7 @@ managers, through which the monitor's spans reach every tracer.
 from __future__ import annotations
 
 import logging
-from collections.abc import AsyncIterator, Awaitable, Callable, Iterator, Mapping, Sequence
+from collections.abc import AsyncGenerator, Awaitable, Callable, Generator, Mapping, Sequence
 from contextlib import AbstractContextManager, asynccontextmanager, contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass, field, replace
@@ -458,7 +458,7 @@ def write_stream_event(request: AgentModelRequest, *, event: MonitorStreamEvent)
 
 
 @contextmanager
-def hide_model_calls_from_message_stream() -> Iterator[None]:
+def hide_model_calls_from_message_stream() -> Generator[None, None, None]:
     """Keep every model call made inside the block out of `stream_mode="messages"`.
 
     LangGraph's message stream skips a model call tagged `nostream`, and still
@@ -475,7 +475,7 @@ def hide_model_calls_from_message_stream() -> Iterator[None]:
 
 
 @contextmanager
-def add_step_metadata_to_spans(metadata: TraceValues) -> Iterator[None]:
+def add_step_metadata_to_spans(metadata: TraceValues) -> Generator[None, None, None]:
     """Give every span a monitor opens inside the block these metadata keys as well.
 
     The keys name the step, so a span deep inside a monitor, such as a
@@ -557,7 +557,7 @@ def nest_calls_in_run(
 @contextmanager
 def open_traced_run_sync(  # lanorme: ignore[SIMILAR-001] its async twin awaits each callback
     span: TraceSpan,
-) -> Iterator[TracedRun]:
+) -> Generator[TracedRun, None, None]:
     """Open the span under the running node, for `invoke()`; model calls in the block nest in it.
 
     With no callback handler attached nothing is opened, and the block runs as
@@ -590,7 +590,7 @@ def open_traced_run_sync(  # lanorme: ignore[SIMILAR-001] its async twin awaits 
 
 
 @asynccontextmanager
-async def open_traced_run(span: TraceSpan) -> AsyncIterator[TracedRun]:
+async def open_traced_run(span: TraceSpan) -> AsyncGenerator[TracedRun, None]:
     """Open the span under the running node, for `ainvoke()`; model calls in the block nest in it.
 
     It behaves as `open_traced_run_sync`, through LangChain's async callback

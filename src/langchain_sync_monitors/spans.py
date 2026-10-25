@@ -20,7 +20,7 @@ samples nest in it.
 
 from __future__ import annotations
 
-from collections.abc import AsyncIterator, Iterator, Sequence
+from collections.abc import AsyncGenerator, Generator, Sequence
 from contextlib import asynccontextmanager, contextmanager
 from dataclasses import dataclass, field
 from types import MappingProxyType
@@ -212,7 +212,7 @@ def build_verdict_outputs(verdict: Verdict) -> dict[str, TraceValue]:
 
 
 @contextmanager
-def open_step_span_sync(identity: StepIdentity) -> Iterator[TracedRun]:
+def open_step_span_sync(identity: StepIdentity) -> Generator[TracedRun, None, None]:
     """Open the step span for `invoke()`, giving every monitor span in it the step's metadata."""
     # The step's metadata is set first, so the step span itself carries it.
     with (
@@ -223,7 +223,7 @@ def open_step_span_sync(identity: StepIdentity) -> Iterator[TracedRun]:
 
 
 @asynccontextmanager
-async def open_step_span(identity: StepIdentity) -> AsyncIterator[TracedRun]:
+async def open_step_span(identity: StepIdentity) -> AsyncGenerator[TracedRun, None]:
     """Open the step span for `ainvoke()`, giving every monitor span in it the step's metadata."""
     # The step's metadata is set first, so the step span itself carries it.
     with add_step_metadata_to_spans(identity.build_step_metadata()):

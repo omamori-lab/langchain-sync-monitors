@@ -21,7 +21,7 @@ subagent's monitor checks them.
 
 from __future__ import annotations
 
-from collections.abc import Iterator
+from collections.abc import Generator
 from contextlib import contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass
@@ -90,7 +90,11 @@ class CheckedToolCall:
 
 
 @contextmanager
-def check_tool_call(request: ToolCallRequest, *, agent: str) -> Iterator[CheckedToolCall]:
+def check_tool_call(
+    request: ToolCallRequest,
+    *,
+    agent: str,
+) -> Generator[CheckedToolCall, None, None]:
     """Hand on the call with its delegation, marked as checked while the rest of the stack runs it.
 
     A call a monitor further out already checks is handed on as it is. A

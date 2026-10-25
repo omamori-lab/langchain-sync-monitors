@@ -15,7 +15,7 @@ import logging
 import math
 import re
 import warnings
-from collections.abc import Generator, Iterator
+from collections.abc import Generator
 from collections.abc import Set as AbstractSet
 from contextlib import contextmanager
 from enum import StrEnum
@@ -492,7 +492,10 @@ class GuardModelMonitor(ChatModelMonitor):
             return super().request_replies_sync(request)
 
     @contextmanager
-    def explain_rejected_log_probabilities(self, request: ReplyRequest) -> Iterator[None]:
+    def explain_rejected_log_probabilities(
+        self,
+        request: ReplyRequest,
+    ) -> Generator[None, None, None]:
         """Turn a chat model's refusal of the `logprobs` keyword into a `ConfigurationError`.
 
         LangChain's model profiles have no capability flag for

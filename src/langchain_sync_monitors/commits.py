@@ -9,7 +9,7 @@ logger the docs give for committed and failed steps.
 """
 
 import logging
-from collections.abc import Iterator, Sequence
+from collections.abc import Generator, Sequence
 from contextlib import contextmanager
 
 from langchain.agents.middleware.types import ExtendedModelResponse, ModelResponse
@@ -59,7 +59,7 @@ def report_failed_step(
     identity: StepIdentity,
     traced_step: TracedRun,
     middleware_name: str,
-) -> Iterator[None]:
+) -> Generator[None, None, None]:
     """Report the samples judged in a step whose block raises, before the error propagates.
 
     The step is never committed, so this is the only trace of its samples:

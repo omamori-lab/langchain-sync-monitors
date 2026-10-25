@@ -7,13 +7,17 @@ step's spans and the tool request the outermost monitor is checking.
 
 from __future__ import annotations
 
-from collections.abc import Iterator
+from collections.abc import Generator
 from contextlib import contextmanager
 from contextvars import ContextVar
 
 
 @contextmanager
-def set_context_value[ValueT](variable: ContextVar[ValueT], *, value: ValueT) -> Iterator[None]:
+def set_context_value[ValueT](
+    variable: ContextVar[ValueT],
+    *,
+    value: ValueT,
+) -> Generator[None, None, None]:
     """Set the variable for the block, and give it back its earlier value however the block ends."""
     token = variable.set(value)
     try:

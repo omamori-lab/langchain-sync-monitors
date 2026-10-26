@@ -168,14 +168,19 @@ Preview the site with `uv run --group docs mkdocs serve`.
 ## Sending a pull request
 
 1. Branch off an up-to-date `main`: `feat/...` for a feature, `fix/...` for a
-   bug, `docs/...` for documentation.
+   bug, `docs/...` for documentation, `infra/...` for tooling and CI.
 2. Make one focused change, with tests, docs and a changelog entry.
 3. Run `scripts/check.sh` until it passes.
-4. Commit with a message that describes the effect, in the imperative mood,
-   and reference the issue: `Add Defer to Resample (#15)`.
+4. Commit with a message that says the change's effect in the imperative
+   mood, and give the net line change per file with the reason for each
+   addition. A change of behaviour commits its tests first, marked
+   `pytest.mark.xfail(strict=True)` and seen failing; the commit with the
+   code removes the marks.
 5. Push and open a pull request against `main` with `Closes #N` in the
    description, and work through the template's checklist. CI runs the same
    gate across Python 3.12, 3.13 and 3.14.
+6. The pull request merges by rebase only, as omamori lab's
+   [commit and merge rules](https://github.com/omamori-lab/.github/blob/main/CONTRIBUTING.md) set out for every repository.
 
 ## Releasing
 

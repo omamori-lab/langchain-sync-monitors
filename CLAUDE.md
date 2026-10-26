@@ -157,10 +157,14 @@ Keep to these patterns; reviewers check them.
 2. Implement the coherent change in one place.
 3. Test end to end: a positive case, a negative case, the boundary, and a
    regression test for the exact behaviour, under both `invoke` and `ainvoke`.
-   Tests use `# Arrange`, `# Act`, `# Assert` markers.
+   Tests use `# Arrange`, `# Act`, `# Assert` markers. Each new test is
+   committed before its code, marked `pytest.mark.xfail(strict=True)` and
+   seen failing on its assertion; the commit with the code removes the mark.
 4. Review adversarially for correctness, resilience, duplication and test
    strength, and reproduce each finding before acting on it.
 5. Open one pull request per issue group, with `Closes #N` in the description.
+   It merges by rebase only, so every commit reaches `main` as written, as
+   omamori lab's [commit and merge rules](https://github.com/omamori-lab/.github/blob/main/CONTRIBUTING.md) set out.
 
 CodeRabbit reviews each pull request as an advisor, configured in
 `.coderabbit.yaml`; the gates and CI decide. It skips drafts, so open a pull

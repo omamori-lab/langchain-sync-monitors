@@ -14,6 +14,12 @@ change raises the minor version.
 
 ## [Unreleased]
 
+### Added
+
+- The docs pages, the README and the module of the default prompt carry the
+  training-data canary that alignment.org/canary lists, so a dataset builder
+  can leave them out of training corpora.
+
 ## [0.1.5] - 2026-10-04
 
 ### Security

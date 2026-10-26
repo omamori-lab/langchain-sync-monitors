@@ -174,8 +174,8 @@ Preview the site with `uv run --group docs mkdocs serve`.
 4. Commit with a message that says the change's effect in the imperative
    mood, and give the net line change per file with the reason for each
    addition. A change of behaviour commits its tests first, marked
-   `pytest.mark.xfail(strict=True)` and seen failing; the commit with the
-   code removes the marks.
+   `pytest.mark.xfail(strict=True)` and seen failing under
+   `pytest --runxfail`; the commit with the code removes the marks.
 5. Push and open a pull request against `main` with `Closes #N` in the
    description, and work through the template's checklist. CI runs the same
    gate across Python 3.12, 3.13 and 3.14.

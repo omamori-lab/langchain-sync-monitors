@@ -24,6 +24,7 @@ from hyoshigi import (
     Trajectory,
 )
 from langchain.agents import create_agent
+from langchain_core.messages import SystemMessage
 from langchain_core.runnables import Runnable, RunnableConfig
 
 from langchain_sync_monitors import (
@@ -79,7 +80,7 @@ def build_agent(
     monitor: MonitorTwins,
     *,
     redaction: Redaction | None = MASK_SECRET,
-    system_prompt: str | None = None,
+    system_prompt: str | SystemMessage | None = None,
 ) -> Agent:
     """Build an agent that reads a file and answers, every step of it holding the token."""
     middleware = MonitorMiddleware(monitor=monitor, protocol=RUN_EVERY_STEP, redaction=redaction)
@@ -320,16 +321,32 @@ UPPER_READ_CALL = ToolCall(
 )
 
 
+SYSTEM_PROMPTS = {
+    "system-message": (f"You are helpful, key {SECRET}.", "SYSTEM"),
+    "developer-message": (
+        SystemMessage(
+            content=f"You are helpful, key {SECRET}.",
+            additional_kwargs={"__openai_role__": "developer"},
+        ),
+        "DEVELOPER",
+    ),
+}
+"""A system prompt, and OpenAI's developer message, each with the source capitals give it."""
+
+
 @pytest.mark.xfail(strict=True, reason="PR 8 compares redacted sources")
+@pytest.mark.parametrize(
+    ("system_prompt", "source"),
+    SYSTEM_PROMPTS.values(),
+    ids=SYSTEM_PROMPTS.keys(),
+)
 def test_a_system_prompt_is_observed_once_when_the_redaction_changes_its_source(
     run_mode: RunMode,
+    system_prompt: str | SystemMessage,
+    source: str,
 ) -> None:
-    # Arrange: capitals turn the source "system" into "SYSTEM", and every other text too
-    agent = build_agent(
-        KeywordMonitor(),
-        redaction=UPPER_CASE,
-        system_prompt=f"You are helpful, key {SECRET}.",
-    )
+    # Arrange: capitals turn the source "system" or "developer" into "SYSTEM" or "DEVELOPER"
+    agent = build_agent(KeywordMonitor(), redaction=UPPER_CASE, system_prompt=system_prompt)
 
     # Act
     result = run_agent(agent, mode=run_mode, task=TASK_WITH_SECRET)
@@ -339,7 +356,7 @@ def test_a_system_prompt_is_observed_once_when_the_redaction_changes_its_source(
         Observation(author=Author.USER, parts=(TextPart(text=UPPER_TASK),)),
         Observation(
             author=Author.SCAFFOLD,
-            source="SYSTEM",
+            source=source,
             parts=(TextPart(text="YOU ARE HELPFUL, KEY SECRET-123."),),
         ),
         Action(

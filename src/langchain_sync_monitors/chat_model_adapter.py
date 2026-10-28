@@ -97,6 +97,13 @@ A stop reason counts when it contains a reason, so `content_filter` covers
 `content_filtered`.
 """
 
+FAILED_STOP_REASONS = ("error",)
+"""Stop reasons that mean the provider failed while it wrote the reply.
+
+OpenRouter reports a failure upstream as `finish_reason: "error"`, one of the
+values of its `ChatFinishReasonEnum` [@openrouterpythonsdk2026].
+"""
+
 RATE_LIMIT_ATTEMPTS = 4
 """How many times a call is tried in all while the provider answers HTTP 429."""
 RATE_LIMIT_FIRST_WAIT_SECONDS = 1.0
@@ -217,12 +224,17 @@ def read_refusal(reply: AIMessage) -> Refused | None:
     return Refused(explanation=explanation)
 
 
-def read_reply(reply: AIMessage) -> Generation | Truncated | Refused:
-    """Read a reply as a refusal, else as cut off at a length limit, else as complete.
+def read_reply(reply: AIMessage) -> Generation | Truncated | Refused | Unavailable:
+    """Read a reply as unavailable if the provider failed while writing it, else as a refusal.
 
-    The text is that of the reply's text blocks alone: reasoning and tool
-    calls are not part of it.
+    A reply that is neither is read as cut off at a length limit, else as
+    complete. The provider's failure comes first: the text of a reply that
+    failed is not an answer, whatever else the metadata says. The text is that
+    of the reply's text blocks alone: reasoning and tool calls are not part of
+    it.
     """
+    if has_stop_reason(reply, reasons=FAILED_STOP_REASONS):
+        return Unavailable()
     refusal = read_refusal(reply)
     if refusal is not None:
         return refusal

@@ -656,7 +656,6 @@ PROVIDER_ERROR_REPLIES = [
 ]
 
 
-@UNFIXED
 @pytest.mark.parametrize("reply", PROVIDER_ERROR_REPLIES)
 async def test_a_reply_that_stopped_on_a_provider_error_is_unavailable(
     call_path: CallPath,

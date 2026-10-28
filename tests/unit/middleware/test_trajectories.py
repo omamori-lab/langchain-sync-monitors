@@ -115,6 +115,10 @@ BLOCK_FEEDBACK = ToolObservation(
     author=Author.MONITOR,
     parts=(TextPart(text="[Safety monitor] Blocked: mentions attacker.example"),),
 )
+TOOL_ERROR = "Error: the arguments are not valid JSON."
+TOOL_ERROR_PARTS = (TextPart(text=TOOL_ERROR),)
+FIRST_TOOL_ERROR = ToolObservation(call_id="call-bad-1", is_error=True, parts=TOOL_ERROR_PARTS)
+SECOND_TOOL_ERROR = ToolObservation(call_id="call-bad-2", is_error=True, parts=TOOL_ERROR_PARTS)
 REMINDER_NOTE = Observation(
     author=Author.SCAFFOLD,
     source="application",
@@ -323,6 +327,44 @@ def test_a_message_another_middleware_adds_to_the_request_enters_once_as_a_note(
     # Assert
     history = read_trajectory(agent, config).history
     assert history == (TASK_OBSERVATION, REMINDER_NOTE, READ_ACTION, READ_RESULT, ANSWER_ACTION)
+
+
+@pytest.mark.xfail(strict=True)
+def test_tool_results_with_the_same_text_for_different_calls_each_enter_once(
+    run_mode: RunMode,
+) -> None:
+    # Arrange: a middleware adds two errors without ids, one for each of two calls, to every request
+    class AnswerBadCalls(AgentMiddleware[Any, Any, Any]):
+        def build_errors(self) -> list[ToolMessage]:
+            return [
+                ToolMessage(TOOL_ERROR, tool_call_id="call-bad-1", status="error"),
+                ToolMessage(TOOL_ERROR, tool_call_id="call-bad-2", status="error"),
+            ]
+
+        def wrap_model_call(self, request: Any, handler: Any) -> Any:
+            return handler(request.override(messages=[*request.messages, *self.build_errors()]))
+
+        async def awrap_model_call(self, request: Any, handler: Any) -> Any:
+            return await handler(
+                request.override(messages=[*request.messages, *self.build_errors()]),
+            )
+
+    agent = build_agent(build_read_then_answer(), middleware=[AnswerBadCalls()])
+    config = build_thread_config(f"bad-calls-{run_mode}")
+
+    # Act
+    run_agent(agent, mode=run_mode, config=config)
+
+    # Assert
+    history = read_trajectory(agent, config).history
+    assert history == (
+        TASK_OBSERVATION,
+        FIRST_TOOL_ERROR,
+        SECOND_TOOL_ERROR,
+        READ_ACTION,
+        READ_RESULT,
+        ANSWER_ACTION,
+    )
 
 
 @pytest.mark.parametrize("visibility", list(FeedbackVisibility))

@@ -75,6 +75,25 @@ NOTE_OBSERVATION = Observation(
 FIRST_ANSWER = Action(id="step-1", parts=(TextPart(text="First."),))
 SECOND_ANSWER = Action(id="step-2", parts=(TextPart(text="Second."),))
 THIRD_ANSWER = Action(id="step-3", parts=(TextPart(text="Third."),))
+READ_CALL = ToolCall(id="call-read", name="read_file", arguments='{"path": "q3.md"}')
+# What a run that stopped on a failed model call left, after it read the note and a tool answered.
+UNENDED_HISTORY = (
+    TASK_OBSERVATION,
+    SYSTEM_OBSERVATION,
+    NOTE_OBSERVATION,
+    Action(id="step-1", tool_calls=(READ_CALL,)),
+    ToolObservation(call_id="call-read", parts=(TextPart(text="contents of q3.md"),)),
+)
+UNCONFIRMED_NEXT_TURN = Observation(
+    author=Author.UNKNOWN,
+    source="unconfirmed_input",
+    parts=(TextPart(text=NEXT_TURN),),
+)
+UNCONFIRMED_NOTE = Observation(
+    author=Author.UNKNOWN,
+    source="unconfirmed_input",
+    parts=(TextPart(text=NOTE),),
+)
 
 type Agent = CompiledStateGraph[Any, Any, Any, Any]
 
@@ -112,6 +131,31 @@ def read_history(
     """Return the history of the label's trajectory, as the checkpoint holds it."""
     stored = agent.get_state(config).values.get("monitor_trajectory", {}).get(label, {})
     return Trajectory.load(stored.get("trajectory", Trajectory().dump())).history
+
+
+def read_lost_writes(agent: Agent, config: RunnableConfig, *, label: str = "monitor") -> int:
+    """Return how many writes the label's trajectory dropped, as the checkpoint holds it."""
+    return agent.get_state(config).values["monitor_trajectory"][label]["lost_writes"]
+
+
+def leave_a_run_unended(labels: Sequence[str], *, mode: RunMode) -> tuple[Agent, RunnableConfig]:
+    """Run a first turn that reads a note, has a tool answer, and stops on a failed model call.
+
+    Returns the agent and its thread, with the answer "Second." scripted for the next run.
+    """
+    first_step = build_read_step().model_copy(update={"id": "step-1"})
+    model = ScriptedChatModel(responses=[first_step])
+    agent = build_noted_agent(
+        model,
+        writers=[NoteBeforeModelMiddleware(text=NOTE)],
+        labels=labels,
+        tools=Workspace().build_tools(),
+    )
+    config = build_thread_config(f"unended-{len(labels)}-{mode}")
+    with pytest.raises(AssertionError, match="ran out of responses"):
+        run_messages(agent, [HumanMessage(TASK)], mode=mode, config=config)
+    model.responses.append(AIMessage("Second.", id="step-2"))
+    return agent, config
 
 
 def test_a_string_input_enters_the_trajectory_once_as_the_user_s(run_mode: RunMode) -> None:
@@ -211,6 +255,8 @@ def test_every_stacked_monitor_reads_a_hook_written_message_once_across_runs(
     )
     assert read_history(agent, config, label="outer") == expected
     assert read_history(agent, config, label="inner") == expected
+    assert read_lost_writes(agent, config, label="outer") == 0
+    assert read_lost_writes(agent, config, label="inner") == 0
 
 
 def test_two_hook_written_messages_with_the_same_text_each_enter_the_trajectory_once(
@@ -281,39 +327,17 @@ def test_a_message_read_in_a_run_that_did_not_end_enters_the_trajectory_once(
     labels: tuple[str, ...],
 ) -> None:
     # Arrange: the first run's second model call fails after a tool answered, so no call dangles
-    first_step = build_read_step().model_copy(update={"id": "step-1"})
-    model = ScriptedChatModel(responses=[first_step])
-    agent = build_noted_agent(
-        model,
-        writers=[NoteBeforeModelMiddleware(text=NOTE)],
-        labels=labels,
-        tools=Workspace().build_tools(),
-    )
-    config = build_thread_config(f"unended-{len(labels)}-{run_mode}")
-    with pytest.raises(AssertionError, match="ran out of responses"):
-        run_messages(agent, [HumanMessage(TASK)], mode=run_mode, config=config)
-    model.responses.append(AIMessage("Second.", id="step-2"))
+    agent, config = leave_a_run_unended(labels, mode=run_mode)
 
     # Act
     run_messages(agent, [HumanMessage(NEXT_TURN)], mode=run_mode, config=config)
 
     # Assert
-    call = ToolCall(id="call-read", name="read_file", arguments='{"path": "q3.md"}')
-    expected = (
-        TASK_OBSERVATION,
-        SYSTEM_OBSERVATION,
-        NOTE_OBSERVATION,
-        Action(id="step-1", tool_calls=(call,)),
-        ToolObservation(call_id="call-read", parts=(TextPart(text="contents of q3.md"),)),
-        Observation(
-            author=Author.UNKNOWN,
-            source="unconfirmed_input",
-            parts=(TextPart(text=NEXT_TURN),),
-        ),
-        SECOND_ANSWER,
-    )
+    expected = (*UNENDED_HISTORY, UNCONFIRMED_NEXT_TURN, SECOND_ANSWER)
     histories = {label: read_history(agent, config, label=label) for label in labels}
     assert histories == dict.fromkeys(labels, expected)
+    lost_writes = {label: read_lost_writes(agent, config, label=label) for label in labels}
+    assert lost_writes == dict.fromkeys(labels, 0)
 
 
 def test_a_string_input_with_the_text_of_an_earlier_note_enters_as_the_user_s(
@@ -339,3 +363,86 @@ def test_a_string_input_with_the_text_of_an_earlier_note_enters_as_the_user_s(
         Observation(author=Author.USER, parts=(TextPart(text=NOTE),)),
         SECOND_ANSWER,
     )
+
+
+@pytest.mark.xfail(strict=True)
+@pytest.mark.parametrize(
+    "labels",
+    [("monitor",), ("outer", "inner")],
+    ids=["one-monitor", "two-monitors"],
+)
+def test_a_string_input_with_the_text_of_a_note_an_unended_run_read_enters_as_unconfirmed_input(
+    run_mode: RunMode,
+    labels: tuple[str, ...],
+) -> None:
+    # Arrange: the first run reads a note without an id and stops, and the next input repeats it
+    agent, config = leave_a_run_unended(labels, mode=run_mode)
+
+    # Act
+    run_messages(agent, NOTE, mode=run_mode, config=config)
+
+    # Assert
+    expected = (*UNENDED_HISTORY, UNCONFIRMED_NOTE, SECOND_ANSWER)
+    histories = {label: read_history(agent, config, label=label) for label in labels}
+    assert histories == dict.fromkeys(labels, expected)
+    lost_writes = {label: read_lost_writes(agent, config, label=label) for label in labels}
+    assert lost_writes == dict.fromkeys(labels, 0)
+
+
+@pytest.mark.xfail(strict=True)
+def test_a_note_written_after_the_last_step_with_the_text_of_a_read_one_enters_in_the_next_run(
+    run_mode: RunMode,
+) -> None:
+    # Arrange: the first run reads one note before its step, and a second after its last step
+    agent = build_noted_agent(
+        build_answers("First.", "Second."),
+        writers=[
+            NoteBeforeModelMiddleware(text=NOTE),
+            NoteAfterAnswerMiddleware(text=NOTE),
+        ],
+    )
+    config = build_thread_config(f"read-then-unread-{run_mode}")
+    run_messages(agent, [HumanMessage(TASK)], mode=run_mode, config=config)
+
+    # Act
+    run_messages(agent, [HumanMessage(NEXT_TURN)], mode=run_mode, config=config)
+
+    # Assert
+    assert read_history(agent, config) == (
+        TASK_OBSERVATION,
+        SYSTEM_OBSERVATION,
+        NOTE_OBSERVATION,
+        FIRST_ANSWER,
+        NOTE_OBSERVATION,
+        NEXT_OBSERVATION,
+        SECOND_ANSWER,
+    )
+
+
+@pytest.mark.xfail(strict=True)
+def test_a_string_input_with_the_text_of_a_note_given_an_id_earlier_enters_as_unconfirmed_input(
+    run_mode: RunMode,
+) -> None:
+    # Arrange: a run read a note and ended, which gave it an id; the next run did not end
+    model = build_answers("First.")
+    agent = build_noted_agent(model, writers=[NoteBeforeModelMiddleware(text=NOTE)])
+    config = build_thread_config(f"note-given-an-id-{run_mode}")
+    run_messages(agent, [HumanMessage(TASK)], mode=run_mode, config=config)
+    with pytest.raises(AssertionError, match="ran out of responses"):
+        run_messages(agent, [HumanMessage(NEXT_TURN)], mode=run_mode, config=config)
+    model.responses.append(AIMessage("Second.", id="step-2"))
+
+    # Act
+    run_messages(agent, NOTE, mode=run_mode, config=config)
+
+    # Assert
+    assert read_history(agent, config) == (
+        TASK_OBSERVATION,
+        SYSTEM_OBSERVATION,
+        NOTE_OBSERVATION,
+        FIRST_ANSWER,
+        NEXT_OBSERVATION,
+        UNCONFIRMED_NOTE,
+        SECOND_ANSWER,
+    )
+    assert read_lost_writes(agent, config) == 0

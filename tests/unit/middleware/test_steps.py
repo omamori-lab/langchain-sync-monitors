@@ -1,10 +1,12 @@
 """A draw's reply is its last AI message, and one that repeats an id is read under a fresh one.
 
 A retry after a block may reuse the blocked call's id, as may a cached or
-scripted model. The trajectory refuses an id it holds, and LangGraph merges
-messages that share one, so the draw's repeated ids are replaced with fresh
-uuid4s in the committed message, the tool message of its draw that answers
-it, and the action recorded for it alike.
+scripted model, and a reply may give two of its calls one id. The trajectory
+refuses an id it holds, and LangGraph merges messages that share one, so the
+draw's repeated ids are replaced with fresh uuid4s in the committed message,
+the tool message of its draw that answers it, and the action recorded for it
+alike: the first call with an id keeps it unless the run holds it, and each
+later call with it takes a fresh one.
 """
 
 from __future__ import annotations
@@ -38,6 +40,16 @@ from tests.support.protocols import RUN_EVERY_STEP
 
 class Report(BaseModel):
     summary: str
+
+
+READS_UNDER_ONE_ID = AIMessage(
+    content="",
+    tool_calls=[
+        {"name": "read_file", "args": {"path": "q3.md"}, "id": "call-dup", "type": "tool_call"},
+        {"name": "read_file", "args": {"path": "q2.md"}, "id": "call-dup", "type": "tool_call"},
+    ],
+)
+"""A reply whose two calls share one id."""
 
 
 class EmptyResponseMiddleware(AgentMiddleware[Any, Any, Any]):
@@ -128,3 +140,59 @@ def test_a_draw_without_an_ai_message_fails_the_step(run_mode: RunMode) -> None:
     # Act / Assert
     with pytest.raises(MonitorError, match="no AI message"):
         run_agent(agent, mode=run_mode)
+
+
+@pytest.mark.xfail(
+    strict=True, reason="PR 5 gives a call that repeats an earlier call's id one of its own"
+)
+@pytest.mark.parametrize(
+    ("responses", "keeps_first_id"),
+    [
+        ([READS_UNDER_ONE_ID, AIMessage("Done.")], True),
+        (
+            [
+                build_exfiltration_step(call_id="call-dup"),
+                READS_UNDER_ONE_ID,
+                AIMessage("Done."),
+            ],
+            False,
+        ),
+    ],
+    ids=["in-the-first-reply", "in-a-retry-after-a-block-under-the-blocked-id"],
+)
+def test_two_calls_of_a_reply_that_share_an_id_each_run_under_an_id_of_their_own(
+    run_mode: RunMode,
+    responses: list[AIMessage],
+    keeps_first_id: bool,
+) -> None:
+    # Arrange
+    workspace = Workspace()
+    middleware = MonitorMiddleware(
+        monitor=build_keyword_monitor(),
+        protocol=BlockAndFeedBack(block_threshold=0.5),
+    )
+    agent = create_agent(
+        ScriptedChatModel(responses=responses),
+        tools=workspace.build_tools(),
+        middleware=[middleware],
+    )
+
+    # Act
+    result = run_agent(agent, mode=run_mode)
+
+    # Assert
+    assert sorted(workspace.executed) == ["read_file:q2.md", "read_file:q3.md"]
+    [reads] = [
+        message
+        for message in result["messages"]
+        if isinstance(message, AIMessage) and len(message.tool_calls) == 2
+    ]
+    call_ids = [call["id"] for call in reads.tool_calls]
+    assert len(set(call_ids)) == 2
+    assert ("call-dup" in call_ids) is keeps_first_id
+    answered = [
+        message.tool_call_id
+        for message in result["messages"]
+        if isinstance(message, ToolMessage) and message.status == "success"
+    ]
+    assert answered == call_ids

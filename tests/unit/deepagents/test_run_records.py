@@ -4,7 +4,9 @@ A subagent records into its own trajectory, joined into the run its parent
 handed it, so its records take the numbers that follow the run's, and keep
 them when its trajectory joins the parent's under the call that started it.
 Subagents run at once each count from the run as it was handed to them, and
-the parent's join numbers the second after the first. Block and feed back
+the parent's join numbers the second after the first. A middleware listed
+before the monitor reads each subagent's trajectory as its call returns it,
+before the parent's join renumbers it. Block and feed back
 counts the blocks of the whole run, so a subagent's blocks bring its parent
 nearer the total.
 """
@@ -15,9 +17,11 @@ from typing import Any
 
 from deepagents import CompiledSubAgent, create_deep_agent
 from langchain.agents import create_agent
+from langchain.agents.middleware.types import AgentMiddleware, ToolCallRequest
 from langchain_core.messages import AIMessage
 from langgraph.checkpoint.memory import InMemorySaver
 from langgraph.graph.state import CompiledStateGraph
+from langgraph.types import Command
 
 from langchain_sync_monitors import (
     DEFAULT_HALT_MESSAGE,
@@ -46,6 +50,31 @@ from tests.support.protocols import RUN_EVERY_STEP
 
 type Agent = CompiledStateGraph[Any, Any, Any, Any]
 type StoredTrajectory = dict[str, Any]
+
+
+class ReturnedTrajectories(AgentMiddleware[Any, Any, Any]):
+    """Keeps the trajectory each tool call returns under the monitor's label, by call id."""
+
+    def __init__(self, *, agent_name: str) -> None:
+        self.agent_name = agent_name
+        self.returned: dict[str, StoredTrajectory] = {}
+
+    @property
+    def name(self) -> str:
+        return f"returned[{self.agent_name}]"
+
+    def keep(self, request: ToolCallRequest, *, result: Any) -> Any:
+        if isinstance(result, Command) and isinstance(result.update, dict):
+            state = result.update.get("monitor_trajectory", {}).get("monitor")
+            if state is not None:
+                self.returned[str(request.tool_call["id"])] = state["trajectory"]
+        return result
+
+    def wrap_tool_call(self, request: ToolCallRequest, handler: Any) -> Any:
+        return self.keep(request, result=handler(request))
+
+    async def awrap_tool_call(self, request: ToolCallRequest, handler: Any) -> Any:
+        return self.keep(request, result=await handler(request))
 
 
 def build_subagent_monitor(agent_name: str) -> MonitorMiddleware:
@@ -83,6 +112,16 @@ def test_a_nested_subagent_s_two_steps_keep_the_run_s_sequence_numbers(
     run_mode: RunMode,
 ) -> None:
     # Arrange: main delegates to middle, which delegates to inner; each takes two steps
+    returned_to_main = ReturnedTrajectories(agent_name="main")
+    returned_to_middle = ReturnedTrajectories(agent_name="middle")
+    middle_stack: list[AgentMiddleware[Any, Any, Any]] = [
+        returned_to_middle,
+        build_subagent_monitor("middle"),
+    ]
+    main_stack: list[AgentMiddleware[Any, Any, Any]] = [
+        returned_to_main,
+        MonitorMiddleware(monitor=build_keyword_monitor(), protocol=RUN_EVERY_STEP),
+    ]
     middle = create_deep_agent(
         model=ScriptedChatModel(
             responses=[
@@ -90,7 +129,7 @@ def test_a_nested_subagent_s_two_steps_keep_the_run_s_sequence_numbers(
                 AIMessage("Middle done."),
             ],
         ),
-        middleware=[build_subagent_monitor("middle")],
+        middleware=middle_stack,
         subagents=[build_reader("inner", answer="Inner done.")],
     )
     agent = create_deep_agent(
@@ -100,7 +139,7 @@ def test_a_nested_subagent_s_two_steps_keep_the_run_s_sequence_numbers(
                 AIMessage("Done."),
             ],
         ),
-        middleware=[MonitorMiddleware(monitor=build_keyword_monitor(), protocol=RUN_EVERY_STEP)],
+        middleware=main_stack,
         subagents=[CompiledSubAgent(name="middle", description="Delegates.", runnable=middle)],
         checkpointer=InMemorySaver(),
     )
@@ -109,9 +148,11 @@ def test_a_nested_subagent_s_two_steps_keep_the_run_s_sequence_numbers(
     # Act
     run_agent(agent, mode=run_mode, config=build_thread_config(thread_id))
 
-    # Assert
+    # Assert: each subagent returns the numbers it recorded, which the joins keep
     root = read_root(agent, thread_id=thread_id)
     middle_run = root["subagents"]["call-task-main"]
+    assert read_sequence(returned_to_middle.returned["call-task-middle"]) == [2, 3]
+    assert read_sequence(returned_to_main.returned["call-task-main"]) == [1, 4]
     assert read_sequence(root) == [0, 5]
     assert read_sequence(middle_run) == [1, 4]
     assert read_sequence(middle_run["subagents"]["call-task-middle"]) == [2, 3]
@@ -119,9 +160,14 @@ def test_a_nested_subagent_s_two_steps_keep_the_run_s_sequence_numbers(
 
 def test_subagents_run_at_once_take_numbers_that_do_not_collide(run_mode: RunMode) -> None:
     # Arrange
+    returned = ReturnedTrajectories(agent_name="main")
+    stack: list[AgentMiddleware[Any, Any, Any]] = [
+        returned,
+        MonitorMiddleware(monitor=build_keyword_monitor(), protocol=RUN_EVERY_STEP),
+    ]
     agent = create_deep_agent(
         model=ScriptedChatModel(responses=[build_parallel_delegation(), AIMessage("Done.")]),
-        middleware=[MonitorMiddleware(monitor=build_keyword_monitor(), protocol=RUN_EVERY_STEP)],
+        middleware=stack,
         subagents=[
             build_reader("worker", answer="Three sources."),
             build_reader("reviewer", answer="Sources check out."),
@@ -133,7 +179,10 @@ def test_subagents_run_at_once_take_numbers_that_do_not_collide(run_mode: RunMod
     # Act
     run_agent(agent, mode=run_mode, config=build_thread_config(thread_id))
 
-    # Assert: whichever joins first takes 1 and 2, the other 3 and 4
+    # Assert: both record 1 and 2 after main's 0; whichever joins first keeps them, the other
+    # takes 3 and 4
+    assert read_sequence(returned.returned["call-task-worker"]) == [1, 2]
+    assert read_sequence(returned.returned["call-task-reviewer"]) == [1, 2]
     root = read_root(agent, thread_id=thread_id)
     worker = read_sequence(root["subagents"]["call-task-worker"])
     reviewer = read_sequence(root["subagents"]["call-task-reviewer"])

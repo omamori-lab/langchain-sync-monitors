@@ -59,18 +59,12 @@ from langchain_sync_monitors.contracts import (
     SubagentHalt,
     TaskAuthor,
 )
-from langchain_sync_monitors.delegation import count_blocks_in_thread, read_delegation_id
 from langchain_sync_monitors.errors import ConfigurationError
 from langchain_sync_monitors.given_ids import (
     build_run_end_trajectories_update,
     build_run_start_trajectories_update,
 )
-from langchain_sync_monitors.halts import (
-    build_jump_to_end_update,
-    find_halt_decision,
-    find_lost_write_halt,
-    has_just_halted,
-)
+from langchain_sync_monitors.halts import build_jump_to_end_update, has_just_halted
 from langchain_sync_monitors.message_ids import build_run_end_update
 from langchain_sync_monitors.monitor_state import MonitorState
 from langchain_sync_monitors.options import (
@@ -80,36 +74,22 @@ from langchain_sync_monitors.options import (
 )
 from langchain_sync_monitors.pending_steps import (
     AsyncPendingStep,
-    PendingStepOptions,
-    PreparedStep,
     SyncPendingStep,
     run_synchronously,
 )
-from langchain_sync_monitors.records import find_monitor_records, read_step_records
-from langchain_sync_monitors.run_inputs import (
-    build_refresh_update,
-    build_run_start_update,
-    read_current_run_inputs,
-)
+from langchain_sync_monitors.run_inputs import build_refresh_update, build_run_start_update
 from langchain_sync_monitors.score_export import Tracer, check_score_export, queue_step_score
-from langchain_sync_monitors.server_tools import warn_about_server_tools
 from langchain_sync_monitors.spans import (
-    StepIdentity,
     open_step_span,
     open_step_span_sync,
     trace_decision,
     trace_decision_sync,
 )
-from langchain_sync_monitors.state_keys import REWRITTEN_INPUTS_KEY, TASK_MESSAGES_KEY
-from langchain_sync_monitors.subagent_returns import count_returned_blocks, read_subagent_returns
-from langchain_sync_monitors.task_authorship import (
-    build_step_start_update,
-    read_message_ids,
-)
+from langchain_sync_monitors.step_preparation import prepare_step
+from langchain_sync_monitors.task_authorship import build_step_start_update
 from langchain_sync_monitors.tool_calls import run_tool_call, run_tool_call_sync
 from langchain_sync_monitors.trajectories import (
     add_step_events,
-    load_step_trajectory,
     monitor_step_open,
 )
 
@@ -294,7 +274,7 @@ class MonitorMiddleware(AgentMiddleware[MonitorState, AgentContext, StructuredOu
         handler: ModelCallHandler,
     ) -> ExtendedModelResponse[StructuredOutput]:
         """Decide this step under `invoke()`, driving the protocol without an event loop."""
-        prepared = self.prepare_step(request)
+        prepared = prepare_step(request, middleware=self)
         with open_step_span_sync(prepared.identity) as traced_step:
             # A halt found before sampling decides the step, and the protocol never runs.
             decision = prepared.halt
@@ -339,7 +319,7 @@ class MonitorMiddleware(AgentMiddleware[MonitorState, AgentContext, StructuredOu
         handler: AsyncModelCallHandler,
     ) -> ExtendedModelResponse[StructuredOutput]:
         """Decide this step under `ainvoke()`, awaiting the protocol."""
-        prepared = self.prepare_step(request)
+        prepared = prepare_step(request, middleware=self)
         async with open_step_span(prepared.identity) as traced_step:
             # A halt found before sampling decides the step, and the protocol never runs.
             decision = prepared.halt
@@ -504,50 +484,3 @@ class MonitorMiddleware(AgentMiddleware[MonitorState, AgentContext, StructuredOu
         if has_just_halted(state, monitor=self.label, agent=self.agent_name):
             return build_jump_to_end_update()
         return None
-
-    def prepare_step(self, request: AgentModelRequest) -> PreparedStep:
-        """Read the log once for a step: its identity, a halt without a sample, its options."""
-        warn_about_server_tools(request, middleware=self, middleware_name=self.name)
-        delegation_id = read_delegation_id(request.state)
-        previous_records = find_monitor_records(
-            read_step_records(request.state),
-            monitor=self.label,
-            agent=self.agent_name,
-            delegation_id=delegation_id,
-        )
-        returns = read_subagent_returns(request.state)
-        trajectory = load_step_trajectory(
-            request,
-            label=self.label,
-            task_author=self.task_author,
-        )
-        identity = StepIdentity(
-            monitor=self.label,
-            agent=self.agent_name,
-            step_number=len(previous_records) + 1,
-            protocol=type(self.protocol).__name__,
-            delegation_id=delegation_id,
-        )
-        halt = find_lost_write_halt(
-            trajectory.lost_writes,
-            monitor=self.label,
-            middleware_name=self.name,
-        ) or find_halt_decision(
-            request.state,
-            previous_records=previous_records,
-            returns=returns,
-            middleware_name=self.name,
-            when_subagent_halts=self.when_subagent_halts,
-        )
-        options = PendingStepOptions(
-            request=request,
-            monitor=self.monitor,
-            task_author=self.task_author,
-            task_message_ids=read_message_ids(request.state, key=TASK_MESSAGES_KEY),
-            run_inputs=read_current_run_inputs(request.state),
-            rewritten_input_ids=read_message_ids(request.state, key=REWRITTEN_INPUTS_KEY),
-            previous_records=previous_records,
-            blocks_in_thread=count_blocks_in_thread(request.state, monitor=self.label),
-            new_subagent_blocks=count_returned_blocks(returns, monitor=self.label),
-        )
-        return PreparedStep(identity=identity, halt=halt, options=options, trajectory=trajectory)

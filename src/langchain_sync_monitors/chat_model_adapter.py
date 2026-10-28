@@ -12,6 +12,7 @@ value, and any other failure is raised.
 from __future__ import annotations
 
 import logging
+import sys
 from base64 import b64encode
 from collections.abc import Iterator, Mapping
 from http import HTTPStatus
@@ -257,6 +258,25 @@ def read_typed_failure(
     return None
 
 
+def is_no_response_error(error: Exception) -> bool:
+    """Tell whether the error is the OpenRouter SDK's `NoResponseError`.
+
+    The SDK raises it when a call gets no HTTP response, and it is neither a
+    transport error nor a status error [@openrouterpythonsdk2026]. An instance
+    can only exist once the SDK has loaded its errors module, so the class is
+    taken from the modules already loaded, and nothing is imported: the
+    `openrouter` extra stays optional, and unloaded until a call uses it.
+    """
+    errors = sys.modules.get("openrouter.errors")
+    no_response_error = getattr(errors, "NoResponseError", None)
+    return no_response_error is not None and isinstance(error, no_response_error)
+
+
+def is_no_answer_error(error: Exception) -> bool:
+    """Tell whether the error is of a call that got no reply: a timeout or a connection failure."""
+    return isinstance(error, NO_ANSWER_ERRORS) or is_no_response_error(error)
+
+
 def is_rejected_status(status: int, *, holds_media: bool) -> bool:
     """Tell whether a status says the prompt cannot be used: a 413, or a 400 or 422 about media."""
     return status == HTTPStatus.REQUEST_ENTITY_TOO_LARGE or (
@@ -274,11 +294,11 @@ def read_status_failure(
 
     A 413 is rejected, and so is a 400 or a 422 when the prompt holds media.
     A 408, a 409, a 429 or a 5xx is unavailable with its status, and so is a
-    timeout or a connection that failed, with none. Any other failure is
-    `None`.
+    timeout or a connection that failed, with none; the OpenRouter SDK's
+    `NoResponseError` is one. Any other failure is `None`.
     """
     if status is None:
-        return Unavailable() if isinstance(error, NO_ANSWER_ERRORS) else None
+        return Unavailable() if is_no_answer_error(error) else None
     if is_rejected_status(status, holds_media=holds_media):
         return Rejected(status=status)
     if status in UNAVAILABLE_STATUSES or status >= HTTPStatus.INTERNAL_SERVER_ERROR:

@@ -15,6 +15,7 @@ from __future__ import annotations
 import dataclasses
 import math
 import numbers
+import sys
 from collections.abc import Callable
 from dataclasses import dataclass
 from decimal import Decimal
@@ -129,6 +130,47 @@ def test_defer_to_resample_refuses_a_resample_count_that_is_not_a_whole_number(
         match="max_resamples must be a whole number of at least 0",
     ):
         build_defer_to_resample(max_resamples=value)
+
+
+@pytest.mark.xfail(strict=True)
+@pytest.mark.parametrize(
+    ("build", "parameter", "value", "shown"),
+    [
+        pytest.param(
+            build_defer_to_resample,
+            "max_resamples",
+            sys.maxsize + 1,
+            str(sys.maxsize + 1),
+            id="max_resamples-above-sys.maxsize",
+        ),
+        pytest.param(
+            build_auto_mode,
+            "max_consecutive_blocks",
+            sys.maxsize + 1,
+            str(sys.maxsize + 1),
+            id="max_consecutive_blocks-above-sys.maxsize",
+        ),
+        pytest.param(
+            build_defer_to_resample,
+            "max_resamples",
+            10**5000,
+            "an integer too long to write out",
+            id="max_resamples-too-long-to-write-out",
+        ),
+    ],
+)
+def test_a_count_above_sys_maxsize_is_refused_without_writing_it_out(
+    build: Callable[..., object],
+    parameter: str,
+    value: int,
+    shown: str,
+) -> None:
+    # Act / Assert
+    with pytest.raises(
+        ConfigurationError,
+        match=f"{parameter} must be at most {sys.maxsize}, got {shown}",
+    ):
+        build(**{parameter: value})
 
 
 def test_the_smallest_counts_are_accepted() -> None:

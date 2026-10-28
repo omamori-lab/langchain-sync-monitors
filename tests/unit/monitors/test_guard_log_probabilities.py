@@ -7,6 +7,9 @@ reply without log-probabilities fails the rating closed.
 
 from __future__ import annotations
 
+import sys
+
+import hyoshigi
 import pytest
 from hyoshigi import FailedClosed, Step, Unreadable
 from langchain_core.language_models import BaseChatModel
@@ -90,10 +93,22 @@ async def test_a_reply_without_log_probabilities_fails_the_rating_closed_after_o
     assert len(model.received_messages) == 1
 
 
-@pytest.mark.parametrize("count", [-1, True])
-def test_a_count_that_is_not_a_whole_number_of_at_least_zero_is_a_configuration_error(
+@pytest.mark.parametrize(
+    "count",
+    [
+        -1,
+        True,
+        pytest.param(sys.maxsize + 1, marks=pytest.mark.xfail(strict=True), id="above-sys.maxsize"),
+    ],
+)
+def test_a_count_that_is_no_whole_number_from_zero_to_sys_maxsize_is_a_configuration_error(
     count: object,
 ) -> None:
-    # Act and Assert
-    with pytest.raises(ConfigurationError, match="top_log_probabilities must be"):
+    # Act
+    with pytest.raises(
+        hyoshigi.ConfigurationError, match="top_log_probabilities must be"
+    ) as raised:
         build_guard(ScriptedChatModel(replies=[]), top_log_probabilities=count)
+
+    # Assert
+    assert isinstance(raised.value, ConfigurationError)

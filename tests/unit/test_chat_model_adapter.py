@@ -8,12 +8,14 @@ from __future__ import annotations
 import json
 import logging
 import re
+import sys
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass
 from types import SimpleNamespace
 from typing import Any, Literal
 
 import httpx
+import hyoshigi
 import pytest
 import stamina
 from hyoshigi import (
@@ -1383,6 +1385,7 @@ async def test_the_chat_model_is_asked_for_the_alternatives_the_count_names(
         pytest.param(0, id="zero"),
         pytest.param(2, id="two"),
         pytest.param(7, id="seven"),
+        pytest.param(sys.maxsize, id="sys.maxsize"),
     ],
 )
 def test_both_models_declare_the_count_of_alternatives_the_chat_model_is_asked_for(
@@ -1399,16 +1402,30 @@ def test_both_models_declare_the_count_of_alternatives_the_chat_model_is_asked_f
     assert adapter.async_generative_model.top_log_probabilities == count
 
 
-@pytest.mark.parametrize("count", [-1, True, 2.0, "2"])
-def test_a_count_that_is_not_a_whole_number_of_at_least_zero_is_a_configuration_error(
+@pytest.mark.parametrize(
+    "count",
+    [
+        -1,
+        True,
+        2.0,
+        "2",
+        pytest.param(sys.maxsize + 1, marks=pytest.mark.xfail(strict=True), id="above-sys.maxsize"),
+    ],
+)
+def test_a_count_that_is_no_whole_number_from_zero_to_sys_maxsize_is_a_configuration_error(
     count: object,
 ) -> None:
     # Arrange
     model = ScriptedChatModel(responses=[])
 
-    # Act and Assert
-    with pytest.raises(ConfigurationError, match="top_log_probabilities must be"):
+    # Act
+    with pytest.raises(
+        hyoshigi.ConfigurationError, match="top_log_probabilities must be"
+    ) as raised:
         ChatModelAdapter(model, source=SOURCE, top_log_probabilities=count)  # ty: ignore[invalid-argument-type]
+
+    # Assert
+    assert isinstance(raised.value, ConfigurationError)
 
 
 async def test_a_count_of_zero_reads_no_log_probabilities_from_a_reply_that_holds_them(

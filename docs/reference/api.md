@@ -334,6 +334,13 @@ name `langchain_sync_monitors` exports, grouped by what it is for.
         - tool_call_id
         - delegating_agent
         - blocks_before
+        - runs
+
+::: langchain_sync_monitors.DelegatedRun
+    options:
+      members:
+        - trajectory
+        - path
 
 ::: langchain_sync_monitors.MonitorStepEvent
     options:

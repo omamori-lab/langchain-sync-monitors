@@ -344,9 +344,9 @@ def test_the_middleware_holds_no_mutable_run_state(
         middleware.agent_name = "changed"  # ty: ignore[invalid-assignment]
 
 
-def test_the_keys_only_the_monitor_writes_are_every_key_it_adds_but_its_log() -> None:
+def test_the_keys_only_the_monitor_writes_are_all_it_adds_but_its_log_and_trajectory() -> None:
     # Act
     added = set(MonitorState.__annotations__) - set(AgentState.__annotations__)
 
     # Assert
-    assert added - {"monitor_log"} == MONITOR_STATE_KEYS
+    assert added - {"monitor_log", "monitor_trajectory"} == MONITOR_STATE_KEYS

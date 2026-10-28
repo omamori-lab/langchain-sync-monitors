@@ -287,21 +287,24 @@ not append them. With `FeedbackVisibility.IN_TRANSCRIPT`, a blocked attempt,
 its text withheld, and its feedback are committed as part of the
 conversation, so they stream with the step that follows them.
 
-The monitor keeps eight private keys in the state: `monitor_task_messages`,
+The monitor keeps seven private keys in the state: `monitor_task_messages`,
 `monitor_seen_human_messages`, `monitor_run_inputs`,
-`monitor_rewritten_inputs`, `monitor_run_open`, `monitor_inputs_at_halt`,
-`monitor_subagent_returns` and `monitor_trajectory`. They record which human
-messages were a run's input and the text of each, the inputs a tool wrote
-over, how many inputs the thread had at a halt, the subagent halts and blocks
-a tool call returned, until the next step, and each monitor's trajectory of
-the run, by label. They never enter a run's input or the result of
+`monitor_rewritten_inputs`, `monitor_run_open`, `monitor_inputs_at_halt` and
+`monitor_subagent_returns`. They record which human messages were a run's
+input and the text of each, the inputs a tool wrote over, how many inputs the
+thread had at a halt, and the subagent halts and blocks a tool call returned,
+until the next step. They never enter a run's input or the result of
 `invoke()` and `ainvoke()`, but `values`, `updates` and
 `agent.get_state(config)` show them, the text they hold included
-([private state keys](../explanation/design.md#private-state-keys)). One more
-key, `monitor_delegation`, is part of every monitored agent's input: the
-monitor sets it for each subagent it starts, so leave it out of your own
-input. [What streams](../explanation/design.md#what-streams) explains how the
-library keeps the other calls out of the message stream.
+([private state keys](../explanation/design.md#private-state-keys)).
+`monitor_trajectory` holds each monitor's trajectory of the run, by label,
+each subagent's joined under the call that started it. It never enters a
+run's input, and the result of `invoke()` and `ainvoke()` holds it, as a
+subagent's result returns it to its parent. One more key,
+`monitor_delegation`, is part of every monitored agent's input: the monitor
+sets it for each subagent it starts, so leave it out of your own input. [What
+streams](../explanation/design.md#what-streams) explains how the library keeps
+the other calls out of the message stream.
 
 ## Allow for the graph steps
 

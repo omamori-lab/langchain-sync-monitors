@@ -39,7 +39,6 @@ import json
 from collections.abc import Mapping, Sequence
 from contextvars import ContextVar
 from dataclasses import dataclass, field
-from typing import cast
 
 from hyoshigi import (
     Action,
@@ -69,16 +68,17 @@ from langchain_sync_monitors.task_authorship import (
 from langchain_sync_monitors.trajectory_channel import (
     TrajectoryDelta,
     TrajectoryLengths,
-    TrajectoryState,
     build_empty_state,
     measure_state,
     read_list,
+    read_trajectory_state,
 )
 from langchain_sync_monitors.trajectory_events import (
     read_events,
     read_observation,
     read_proposed_action,
 )
+from langchain_sync_monitors.trajectory_runs import find_tool_call, load_run
 
 DELEGATION_TOOL_NAME = "task"
 """The tool through which Deep Agents starts a subagent [@deepagents2026]."""
@@ -112,36 +112,35 @@ class LoadedTrajectory:
     new_seen: list[str] = field(default_factory=list)
 
 
-def read_trajectory_state(state: Mapping[str, object], *, label: str) -> TrajectoryState | None:
-    """Return a label's stored trajectory state, or None when the state holds none."""
-    stored = state.get(TRAJECTORY_KEY)
-    value = stored.get(label) if isinstance(stored, Mapping) else None
-    # Only merge_trajectories writes the key, so a stored value is a state.
-    return cast("TrajectoryState", value) if isinstance(value, dict) else None
-
-
 def load_trajectory(
     state: Mapping[str, object],
     *,
     label: str,
     task_author: TaskAuthor,
 ) -> LoadedTrajectory:
-    """Load a label's trajectory from the state, or start one for a label that has none."""
+    """Load a label's trajectory from the state, placed in its run as `load_run` says.
+
+    A label that has none starts one; in a subagent, the human message it
+    starts with is marked seen.
+    """
     stored = read_trajectory_state(state, label=label) or build_empty_state(
         delegation_id=read_delegation_id(state),
     )
-    trajectory = Trajectory.load(stored["trajectory"])
-    return LoadedTrajectory(
+    place = load_run(state, label=label)
+    loaded = LoadedTrajectory(
         label=label,
-        trajectory=trajectory,
+        trajectory=place.trajectory,
         delegation_id=stored["delegation_id"],
         task_author=task_author,
         nested=monitor_step_open.get(),
         base=measure_state(stored),
         lost_writes=stored["lost_writes"],
-        subagent_ids=frozenset(trajectory.subagents),
+        subagent_ids=frozenset(place.trajectory.subagents),
         seen=set(stored["seen"]),
     )
+    if place.instruction is not None:
+        mark_seen(loaded, key=build_message_key(place.instruction))
+    return loaded
 
 
 def add_event(loaded: LoadedTrajectory, *, event: Event, path: str) -> None:
@@ -180,16 +179,6 @@ def mark_given_ids(loaded: LoadedTrajectory, *, given: Sequence[GivenId]) -> Non
     for key, message_id in given:
         if key in loaded.seen:
             mark_seen(loaded, key=message_id)
-
-
-def find_tool_call(trajectory: Trajectory, *, call_id: str) -> ToolCall | None:
-    """Return the tool call with this id among the trajectory's actions, latest first."""
-    for event in reversed(trajectory.history):
-        if isinstance(event, Action):
-            for call in event.tool_calls:
-                if call.id == call_id:
-                    return call
-    return None
 
 
 def read_task_description(call: ToolCall) -> str | None:

@@ -131,7 +131,7 @@ built. A subagent without a `model` of its own uses the main agent's.
 |---|---|---|
 | `middleware` | Required | The monitor every subagent gets a copy of, usually the main agent's. |
 | `subagents` | No specs | Your subagent specs. The general-purpose subagent is added when it is missing. |
-| `overrides` | `None` | A monitor for named subagents, in place of the copy of `middleware`. A name that matches no subagent raises `ConfigurationError`. |
+| `overrides` | `None` | A monitor for named subagents, in place of the copy of `middleware`, with `middleware`'s label. A name that matches no subagent, or a monitor of another label, raises `ConfigurationError`. |
 | `skills` | `None` | The main agent's skills, the list you give `create_deep_agent(skills=...)`. The general-purpose subagent gets them. |
 
 `monitor_subagents` returns new specs and leaves yours unchanged; pass the
@@ -147,10 +147,12 @@ monitor, or its entry in `overrides`, and changes two things on the copy:
 
 Every other option is copied as it is, `label`, `feedback_visibility` and
 `when_subagent_halts` included, so nested subagents behave the same way. An
-override keeps its own options. Its `label` decides its Auto Mode total: with
-a label of its own it counts apart, and built without one it keeps
-`"monitor"`, so it shares the parent's total when the parent keeps the
-default label too.
+override keeps its own options, and must have `middleware`'s label: each
+subagent's trajectory joins its parent's under that label, as
+[delegations](../explanation/design.md#delegations) explains, so the
+subagent's steps sit in the parent's `monitor_trajectory` under the `task`
+call, and it shares the parent's Auto Mode total. To count a subagent apart,
+monitor it as a compiled subagent with a label of its own.
 
 The monitor goes after the middleware the spec already has. Deep Agents then
 places middleware of its own after it, which runs inside the monitor: prompt
@@ -306,6 +308,12 @@ Both options matter:
   task as the parent agent's words. With the default, it reads the task as the
   user's own authorisation, although the parent agent wrote it.
 
+Its `label` decides where its trajectory goes. With the parent's label,
+`"monitor"` by default, the subagent's trajectory joins the parent's under
+the `task` call. Under a label of its own, the parent drops it with a
+warning when the task returns, its records still reach `monitor_log`, and
+its blocks count apart from the parent's.
+
 Passing only the declarative specs through `monitor_subagents`, and adding the
 compiled one afterwards, keeps the general-purpose subagent monitored too.
 
@@ -376,9 +384,10 @@ When you read it:
   which yields `(namespace, event)` pairs.
 - **`monitor_delegation` is the monitor's.** The monitor hands each subagent
   a `Delegation` in the `monitor_delegation` state key: the `task` call's id,
-  the delegating agent and the thread's block counts. The key is part of
-  every monitored agent's input; leave it out of yours, since a value that is
-  not a valid `Delegation` raises `ConfigurationError`.
+  the delegating agent, the thread's block counts and, by label, the run the
+  subagent's trajectory joins. The key is part of every monitored agent's
+  input; leave it out of yours, since a value that is not a valid
+  `Delegation` raises `ConfigurationError`.
 
 To see one agent's steps, filter by `agent`:
 

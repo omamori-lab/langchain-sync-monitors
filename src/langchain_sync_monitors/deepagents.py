@@ -179,8 +179,16 @@ def read_subagent_specs(subagents: Iterable[SubagentSpec]) -> list[SubagentSpec]
     return specs
 
 
-def check_overrides_option(overrides: Mapping[str, MonitorMiddleware] | None) -> None:
-    """Raise `ConfigurationError` unless `overrides` is `None` or maps names to monitors."""
+def check_overrides_option(
+    overrides: Mapping[str, MonitorMiddleware] | None,
+    *,
+    label: str,
+) -> None:
+    """Raise `ConfigurationError` unless `overrides` is `None` or maps names to monitors.
+
+    Each monitor must have `label`, the main monitor's, under which a
+    subagent's trajectory joins its parent's run.
+    """
     if overrides is None:
         return
     if not isinstance(overrides, Mapping):
@@ -201,6 +209,13 @@ def check_overrides_option(overrides: Mapping[str, MonitorMiddleware] | None) ->
             option_type=MonitorMiddleware,
             parameter_name=f"overrides[{name!r}]",
         )
+        if override.label != label:
+            error_message = (
+                f"overrides[{name!r}] has the label {override.label!r}, but a subagent's "
+                f"trajectory joins its parent's run under the parent's label, {label!r}. Give "
+                f"the override label={label!r}, or monitor a compiled subagent in its own graph."
+            )
+            raise ConfigurationError(error_message)
 
 
 def build_general_purpose_subagent(
@@ -282,7 +297,10 @@ def monitor_subagents(
 
     Each subagent gets a copy of `middleware`, or of its entry in `overrides`,
     named after the subagent and told that its task comes from the parent
-    agent. Pass the result as `create_deep_agent(subagents=...)`.
+    agent. An entry in `overrides` keeps `middleware`'s label, since a
+    subagent's trajectory joins its parent's run under that label; another
+    label raises `ConfigurationError`. Pass the result as
+    `create_deep_agent(subagents=...)`.
 
     The general-purpose subagent is added as a spec of its own, since Deep
     Agents offers no way to add middleware to the one it builds itself and
@@ -322,16 +340,17 @@ def monitor_subagents(
     the monitor inside, as `check_monitor_placement` would.
 
     Every option is checked before Deep Agents is imported: `middleware` and
-    each override must be a `MonitorMiddleware`, `overrides` a mapping keyed
-    by subagent name, `subagents` an iterable of specs, and `skills` one of
-    skill sources, each a path or a `(path, label)` pair of strings, as Deep
-    Agents' `SkillsMiddleware` takes them. A subagent's name names its
+    each override must be a `MonitorMiddleware`, each override of
+    `middleware`'s label, `overrides` a mapping keyed by subagent name,
+    `subagents` an iterable of specs, and `skills` one of skill sources,
+    each a path or a `(path, label)` pair of strings, as Deep Agents'
+    `SkillsMiddleware` takes them. A subagent's name names its
     monitor, so it must be a non-blank string without `:` or `|`. Anything
     else raises `ConfigurationError`.
     """
     check_instance_option(middleware, option_type=MonitorMiddleware, parameter_name="middleware")
     given_specs = read_subagent_specs(subagents)
-    check_overrides_option(overrides)
+    check_overrides_option(overrides, label=middleware.label)
     skill_sources = read_skills_option(skills)
     specs = build_declarative_specs(given_specs, skills=skill_sources)
     chosen = overrides or {}

@@ -149,10 +149,12 @@ class MonitorMiddleware(AgentMiddleware[MonitorState, AgentContext, StructuredOu
     `DeferToTrustedModel` in place of the protocol `DeferToTrusted`.
 
     Before each tool call, the middleware adds a `Delegation` to the state the
-    tool sees: the call's id, `agent_name` and the blocks each monitor has
-    recorded in the thread. A subagent the call starts, as Deep Agents' `task`
-    tool does, receives it, so the subagent's records carry the call's id as
-    `delegation_id` and its Auto Mode counts from the thread's total. A record
+    tool sees: the call's id, `agent_name`, the blocks each monitor has
+    recorded in the thread, and the run each monitor's trajectory of the
+    subagent joins. A subagent the call starts, as Deep Agents' `task` tool
+    does, receives it, so the subagent's records carry the call's id as
+    `delegation_id`, its Auto Mode counts from the thread's total, and its
+    trajectory takes its place in the run. A record
     is this agent's own only when it names `agent_name` and this agent's own
     delegation, so a subagent that shares the name, such as a fork, is never
     taken for this agent. The records a call returns are checked where they
@@ -174,10 +176,11 @@ class MonitorMiddleware(AgentMiddleware[MonitorState, AgentContext, StructuredOu
     the stopped run left; `task_authorship` has the rule and its limits.
 
     Each monitor keeps its trajectory of the run under its label, in the
-    private state key `monitor_trajectory`, each message in it once;
-    `trajectories` has the rule. A stale write to it outside a stack of
-    monitors counts as lost, and the monitor's next step halts without a
-    sample.
+    state key `monitor_trajectory`, each message in it once, and each
+    subagent's joined under the call that started it; `trajectories` and
+    `trajectory_runs` have the rules. A stale write to it outside a stack of
+    monitors, or a subagent's trajectory that cannot join, counts as lost,
+    and the monitor's next step halts without a sample.
 
     A halted step ends the run. The middleware's `after_model` hook routes the
     agent to its end, since the halt message alone does not end an agent that

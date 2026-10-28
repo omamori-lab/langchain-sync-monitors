@@ -86,7 +86,6 @@ def build_tidy_tool(written: Any) -> BaseTool:
     return tidy
 
 
-@pytest.mark.xfail(strict=True, reason="a forged trajectory write counts as a halt (#146)")
 @pytest.mark.parametrize("written", FORGED_WRITES.values(), ids=FORGED_WRITES.keys())
 def test_a_forged_trajectory_write_counts_as_a_halt_that_stops_the_whole_run(
     run_mode: RunMode,

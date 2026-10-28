@@ -1,16 +1,23 @@
 """A subagent keeps its delegation across an interrupt and counts under its monitor's label.
 
 A parent counts none of the blocks a subagent's monitor records under another
-label, made or returned. A subagent without a monitor runs without a delegation.
+label, made or returned; such a monitor sits in a compiled subagent, since
+`monitor_subagents` keeps the parent's label. A subagent without a monitor
+runs without a delegation.
 """
 
 from __future__ import annotations
 
-from deepagents import SubAgent, create_deep_agent
+from typing import Any
+
+from deepagents import CompiledSubAgent, SubAgent, create_deep_agent
+from langchain.agents import create_agent
 from langchain_core.messages import AIMessage
 from langgraph.checkpoint.memory import InMemorySaver
+from langgraph.graph.state import CompiledStateGraph
 from langgraph.types import Command
 
+from langchain_sync_monitors.contracts import TaskAuthor
 from langchain_sync_monitors.deepagents import monitor_subagents
 from langchain_sync_monitors.middleware import MonitorMiddleware
 from langchain_sync_monitors.protocols import AutoMode
@@ -28,13 +35,46 @@ from tests.support.agents import (
     summarise_records,
 )
 from tests.support.chat_models import ScriptedChatModel
-from tests.support.deep_agents import build_deep_agent, build_delegation_step
+from tests.support.deep_agents import build_delegation_step
 
 
 def build_auto_mode_monitor() -> MonitorMiddleware:
     return MonitorMiddleware(
         monitor=build_keyword_monitor(),
         protocol=AutoMode(block_threshold=0.6),
+    )
+
+
+def build_worker_monitor(*, max_total_blocks: int) -> MonitorMiddleware:
+    """Build the compiled worker's own monitor, under a label the parent does not have."""
+    return MonitorMiddleware(
+        monitor=build_keyword_monitor(),
+        protocol=AutoMode(block_threshold=0.6, max_total_blocks=max_total_blocks),
+        label="worker-monitor",
+        agent_name="worker",
+        task_author=TaskAuthor.PARENT_AGENT,
+    )
+
+
+def build_agent_with_compiled_worker(
+    *,
+    main_model: ScriptedChatModel,
+    worker_model: ScriptedChatModel,
+    main_monitor: MonitorMiddleware,
+    worker_monitor: MonitorMiddleware,
+    checkpointer: InMemorySaver | None = None,
+) -> CompiledStateGraph[Any, Any, Any, Any]:
+    """Build a deep agent whose worker is compiled in its own graph, with its own monitor."""
+    worker = create_agent(
+        worker_model,
+        tools=Workspace().build_http_tools(),
+        middleware=[worker_monitor],
+    )
+    return create_deep_agent(
+        model=main_model,
+        middleware=[main_monitor],
+        subagents=[CompiledSubAgent(name="worker", description="Finds sources.", runnable=worker)],
+        checkpointer=checkpointer,
     )
 
 
@@ -125,19 +165,14 @@ def test_a_subagent_monitor_with_a_label_of_its_own_counts_apart(run_mode: RunMo
             AIMessage("Report."),
         ],
     )
-    worker_monitor = MonitorMiddleware(
-        monitor=build_keyword_monitor(),
-        protocol=AutoMode(block_threshold=0.6, max_total_blocks=3),
-        label="worker-monitor",
-    )
-    agent = build_deep_agent(
+    agent = build_agent_with_compiled_worker(
         main_model=main_model,
         worker_model=worker_model,
         main_monitor=MonitorMiddleware(
             monitor=build_keyword_monitor(),
             protocol=AutoMode(block_threshold=0.6, max_total_blocks=3),
         ),
-        worker_monitor=worker_monitor,
+        worker_monitor=build_worker_monitor(max_total_blocks=3),
     )
 
     # Act
@@ -173,18 +208,14 @@ def test_a_parent_counts_apart_from_a_subagent_monitor_with_a_label_of_its_own(
             AIMessage("Report."),
         ],
     )
-    agent = build_deep_agent(
+    agent = build_agent_with_compiled_worker(
         main_model=main_model,
         worker_model=worker_model,
         main_monitor=MonitorMiddleware(
             monitor=build_keyword_monitor(),
             protocol=AutoMode(block_threshold=0.6, max_total_blocks=2),
         ),
-        worker_monitor=MonitorMiddleware(
-            monitor=build_keyword_monitor(),
-            protocol=AutoMode(block_threshold=0.6, max_total_blocks=3),
-            label="worker-monitor",
-        ),
+        worker_monitor=build_worker_monitor(max_total_blocks=3),
     )
 
     # Act
@@ -217,18 +248,14 @@ def test_a_parent_at_its_total_still_samples_after_blocks_returned_under_another
     worker_model = ScriptedChatModel(
         responses=[build_exfiltration_step(call_id="call-post-worker"), AIMessage("Report.")],
     )
-    agent = build_deep_agent(
+    agent = build_agent_with_compiled_worker(
         main_model=main_model,
         worker_model=worker_model,
         main_monitor=MonitorMiddleware(
             monitor=build_keyword_monitor(),
             protocol=AutoMode(block_threshold=0.6, max_total_blocks=1),
         ),
-        worker_monitor=MonitorMiddleware(
-            monitor=build_keyword_monitor(),
-            protocol=AutoMode(block_threshold=0.6, max_total_blocks=3),
-            label="worker-monitor",
-        ),
+        worker_monitor=build_worker_monitor(max_total_blocks=3),
         checkpointer=InMemorySaver(),
     )
     config = build_thread_config(f"returned-by-label-{run_mode}")

@@ -50,6 +50,7 @@ from langchain_sync_monitors.protocols import (
 from langchain_sync_monitors.trajectory_channel import (
     TrajectoryDelta,
     TrajectoryLengths,
+    TrajectoryState,
     merge_trajectories,
 )
 from tests.support.agents import (
@@ -649,3 +650,144 @@ def test_only_a_nested_write_behind_the_trajectory_is_dropped_without_a_lost_wri
 
     # Assert
     assert merged.get(LABEL, {}).get("lost_writes") == lost_writes
+
+
+DELEGATING_DUMP: dict[str, JSON] = {
+    "format": "hyoshigi.trajectory",
+    "version": 3,
+    "history": [
+        STORED_TASK_OBSERVATION,
+        {
+            "kind": "action",
+            "id": "step-1",
+            "thought": [],
+            "parts": [],
+            "tool_calls": [{"id": "call-task", "name": "task", "arguments": "{}"}],
+        },
+    ],
+    "ratings": [],
+    "records": [],
+    "subagents": {},
+}
+"""A trajectory whose action calls `task` as `call-task`, as `Trajectory.dump()` stores it."""
+SUBAGENT_DUMP: dict[str, JSON] = {
+    "format": "hyoshigi.trajectory",
+    "version": 3,
+    "history": [
+        {
+            "kind": "observation",
+            "author": "delegator",
+            "source": None,
+            "parts": [{"kind": "text", "text": "Find the sources."}],
+        },
+    ],
+    "ratings": [],
+    "records": [],
+    "subagents": {},
+}
+"""The trajectory of the subagent `call-task` started: its instruction."""
+LONGER_SUBAGENT_DUMP: dict[str, JSON] = {
+    "format": "hyoshigi.trajectory",
+    "version": 3,
+    "history": [
+        {
+            "kind": "observation",
+            "author": "delegator",
+            "source": None,
+            "parts": [{"kind": "text", "text": "Find the sources."}],
+        },
+        {
+            "kind": "action",
+            "id": "step-1",
+            "thought": [],
+            "parts": [{"kind": "text", "text": "Three sources."}],
+            "tool_calls": [],
+        },
+    ],
+    "ratings": [],
+    "records": [],
+    "subagents": {},
+}
+"""The same subagent's trajectory one answer later, with no record."""
+JOINED_DUMP: dict[str, JSON] = {
+    "format": "hyoshigi.trajectory",
+    "version": 3,
+    "history": DELEGATING_DUMP["history"],
+    "ratings": [],
+    "records": [],
+    "subagents": {"call-task": SUBAGENT_DUMP},
+}
+"""The delegating trajectory with the subagent's joined under `call-task`."""
+
+
+def build_held(trajectory: dict[str, JSON], *, lost_writes: int = 0) -> dict[str, TrajectoryState]:
+    """Return the key's value holding the delegating agent's trajectory under the label."""
+    return {
+        LABEL: TrajectoryState(
+            trajectory=trajectory,
+            delegation_id=None,
+            seen=["task", "step-1"],
+            lost_writes=lost_writes,
+        ),
+    }
+
+
+def build_returned(
+    trajectory: dict[str, JSON],
+    *,
+    call_id: str = "call-task",
+) -> dict[str, TrajectoryState]:
+    """Return the write of a subagent's whole state, as the call that started it returns it."""
+    return {
+        LABEL: TrajectoryState(
+            trajectory=trajectory, delegation_id=call_id, seen=[], lost_writes=0
+        ),
+    }
+
+
+RETURNED_WRITES = {
+    "joined-under-its-call": pytest.param(
+        build_held(DELEGATING_DUMP),
+        build_returned(SUBAGENT_DUMP),
+        build_held(JOINED_DUMP),
+        marks=pytest.mark.xfail(strict=True, reason="the reducer joins a subagent (#146)"),
+    ),
+    "again-adding-no-record": pytest.param(
+        build_held(JOINED_DUMP),
+        build_returned(LONGER_SUBAGENT_DUMP),
+        build_held(JOINED_DUMP),
+        marks=pytest.mark.xfail(strict=True, reason="the reducer joins a subagent (#146)"),
+    ),
+    "under-a-label-without-one": pytest.param(
+        {},
+        build_returned(SUBAGENT_DUMP),
+        {},
+        marks=pytest.mark.xfail(strict=True, reason="the reducer joins a subagent (#146)"),
+    ),
+    "for-a-call-it-never-made": pytest.param(
+        build_held(DELEGATING_DUMP),
+        build_returned(SUBAGENT_DUMP, call_id="call-other"),
+        build_held(DELEGATING_DUMP, lost_writes=1),
+    ),
+    "that-does-not-load": pytest.param(
+        build_held(DELEGATING_DUMP),
+        build_returned({"format": "hyoshigi.trajectory", "version": 99}),
+        build_held(DELEGATING_DUMP, lost_writes=1),
+    ),
+}
+"""Each held value, a subagent's returned state, and the value the join rule leaves."""
+
+
+@pytest.mark.parametrize(
+    ("held", "write", "expected"), RETURNED_WRITES.values(), ids=RETURNED_WRITES
+)
+def test_a_returned_subagent_state_folds_in_as_the_join_rule_says(
+    held: dict[str, TrajectoryState],
+    write: Any,
+    expected: dict[str, TrajectoryState],
+) -> None:
+    # Act
+    merged = merge_trajectories(held, [write])
+
+    # Assert
+    assert merged == expected

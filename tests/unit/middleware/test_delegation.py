@@ -305,6 +305,87 @@ def run_with_delegation(agent: Any, *, delegation: object, mode: RunMode) -> dic
     return asyncio.run(agent.ainvoke(payload))
 
 
+EMPTY_RUN: dict[str, Any] = {
+    "format": "hyoshigi.trajectory",
+    "version": 3,
+    "history": [],
+    "ratings": [],
+    "records": [],
+    "subagents": {},
+}
+"""A run's root that holds nothing, so no call of it can start a subagent."""
+
+
+CALLING_RUN: dict[str, Any] = {
+    "format": "hyoshigi.trajectory",
+    "version": 3,
+    "history": [
+        {
+            "kind": "action",
+            "id": "step-1",
+            "thought": [],
+            "parts": [],
+            "tool_calls": [{"id": "call-child", "name": "task", "arguments": "{}"}],
+        },
+    ],
+    "ratings": [],
+    "records": [],
+    "subagents": {},
+}
+"""A run's root whose one action makes the call `call-child`."""
+
+
+def build_delegation_with_run(run: dict[str, Any]) -> dict[str, Any]:
+    """Return a delegation of the call `x` whose run for the label `monitor` is `run`."""
+    return {
+        "tool_call_id": "x",
+        "delegating_agent": "main",
+        "blocks_before": {},
+        "runs": {"monitor": run},
+    }
+
+
+@pytest.mark.xfail(strict=True, reason="a delegation carries runs (#146)")
+def test_a_tool_call_hands_on_the_run_of_each_label_whose_trajectory_holds_the_call(
+    run_mode: RunMode,
+    middleware: MonitorMiddleware,
+) -> None:
+    # Arrange: only the label `monitor` recorded the reply that made the call
+    state = {
+        "messages": [],
+        "monitor_trajectory": {
+            "monitor": {
+                "trajectory": CALLING_RUN,
+                "delegation_id": None,
+                "seen": [],
+                "lost_writes": 0,
+            },
+            "guard": {"trajectory": EMPTY_RUN, "delegation_id": None, "seen": [], "lost_writes": 0},
+        },
+    }
+    request = build_tool_request(state=state, call_id="call-child")
+    seen: list[ToolCallRequest] = []
+
+    def handle(inner: ToolCallRequest) -> ToolMessage:
+        seen.append(inner)
+        return ToolMessage("done", tool_call_id="call-child")
+
+    async def handle_async(inner: ToolCallRequest) -> ToolMessage:
+        return handle(inner)
+
+    # Act
+    if run_mode == "invoke":
+        middleware.wrap_tool_call(request, handle)
+    else:
+        asyncio.run(middleware.awrap_tool_call(request, handle_async))
+
+    # Assert
+    [handled] = seen
+    assert handled.runtime.state["monitor_delegation"].get("runs") == {
+        "monitor": {"trajectory": CALLING_RUN, "path": []},
+    }
+
+
 @pytest.mark.parametrize(
     "delegation",
     [
@@ -314,8 +395,32 @@ def run_with_delegation(agent: Any, *, delegation: object, mode: RunMode) -> dic
         {"tool_call_id": "x", "blocks_before": {"monitor": 1}},
         {"id": "x"},
         "x",
+        pytest.param(
+            build_delegation_with_run(
+                {"trajectory": {"format": "hyoshigi.trajectory", "version": 99}, "path": []},
+            ),
+            marks=pytest.mark.xfail(strict=True, reason="a delegation carries runs (#146)"),
+        ),
+        pytest.param(
+            build_delegation_with_run({"trajectory": EMPTY_RUN, "path": ["call-missing"]}),
+            marks=pytest.mark.xfail(strict=True, reason="a delegation carries runs (#146)"),
+        ),
+        pytest.param(
+            build_delegation_with_run({"trajectory": EMPTY_RUN, "path": []}),
+            marks=pytest.mark.xfail(strict=True, reason="a delegation carries runs (#146)"),
+        ),
     ],
-    ids=["negative", "string-count", "bool-count", "no-agent", "unknown-keys", "not-a-mapping"],
+    ids=[
+        "negative",
+        "string-count",
+        "bool-count",
+        "no-agent",
+        "unknown-keys",
+        "not-a-mapping",
+        "run-that-does-not-load",
+        "run-path-to-no-agent",
+        "run-without-the-call",
+    ],
 )
 def test_an_invalid_delegation_in_the_input_is_rejected_before_any_step(
     run_mode: RunMode,

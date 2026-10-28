@@ -184,6 +184,21 @@ def test_overrides_for_unknown_subagents_are_rejected(
         )
 
 
+@pytest.mark.xfail(strict=True, reason="an override keeps the parent's label (#146)")
+def test_an_override_with_another_label_is_rejected(
+    middleware: MonitorMiddleware,
+    researcher: SubAgent,
+) -> None:
+    # Arrange
+    guard = MonitorMiddleware(monitor=KeywordMonitor(), protocol=AcceptFirst(), label="guard")
+
+    # Act / Assert
+    with pytest.raises(ConfigurationError, match=r"label 'guard'.*parent's label, 'monitor'"):
+        monitor_subagents(
+            middleware=middleware, subagents=[researcher], overrides={"researcher": guard}
+        )
+
+
 def test_existing_middleware_is_kept_and_the_given_specs_are_not_changed(
     middleware: MonitorMiddleware,
 ) -> None:

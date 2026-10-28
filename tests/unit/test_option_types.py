@@ -132,7 +132,6 @@ def test_defer_to_resample_refuses_a_resample_count_that_is_not_a_whole_number(
         build_defer_to_resample(max_resamples=value)
 
 
-@pytest.mark.xfail(strict=True)
 @pytest.mark.parametrize(
     ("build", "parameter", "value", "shown"),
     [

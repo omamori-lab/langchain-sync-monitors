@@ -154,6 +154,9 @@ change raises the minor version.
   `CalibratedMonitor(random_seed=...)` draws from the seed and the trajectory,
   each action's id blanked, so a fresh run whose tool calls get new ids draws
   afresh.
+- `DeferToResample(max_resamples=...)` and `AutoMode(max_consecutive_blocks=...)`
+  raise `ConfigurationError` for a count above `sys.maxsize`, which they
+  accepted before, as hyoshigi's counts do.
 
 ### Added
 

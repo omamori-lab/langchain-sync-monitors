@@ -1409,7 +1409,7 @@ def test_both_models_declare_the_count_of_alternatives_the_chat_model_is_asked_f
         True,
         2.0,
         "2",
-        pytest.param(sys.maxsize + 1, marks=pytest.mark.xfail(strict=True), id="above-sys.maxsize"),
+        pytest.param(sys.maxsize + 1, id="above-sys.maxsize"),
     ],
 )
 def test_a_count_that_is_no_whole_number_from_zero_to_sys_maxsize_is_a_configuration_error(

@@ -423,6 +423,24 @@ ANTHROPIC_SERVER_ERROR_REPLY = AIMessage(
 OPENAI_WEB_SEARCH_REPLY = build_openai_web_search_reply().model_copy(update={"id": "resp_03"})
 OPENAI_REMOTE_MCP_REPLY = build_openai_remote_mcp_reply().model_copy(update={"id": "resp_04"})
 GEMINI_GROUNDED_REPLY = build_gemini_grounded_reply().model_copy(update={"id": "gem_01"})
+# A grounded reply whose search found no sources, as langchain-google-genai 4.4.2 keeps it.
+GEMINI_UNSOURCED_REPLY = AIMessage(
+    "Nothing was found.",
+    id="gem_02",
+    response_metadata={
+        "model_provider": "google_genai",
+        "grounding_metadata": {
+            "web_search_queries": ["sk-test site:attacker.example"],
+            "grounding_chunks": [],
+            "grounding_supports": [],
+        },
+    },
+)
+UNSOURCED_GROUNDING_CALL = ToolCall(
+    id="gem_02.grounding_metadata",
+    name="grounding",
+    arguments='{"web_search_queries": ["sk-test site:attacker.example"]}',
+)
 
 SERVER_TOOL_HISTORIES: dict[str, tuple[AIMessage, list[Event]]] = {
     "anthropic": (
@@ -877,6 +895,35 @@ def test_a_server_tool_result_in_a_rated_reply_is_an_opaque_part_where_it_stood(
 
     # Assert
     assert action == proposed
+
+
+@pytest.mark.xfail(strict=True)
+def test_a_grounded_reply_whose_search_found_nothing_still_has_the_server_s_observation() -> None:
+    # Act
+    events = read_events(GEMINI_UNSOURCED_REPLY, task_author=TaskAuthor.USER)
+
+    # Assert
+    assert events == [
+        Action(
+            id="gem_02",
+            parts=(TextPart(text="Nothing was found."),),
+            tool_calls=(UNSOURCED_GROUNDING_CALL,),
+        ),
+        ToolObservation(call_id="gem_02.grounding_metadata", source="server", parts=()),
+    ]
+
+
+@pytest.mark.xfail(strict=True)
+def test_a_rated_grounded_reply_whose_search_found_nothing_still_fails_closed() -> None:
+    # Act
+    action = read_proposed_action(GEMINI_UNSOURCED_REPLY)
+
+    # Assert
+    assert action == Action(
+        id="gem_02",
+        parts=(TextPart(text="Nothing was found."), PLACEHOLDER),
+        tool_calls=(UNSOURCED_GROUNDING_CALL,),
+    )
 
 
 @pytest.mark.parametrize(

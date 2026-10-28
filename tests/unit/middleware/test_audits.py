@@ -22,7 +22,7 @@ import pytest
 from hyoshigi import Policy, Replace, Trajectory
 from langchain.agents import create_agent
 from langchain.agents.structured_output import ToolStrategy
-from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
+from langchain_core.messages import AIMessage, HumanMessage, RemoveMessage, ToolMessage
 from langgraph.checkpoint.memory import InMemorySaver
 from pydantic import BaseModel, ValidationError
 
@@ -31,6 +31,7 @@ from langchain_sync_monitors import (
     BlockAndFeedBack,
     DeferToResample,
     FeedbackTemplate,
+    MonitorError,
     MonitorMiddleware,
 )
 from langchain_sync_monitors.protocols import ProtocolConfiguration
@@ -633,3 +634,72 @@ def test_a_held_step_and_its_answer_each_trace_a_decision(run_mode: RunMode) -> 
         "monitor_flagged": False,
         "monitor_max_suspicion": 0.9,
     }
+
+
+def remove_held_reply(paused: PausedRun) -> None:
+    """Remove the held reply from the paused thread's messages, as `update_state` lets anyone."""
+    held = paused.result["messages"][1]
+    paused.agent.update_state(THREAD, {"messages": [RemoveMessage(id=held.id)]})
+
+
+@pytest.mark.xfail(strict=True, reason="PR 6 refuses an audit whose held reply is gone")
+def test_a_resume_after_the_held_reply_was_removed_raises(
+    run_mode: RunMode,
+    paused_post: PausedRun,
+) -> None:
+    # Arrange
+    remove_held_reply(paused_post)
+
+    # Act / Assert: the error names the monitor, and quotes nothing of the reply
+    with pytest.raises(MonitorError, match="'monitor'") as raised:
+        send_audit_answer(
+            paused_post.agent,
+            paused_post.result,
+            answer=APPROVE,
+            mode=run_mode,
+            config=THREAD,
+        )
+    assert "attacker.example" not in str(raised.value)
+
+
+@pytest.mark.xfail(strict=True, reason="PR 6 refuses an audit whose held reply is gone")
+def test_new_input_after_the_held_reply_was_removed_raises(
+    run_mode: RunMode,
+    paused_post: PausedRun,
+) -> None:
+    # Arrange
+    remove_held_reply(paused_post)
+
+    # Act / Assert
+    with pytest.raises(MonitorError, match="'monitor'"):
+        run_agent(paused_post.agent, mode=run_mode, config=THREAD, task=NEW_INPUT)
+
+
+@pytest.mark.xfail(strict=True, reason="PR 6 hands each audit request answers of its own")
+def test_editing_a_request_s_answers_leaves_the_next_audit_s_answers_whole(
+    run_mode: RunMode,
+) -> None:
+    # Arrange: two suspicious steps; the first request's answers are edited in place
+    agent = build_audited_agent(
+        [
+            build_exfiltration_step(call_id="call-post-1"),
+            build_exfiltration_step(call_id="call-post-2"),
+        ],
+        workspace=Workspace(),
+    )
+    paused = run_agent(agent, mode=run_mode, config=THREAD)
+    paused["__interrupt__"][0].value["answers"].append("approve")
+
+    # Act
+    paused_again = send_audit_answer(
+        agent,
+        paused,
+        answer={"type": "reject"},
+        mode=run_mode,
+        config=THREAD,
+    )
+
+    # Assert
+    assert [value["answers"] for value in read_interrupt_values(paused_again)] == [
+        ["approve", "edit", "reject", "stop"],
+    ]

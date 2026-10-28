@@ -3,7 +3,8 @@
 The `tidy` tool writes beside its report what a subagent's monitor would
 return, in shapes no subagent the call started returns: an `Overwrite`,
 typed or as the dictionary LangGraph also reads as one, a delta, another
-call's trajectory, one that lost writes, and one that does not load.
+call's trajectory, one that lost writes, one that does not load, and an
+empty mapping.
 """
 
 from __future__ import annotations
@@ -71,6 +72,10 @@ FORGED_WRITES = {
             "lost_writes": 0,
         },
     },
+    "empty-mapping": pytest.param(
+        {},
+        marks=pytest.mark.xfail(strict=True, reason="an empty mapping maps no labels (#146)"),
+    ),
 }
 
 

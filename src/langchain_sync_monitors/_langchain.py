@@ -26,6 +26,7 @@ from langchain.agents.middleware.types import (
 from langchain.tools import ToolRuntime
 from langchain_core.callbacks import AsyncCallbackManager, BaseCallbackManager, CallbackManager
 from langchain_core.callbacks.base import BaseCallbackHandler
+from langchain_core.language_models import BaseChatModel, LangSmithParams
 from langchain_core.messages import AnyMessage, BaseMessage, ToolMessage, convert_to_messages
 from langchain_core.runnables import RunnableBinding, RunnableConfig
 from langchain_core.runnables.config import ensure_config, patch_config, var_child_runnable_config
@@ -406,6 +407,11 @@ def read_bound_tools(model: object) -> list[object]:
             return list(bound)
         model = model.bound
     return []
+
+
+def read_chat_model_labels(model: BaseChatModel) -> LangSmithParams:
+    """Return the provider and model name a chat model reports to a tracer [@langchaincore2026]."""
+    return model._get_ls_params()
 
 
 def build_request_with_messages(

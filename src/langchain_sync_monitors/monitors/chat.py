@@ -19,12 +19,17 @@ from collections.abc import Awaitable, Callable, Generator
 from dataclasses import dataclass, replace
 from typing import ClassVar
 
-import httpx
 from langchain_core.language_models import BaseChatModel, LanguageModelInput
 from langchain_core.messages import AIMessage, BaseMessage
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.runnables import Runnable
 
+from langchain_sync_monitors.chat_model_adapter import (
+    RATE_LIMIT_ATTEMPTS,
+    RATE_LIMIT_FIRST_WAIT_SECONDS,
+    is_rate_limit_error,
+    is_reply_cut_off,
+)
 from langchain_sync_monitors.concurrency import run_concurrently
 from langchain_sync_monitors.contracts import Monitor, MonitorInput, MonitorView, Verdict
 from langchain_sync_monitors.errors import ConfigurationError
@@ -55,47 +60,6 @@ INTEGER_PATTERN = re.compile(r"[+-]?\d+")
 REASONING_START_TAG_PATTERN = re.compile(r"<reasoning>", flags=re.IGNORECASE)
 REASONING_END_TAG_PATTERN = re.compile(r"</reasoning>", flags=re.IGNORECASE)
 FINAL_SCORE_PATTERN = re.compile(r"\s*<score>(?P<score>[^<]*)</score>\s*", flags=re.IGNORECASE)
-
-STOP_REASON_KEYS = (
-    "finish_reason",
-    "native_finish_reason",
-    "stop_reason",
-    "stopReason",
-    "done_reason",
-)
-"""Where providers put why a reply stopped.
-
-OpenAI, OpenRouter and Gemini use the first two, Anthropic the third,
-Bedrock Converse the fourth and Ollama the last.
-"""
-
-CUT_OFF_STOP_REASONS = ("length", "max_tokens", "max_output_tokens", "context_window_exceeded")
-"""Stop reasons that mean the reply hit a length limit before the model finished it."""
-
-RATE_LIMIT_ATTEMPTS = 4
-"""How many times a monitor's call is tried in all while the provider answers HTTP 429."""
-RATE_LIMIT_FIRST_WAIT_SECONDS = 1.0
-"""The wait before the first retry of a rate-limited call; each later wait doubles, up to 5 s."""
-
-
-def is_rate_limit_error(error: Exception) -> bool:
-    """Tell whether a chat model's call failed on a rate limit, HTTP 429.
-
-    A chat model's own `max_retries` does not always cover one:
-    `ChatOpenRouter` hands its retries to the OpenRouter SDK
-    [@langchainopenrouter2026], which retries a chat completion on HTTP 5xx
-    and network errors alone, and whose retry settings name no status code
-    [@openrouterpythonsdk2026]. Provider SDKs put the status on their errors
-    as `status_code`, OpenRouter's, OpenAI's and Anthropic's among them, and
-    the last two retry a 429 themselves too
-    [@openaipythonsdk2026; @anthropicpythonsdk2026]; httpx puts the status
-    on the error's response [@httpx2024].
-    """
-    if isinstance(error, httpx.HTTPStatusError):
-        status: object = error.response.status_code
-    else:
-        status = getattr(error, "status_code", None)
-    return status == httpx.codes.TOO_MANY_REQUESTS
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -315,33 +279,6 @@ class ChatModelMonitor(Monitor, ABC):
             attempts=RATE_LIMIT_ATTEMPTS,
             wait_initial=RATE_LIMIT_FIRST_WAIT_SECONDS,
         )
-
-
-def is_reply_cut_off(reply: AIMessage) -> bool:
-    """Tell whether the provider reports that the reply stopped at a length limit.
-
-    OpenAI and OpenRouter report `finish_reason: "length"`, Gemini
-    `finish_reason: "MAX_TOKENS"`, Anthropic `stop_reason: "max_tokens"` or
-    `"model_context_window_exceeded"`, and OpenRouter keeps the upstream value
-    in `native_finish_reason`; the OpenAI Responses API reports
-    `incomplete_details: {"reason": "max_output_tokens"}`. `ChatBedrockConverse`
-    keeps the Converse response's `stopReason`, `"max_tokens"` or
-    `"model_context_window_exceeded"` [@langchainaws2026; @aws2026converse],
-    and `ChatOllama` keeps Ollama's `done_reason: "length"`
-    [@langchainollama2026]. Merging streamed
-    chunks can repeat a value, as in `"MAX_TOKENSMAX_TOKENS"`, so a stop
-    reason counts when it contains a cut-off reason.
-    """
-    metadata = reply.response_metadata
-    stop_reasons = [metadata.get(key) for key in STOP_REASON_KEYS]
-    incomplete_details = metadata.get("incomplete_details")
-    if isinstance(incomplete_details, dict):
-        stop_reasons.append(incomplete_details.get("reason"))
-    return any(
-        isinstance(stop_reason, str)
-        and any(cut_off in stop_reason.lower() for cut_off in CUT_OFF_STOP_REASONS)
-        for stop_reason in stop_reasons
-    )
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)

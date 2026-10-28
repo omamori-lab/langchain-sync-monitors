@@ -17,8 +17,9 @@ from langchain_core.messages import AIMessage
 from langchain_core.prompts import ChatPromptTemplate
 from stamina.instrumentation import RetryDetails
 
+from langchain_sync_monitors.chat_model_adapter import RATE_LIMIT_ATTEMPTS
 from langchain_sync_monitors.contracts import Monitor, MonitorInput
-from langchain_sync_monitors.monitors.chat import RATE_LIMIT_ATTEMPTS, LLMMonitor
+from langchain_sync_monitors.monitors.chat import LLMMonitor
 from langchain_sync_monitors.monitors.guard import GuardModelMonitor, GuardScoring
 from tests.support.flaky_models import FlakyChatModel
 from tests.support.log_records import find_frame_leaks, find_leaks, find_logged_leaks
@@ -137,11 +138,7 @@ def build_guard(model: BaseChatModel) -> Monitor:
 RATE_LIMITS = [
     pytest.param(lambda: ProviderStatusError(429), id="provider-error-429"),
     pytest.param(lambda: build_http_status_error(429), id="httpx-429"),
-    pytest.param(
-        lambda: ModelRateLimitError(),
-        marks=pytest.mark.xfail(strict=True, reason="a typed rate limit has no status_code yet"),
-        id="typed-rate-limit-without-status",
-    ),
+    pytest.param(lambda: ModelRateLimitError(), id="typed-rate-limit-without-status"),
 ]
 OTHER_FAILURES = [
     pytest.param(lambda: ProviderStatusError(500), id="provider-error-500"),

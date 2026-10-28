@@ -27,6 +27,7 @@ from langchain_core.messages import AIMessage, BaseMessage
 from langchain_core.prompts import ChatPromptTemplate
 from pydantic import BaseModel, Field, ValidationError
 
+from langchain_sync_monitors.chat_model_adapter import is_reply_cut_off
 from langchain_sync_monitors.contracts import MonitorInput, MonitorView, Verdict
 from langchain_sync_monitors.errors import ConfigurationError
 from langchain_sync_monitors.monitors.chat import (
@@ -34,7 +35,6 @@ from langchain_sync_monitors.monitors.chat import (
     ChatModelMonitor,
     ReplyRequest,
     VerdictPlan,
-    is_reply_cut_off,
 )
 from langchain_sync_monitors.monitors.guard_labels import LABEL_WORD, LabelMatch, find_reply_label
 from langchain_sync_monitors.options import (

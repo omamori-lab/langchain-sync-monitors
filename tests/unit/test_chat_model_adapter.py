@@ -49,8 +49,6 @@ from tests.support.flaky_models import FlakyChatModel
 from tests.support.log_records import find_logged_leaks
 from tests.support.tracing import RecordingTracer
 
-pytestmark = pytest.mark.xfail(strict=True, reason="ChatModelAdapter is not written yet")
-
 type CallPath = Literal["async", "sync"]
 
 ADAPTER_LOGGER = "langchain_sync_monitors.chat_model_adapter"
@@ -188,7 +186,7 @@ async def test_a_prompt_reaches_the_chat_model_as_a_system_message_and_text_bloc
     model = ScriptedChatModel(responses=[FINE])
     prompt = Prompt(
         system="Rate the step.",
-        content=(TextPart(text="First."), TextPart(text="Second.")),
+        content=(TextPart(text=" First.\n"), TextPart(text="Second.")),
     )
 
     # Act
@@ -196,7 +194,7 @@ async def test_a_prompt_reaches_the_chat_model_as_a_system_message_and_text_bloc
 
     # Assert
     expected = HumanMessage(
-        content=[{"type": "text", "text": "First."}, {"type": "text", "text": "Second."}],
+        content=[{"type": "text", "text": " First.\n"}, {"type": "text", "text": "Second."}],
     )
     assert model.calls == [[SystemMessage("Rate the step."), expected]]
 
@@ -206,6 +204,11 @@ MEDIA_BLOCKS = [
         MediaPart(media_type="image/png", url="https://example.test/chart.png"),
         {"type": "image", "url": "https://example.test/chart.png", "mime_type": "image/png"},
         id="image-by-url",
+    ),
+    pytest.param(
+        MediaPart(media_type="Image/PNG", url="https://example.test/chart.png"),
+        {"type": "image", "url": "https://example.test/chart.png", "mime_type": "image/png"},
+        id="image-type-in-capitals",
     ),
     pytest.param(
         MediaPart(media_type="image/png", data=b"\x89PNG"),
@@ -321,6 +324,7 @@ COMPLETE_REPLIES = [
     pytest.param(AIMessage("Fine.", response_metadata={"stopReason": "end_turn"}), id="bedrock"),
     pytest.param(AIMessage("Fine.", response_metadata={"done_reason": "stop"}), id="ollama"),
     pytest.param(AIMessage("Fine.", additional_kwargs={"refusal": None}), id="openai-no-refusal"),
+    pytest.param(AIMessage("Fine.", additional_kwargs={"refusal": ""}), id="openai-empty-refusal"),
     pytest.param(AIMessage("Fine."), id="no-stop-reason"),
 ]
 
@@ -605,6 +609,7 @@ RAISED_FAILURES = [
     pytest.param(lambda: ModelInvalidRequestError(), id="typed-invalid-request-on-text"),
     pytest.param(lambda: StatusError(401), id="status-401"),
     pytest.param(lambda: StatusError(402), id="status-402"),
+    pytest.param(lambda: StatusError(499), id="status-499"),
     pytest.param(lambda: StatusError(403), id="status-403"),
     pytest.param(lambda: StatusError(404), id="status-404"),
     pytest.param(lambda: build_http_status_error(404), id="httpx-404"),
@@ -638,24 +643,49 @@ async def test_any_other_failure_is_raised_as_it_is_and_not_retried(
     assert model.started_calls == 1
 
 
-async def test_a_failure_turned_into_an_outcome_is_logged_by_its_type_and_status_alone(
+LOGGED_FAILURES = [
+    pytest.param(
+        lambda: ReplyHoldingError(status_code=503, body=f"Reply quoting {PLANTED_REPLY}."),
+        "A chat model call failed with ReplyHoldingError (HTTP 503) "
+        "and is reported as unavailable.",
+        id="unavailable-with-status",
+    ),
+    pytest.param(
+        lambda: ReplyHoldingError(status_code=413, body=f"Reply quoting {PLANTED_REPLY}."),
+        "A chat model call failed with ReplyHoldingError (HTTP 413) and is reported as rejected.",
+        id="rejected-with-status",
+    ),
+    pytest.param(
+        lambda: httpx.ConnectError(f"refused, quoting {PLANTED_REPLY}"),
+        "A chat model call failed with ConnectError (no HTTP status) "
+        "and is reported as unavailable.",
+        id="unavailable-without-status",
+    ),
+]
+
+
+@pytest.mark.parametrize(("build_error", "expected"), LOGGED_FAILURES)
+async def test_a_failure_turned_into_an_outcome_is_warned_of_by_its_type_and_status_alone(
     call_path: CallPath,
     every_log_record: list[logging.LogRecord],
+    build_error: Callable[[], Exception],
+    expected: str,
 ) -> None:
-    # Arrange: the error's repr holds the provider's whole reply
-    error = ReplyHoldingError(status_code=503, body=f"Rate limit reply quoting {PLANTED_REPLY}.")
+    # Arrange: the error's text and repr hold the provider's reply
+    error = build_error()
     model = FlakyChatModel(replies=[error])
 
     # Act
     await generate_on_path(model, PROMPT, call_path=call_path)
 
     # Assert
-    messages = [record.getMessage() for record in every_log_record if record.name == ADAPTER_LOGGER]
-    expected = (
-        "A chat model call failed with ReplyHoldingError (HTTP 503) and is reported as unavailable."
-    )
+    lines = [
+        (record.levelname, record.getMessage())
+        for record in every_log_record
+        if record.name == ADAPTER_LOGGER
+    ]
     assert PLANTED_REPLY in repr(error)
-    assert messages == [expected]
+    assert lines == [("WARNING", expected)]
     assert find_logged_leaks(every_log_record, secrets=[PLANTED_REPLY]) == []
 
 
@@ -684,6 +714,7 @@ NAMED_MODELS = [
     ),
     pytest.param({"ls_provider": "acme"}, "acme", id="provider-alone"),
     pytest.param({"ls_model_name": "model-1"}, "model-1", id="model-alone"),
+    pytest.param({"ls_provider": "", "ls_model_name": "model-1"}, "model-1", id="empty-provider"),
     pytest.param({}, "LabelledChatModel", id="neither"),
 ]
 

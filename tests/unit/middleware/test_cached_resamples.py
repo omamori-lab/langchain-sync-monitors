@@ -76,7 +76,12 @@ def build_agent(model: ScriptedChatModel, *, protocol: ControlProtocol) -> Runna
 
 
 def build_model(**settings: Any) -> ScriptedChatModel:
-    replies = [build_exfiltration_step(), build_read_step(), build_read_step(), AIMessage("Done.")]
+    replies = [
+        build_exfiltration_step(),
+        build_read_step(),
+        build_read_step(call_id="call-read-again"),
+        AIMessage("Done."),
+    ]
     return ScriptedChatModel(responses=replies, **settings)
 
 

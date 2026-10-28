@@ -21,6 +21,7 @@ from langgraph.types import Overwrite
 
 from langchain_sync_monitors._langchain import AgentStateUpdate
 from langchain_sync_monitors.contracts import TaskAuthor
+from langchain_sync_monitors.message_ids import build_run_end_update
 from langchain_sync_monitors.message_keys import build_content_key
 from langchain_sync_monitors.state_keys import TRAJECTORY_KEY
 from langchain_sync_monitors.task_authorship import is_run_open, read_state_messages
@@ -138,3 +139,18 @@ def build_run_end_trajectories_update(
     """Return the update that marks the ids a run's end gives as read in the trajectories."""
     given = find_given_ids(state, update=update)
     return build_trajectories_update(state, given=given, task_author=task_author)
+
+
+def build_marked_run_end_update(
+    state: Mapping[str, object],
+    *,
+    task_author: TaskAuthor,
+) -> AgentStateUpdate:
+    """Return the update a run ends with: the notes tagged, the run closed, ids marked read.
+
+    A message a trajectory read under its key, and the end gives an id,
+    would otherwise be read again under that id in the next run.
+    """
+    update = build_run_end_update(state)
+    trajectories = build_run_end_trajectories_update(state, update=update, task_author=task_author)
+    return {**update, **trajectories}

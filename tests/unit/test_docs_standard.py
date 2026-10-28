@@ -1148,10 +1148,10 @@ def test_prose_and_other_code_that_name_mermaid_are_not_diagrams(text: str) -> N
 def test_a_figure_embedded_in_both_schemes_has_no_problem() -> None:
     # Arrange: the embed pattern the pages use, and the README's picture element
     page = (
-        "[![Alt](../assets/diagrams/protocols-light.svg#only-light)]"
-        "(../assets/diagrams/protocols-light.svg)\n"
-        "[![Alt](../assets/diagrams/protocols-dark.svg#only-dark)]"
-        "(../assets/diagrams/protocols-dark.svg)\n"
+        "[![Alt](../assets/diagrams/halt-stands-light.svg#only-light)]"
+        "(../assets/diagrams/halt-stands-light.svg)\n"
+        "[![Alt](../assets/diagrams/halt-stands-dark.svg#only-dark)]"
+        "(../assets/diagrams/halt-stands-dark.svg)\n"
         '<source srcset="docs/assets/diagrams/monitors-dark.svg">\n'
         '<img alt="Alt" src="docs/assets/diagrams/monitors-light.svg">\n'
     )
@@ -1167,19 +1167,19 @@ def test_a_figure_embedded_in_both_schemes_has_no_problem() -> None:
     ("text", "expected"),
     [
         (
-            "![Alt](../assets/diagrams/protocols-light.svg#only-light)\n",
-            ["protocols: embedded without its dark twin"],
+            "![Alt](../assets/diagrams/halt-stands-light.svg#only-light)\n",
+            ["halt-stands: embedded without its dark twin"],
         ),
         (
-            "![Alt](../assets/diagrams/protocols-dark.svg#only-dark)\n",
-            ["protocols: embedded without its light twin"],
+            "![Alt](../assets/diagrams/halt-stands-dark.svg#only-dark)\n",
+            ["halt-stands: embedded without its light twin"],
         ),
         (
-            "![Alt](../assets/diagrams/protocols-light.svg#only-dark)\n"
-            "![Alt](../assets/diagrams/protocols-dark.svg#only-light)\n",
+            "![Alt](../assets/diagrams/halt-stands-light.svg#only-dark)\n"
+            "![Alt](../assets/diagrams/halt-stands-dark.svg#only-light)\n",
             [
-                "protocols: the light SVG is shown as #only-dark",
-                "protocols: the dark SVG is shown as #only-light",
+                "halt-stands: the light SVG is shown as #only-dark",
+                "halt-stands: the dark SVG is shown as #only-light",
             ],
         ),
         (

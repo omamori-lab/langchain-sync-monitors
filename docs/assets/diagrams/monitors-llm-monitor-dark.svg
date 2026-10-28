@@ -1,6 +1,6 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="1000" height="804" viewBox="0 0 1000 804" role="img" aria-labelledby="title desc">
+<svg xmlns="http://www.w3.org/2000/svg" width="1000" height="844" viewBox="0 0 1000 844" role="img" aria-labelledby="title desc">
   <title id="title">How an LLM monitor&#x27;s reply becomes a verdict</title>
-  <desc id="desc">LLMMonitor calls its model with the filled prompt, the same prompt on every attempt. If the call still fails after the chat model&#x27;s own retries, and after the monitor&#x27;s own retries of a rate limit, the error is raised: the step fails, and none of the agent&#x27;s own tools run. Otherwise the reply is read in three checks. A reply the provider reports as cut off at a length limit is unreadable. So is a reply without a reasoning block that holds some text, then exactly one score tag, with nothing but whitespace between them or after the score, and a reply whose score is not an integer from lowest_score to highest_score. A readable reply gives the verdict: the score mapped onto a suspicion from 0 to 1, with the reasoning as the reason. After an unreadable reply the model is asked again while attempts are left, 1 plus max_parse_retries in all, 3 by default. When none are left, the monitor fails closed: suspicion 1.0, and a warning in the log.</desc>
+  <desc id="desc">LLMMonitor calls its model with the filled prompt, the same prompt on every attempt. A call the provider answers with HTTP 429 is made again, up to four attempts in all. A rate limit, a server error, a timeout or a failed connection that outlasts the retries leaves the model unavailable, and a refusal, or a prompt the provider rejects, ends the rating at once: either way the monitor fails closed, suspicion 1.0. A call that fails for any other reason, such as a bad key, raises its error: the step fails, and none of the agent&#x27;s own tools run. A reply the provider reports as cut off at a length limit is asked for again. So is a reply without a reasoning block that holds some text, then exactly one score tag, with nothing but whitespace between them or after the score, and a reply whose score is not an integer from lowest_score to highest_score. A readable reply gives the score mapped onto a suspicion from 0 to 1, with the reasoning as the explanation. Attempts run while any are left, 1 plus max_parse_retries in all, 3 by default. When none are left, the monitor fails closed: suspicion 1.0, with an explanation that names the cause.</desc>
   <!-- Colours come from the brand tokens: diagrams/render.py fills this style block. -->
   <style>
     svg { color-scheme: dark; }
@@ -25,6 +25,8 @@
     .frame { fill: none; stroke: #6A6A66; stroke-width: 1.2; stroke-dasharray: 6 4; }
     .edge { fill: none; stroke: #D6D5CF; stroke-width: 1.5; }
     .loop { fill: none; stroke: #D6D5CF; stroke-width: 1.5; stroke-dasharray: 5 4; }
+    .bold { stroke-width: 2.75; }
+    .lifeline { fill: none; stroke: #A9A8A2; stroke-width: 1.2; stroke-dasharray: 6 4; }
     .head { fill: #D6D5CF; }
     .brush { fill: #ECEBE6; }
   </style>
@@ -39,10 +41,10 @@
   <text x="232.0" y="178.0" text-anchor="middle" class="small on-charm">with the same filled prompt every time</text>
   <rect class="box" x="588.0" y="104.0" width="380.0" height="102.0" rx="6"/>
   <text x="778.0" y="135.0" text-anchor="middle" class="title">The error is raised</text>
-  <text x="778.0" y="157.0" text-anchor="middle"><tspan class="small">after </tspan><tspan class="mono">max_retries</tspan><tspan class="small"> and the monitor&#x27;s 429 retries:</tspan></text>
+  <text x="778.0" y="157.0" text-anchor="middle" class="small">any other failure, such as a bad key:</text>
   <text x="778.0" y="178.0" text-anchor="middle" class="small">the step fails, and none of the agent&#x27;s own tools run</text>
   <path class="edge" d="M432.0,139.0 L586.0,139.0" marker-end="url(#arrow)"/>
-  <text x="510.0" y="129.0" text-anchor="middle" class="small">the call fails</text>
+  <text x="510.0" y="129.0" text-anchor="middle" class="small">any other failure</text>
   <path class="box" d="M50.0,258.0 H414.0 L432.0,298.5 L414.0,339.0 H50.0 L32.0,298.5 Z"/>
   <text x="232.0" y="289.0" text-anchor="middle" class="title">Cut off at a length limit?</text>
   <text x="232.0" y="311.0" text-anchor="middle" class="small">as the provider reports the reply&#x27;s end</text>
@@ -52,7 +54,7 @@
   <text x="232.0" y="461.0" text-anchor="middle"><tspan class="small">one </tspan><tspan class="mono">&lt;score&gt;</tspan><tspan class="small"> tag, and nothing after it</tspan></text>
   <path class="box" d="M50.0,537.0 H414.0 L432.0,577.5 L414.0,618.0 H50.0 L32.0,577.5 Z"/>
   <text x="232.0" y="568.0" text-anchor="middle" class="title">An integer on the scale?</text>
-  <text x="232.0" y="590.0" text-anchor="middle"><tspan class="small">from </tspan><tspan class="mono">lowest_score</tspan><tspan class="small"> to </tspan><tspan class="mono">highest_score</tspan></text>
+  <text x="232.0" y="590.0" text-anchor="middle" class="small">from lowest_score to highest_score</text>
   <rect class="box" x="32.0" y="670.0" width="400.0" height="102.0" rx="6"/>
   <text x="232.0" y="701.0" text-anchor="middle" class="title">Verdict</text>
   <text x="232.0" y="723.0" text-anchor="middle" class="small">suspicion: the score mapped onto 0 to 1</text>
@@ -67,11 +69,11 @@
   <text x="244.0" y="649.0" text-anchor="start" class="small">yes</text>
   <path class="box" d="M606.0,397.5 H950.0 L968.0,438.0 L950.0,478.5 H606.0 L588.0,438.0 Z"/>
   <text x="778.0" y="428.5" text-anchor="middle" class="title">Attempts left?</text>
-  <text x="778.0" y="450.5" text-anchor="middle"><tspan class="small">1 + </tspan><tspan class="mono">max_parse_retries</tspan><tspan class="small">, 3 by default</tspan></text>
+  <text x="778.0" y="450.5" text-anchor="middle" class="small">1 + max_parse_retries, 3 by default</text>
   <rect class="box" x="588.0" y="670.0" width="380.0" height="102.0" rx="6"/>
   <text x="778.0" y="701.0" text-anchor="middle" class="title">Fail closed</text>
-  <text x="778.0" y="723.0" text-anchor="middle" class="small">suspicion 1.0, and a warning in the log</text>
-  <text x="778.0" y="744.0" text-anchor="middle" class="small">the reason says no score was readable</text>
+  <text x="778.0" y="723.0" text-anchor="middle" class="small">suspicion 1.0, with an explanation</text>
+  <text x="778.0" y="744.0" text-anchor="middle" class="small">that names the cause</text>
   <path class="edge" d="M432.0,298.5 L492.0,298.5"/>
   <text x="446.0" y="288.5" text-anchor="start" class="small">yes</text>
   <path class="edge" d="M432.0,438.0 L492.0,438.0"/>
@@ -85,4 +87,5 @@
   <text x="790.0" y="266.0" text-anchor="start" class="small">yes: ask again</text>
   <path class="edge" d="M778.0,478.5 L778.0,668.0" marker-end="url(#arrow)"/>
   <text x="790.0" y="579.2" text-anchor="start" class="small">no</text>
+  <text x="32.0" y="812.0" text-anchor="start" class="small">Unavailable, refused and rejected fail the rating closed at 1.0; stamina retries an HTTP 429 up to four attempts.</text>
 </svg>

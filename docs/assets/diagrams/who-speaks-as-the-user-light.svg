@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1000" height="858" viewBox="0 0 1000 858" role="img" aria-labelledby="title desc">
   <title id="title">Who speaks as the user</title>
-  <desc id="desc">The monitor reads each human message in one of five ways. A message tagged with the monitor&#x27;s own source is its feedback, read as monitor_feedback. A message with any other tag, such as summarization, is a context_note named after that tag, and authorises nothing. An untagged message that a tool, a middleware or the application wrote during a run is a context_note named after the tool, the message&#x27;s name, or application. An untagged message that is new when a run starts is that run&#x27;s input, unless the run before it stopped early: then the run records no input, and the message is a context_note from unconfirmed_input, which is kept and comes back as this note after summarisation or removal. Otherwise it reads as user, or as delegator inside a subagent: the task author&#x27;s words, kept verbatim even after summarisation or removal.</desc>
+  <desc id="desc">The monitor reads each human message in one of five ways. A message tagged with the monitor&#x27;s own source is its feedback, a context note by the monitor. A message with any other tag, such as summarization, is a context_note named after that tag, and authorises nothing. An untagged message that a tool, a middleware or the application wrote during a run is a context_note named after the tool, the message&#x27;s name, or application. An untagged message that is new when a run starts is that run&#x27;s input, unless the run before it stopped early: then the run records no input, and the message is a context_note from unconfirmed_input, which is kept and comes back as this note after summarisation or removal. Otherwise it reads as user, or as delegator inside a subagent: the task author&#x27;s words, kept verbatim even after summarisation or removal.</desc>
   <!-- Colours come from the brand tokens: diagrams/render.py fills this style block. -->
   <style>
     svg { color-scheme: light; }
@@ -25,6 +25,8 @@
     .frame { fill: none; stroke: #9A9A94; stroke-width: 1.2; stroke-dasharray: 6 4; }
     .edge { fill: none; stroke: #2B2B2B; stroke-width: 1.5; }
     .loop { fill: none; stroke: #2B2B2B; stroke-width: 1.5; stroke-dasharray: 5 4; }
+    .bold { stroke-width: 2.75; }
+    .lifeline { fill: none; stroke: #5B5B57; stroke-width: 1.2; stroke-dasharray: 6 4; }
     .head { fill: #2B2B2B; }
     .brush { fill: #111111; }
   </style>
@@ -48,8 +50,8 @@
   <text x="212.0" y="730.5" text-anchor="middle"><tspan class="small">or </tspan><tspan class="mono">&lt;delegator&gt;</tspan><tspan class="small"> inside a subagent:</tspan></text>
   <text x="212.0" y="751.5" text-anchor="middle" class="small">the task author&#x27;s words</text>
   <rect class="box" x="620.0" y="112.0" width="348.0" height="102.0" rx="6"/>
-  <text x="794.0" y="143.0" text-anchor="middle"><tspan class="mono">&lt;monitor_feedback&gt;</tspan></text>
-  <text x="794.0" y="165.0" text-anchor="middle" class="small">the monitor&#x27;s own feedback</text>
+  <text x="794.0" y="143.0" text-anchor="middle"><tspan class="mono">&lt;context_note&gt;</tspan></text>
+  <text x="794.0" y="165.0" text-anchor="middle"><tspan class="small">source: </tspan><tspan class="mono">monitor</tspan><tspan class="small">, its own feedback</tspan></text>
   <text x="794.0" y="186.0" text-anchor="middle" class="small">on a blocked step</text>
   <rect class="box" x="620.0" y="242.0" width="348.0" height="102.0" rx="6"/>
   <text x="794.0" y="273.0" text-anchor="middle"><tspan class="mono">&lt;context_note&gt;</tspan></text>

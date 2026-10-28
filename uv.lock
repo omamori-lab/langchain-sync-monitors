@@ -578,6 +578,15 @@ wheels = [
 ]
 
 [[package]]
+name = "hyoshigi"
+version = "0.4.0"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/18/f7/3b3097c494c56147d6612e0e7fd7d29bb9c4b2048eeddc4061690b7cafd7/hyoshigi-0.4.0.tar.gz", hash = "sha256:5b2055ebce25e8f7864da1fc3590f7dc23fba67b92254ef3789ccdcb4b1dbad3", size = 250363, upload-time = "2026-10-28T07:31:32.259Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/7c/cf/72a977048ecbb5abcaa85f9017cb872db2ce8a8410764c705c40c8594233/hyoshigi-0.4.0-py3-none-any.whl", hash = "sha256:4d632c298b5108e5f735966e2b3613cd237619e0a321e6bd6b0f14fa0db17b7b", size = 120760, upload-time = "2026-10-28T07:31:30.472Z" },
+]
+
+[[package]]
 name = "idna"
 version = "3.20"
 source = { registry = "https://pypi.org/simple" }
@@ -826,6 +835,7 @@ name = "langchain-sync-monitors"
 source = { editable = "." }
 dependencies = [
     { name = "httpx" },
+    { name = "hyoshigi" },
     { name = "langchain" },
     { name = "langchain-core" },
     { name = "langgraph" },
@@ -866,6 +876,7 @@ docs = [
 requires-dist = [
     { name = "deepagents", marker = "extra == 'deepagents'", specifier = ">=0.7.13" },
     { name = "httpx", specifier = ">=0.27" },
+    { name = "hyoshigi", specifier = ">=0.4.0" },
     { name = "langchain", specifier = ">=1.4" },
     { name = "langchain-core", specifier = ">=1.6" },
     { name = "langchain-openrouter", marker = "extra == 'openrouter'", specifier = ">=0.2.1" },

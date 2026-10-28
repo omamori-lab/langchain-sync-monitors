@@ -153,8 +153,8 @@ with the step, and the outer monitor records only the reply that runs;
 |---|---|---|---|---|
 | `"allowed"` | The first proposal ran. | 0 | The first | No |
 | `"steered"` | One or more proposals were blocked, then one ran. | 1 or more | The last | No, unless `flag_threshold` says so |
-| `"approved"`, `"edited"` or `"rejected"` | A limit was reached, the next proposal was audited, and a person answered it. | 0 or more | The audited proposal when approved; otherwise none | No, unless `flag_threshold` says so |
-| `"halted"` | A limit was reached, and a person stopped the audited proposal, or new input arrived in place of an answer. | 0 or more | None | Yes |
+| `"approved"`, `"edited"` or `"rejected"` | A proposal was audited, at a limit or because its rating failed closed, and a person answered it. | 0 or more | The audited proposal when approved; otherwise none | No, unless `flag_threshold` says so |
+| `"halted"` | A proposal was audited, at a limit or because its rating failed closed, and a person stopped it, or new input arrived in place of an answer. | 0 or more | None | Yes |
 
 To review what was blocked:
 

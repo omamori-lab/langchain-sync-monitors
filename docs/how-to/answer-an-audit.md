@@ -103,11 +103,13 @@ flagged when the step halts, or by `flag_threshold`. A rejection's
 
 ## A malformed answer
 
-An answer is checked against a schema built for its audit, published as the
-interrupt's `response_schema`. An answer of no known type, an edit of a held
-final answer, and an edit whose list does not hold one call per held call
-raise pydantic's `ValidationError`. LangGraph keeps nothing of such an
-answer, so the same interrupt can be answered again [@langgraph2026].
+An answer is checked against a schema built for its audit. The interrupt's
+`response_schema` publishes the answers the audit takes and their shapes; the
+number of an edit's calls is checked as the answer is read. An answer of no
+known type, an edit of a held final answer, and an edit whose list does not
+hold one call per held call raise pydantic's `ValidationError`. LangGraph
+keeps nothing of such an answer, so the same interrupt can be answered again
+[@langgraph2026].
 
 ## New input in place of an answer
 
@@ -130,6 +132,8 @@ the paused subagents run again; a sibling that finished keeps its result.
 
 An audit needs a checkpointer, and two cases leave a held step unanswered or
 incomplete; [Known limits](../explanation/design.md#protocols-and-configuration)
-lists them.
+lists them. An agent that also pauses through LangChain's
+`HumanInTheLoopMiddleware`, as Deep Agents' `interrupt_on` adds one, is not
+yet tested beside the monitor's audit (issue #157).
 
 ## References

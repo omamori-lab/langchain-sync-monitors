@@ -20,19 +20,21 @@ from hyoshigi import (
 )
 from langchain_core.messages import AIMessage, InvalidToolCall
 
-from langchain_sync_monitors.contracts import Outcome, OutcomeName, StepRecord
-from langchain_sync_monitors.errors import MonitorError
+from langchain_sync_monitors.contracts import Outcome, OutcomeName, SampleRecord, StepRecord
+from langchain_sync_monitors.errors import ConfigurationError, MonitorError
 from langchain_sync_monitors.records import (
     OUTCOME_NAMES,
     build_step_record,
     find_monitor_records,
     is_own_record,
     read_step_records,
+    redact_failed_samples,
     render_value,
     validate_step_record,
 )
 from langchain_sync_monitors.trajectory_events import read_proposed_action
 from tests.support.array_scalars import ArrayFloat64
+from tests.support.redaction import RETURN_NONE_FOR_REASONS
 
 
 def build_action(*, action_id: str, text: str) -> Action:
@@ -495,3 +497,15 @@ VALUES_NAMED_BY_TYPE = {
 def test_any_other_value_is_rendered_by_its_type_and_length(value: object, expected: str) -> None:
     # Act / Assert
     assert render_value(value) == expected
+
+
+@pytest.mark.xfail(strict=True, reason="PR 8 checks the text function's result where lsm calls it")
+def test_a_failed_sample_s_reason_that_the_text_function_returns_no_str_for_raises() -> None:
+    # Arrange
+    samples = [
+        SampleRecord(suspicion=0.7, reason="mentions SECRET-123", proposal={}, executed=False),
+    ]
+
+    # Act / Assert
+    with pytest.raises(ConfigurationError, match="text function must return a str, got None"):
+        redact_failed_samples(samples, redaction=RETURN_NONE_FOR_REASONS)

@@ -11,7 +11,7 @@ import json
 from typing import Any
 
 from deepagents import CompiledSubAgent, create_deep_agent
-from hyoshigi import Action, Author, Observation, TextPart, ToolCall, ToolObservation, Trajectory
+from hyoshigi import Action, Author, Observation, TextPart, ToolObservation, Trajectory
 from langchain.agents import create_agent
 from langchain_core.messages import AIMessage
 from langgraph.graph.state import CompiledStateGraph
@@ -30,6 +30,7 @@ from tests.support.redaction import (
     MASK_SECRET,
     MASKED_FIRST_REPLY,
     MASKED_LAST_REPLY,
+    MASKED_READ_CALL,
     MASKED_READ_RESULT,
     SECRET,
     TASK_WITH_SECRET,
@@ -40,7 +41,6 @@ from tests.support.redaction import (
 type Agent = CompiledStateGraph[Any, Any, Any, Any]
 
 INSTRUCTION_WITH_SECRET = f"Find the sources, key {SECRET}."
-READ_CALL = ToolCall(id="call-read", name="read_file", arguments='{"path": "q3.md"}')
 
 
 def build_monitor(
@@ -99,7 +99,7 @@ MASKED_WORKER_HISTORY = (
         author=Author.DELEGATOR,
         parts=(TextPart(text=f"Find the sources, key {MASK}."),),
     ),
-    Action(id="step-1", parts=(TextPart(text=MASKED_FIRST_REPLY),), tool_calls=(READ_CALL,)),
+    Action(id="step-1", parts=(TextPart(text=MASKED_FIRST_REPLY),), tool_calls=(MASKED_READ_CALL,)),
     ToolObservation(call_id="call-read", parts=(TextPart(text=MASKED_READ_RESULT),)),
     Action(id="step-2", parts=(TextPart(text=MASKED_LAST_REPLY),)),
 )
@@ -218,7 +218,9 @@ def test_a_nested_subagent_s_joined_trajectory_holds_what_the_redaction_leaves(
             author=Author.DELEGATOR,
             parts=(TextPart(text=f"Find the sources, key {MASK}."),),
         ),
-        Action(id="step-1", parts=(TextPart(text=MASKED_FIRST_REPLY),), tool_calls=(READ_CALL,)),
+        Action(
+            id="step-1", parts=(TextPart(text=MASKED_FIRST_REPLY),), tool_calls=(MASKED_READ_CALL,)
+        ),
         ToolObservation(call_id="call-read", parts=(TextPart(text=MASKED_READ_RESULT),)),
         Action(id="step-2", parts=(TextPart(text=MASKED_LAST_REPLY),)),
     )

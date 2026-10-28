@@ -46,7 +46,9 @@ jobs:
     # bounds in pyproject.toml. This job resolves every direct dependency to the
     # lowest version its bound allows and runs the offline suite there.
     # UV_RESOLUTION applies to every uv command, so no later command re-locks.
+    # A hung suite fails the job after 15 minutes.
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     env:
       UV_RESOLUTION: lowest-direct
     steps:

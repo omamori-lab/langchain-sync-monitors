@@ -155,6 +155,38 @@ def test_a_tool_call_hands_on_a_delegation_of_its_own(
     assert subagent_state["monitor_delegation"] == PARENT_DELEGATION
 
 
+def test_a_tool_call_names_the_agent_that_made_it_as_the_delegating_agent(
+    run_mode: RunMode,
+    subagent_state: dict[str, Any],
+) -> None:
+    # Arrange
+    worker = MonitorMiddleware(
+        monitor=build_keyword_monitor(),
+        protocol=BlockAndFeedBack(block_threshold=0.6),
+        agent_name="worker",
+    )
+    request = build_tool_request(state=subagent_state, call_id="call-child")
+    seen: list[ToolCallRequest] = []
+
+    def handle(inner: ToolCallRequest) -> ToolMessage:
+        seen.append(inner)
+        return ToolMessage("done", tool_call_id="call-child")
+
+    async def handle_async(inner: ToolCallRequest) -> ToolMessage:
+        return handle(inner)
+
+    # Act
+    if run_mode == "invoke":
+        worker.wrap_tool_call(request, handle)
+    else:
+        asyncio.run(worker.awrap_tool_call(request, handle_async))
+
+    # Assert
+    expected = Delegation(tool_call_id="call-child", delegating_agent="worker", runs={})
+    [handled] = seen
+    assert handled.runtime.state["monitor_delegation"] == expected
+
+
 def call_twice_ignoring_failures(
     middleware: MonitorMiddleware,
     request: ToolCallRequest,

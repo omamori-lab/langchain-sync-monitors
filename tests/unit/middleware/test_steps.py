@@ -51,6 +51,18 @@ READS_UNDER_ONE_ID = AIMessage(
 )
 """A reply whose two calls share one id."""
 
+TOOL_USE_BLOCKS_UNDER_ONE_ID = AIMessage(
+    content=[
+        {"type": "tool_use", "id": "call-dup", "name": "read_file", "input": {"path": "q3.md"}},
+        {"type": "tool_use", "id": "call-dup", "name": "read_file", "input": {"path": "q2.md"}},
+    ],
+    tool_calls=[
+        {"name": "read_file", "args": {"path": "q3.md"}, "id": "call-dup", "type": "tool_call"},
+        {"name": "read_file", "args": {"path": "q2.md"}, "id": "call-dup", "type": "tool_call"},
+    ],
+)
+"""A reply in Anthropic's shape, whose `tool_use` blocks repeat its two calls under one id."""
+
 
 class EmptyResponseMiddleware(AgentMiddleware[Any, Any, Any]):
     """Answers every model call inside the monitor with a response that holds no message."""
@@ -193,3 +205,33 @@ def test_two_calls_of_a_reply_that_share_an_id_each_run_under_an_id_of_their_own
         if isinstance(message, ToolMessage) and message.status == "success"
     ]
     assert answered == call_ids
+
+
+def test_tool_use_blocks_that_share_an_id_take_their_calls_ids_in_order(
+    run_mode: RunMode,
+) -> None:
+    # Arrange
+    workspace = Workspace()
+    middleware = MonitorMiddleware(
+        monitor=build_keyword_monitor(),
+        protocol=BlockAndFeedBack(block_threshold=0.5),
+    )
+    agent = create_agent(
+        ScriptedChatModel(responses=[TOOL_USE_BLOCKS_UNDER_ONE_ID, AIMessage("Done.")]),
+        tools=workspace.build_tools(),
+        middleware=[middleware],
+    )
+
+    # Act
+    result = run_agent(agent, mode=run_mode)
+
+    # Assert
+    [reads] = [
+        message
+        for message in result["messages"]
+        if isinstance(message, AIMessage) and len(message.tool_calls) == 2
+    ]
+    block_ids = [block["id"] for block in reads.content if isinstance(block, dict)]
+    call_ids = [call["id"] for call in reads.tool_calls]
+    assert block_ids == call_ids
+    assert len(set(block_ids)) == 2

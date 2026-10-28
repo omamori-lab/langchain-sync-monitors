@@ -17,7 +17,7 @@ change raises the minor version.
 ### Changed
 
 - langchain-sync-monitors depends on `hyoshigi>=0.4.0`, the framework-free
-  control core its monitors and protocols move onto.
+  control core extracted from it.
 
 ### Added
 

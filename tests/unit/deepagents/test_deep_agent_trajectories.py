@@ -25,7 +25,7 @@ INSTRUCTION = "Find the sources for q3.md."
 
 
 @pytest.mark.xfail(strict=True)
-def test_a_string_input_enters_the_trajectory_once(run_mode: RunMode) -> None:
+def test_a_string_input_enters_the_trajectory_once_as_the_user_s(run_mode: RunMode) -> None:
     # Arrange
     agent = build_deep_agent(
         main_model=ScriptedChatModel(responses=[AIMessage("Done.")]),
@@ -41,7 +41,9 @@ def test_a_string_input_enters_the_trajectory_once(run_mode: RunMode) -> None:
     # Assert
     stored = agent.get_state(config).values.get("monitor_trajectory", {}).get("monitor", {})
     history = Trajectory.load(stored.get("trajectory", Trajectory().dump())).history
-    assert history.count(Observation(author=Author.USER, parts=(TextPart(text=TASK),))) == 1
+    task = Observation(author=Author.USER, parts=(TextPart(text=TASK),))
+    assert history[:1] == (task,)
+    assert history.count(task) == 1
 
 
 @pytest.mark.xfail(strict=True)

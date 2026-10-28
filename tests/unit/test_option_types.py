@@ -33,9 +33,11 @@ from langchain.agents import create_agent
 from langchain_core.language_models.fake_chat_models import FakeListChatModel
 
 from langchain_sync_monitors import (
+    BlockAndFeedBack,
     CalibratedMonitor,
     CascadeMonitor,
     DecisionMonitor,
+    FailureResponse,
     GuardLabels,
     GuardMonitor,
     LLMMonitor,
@@ -1039,3 +1041,51 @@ def test_a_preset_every_monitor_or_protocol_shares_cannot_be_changed_in_place(
     # Act / Assert: one instance serves every monitor or protocol built with the default
     with pytest.raises(dataclasses.FrozenInstanceError):
         setattr(preset, field_name, "changed")
+
+
+@pytest.mark.xfail(strict=True, reason="PR 5 refuses a trusted model no protocol asks for")
+@pytest.mark.parametrize(
+    "protocol",
+    [
+        BlockAndFeedBack(block_threshold=0.5),
+        DeferToResample(defer_threshold=0.5, audit_threshold=0.5, max_resamples=0),
+    ],
+    ids=["block-and-feed-back", "defer-at-the-audit-threshold"],
+)
+def test_a_trusted_model_the_protocol_never_asks_for_is_refused(
+    protocol: BlockAndFeedBack | DeferToResample,
+) -> None:
+    # Arrange
+    trusted_model = FakeListChatModel(responses=["I will only summarise the file."])
+
+    # Act / Assert
+    with pytest.raises(ConfigurationError, match="trusted_model"):
+        MonitorMiddleware(monitor=KeywordMonitor(), protocol=protocol, trusted_model=trusted_model)
+
+
+@pytest.mark.parametrize(
+    "protocol",
+    [
+        DeferToResample(defer_threshold=0.5, audit_threshold=0.9, max_resamples=0),
+        DeferToResample(
+            defer_threshold=0.5,
+            audit_threshold=0.5,
+            max_resamples=0,
+            on_unavailable=FailureResponse.TRUSTED_STEP,
+        ),
+    ],
+    ids=["defer-below-the-audit-threshold", "a-trusted-step-when-no-answer"],
+)
+def test_a_trusted_model_the_protocol_may_ask_for_is_kept(protocol: DeferToResample) -> None:
+    # Arrange
+    trusted_model = FakeListChatModel(responses=["I will only summarise the file."])
+
+    # Act
+    middleware = MonitorMiddleware(
+        monitor=KeywordMonitor(),
+        protocol=protocol,
+        trusted_model=trusted_model,
+    )
+
+    # Assert
+    assert middleware.trusted_model is trusted_model

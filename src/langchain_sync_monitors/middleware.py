@@ -35,6 +35,7 @@ from langchain.agents.middleware.types import (
     ToolCallRequest,
     hook_config,
 )
+from langchain_core.language_models import BaseChatModel
 
 from langchain_sync_monitors._langchain import (
     AgentContext,
@@ -82,6 +83,7 @@ from langchain_sync_monitors.pending_steps import (
     SyncPendingStep,
     run_synchronously,
 )
+from langchain_sync_monitors.protocols import DEFAULT_FEEDBACK_TEMPLATE, FeedbackTemplate
 from langchain_sync_monitors.score_export import Tracer, check_score_export, queue_step_score
 from langchain_sync_monitors.spans import (
     counting_judgements,
@@ -213,6 +215,10 @@ class MonitorMiddleware(AgentMiddleware[MonitorState, AgentContext, StructuredOu
 
     monitor: MonitorConfiguration
     protocol: ControlProtocol
+    # Stubs for the tests of hyoshigi's protocols; nothing reads them yet.
+    trusted_model: str | BaseChatModel | None = None
+    feedback: FeedbackTemplate = DEFAULT_FEEDBACK_TEMPLATE
+    flag_threshold: float | None = None
     label: str = "monitor"
     agent_name: str = "main"
     task_author: TaskAuthor = TaskAuthor.USER

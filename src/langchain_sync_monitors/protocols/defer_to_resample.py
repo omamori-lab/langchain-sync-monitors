@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+from typing import Final
+
+from hyoshigi import AuditResponse, FailureResponse
 from langchain_core.language_models import BaseChatModel
 
 from langchain_sync_monitors.contracts import (
@@ -15,7 +18,11 @@ from langchain_sync_monitors.contracts import (
     StepDecision,
 )
 from langchain_sync_monitors.options import check_enum_option, read_count_option
-from langchain_sync_monitors.protocols.fallbacks import DeferToTrustedModel, check_fallback_option
+from langchain_sync_monitors.protocols.fallbacks import (
+    DeferToTrustedModel,
+    HaltRun,
+    check_fallback_option,
+)
 from langchain_sync_monitors.thresholds import (
     DEFAULT_AUDIT_THRESHOLD,
     DEFAULT_DEFER_THRESHOLD,
@@ -23,6 +30,9 @@ from langchain_sync_monitors.thresholds import (
     ThresholdStatistic,
     resolve_threshold,
 )
+
+DEFAULT_FALLBACK: Final = HaltRun()
+"""A stub default for the tests of hyoshigi's settings, which give no fallback."""
 
 
 class DeferToResample(ControlProtocol):
@@ -98,17 +108,22 @@ class DeferToResample(ControlProtocol):
     def __init__(
         self,
         *,
-        fallback: Fallback,
+        fallback: Fallback = DEFAULT_FALLBACK,
         defer_threshold: float | DefaultThreshold = DEFAULT_DEFER_THRESHOLD,
         audit_threshold: float | DefaultThreshold | None = DEFAULT_AUDIT_THRESHOLD,
         max_resamples: int = 2,
         resampling: Resampling = Resampling.SEQUENTIAL,
+        on_unavailable: FailureResponse = FailureResponse.AUDIT,
+        on_audit: AuditResponse = AuditResponse.HOLD,
     ) -> None:
         """Keep the configuration, warning for each threshold left at its default.
 
         Two resamples, three samples in all, is the number Ctrl-Z draws
-        (section 3.2) [@bhatt2025ctrlz].
+        (section 3.2) [@bhatt2025ctrlz]. `on_unavailable` and `on_audit` are
+        kept and not yet read, a stub for the tests of hyoshigi's settings.
         """
+        self.on_unavailable = on_unavailable
+        self.on_audit = on_audit
         check_fallback_option(fallback, parameter_name="fallback")
         check_enum_option(resampling, option_type=Resampling, parameter_name="resampling")
         self.fallback = fallback

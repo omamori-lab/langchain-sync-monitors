@@ -316,6 +316,7 @@ async def test_a_same_named_subagent_s_hook_ends_its_run_only_after_its_own_halt
         tool_call_id="call-fork",
         delegating_agent="main",
         blocks_before={},
+        runs={},
     )
     middleware = build_halting_monitor()
     runtime = Runtime(context=None)

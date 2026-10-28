@@ -8,6 +8,7 @@ from collections.abc import Callable
 from typing import Any
 
 import pytest
+from hyoshigi import JSON
 from langchain.agents import create_agent
 from langchain.agents.middleware import ToolRetryMiddleware
 from langchain.agents.middleware.types import AgentMiddleware, ToolCallRequest
@@ -17,12 +18,13 @@ from langchain_core.tools import BaseTool, tool
 from langgraph.checkpoint.memory import InMemorySaver
 from langgraph.types import Command
 
-from langchain_sync_monitors.contracts import Delegation, StepRecord, SubagentHalt
+from langchain_sync_monitors.contracts import DelegatedRun, Delegation, StepRecord, SubagentHalt
 from langchain_sync_monitors.delegation import add_delegation
 from langchain_sync_monitors.errors import ConfigurationError
 from langchain_sync_monitors.middleware import MonitorMiddleware
 from langchain_sync_monitors.protocols import AutoMode
 from tests.support.agents import (
+    TASK,
     RunMode,
     Workspace,
     build_exfiltration_step,
@@ -43,10 +45,40 @@ RECORD_KEYS = {
     "blocked_count",
     "samples",
 }
+DELEGATING_RUN: dict[str, JSON] = {
+    "format": "hyoshigi.trajectory",
+    "version": 3,
+    "history": [
+        {
+            "kind": "observation",
+            "author": "user",
+            "source": None,
+            "parts": [{"kind": "text", "text": TASK}],
+        },
+        {
+            "kind": "action",
+            "id": "step-1",
+            "thought": [],
+            "parts": [],
+            "tool_calls": [
+                {
+                    "id": "call-delegate",
+                    "name": "delegate",
+                    "arguments": '{"description": "Find the sources."}',
+                },
+            ],
+        },
+    ],
+    "ratings": [],
+    "records": [],
+    "subagents": {},
+}
+"""The delegating agent's trajectory as `Trajectory.dump()` stores it: the task, then the call."""
 PARENT_DELEGATION = Delegation(
     tool_call_id="call-parent",
     delegating_agent="main",
     blocks_before={"monitor": 5},
+    runs={},
 )
 
 
@@ -126,6 +158,7 @@ def test_a_tool_call_hands_on_the_thread_s_blocks_by_monitor(
         tool_call_id="call-child",
         delegating_agent="main",
         blocks_before={"monitor": 7, "other": 1},
+        runs={},
     )
     [handled] = seen
     assert handled.runtime.state["monitor_delegation"] == expected
@@ -182,6 +215,7 @@ def test_a_call_that_failed_leaves_its_retry_handed_on_and_checked(
         tool_call_id="call-child",
         delegating_agent="main",
         blocks_before={"monitor": 7, "other": 1},
+        runs={},
     )
     assert seen_delegations == [expected, expected]
 
@@ -203,6 +237,7 @@ def test_adding_the_delegation_twice_hands_on_an_equal_one(
         tool_call_id="call-child",
         delegating_agent="worker",
         blocks_before={"monitor": 7, "other": 1},
+        runs={},
     )
     assert again.state["monitor_delegation"] == PARENT_DELEGATION
 
@@ -217,6 +252,7 @@ def test_an_inherited_delegation_is_replaced_when_the_call_reuses_its_id(
         tool_call_id="call-parent",
         delegating_agent=delegating_agent,
         blocks_before={"monitor": 5},
+        runs={},
     )
     request = build_tool_request(state=subagent_state, call_id="call-parent")
 
@@ -228,6 +264,7 @@ def test_an_inherited_delegation_is_replaced_when_the_call_reuses_its_id(
         tool_call_id="call-parent",
         delegating_agent="worker",
         blocks_before={"monitor": 7, "other": 1},
+        runs={},
     )
 
 
@@ -345,7 +382,6 @@ def build_delegation_with_run(run: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-@pytest.mark.xfail(strict=True, reason="a delegation carries runs (#146)")
 def test_a_tool_call_hands_on_the_run_of_each_label_whose_trajectory_holds_the_call(
     run_mode: RunMode,
     middleware: MonitorMiddleware,
@@ -389,26 +425,32 @@ def test_a_tool_call_hands_on_the_run_of_each_label_whose_trajectory_holds_the_c
 @pytest.mark.parametrize(
     "delegation",
     [
-        {"tool_call_id": "x", "delegating_agent": "main", "blocks_before": {"monitor": -100}},
-        {"tool_call_id": "x", "delegating_agent": "main", "blocks_before": {"monitor": "3"}},
-        {"tool_call_id": "x", "delegating_agent": "main", "blocks_before": {"monitor": True}},
-        {"tool_call_id": "x", "blocks_before": {"monitor": 1}},
+        {
+            "tool_call_id": "x",
+            "delegating_agent": "main",
+            "blocks_before": {"monitor": -100},
+            "runs": {},
+        },
+        {
+            "tool_call_id": "x",
+            "delegating_agent": "main",
+            "blocks_before": {"monitor": "3"},
+            "runs": {},
+        },
+        {
+            "tool_call_id": "x",
+            "delegating_agent": "main",
+            "blocks_before": {"monitor": True},
+            "runs": {},
+        },
+        {"tool_call_id": "x", "blocks_before": {"monitor": 1}, "runs": {}},
         {"id": "x"},
         "x",
-        pytest.param(
-            build_delegation_with_run(
-                {"trajectory": {"format": "hyoshigi.trajectory", "version": 99}, "path": []},
-            ),
-            marks=pytest.mark.xfail(strict=True, reason="a delegation carries runs (#146)"),
+        build_delegation_with_run(
+            {"trajectory": {"format": "hyoshigi.trajectory", "version": 99}, "path": []},
         ),
-        pytest.param(
-            build_delegation_with_run({"trajectory": EMPTY_RUN, "path": ["call-missing"]}),
-            marks=pytest.mark.xfail(strict=True, reason="a delegation carries runs (#146)"),
-        ),
-        pytest.param(
-            build_delegation_with_run({"trajectory": EMPTY_RUN, "path": []}),
-            marks=pytest.mark.xfail(strict=True, reason="a delegation carries runs (#146)"),
-        ),
+        build_delegation_with_run({"trajectory": EMPTY_RUN, "path": ["call-missing"]}),
+        build_delegation_with_run({"trajectory": EMPTY_RUN, "path": []}),
     ],
     ids=[
         "negative",
@@ -450,6 +492,7 @@ def test_a_valid_delegation_in_the_input_counts_towards_the_total(run_mode: RunM
         tool_call_id="call-caller",
         delegating_agent="caller",
         blocks_before={"monitor": 1},
+        runs={},
     )
 
     # Act
@@ -498,7 +541,7 @@ def test_a_call_retried_from_outside_the_monitor_is_handed_on_and_checked_again(
         tool_name="delegate",
         call_id="call-delegate",
         arguments={"description": "Find the sources."},
-    )
+    ).model_copy(update={"id": "step-1"})
     model = ScriptedChatModel(responses=[delegation_step, AIMessage("never drawn")])
     monitor = MonitorMiddleware(
         monitor=build_keyword_monitor(),
@@ -523,6 +566,7 @@ def test_a_call_retried_from_outside_the_monitor_is_handed_on_and_checked_again(
         tool_call_id="call-delegate",
         delegating_agent="main",
         blocks_before={"monitor": 0},
+        runs={"monitor": DelegatedRun(trajectory=DELEGATING_RUN, path=[])},
     )
     assert seen_delegations == [expected, expected]
     assert [(record["agent"], record["outcome"]) for record in result["monitor_log"]] == [

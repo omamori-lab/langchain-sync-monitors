@@ -1,9 +1,11 @@
-"""The records a tool call writes to `monitor_log`, checked where they are written.
+"""The records and trajectories a tool call writes, checked where they are written.
 
-Deep Agents' `task` tool returns a subagent's records through `monitor_log`
-[@deepagents2026], so that is the one monitor key a tool may write. The
-monitor checks every record a tool writes there, in every update shape
-LangGraph accepts and in a `ParentCommand`, before LangGraph writes it:
+Deep Agents' `task` tool returns a subagent's records through `monitor_log`,
+and its trajectories through `monitor_trajectory` [@deepagents2026], so
+those are the monitor keys a tool may write. The monitor checks every write
+to them, in every update shape LangGraph accepts and in a `ParentCommand`,
+before LangGraph writes it. A record a tool writes to `monitor_log` is
+checked as follows:
 
 - A write that replaces the log, an `Overwrite` in any of its forms, would
   erase the thread's blocks and its audit evidence. It is read as an append
@@ -29,10 +31,20 @@ LangGraph accepts and in a `ParentCommand`, before LangGraph writes it:
   the monitor cannot tell from the agent's own, so it raises
   `ConfigurationError`.
 
+A write to `monitor_trajectory` is kept, for `trajectory_channel` to join
+under the call, only as a mapping of monitor labels to the trajectory states
+of a subagent the call itself started, each once, with no lost write, and
+whose trajectory loads. Anything else, an `Overwrite` or a delta included,
+is dropped with a warning and counts as a halted subagent, since the
+subagent's steps would otherwise be missing from the run. A state under a
+label the calling agent has no trajectory for, as a compiled subagent's
+monitor of another label returns, is dropped with a warning alone; its
+steps stay in `monitor_log`.
+
 The halts in the records kept, with a halt for each record the monitor could
-not read or kept out as the caller's own, and the blocks the records kept
-hold by monitor label, go to `subagent_returns`, which keeps them until the
-calling agent's next step.
+not read or kept out as the caller's own and for each trajectory dropped as
+above, and the blocks the records kept hold by monitor label, go to
+`subagent_returns`, which keeps them until the calling agent's next step.
 """
 
 from __future__ import annotations
@@ -40,8 +52,10 @@ from __future__ import annotations
 import logging
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
+from typing import cast
 from uuid import uuid4
 
+from hyoshigi import FormatError, Trajectory
 from langchain_core.messages import ToolCall
 from langgraph.errors import ParentCommand
 from langgraph.types import Command
@@ -65,8 +79,13 @@ from langchain_sync_monitors.records import (
     render_value,
     validate_step_record,
 )
-from langchain_sync_monitors.state_keys import SUBAGENT_RETURNS_KEY
+from langchain_sync_monitors.state_keys import SUBAGENT_RETURNS_KEY, TRAJECTORY_KEY
 from langchain_sync_monitors.subagent_returns import SubagentReturn
+from langchain_sync_monitors.trajectory_channel import (
+    TrajectoryState,
+    read_labels,
+    read_returned_state,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -121,18 +140,36 @@ class ToolCaller:
         """Tell whether the call carries the id of the call that started the calling agent."""
         return self.delegation_id is not None and self.tool_call["id"] == self.delegation_id
 
+    def holds_trajectory(self, label: str) -> bool:
+        """Tell whether the calling agent's state holds a trajectory under the monitor label."""
+        return isinstance(self.state, Mapping) and label in read_labels(self.state)
+
 
 @dataclass(slots=True, kw_only=True)
 class ReturnedRecords:
     """What the records one command writes to `monitor_log` hold, as they are checked.
 
-    `kept` holds the records that reach the log, and `halted_subagents` the
-    names of the halted subagents, a record the monitor could not read
-    included.
+    `kept` holds the records that reach the log, `trajectories` the
+    trajectory states that reach `monitor_trajectory`, by label, and
+    `halted_subagents` the names of the halted subagents, a record the
+    monitor could not read or a trajectory it dropped included.
     """
 
     kept: list[StepRecord] = field(default_factory=list)
+    trajectories: dict[str, TrajectoryState] = field(default_factory=dict)
     halted_subagents: list[str] = field(default_factory=list)
+
+    def build_pairs(self, *, caller: ToolCaller) -> list[tuple[str, UpdateValue]]:
+        """Return the writes of what was kept, and of the entry for the agent's next step."""
+        pairs: list[tuple[str, UpdateValue]] = []
+        if self.kept:
+            pairs.append((MONITOR_LOG_KEY, self.kept))
+        if self.trajectories:
+            pairs.append((TRAJECTORY_KEY, self.trajectories))
+        entry = self.build_entry(caller=caller)
+        if entry is not None:
+            pairs.append((SUBAGENT_RETURNS_KEY, [entry]))
+        return pairs
 
     def build_entry(self, *, caller: ToolCaller) -> SubagentReturn | None:
         """Return the entry the calling agent's next step answers, or None when there is nothing."""
@@ -260,23 +297,103 @@ def check_written_value(
         check_written_record(item, caller=caller, returned=returned)
 
 
+def check_written_trajectories(
+    value: UpdateValue,
+    *,
+    caller: ToolCaller,
+    returned: ReturnedRecords,
+) -> None:
+    """Check one value a command writes to `monitor_trajectory`, label by label."""
+    is_overwrite, _ = read_overwrite(value)
+    if is_overwrite or not isinstance(value, Mapping):
+        drop_trajectory(caller=caller, returned=returned, problem="a value that maps no labels")
+        return
+    for label, state in value.items():
+        check_written_trajectory(label, value=state, caller=caller, returned=returned)
+
+
+def check_written_trajectory(
+    label: object,
+    *,
+    value: object,
+    caller: ToolCaller,
+    returned: ReturnedRecords,
+) -> None:
+    """Keep one label's written state, drop it with a warning, or count it as a halt."""
+    if isinstance(label, str) and not caller.holds_trajectory(label):
+        logger.warning(
+            "The tool %s wrote to %s a trajectory under the monitor label %r, which the agent "
+            "%r has no trajectory for, so the monitor drops it; its steps stay in %s.",
+            caller.tool_call["name"],
+            TRAJECTORY_KEY,
+            label,
+            caller.agent,
+            MONITOR_LOG_KEY,
+        )
+        return
+    problem = find_trajectory_problem(label, value=value, caller=caller, returned=returned)
+    if problem is None:
+        # With no problem found, the label is text and the value a trajectory state.
+        returned.trajectories[cast("str", label)] = cast("TrajectoryState", value)
+    else:
+        drop_trajectory(caller=caller, returned=returned, problem=problem)
+
+
+def find_trajectory_problem(
+    label: object,
+    *,
+    value: object,
+    caller: ToolCaller,
+    returned: ReturnedRecords,
+) -> str | None:
+    """Return what keeps one label's written state from joining the run, or None."""
+    state = read_returned_state(value)
+    if not isinstance(label, str) or state is None:
+        return "a value that is not a subagent's trajectory state"
+    if label in returned.trajectories:
+        return f"a second trajectory for the monitor {label!r}"
+    if state["delegation_id"] != caller.tool_call["id"]:
+        return f"a trajectory for the monitor {label!r} that another call started"
+    return find_state_problem(state, label=label)
+
+
+def find_state_problem(state: TrajectoryState, *, label: str) -> str | None:
+    """Return what keeps a subagent's own trajectory state from joining the run, or None."""
+    if state["lost_writes"] > 0:
+        return f"a trajectory for the monitor {label!r} that lost writes"
+    try:
+        Trajectory.load(state["trajectory"])
+    except FormatError:
+        return f"a trajectory for the monitor {label!r} that does not load"
+    return None
+
+
+def drop_trajectory(*, caller: ToolCaller, returned: ReturnedRecords, problem: str) -> None:
+    """Drop a write to `monitor_trajectory` with a warning, and count a halted subagent."""
+    logger.warning(
+        "The tool %s wrote to %s %s. The monitor drops it and counts a halted subagent.",
+        caller.tool_call["name"],
+        TRAJECTORY_KEY,
+        problem,
+    )
+    returned.halted_subagents.append(caller.describe_subagent())
+
+
 def check_record_writes(pairs: UpdatePairs, *, caller: ToolCaller) -> UpdatePairs:
-    """Return the pairs with every write to `monitor_log` checked, and what it holds stored.
+    """Return the pairs with every write to `monitor_log` and `monitor_trajectory` checked.
 
     The records kept go in one write to `monitor_log`, after the other pairs,
-    and the entry for the calling agent's next step in one more.
+    the trajectories kept in one write to `monitor_trajectory`, and the entry
+    for the calling agent's next step in one more.
     """
     returned = ReturnedRecords()
-    kept_pairs = [(key, value) for key, value in pairs if not is_log_key(key)]
     for key, value in pairs:
         if is_log_key(key):
             check_written_value(value, caller=caller, returned=returned)
-    if returned.kept:
-        kept_pairs.append((MONITOR_LOG_KEY, returned.kept))
-    entry = returned.build_entry(caller=caller)
-    if entry is not None:
-        kept_pairs.append((SUBAGENT_RETURNS_KEY, [entry]))
-    return kept_pairs
+        elif is_trajectory_key(key):
+            check_written_trajectories(value, caller=caller, returned=returned)
+    kept_pairs = [(key, value) for key, value in pairs if not is_checked_key(key)]
+    return [*kept_pairs, *returned.build_pairs(caller=caller)]
 
 
 def is_log_key(key: str) -> bool:
@@ -284,17 +401,27 @@ def is_log_key(key: str) -> bool:
     return key == MONITOR_LOG_KEY
 
 
+def is_trajectory_key(key: str) -> bool:
+    """Tell whether an update's key names `monitor_trajectory`, compared with `==`."""
+    return key == TRAJECTORY_KEY
+
+
+def is_checked_key(key: str) -> bool:
+    """Tell whether an update's key names one of the monitor keys a tool may write."""
+    return is_log_key(key) or is_trajectory_key(key)
+
+
 def check_command_records(command: Command, *, caller: ToolCaller) -> Command:
     """Return a tool's command with its records checked, and their halts and blocks stored.
 
     A command bound for the parent graph is returned as it is: the parent
     agent's monitor checks it against its own state, once LangGraph has
-    named that graph [@langgraph2026]. So is a command that writes no records.
+    named that graph [@langgraph2026]. So is a command that writes neither key.
     """
     if command.graph == Command.PARENT:
         return command
     pairs = read_update_pairs(command)
-    if not any(is_log_key(key) for key, _ in pairs):
+    if not any(is_checked_key(key) for key, _ in pairs):
         return command
     return replace_update_pairs(command, pairs=check_record_writes(pairs, caller=caller))
 

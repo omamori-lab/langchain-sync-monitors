@@ -156,9 +156,7 @@ def test_overrides_give_named_subagents_a_different_monitor(
     researcher: SubAgent,
 ) -> None:
     # Arrange
-    strict = MonitorMiddleware(
-        monitor=KeywordMonitor(), protocol=HaltAfterOneSample(), label="guard"
-    )
+    strict = MonitorMiddleware(monitor=KeywordMonitor(), protocol=HaltAfterOneSample())
 
     # Act
     specs = monitor_subagents(
@@ -169,7 +167,10 @@ def test_overrides_give_named_subagents_a_different_monitor(
 
     # Assert
     monitors = [read_monitor(spec) for spec in specs]
-    assert [monitor.name for monitor in monitors] == ["guard[researcher]", "guard[general-purpose]"]
+    assert [monitor.name for monitor in monitors] == [
+        "monitor[researcher]",
+        "monitor[general-purpose]",
+    ]
     assert all(monitor.protocol is strict.protocol for monitor in monitors)
 
 
@@ -184,7 +185,6 @@ def test_overrides_for_unknown_subagents_are_rejected(
         )
 
 
-@pytest.mark.xfail(strict=True, reason="an override keeps the parent's label (#146)")
 def test_an_override_with_another_label_is_rejected(
     middleware: MonitorMiddleware,
     researcher: SubAgent,

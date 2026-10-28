@@ -94,7 +94,7 @@ hooks. One run passes through them in this order: `before_agent` once,
 | `before_model` | Tags the notes written so far, and marks the run open. |
 | `wrap_model_call` | Adds what reached the agent since its last step to the trajectory, then samples, judges, decides and commits the step, with the step's events. |
 | `after_model` | Ends the run after this monitor's halt ([halts](#halts)). |
-| `wrap_tool_call` | Hands each tool call a `Delegation` ([subagents](#subagents)), tags the human messages a tool writes, drops its writes to the monitor's own keys, and checks its writes to `monitor_log` ([task authorship](#task-authorship-and-notes)). |
+| `wrap_tool_call` | Hands each tool call a `Delegation` ([subagents](#subagents)), tags the human messages a tool writes, drops its writes to the monitor's own keys, and checks its writes to `monitor_log` and `monitor_trajectory` ([task authorship](#task-authorship-and-notes), [delegations](#delegations)). |
 | `after_agent` | Tags the notes written since the last step, marks the run closed, and marks the ids it gave as read in the monitors' trajectories ([the trajectory](#the-trajectory)). |
 
 The node hooks count towards `recursion_limit` ([graph steps](#graph-steps)).
@@ -787,8 +787,9 @@ as the parent agent's words, `<delegator>`, rather than the user's.
 A subagent starts every delegation with an empty log, so its step numbers
 start again at 1. Before each tool call, the parent's monitor adds a
 `Delegation` to the state the tool sees: the call's id, the name of the agent
-that made it, and the blocks each monitor label has recorded in the thread.
-Deep Agents' `task` tool passes that state on to the subagent it starts
+that made it, the blocks each monitor label has recorded in the thread, and,
+for each label whose trajectory holds the call, the run the subagent's
+trajectory joins. Deep Agents' `task` tool passes that state on to the subagent it starts
 [@deepagents2026]. The subagent's monitor stores the id in each of its
 records as `delegation_id`, and its Auto Mode starts from the thread's total.
 `(agent, delegation_id, step_number)` names one step, provided every tool call
@@ -802,8 +803,34 @@ When the subagent returns, its records flow into the parent's `monitor_log`
 through the log's reducer, which LangGraph reads only from the last position
 of the annotation [@langgraph2026]. The `monitor_delegation` key itself is
 left out of the subagent's output, so it never flows back. A crashed
-subagent's records do not flow back
+subagent's records and trajectory do not flow back
 ([subagents and the thread total](#subagents-and-the-thread-total)).
+
+Each monitor label's trajectories make one run across agents
+[@hyoshigi2026]. A `DelegatedRun` holds the run's root, as
+`Trajectory.dump()` gives it, with the calling agent's own trajectory in it,
+and the ids of the calls from the root to that agent. The subagent's monitor
+of that label starts its trajectory under the call, with the subagent's
+first human message, its task, as the delegator's instruction, and on each
+later load joins its stored trajectory there, so the records it adds take
+the run's next numbers. When the call returns, Deep Agents' `task` tool hands
+back the subagent's `monitor_trajectory` with its records
+[@deepagents2026], and the parent's reducer joins each label's trajectory
+under the call. One that cannot join counts as a lost write, so the parent's
+next step halts ([the trajectory](#the-trajectory)): the call is not in the
+parent's trajectory, the call already holds a subagent with fewer records,
+or the trajectory does not load. A trajectory under a label the parent has
+none for, as a compiled subagent's monitor of a label of its own returns, is
+dropped with a warning, and its records still reach `monitor_log`; so
+`monitor_subagents` gives each override the main monitor's label.
+
+A tool may write `monitor_trajectory` only as a subagent's monitors return
+it: a mapping of labels to the trajectory states of a subagent the call
+itself started, each once, with no lost write, and whose trajectory loads.
+Anything else, an `Overwrite` or a delta included, is dropped with a warning
+and counts as a halted subagent, which `when_subagent_halts` answers. So does
+the whole state of a monitored graph a tool runs without handing it the
+tool's state, since that graph's trajectory names no delegation.
 
 Only the outermost monitor of an agent hands on the delegation and checks
 what a tool call writes; a monitor stacked inside it knows the call by the
@@ -818,7 +845,8 @@ reuses the id of the call that started it.
 `monitor_delegation` is part of every monitored agent's input, a plain
 `create_agent` one included, since a subagent receives it as input. The
 monitor validates it with pydantic when it reads it, and a value that is not
-a `Delegation` with non-negative block counts raises `ConfigurationError`
+a `Delegation` with non-negative block counts and runs of JSON data, or
+whose run cannot hold the subagent's trajectory, raises `ConfigurationError`
 before the step runs. Leave the key out of your own input; the monitor sets it
 for each subagent it starts.
 
@@ -841,13 +869,14 @@ when its task returns. The suspicion is stored as a `float` and the flag as a
 
 ### Private state keys
 
-The monitor keeps its run state in ten keys. Eight are private: they never
+The monitor keeps its run state in ten keys. Seven are private: they never
 enter a run's `invoke` output or an isolated subagent's input, though Deep
 Agents hands a forked subagent its parent's private state, but they do appear
 in `stream_mode="values"`, `stream_mode="updates"` and `get_state`. So
-`monitor_run_inputs` carries the text of the user's turns into those three,
-and `monitor_trajectory` the text of every message the monitor read, tool
-results included, and of every blocked attempt, whatever
+`monitor_run_inputs` carries the text of the user's turns into those three.
+`monitor_trajectory` is in the `invoke` output as well, since a subagent
+returns it to its parent, with the text of every message the monitor read,
+tool results included, and of every blocked attempt, whatever
 `feedback_visibility` says, as `monitor_log`'s samples already do.
 
 | Key | Holds | In a run's input | In `invoke` output | In `values`, `updates`, `get_state` |
@@ -861,12 +890,13 @@ results included, and of every blocked attempt, whatever
 | `monitor_run_open` | Whether a run has started and not yet reached `after_agent` | No | No | Yes |
 | `monitor_inputs_at_halt` | For each monitor, the run inputs recorded at its latest halt | No | No | In `values` and `get_state` from the first chunk, as `[]`; in `updates` once a monitor has halted |
 | `monitor_subagent_returns` | The subagent halts, and the blocks by monitor label, that each tool call returned, until the agent's next step answers them | No | No | In `values` and `get_state` from the first chunk, as `[]`; in `updates` once a tool call returns a halt or a block, and when a step answers it |
-| `monitor_trajectory` | Each monitor's trajectory of the run, by label: every message it read or committed, as hyoshigi's actions and observations, the key of each, and the count of its lost writes ([the trajectory](#the-trajectory)) | No | No | In `values` and `get_state` from the first chunk, as `{}`; in `updates` from `before_agent` and from each step that adds to it, as the step's delta |
+| `monitor_trajectory` | Each monitor's trajectory of the run, by label: every message it read or committed, as hyoshigi's actions and observations, each subagent's joined under its call, the key of each message, and the count of its lost writes ([the trajectory](#the-trajectory)) | No | Yes | In `values` and `get_state` from the first chunk, as `{}`; in `updates` from `before_agent` and from each step that adds to it, as the step's delta |
 
 Every key but `monitor_delegation` has a reducer, so stacked monitors can
 write them in one node. A subagent's private keys and its
 `monitor_delegation` stay in its own state: the parent's streams never show
-them, even with `subgraphs=True`.
+them, even with `subgraphs=True`. Its `monitor_trajectory` returns with its
+`monitor_log`.
 
 ### The trajectory
 
@@ -889,9 +919,12 @@ type and content when it has none, with the call it answers for a tool result.
   feedback, whatever `feedback_visibility` says. The reply that runs enters
   as the action the monitor rated, each server tool result in it a
   placeholder, then the results. A halt message adds nothing.
-- The answer to a Deep Agents `task` call starts the subagent's trajectory
-  under the call, with the call's description as its instruction
-  [@deepagents2026]. The subagent's own steps stay in its own state.
+- A subagent's trajectory, its own steps included, joins the parent's under
+  the call that started it when the call returns
+  ([delegations](#delegations)). When the answer to a Deep Agents `task`
+  call arrives without one, as from a subagent that raised or has no monitor
+  of this label, the answer starts the subagent's trajectory under the call,
+  with the call's description as its instruction [@deepagents2026].
 - An id the monitor gives a message after a trajectory read it under its hash
   ([a message without an id gets one](#task-authorship-and-notes)) is marked
   read in that trajectory, in the update that gives it. The end of a run does
@@ -1115,7 +1148,7 @@ wrappers, `MonitorView`, the decision models, `monitor_subagents` and
 | Class | Raised or emitted when |
 |---|---|
 | `MonitorError` | The base class of the library's own errors. Also raised at run time for a malformed record in `monitor_log` or `monitor_subagent_returns`, for a decision model's answer that is not a probability from 0 to 1, for a protocol's decision of the wrong shape ([failed steps](#failed-steps)), and for a pending step used after its step under `ainvoke()` ([sync and async](#sync-and-async)). |
-| `ConfigurationError` | An option cannot work. Also at run time: for an invalid `monitor_delegation` in an agent's input; for a guard model that returns no log-probabilities under `GuardScoring.LOG_PROBABILITIES`, or whose adapter does not take the `logprobs` keyword under `GuardScoring.AUTO` or `LOG_PROBABILITIES`; and for a tool call that reuses the id of the call that started its agent and returns records under that agent's name ([subagents and the thread total](#subagents-and-the-thread-total)). |
+| `ConfigurationError` | An option cannot work. Also at run time: for an invalid `monitor_delegation` in an agent's input, or one whose run cannot hold the subagent's trajectory; for a guard model that returns no log-probabilities under `GuardScoring.LOG_PROBABILITIES`, or whose adapter does not take the `logprobs` keyword under `GuardScoring.AUTO` or `LOG_PROBABILITIES`; and for a tool call that reuses the id of the call that started its agent and returns records under that agent's name ([subagents and the thread total](#subagents-and-the-thread-total)). |
 | `MessageFormatError` | The trajectory cannot read a message: an AI message without an id, a message of a type it does not read, a block that lacks what its kind requires, or an action that reuses an action id or a tool call id already in the trajectory. Raised at a run's start, at a step's, or when a step commits, which then is not committed ([keeping the trajectory](#keeping-the-trajectory)). It is a `MonitorError` and a `ValueError`. |
 | `MissingExtraError` | A feature needs an extra that is not installed; the message names the extra, and the uv and pip commands that install it. It is a `ConfigurationError` and an `ImportError`. |
 | `SynchronousRunError` | A protocol or monitor needs an event loop under `invoke()` ([sync and async](#sync-and-async)). |
@@ -1347,6 +1380,10 @@ limit is linked from where it arises above.
 - **Pruning savers.** A checkpoint saver that prunes, copies or deletes
   checkpoints without walking a `DeltaChannel`'s chain of writes rebuilds
   `monitor_trajectory` as empty, with no error [@langgraph2026].
+- **A delegation carries the run.** Each subagent receives its run's whole
+  trajectory in `monitor_delegation`, and loads it at each step, as its
+  parent's reducer loads the parent's trajectory to join it, so the state,
+  the checkpoints and that work grow with the run.
 - **Summarised between steps.** A message added after one step and removed by
   a summariser before the next never enters the trajectory, since a
   summariser's `before_model` hook runs before the monitor's hooks. It cannot

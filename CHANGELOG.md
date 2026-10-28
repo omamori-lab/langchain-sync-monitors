@@ -16,7 +16,7 @@ change raises the minor version.
 
 ### Changed
 
-- langchain-sync-monitors depends on `hyoshigi>=0.4.0`, the framework-free
+- langchain-sync-monitors depends on `hyoshigi>=0.5.0`, the framework-free
   control core extracted from it.
 - langgraph's floor rises to 1.2.15. Each monitor's trajectory is kept in a
   LangGraph `DeltaChannel`, which LangGraph marks as beta.
@@ -24,6 +24,15 @@ change raises the minor version.
   id already in the run now raises `MessageFormatError`, at the start of the
   run or of the step that reads it. A history passed in must give each action
   and each tool call an id of its own.
+- `Delegation` gains `runs`: for each monitor label whose trajectory holds
+  the call, the run the subagent's trajectory joins. `DelegatedRun` is
+  exported. A `Delegation` without `runs`, or whose run cannot hold the
+  subagent's trajectory, raises `ConfigurationError`.
+- `monitor_subagents` raises `ConfigurationError` for an entry of
+  `overrides` whose label differs from `middleware`'s, since a subagent's
+  trajectory joins its parent's under the parent's label. To count a
+  subagent apart, monitor it as a compiled subagent with a label of its own;
+  its trajectory is then dropped with a warning when its task returns.
 
 ### Added
 
@@ -32,11 +41,19 @@ change raises the minor version.
   can leave them out of training corpora.
 - Each monitor keeps its trajectory of the run, every message it read or
   committed, once, as hyoshigi's actions and observations, under the new
-  private state key `monitor_trajectory`, by monitor label. A stale write
-  outside a stack of monitors halts that monitor's next step without a
-  sample, with a warning, until a later run brings new input. A tool's write
-  to `monitor_trajectory` is dropped with a warning. `get_state` and the
-  `values` and `updates` streams show it; a run's `invoke()` result does not.
+  state key `monitor_trajectory`, by monitor label. A run's `invoke()` result,
+  `get_state` and the `values` and `updates` streams show it. A subagent's
+  trajectory, its steps included, joins its parent's under the call that
+  started it, so the parent's `monitor_trajectory` holds the whole run. A
+  stale write outside a stack of monitors, and a subagent's returned
+  trajectory that cannot join its parent's, halt that monitor's next step
+  without a sample, with a warning, until a later run brings new input. A
+  tool's write to `monitor_trajectory` is checked as a subagent's returned
+  trajectory. One that no subagent of the call returned, an `Overwrite` or a
+  delta included, is dropped with a warning and counts as a halted subagent.
+  So does the whole state a tool returns from a monitored graph it ran
+  without handing that graph the tool's state, since its trajectory names no
+  delegation: under `SubagentHalt.STOP_WHOLE_RUN` the parent then halts.
   A blocked attempt enters it with its text and its feedback, whatever
   `feedback_visibility` says, as `monitor_log`'s samples already hold it; the
   message stream still never carries a blocked attempt's text. A halt message
@@ -48,6 +65,8 @@ change raises the minor version.
 - A checkpoint saver that prunes, copies or deletes checkpoints without
   walking a `DeltaChannel`'s chain of writes rebuilds `monitor_trajectory` as
   empty, with no error.
+- Each subagent receives its run's whole trajectory in `monitor_delegation`,
+  so the state and the checkpoints grow with the run.
 
 ## [0.1.5] - 2026-10-04
 

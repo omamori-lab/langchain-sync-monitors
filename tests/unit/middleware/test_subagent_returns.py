@@ -50,7 +50,9 @@ def test_an_agent_reads_only_the_entries_of_its_own_delegation() -> None:
     # Arrange: a fork starts with its parent's private state
     parent_entry = build_entry(entry_id="a", halted=["worker"], blocks={"monitor": 3})
     fork_entry = build_entry(entry_id="b", delegation_id="call-fork", blocks={"monitor": 1})
-    delegation = Delegation(tool_call_id="call-fork", delegating_agent="main", blocks_before={})
+    delegation = Delegation(
+        tool_call_id="call-fork", delegating_agent="main", blocks_before={}, runs={}
+    )
     state = {
         "monitor_subagent_returns": [parent_entry, fork_entry],
         "monitor_delegation": delegation,
@@ -69,7 +71,9 @@ def test_a_step_answers_only_its_own_delegation_s_entries() -> None:
     # Arrange
     parent_entry = build_entry(entry_id="a", halted=["worker"])
     own_entry = build_entry(entry_id="b", delegation_id="call-fork", halted=["reviewer"])
-    delegation = Delegation(tool_call_id="call-fork", delegating_agent="main", blocks_before={})
+    delegation = Delegation(
+        tool_call_id="call-fork", delegating_agent="main", blocks_before={}, runs={}
+    )
     state = {
         "monitor_subagent_returns": [parent_entry, own_entry],
         "monitor_delegation": delegation,

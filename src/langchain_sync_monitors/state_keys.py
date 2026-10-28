@@ -4,9 +4,10 @@
 writes to every key in `MONITOR_STATE_KEYS`, which is why these live apart
 from the modules that write them: those modules import `task_authorship`.
 `MONITOR_STATE_KEYS` also holds `monitor_delegation`, defined in `_langchain`
-beside the reader that parses it; `monitor_log`, also defined there, is the
-one monitor key a tool may write, and `returned_records` checks every record
-a tool writes to it.
+beside the reader that parses it. `monitor_log`, also defined there, and
+`monitor_trajectory` are the monitor keys a tool may write, since a subagent
+returns its records and its trajectory through them; `returned_records`
+checks every write to them.
 """
 
 from langchain_sync_monitors._langchain import MONITOR_DELEGATION_KEY
@@ -45,9 +46,9 @@ MONITOR_STATE_KEYS = frozenset(
         REWRITTEN_INPUTS_KEY,
         INPUTS_AT_HALT_KEY,
         SUBAGENT_RETURNS_KEY,
-        TRAJECTORY_KEY,
         MONITOR_DELEGATION_KEY,
     },
 )
 """The state keys only the monitor writes: every key it adds to the agent's state but
-`monitor_log`, which Deep Agents' `task` tool returns from a subagent [@deepagents2026]."""
+`monitor_log` and `monitor_trajectory`, which Deep Agents' `task` tool returns from a subagent
+[@deepagents2026]."""

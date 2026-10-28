@@ -86,7 +86,6 @@ def read_run(agent: Agent, *, thread_id: str) -> Trajectory:
     return Trajectory.load(stored.get("trajectory", Trajectory().dump()))
 
 
-@pytest.mark.xfail(strict=True, reason="a subagent's trajectory joins its parent's run (#146)")
 def test_a_nested_subagent_s_steps_sit_under_both_calls_in_the_root_s_trajectory(
     run_mode: RunMode,
 ) -> None:
@@ -132,7 +131,6 @@ def test_a_nested_subagent_s_steps_sit_under_both_calls_in_the_root_s_trajectory
     )
 
 
-@pytest.mark.xfail(strict=True, reason="a subagent's trajectory joins its parent's run (#146)")
 def test_parallel_subagents_with_the_same_ids_join_apart_under_their_own_calls(
     run_mode: RunMode,
 ) -> None:
@@ -173,7 +171,6 @@ def test_parallel_subagents_with_the_same_ids_join_apart_under_their_own_calls(
     )
 
 
-@pytest.mark.xfail(strict=True, reason="a subagent's trajectory joins its parent's run (#146)")
 def test_a_trajectory_under_a_label_the_parent_lacks_is_dropped_with_a_warning_alone(
     run_mode: RunMode,
     caplog: pytest.LogCaptureFixture,

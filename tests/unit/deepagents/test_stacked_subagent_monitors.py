@@ -101,33 +101,16 @@ def test_a_monitor_added_inside_a_spec_s_resampling_monitor_is_named(
     assert len(inner_record["samples"]) == 1
 
 
-@pytest.mark.parametrize(
-    ("given_as", "named"),
-    [("middleware", "monitor[worker]"), ("override", "strict[worker]")],
-)
-def test_a_monitor_given_either_way_is_named_inside_a_spec_s_resampling_monitor(
-    given_as: str,
-    named: str,
-) -> None:
-    # Arrange: an override has a label of its own, so the warning names the override
+def test_the_added_monitor_is_named_inside_a_spec_s_resampling_monitor() -> None:
+    # Arrange
     worker = build_guarded_worker(build_resampling(max_resamples=1))
-    strict = MonitorMiddleware(
-        monitor=KeywordMonitor(),
-        protocol=TrustedMonitoring(audit_threshold=THRESHOLD),
-        label="strict",
-    )
-    overrides = {"worker": strict} if given_as == "override" else None
 
     # Act
     with pytest.warns(MonitorPlacementWarning) as caught:
-        monitor_subagents(
-            middleware=build_trusted_monitoring_monitor(),
-            subagents=[worker],
-            overrides=overrides,
-        )
+        monitor_subagents(middleware=build_trusted_monitoring_monitor(), subagents=[worker])
 
     # Assert
-    assert [str(warning.message).split(" ")[0] for warning in caught] == [named]
+    assert [str(warning.message).split(" ")[0] for warning in caught] == ["monitor[worker]"]
 
 
 def test_monitoring_its_own_output_again_names_each_monitor_added_inside() -> None:

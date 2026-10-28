@@ -334,7 +334,7 @@ def test_a_whole_record_written_outside_a_list_reaches_the_log_in_one() -> None:
 
 def test_a_step_answering_its_own_returns_leaves_another_delegation_s_in_the_store() -> None:
     # Arrange: a fork's store holds its parent's return and its own, each from a checked call
-    fork = Delegation(tool_call_id="call-fork", delegating_agent="main", blocks_before={})
+    fork = Delegation(tool_call_id="call-fork", delegating_agent="main", blocks_before={}, runs={})
     parent_entry = read_entry(check({"monitor_log": [build_record(outcome="halted")]}))
     fork_entry = read_entry(
         check({"monitor_log": [build_record(outcome="halted")]}, state=build_state(delegation=fork))
@@ -363,7 +363,9 @@ def test_a_same_named_subagent_s_record_is_kept_and_named_by_the_call() -> None:
 
 def test_a_call_reusing_the_caller_s_delegation_id_with_its_own_records_raises() -> None:
     # Arrange: a subagent named main, started by a call that reuses the id of main's own
-    delegation = Delegation(tool_call_id="call_0", delegating_agent="main", blocks_before={})
+    delegation = Delegation(
+        tool_call_id="call_0", delegating_agent="main", blocks_before={}, runs={}
+    )
     nested = build_record(agent="main", outcome="halted", delegation_id="call_0")
 
     # Act
@@ -385,7 +387,9 @@ def test_a_call_reusing_the_caller_s_delegation_id_with_its_own_records_raises()
 
 def test_a_call_reusing_the_caller_s_delegation_id_keeps_another_agent_s_records() -> None:
     # Arrange
-    delegation = Delegation(tool_call_id="call_0", delegating_agent="main", blocks_before={})
+    delegation = Delegation(
+        tool_call_id="call_0", delegating_agent="main", blocks_before={}, runs={}
+    )
     nested = build_record(agent="inner", outcome="halted", delegation_id="call_0")
 
     # Act

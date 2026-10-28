@@ -1,11 +1,13 @@
 """Each monitor's trajectory as the state key holds it, and the reducer that folds writes in.
 
-The private state key `monitor_trajectory` holds each monitor's
-`TrajectoryState` under its label. Each hook that adds to a trajectory
-writes a `TrajectoryDelta`, the entries beyond the lengths it loaded, and
-`merge_trajectories` folds the deltas in. The key is a LangGraph
-`DeltaChannel`, so a checkpoint stores the writes and rebuilds the value from
-them [@langgraph2026].
+The state key `monitor_trajectory` holds each monitor's `TrajectoryState`
+under its label. Each hook that adds to a trajectory writes a
+`TrajectoryDelta`, the entries beyond the lengths it loaded, and
+`merge_trajectories` folds the deltas in. A subagent's whole state comes
+back through the tool call that started it, and is joined under that call in
+its parent's trajectory, so its steps take their place in the run
+[@hyoshigi2026]. The key is a LangGraph `DeltaChannel`, so a checkpoint
+stores the writes and rebuilds the value from them [@langgraph2026].
 """
 
 from __future__ import annotations
@@ -13,7 +15,9 @@ from __future__ import annotations
 from collections.abc import Iterator, Mapping, Sequence
 from typing import TypedDict, cast
 
-from hyoshigi import JSON, Trajectory
+from hyoshigi import JSON, ConfigurationError, FormatError, Trajectory
+
+from langchain_sync_monitors.state_keys import TRAJECTORY_KEY
 
 
 class TrajectoryState(TypedDict):
@@ -145,16 +149,62 @@ def read_delta(write: object) -> TrajectoryDelta | None:
             return None
 
 
-def merge_write(state: TrajectoryState | None, *, write: object) -> TrajectoryState:
+def read_returned_state(write: object) -> TrajectoryState | None:
+    """Return a write as a subagent's returned state when it has that shape, else None."""
+    match write:
+        case {"trajectory": dict(), "delegation_id": str(), "seen": list(), "lost_writes": int()}:
+            # The pattern checked every key a state holds.
+            return cast("TrajectoryState", write)
+        case _:
+            return None
+
+
+def merge_write(state: TrajectoryState | None, *, write: object) -> TrajectoryState | None:
     """Apply one label's write to its state, which None means the label does not have yet.
 
-    A write that is not a delta counts as a lost write.
+    A delta is applied as `merge_delta` says, and a subagent's returned state
+    joined as `join_returned_state` says; one for a label without a state is
+    dropped, and None returned. Any other write counts as a lost write.
     """
     delta = read_delta(write)
-    if delta is None:
+    if delta is not None:
+        held = state or build_empty_state(delegation_id=delta["delegation_id"])
+        return merge_delta(held, delta=delta)
+    returned = read_returned_state(write)
+    if returned is None:
         return count_lost_write(state or build_empty_state(delegation_id=None))
-    held = state or build_empty_state(delegation_id=delta["delegation_id"])
-    return merge_delta(held, delta=delta)
+    return None if state is None else join_returned_state(state, returned=returned)
+
+
+def join_returned_state(held: TrajectoryState, *, returned: TrajectoryState) -> TrajectoryState:
+    """Join a subagent's returned trajectory under the call that started it, in the held one.
+
+    `Trajectory.join` renumbers the subagent's records after the run's
+    [@hyoshigi2026]. When the call already holds a subagent, the held one is
+    kept if the returned one holds no more records, and otherwise the write
+    counts as lost. So does a trajectory that does not load, and a join that
+    `Trajectory.join` refuses: the call is not in the held trajectory, or the
+    subagents nest too deep.
+    """
+    call_id = cast("str", returned["delegation_id"])
+    try:
+        parent = Trajectory.load(held["trajectory"])
+        subagent = Trajectory.load(returned["trajectory"])
+    except FormatError:
+        return count_lost_write(held)
+    kept = parent.subagents.get(call_id)
+    if kept is not None:
+        return held if count_records(subagent) <= count_records(kept) else count_lost_write(held)
+    try:
+        parent.join(subagent, call_id=call_id)
+    except ConfigurationError:
+        return count_lost_write(held)
+    return {**held, "trajectory": parent.dump()}
+
+
+def count_records(trajectory: Trajectory) -> int:
+    """Return the records of a trajectory and of every subagent below it."""
+    return len(trajectory.records) + sum(map(count_records, trajectory.subagents.values()))
 
 
 def merge_delta(held: TrajectoryState, *, delta: TrajectoryDelta) -> TrajectoryState:
@@ -174,7 +224,7 @@ def merge_delta(held: TrajectoryState, *, delta: TrajectoryDelta) -> TrajectoryS
 
 def merge_trajectories(
     current: dict[str, TrajectoryState],
-    writes: Sequence[dict[str, TrajectoryDelta]],
+    writes: Sequence[Mapping[str, TrajectoryDelta | TrajectoryState]],
     /,
 ) -> dict[str, TrajectoryState]:
     """Fold each write into the trajectories, label by label, as `merge_write` says.
@@ -188,7 +238,9 @@ def merge_trajectories(
     merged = dict(current)
     for write in writes:
         for label, value in read_labelled_values(write):
-            merged[label] = merge_write(merged.get(label), write=value)
+            state = merge_write(merged.get(label), write=value)
+            if state is not None:
+                merged[label] = state
     return merged
 
 
@@ -196,3 +248,19 @@ def read_labelled_values(write: object) -> Iterator[tuple[str, object]]:
     """Yield each label of a write with its value, leaving out a key that is not text."""
     if isinstance(write, Mapping):
         yield from ((label, value) for label, value in write.items() if isinstance(label, str))
+
+
+def read_trajectory_state(state: Mapping[str, object], *, label: str) -> TrajectoryState | None:
+    """Return a label's stored trajectory state, or None when the state holds none."""
+    stored = state.get(TRAJECTORY_KEY)
+    value = stored.get(label) if isinstance(stored, Mapping) else None
+    # Only merge_trajectories writes the key, so a stored value is a state.
+    return cast("TrajectoryState", value) if isinstance(value, dict) else None
+
+
+def read_labels(state: Mapping[str, object]) -> list[str]:
+    """Return the labels the state holds a trajectory for."""
+    stored = state.get(TRAJECTORY_KEY)
+    if not isinstance(stored, Mapping):
+        return []
+    return [label for label in stored if isinstance(label, str)]

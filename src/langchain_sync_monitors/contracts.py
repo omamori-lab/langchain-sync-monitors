@@ -19,6 +19,7 @@ from dataclasses import dataclass
 from enum import Flag, StrEnum, auto
 from typing import Literal, NotRequired, TypedDict
 
+from hyoshigi import JSON
 from langchain.agents.middleware.types import ModelResponse
 from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import AIMessage, BaseMessage
@@ -269,6 +270,19 @@ class StepRecord(TypedDict):
     delegation_id: NotRequired[str]
 
 
+class DelegatedRun(TypedDict):
+    """The run a subagent's trajectory joins, under one monitor label.
+
+    `trajectory` is the run's root, as `Trajectory.dump()` gives it, with the
+    trajectory of the agent that made the call joined in, and `path` the ids
+    of the calls from the root to that agent, empty when it is the root
+    [@hyoshigi2026].
+    """
+
+    trajectory: dict[str, JSON]
+    path: list[str]
+
+
 class Delegation(TypedDict):
     """What a monitored agent hands to a subagent that one of its tool calls starts.
 
@@ -277,14 +291,17 @@ class Delegation(TypedDict):
     made the call, for whoever reads the delegation; the monitor decides
     nothing by it. `blocks_before` holds, for each monitor label, the blocks recorded in the
     conversation thread when the subagent started, none of them negative, so
-    that the subagent's Auto Mode counts from the thread's total. The state key
-    that holds it is part of every monitored agent's input, and a value that
-    does not fit this shape raises `ConfigurationError` when it is read.
+    that the subagent's Auto Mode counts from the thread's total. `runs` holds,
+    for each monitor label whose trajectory holds the call, the run the
+    subagent's trajectory joins. The state key that holds it is part of every
+    monitored agent's input, and a value that does not fit this shape raises
+    `ConfigurationError` when it is read.
     """
 
     tool_call_id: str
     delegating_agent: str
     blocks_before: dict[str, NonNegativeInt]
+    runs: dict[str, DelegatedRun]
 
 
 class Monitor(ABC):

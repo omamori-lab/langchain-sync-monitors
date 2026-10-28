@@ -1,12 +1,12 @@
-"""A Deep Agent's monitor keeps its trajectory as any agent's does, and starts its subagents'.
+"""A Deep Agent's monitor keeps its trajectory as any agent's does, its subagents' joined in.
 
 Deep Agents keeps a run's input given as a string without an id, which the
 monitor gives one at the start of the run. It keeps a message a hook writes
 as a string without an id too, which the monitor gives one at the end of the
 run, and the trajectory reads it once, not again under its new id. A `task`
-call starts a subagent's trajectory under the call, in the parent's: the
-subagent's own steps stay in its own graph state, so the parent's trajectory
-holds the instruction the call gave, written by the delegator.
+call starts a subagent's trajectory under the call, with the instruction the
+call gave, written by the delegator, and the subagent's own steps join it
+there when the call returns.
 """
 
 from __future__ import annotations
@@ -179,14 +179,16 @@ def test_a_string_input_enters_the_trajectory_once_as_the_user_s(run_mode: RunMo
     assert history.count(task) == 1
 
 
-def test_a_task_call_starts_a_subagent_s_trajectory_under_the_call(run_mode: RunMode) -> None:
+def test_a_subagent_s_steps_join_its_trajectory_under_the_call(run_mode: RunMode) -> None:
     # Arrange
     main_model = ScriptedChatModel(
         responses=[build_delegation_step(description=INSTRUCTION), AIMessage("Here it is.")],
     )
     agent = build_deep_agent(
         main_model=main_model,
-        worker_model=ScriptedChatModel(responses=[AIMessage("Three sources found.")]),
+        worker_model=ScriptedChatModel(
+            responses=[AIMessage("Three sources found.", id="worker-1")],
+        ),
         main_monitor=MonitorMiddleware(monitor=KeywordMonitor(), protocol=AcceptFirst()),
         checkpointer=InMemorySaver(),
     )
@@ -201,6 +203,8 @@ def test_a_task_call_starts_a_subagent_s_trajectory_under_the_call(run_mode: Run
     subagent = trajectory.subagents.get("call-task", Trajectory())
     assert subagent.history == (
         Observation(author=Author.DELEGATOR, parts=(TextPart(text=INSTRUCTION),)),
+        Observation(author=Author.SCAFFOLD, source="system", parts=()),
+        Action(id="worker-1", parts=(TextPart(text="Three sources found."),)),
     )
 
 

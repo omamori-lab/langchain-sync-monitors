@@ -67,18 +67,21 @@ class MonitorState(AgentState):
     agent's next step answers them and removes them. `returned_records` and
     `subagent_returns` have the rules.
 
-    `monitor_trajectory` holds each monitor's trajectory of the run, by
-    monitor label, as `trajectories` describes. It is a `DeltaChannel`, which
-    LangGraph marks as beta: a checkpoint stores each write, and the value is
-    rebuilt from them [@langgraph2026].
-
-    These eight are private, so a run's result leaves them out, though
+    These seven are private, so a run's result leaves them out, though
     `stream_mode="values"`, `stream_mode="updates"` and `get_state` show
     them, and a subagent returns none of its own. An isolated subagent
     starts without its parent's; a forked one starts with them
     [@deepagents2026], so each entry of `monitor_subagent_returns` names the
     delegation of the agent that stored it, and only that agent answers it.
     Their reducers let stacked monitors write them in one node.
+
+    `monitor_trajectory` holds each monitor's trajectory of the run, by
+    monitor label, as `trajectories` describes. It is a `DeltaChannel`, which
+    LangGraph marks as beta: a checkpoint stores each write, and the value is
+    rebuilt from them [@langgraph2026]. `OmitFromInput` keeps it out of a
+    subagent's input, as it keeps the log, and a run's result holds it, so
+    Deep Agents' `task` tool returns a subagent's to its parent
+    [@deepagents2026], where `trajectory_channel` joins it under the call.
     """
 
     monitor_log: NotRequired[Annotated[list[StepRecord], OmitFromInput, operator.add]]
@@ -97,5 +100,5 @@ class MonitorState(AgentState):
         Annotated[list[SubagentReturn], PrivateStateAttr, merge_subagent_returns]
     ]
     monitor_trajectory: NotRequired[
-        Annotated[dict[str, TrajectoryState], PrivateStateAttr, DeltaChannel(merge_trajectories)]
+        Annotated[dict[str, TrajectoryState], OmitFromInput, DeltaChannel(merge_trajectories)]
     ]

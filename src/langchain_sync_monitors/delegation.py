@@ -3,8 +3,9 @@
 A subagent starts every delegation with an empty `monitor_log`, and its
 records flow back into its parent's log when it returns. Before each tool
 call, the monitor adds a `Delegation` to the state the tool sees, so a
-subagent that the call starts knows which call started it and how many blocks
-the thread had recorded by then. From the log and the delegation, the monitor
+subagent that the call starts knows which call started it, how many blocks
+the thread had recorded by then, and the run its trajectory joins under each
+monitor label, as `trajectory_runs` says. From the log and the delegation, the monitor
 counts the blocks that Auto Mode limits. `returned_records` checks the records
 a call returns, and `subagent_returns` keeps the subagent halts and blocks the
 agent has not yet answered.
@@ -20,6 +21,7 @@ from langchain_sync_monitors._langchain import build_tool_request_with_delegatio
 from langchain_sync_monitors.contracts import Delegation, StepDecision
 from langchain_sync_monitors.feedback import build_halt_decision
 from langchain_sync_monitors.records import count_blocks, count_blocks_by_monitor, read_step_records
+from langchain_sync_monitors.trajectory_runs import build_delegated_runs
 
 
 def read_delegation_id(state: object) -> str | None:
@@ -38,7 +40,8 @@ def add_delegation(request: ToolCallRequest, *, agent: str) -> ToolCallRequest:
     delegation this agent inherited is replaced even when the call reuses
     its id, and a nested subagent still counts this agent's blocks. A call
     without an id, from which Deep Agents refuses to start a subagent
-    [@deepagents2026], is returned as it is.
+    [@deepagents2026], is returned as it is. The runs are those of the
+    labels whose trajectory holds the call.
     """
     tool_call_id = request.tool_call["id"]
     if tool_call_id is None:
@@ -52,6 +55,7 @@ def add_delegation(request: ToolCallRequest, *, agent: str) -> ToolCallRequest:
         tool_call_id=tool_call_id,
         delegating_agent=agent,
         blocks_before=blocks_before,
+        runs=build_delegated_runs(request.state, call_id=tool_call_id),
     )
     return build_tool_request_with_delegation(request, delegation=delegation)
 

@@ -746,30 +746,27 @@ def build_returned(
 
 
 RETURNED_WRITES = {
-    "joined-under-its-call": pytest.param(
+    "joined-under-its-call": (
         build_held(DELEGATING_DUMP),
         build_returned(SUBAGENT_DUMP),
         build_held(JOINED_DUMP),
-        marks=pytest.mark.xfail(strict=True, reason="the reducer joins a subagent (#146)"),
     ),
-    "again-adding-no-record": pytest.param(
+    "again-adding-no-record": (
         build_held(JOINED_DUMP),
         build_returned(LONGER_SUBAGENT_DUMP),
         build_held(JOINED_DUMP),
-        marks=pytest.mark.xfail(strict=True, reason="the reducer joins a subagent (#146)"),
     ),
-    "under-a-label-without-one": pytest.param(
+    "under-a-label-without-one": (
         {},
         build_returned(SUBAGENT_DUMP),
         {},
-        marks=pytest.mark.xfail(strict=True, reason="the reducer joins a subagent (#146)"),
     ),
-    "for-a-call-it-never-made": pytest.param(
+    "for-a-call-it-never-made": (
         build_held(DELEGATING_DUMP),
         build_returned(SUBAGENT_DUMP, call_id="call-other"),
         build_held(DELEGATING_DUMP, lost_writes=1),
     ),
-    "that-does-not-load": pytest.param(
+    "that-does-not-load": (
         build_held(DELEGATING_DUMP),
         build_returned({"format": "hyoshigi.trajectory", "version": 99}),
         build_held(DELEGATING_DUMP, lost_writes=1),
@@ -783,7 +780,7 @@ RETURNED_WRITES = {
 )
 def test_a_returned_subagent_state_folds_in_as_the_join_rule_says(
     held: dict[str, TrajectoryState],
-    write: Any,
+    write: dict[str, TrajectoryState],
     expected: dict[str, TrajectoryState],
 ) -> None:
     # Act

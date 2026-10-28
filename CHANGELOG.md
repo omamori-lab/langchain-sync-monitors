@@ -87,8 +87,10 @@ change raises the minor version.
   rebuilds it from `messages`. A turn summarised away is still read, but a
   later rewrite of a message already read, such as an `update_state` edit,
   `PIIMiddleware`'s redaction in its `before_model` hook, or a tool's write
-  under the input's id, no longer reaches the monitor. The monitor's model
-  and the checkpointed `monitor_trajectory` hold the unredacted text.
+  under the input's id, no longer reaches the monitor. The checkpointed
+  `monitor_trajectory` holds the unredacted text, and the monitor's model
+  reads it unless the monitor's view redacts it, with hyoshigi's
+  `View(redaction=...)`.
 - A monitor's model call that fails on an exhausted rate limit, a server
   error, a timeout or a failed connection no longer raises: the rating fails
   closed at 1.0, and the protocol's rules apply. A refusal, a context
@@ -211,10 +213,11 @@ change raises the minor version.
   empty, with no error.
 - Each subagent receives its run's whole trajectory in `monitor_delegation`,
   so the state and the checkpoints grow with the run.
-- No option redacts an entry before the monitor's trajectory keeps it, so a
-  redaction made after the monitor first read a message never reaches the
-  monitor's model, and the checkpointed `monitor_trajectory` keeps the text
-  unredacted.
+- `MonitorMiddleware` offers no entry redaction: the trajectory keeps each
+  entry as the monitor first read it, so the checkpointed
+  `monitor_trajectory` holds the text unredacted, and a redaction made after
+  that first read, such as `PIIMiddleware`'s, never reaches it. hyoshigi's
+  `View(redaction=...)` redacts only what a monitor's model reads.
 - A step whose reply holds a server tool's result is rated 1.0 every time,
   so under Defer to Resample and Auto Mode a step whose every sample uses
   such a tool goes to the fallback.

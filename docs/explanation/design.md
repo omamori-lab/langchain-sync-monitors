@@ -463,8 +463,7 @@ decision model is named by its provider and id.
   chat models prompted to reason first and then score on an anchored scale.
 - **Guard models** (`GuardMonitor`) label an action against a policy you
   write, and suspicion is the share of several sampled labels that are
-  suspicious; the library's chat models report no log-probabilities, so the
-  guard always samples.
+  suspicious.
 - **Decision models** (`DecisionMonitor`) give the probability that a
   statement holds, and generate no text. Jev is served through OpenRouter's
   Decisions API [@openrouter2026decisions], which the library calls with an
@@ -1193,13 +1192,15 @@ limit is linked from where it arises above.
 
 ### What the trajectory keeps
 
-- **No redaction reaches the monitor.** The trajectory keeps each message as
-  the monitor first read it, so a redaction made after that, such as
-  `PIIMiddleware`'s in its `before_model` hook, an `update_state` edit or a
-  tool's write under the same id, reaches the agent and not the monitor. The
-  monitor's model receives the unredacted text, and every checkpoint of
-  `monitor_trajectory` stores it. The library has no option that redacts an
-  entry before the trajectory keeps it.
+- **A later redaction does not reach the monitor.** The trajectory keeps each
+  message as the monitor first read it, so a redaction made after that, such
+  as `PIIMiddleware`'s in its `before_model` hook, an `update_state` edit or a
+  tool's write under the same id, reaches the agent and not the monitor. Every
+  checkpoint of `monitor_trajectory` stores the unredacted text, and the
+  monitor's model receives it unless the monitor's view redacts it with
+  [hyoshigi's `View(redaction=...)`](https://omamori-lab.github.io/hyoshigi/how-to/redacting-what-leaves-the-process/#a-view-redacts-what-the-monitors-model-reads).
+  `MonitorMiddleware` offers no redaction of an entry before the trajectory
+  keeps it.
 - **Rewrites in the model request alone.** A middleware that rewrites a
   message in the request but not in the state is not followed: the monitor
   reads the state's message under that id.

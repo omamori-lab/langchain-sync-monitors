@@ -294,15 +294,14 @@ The monitor keeps eight private keys in the state: `monitor_task_messages`,
 messages were a run's input and the text of each, the inputs a tool wrote
 over, how many inputs the thread had at a halt, the subagent halts and blocks
 a tool call returned, until the next step, and each monitor's trajectory of
-the run, by label. So `monitor_run_inputs` holds the text of the user's
-turns, and `monitor_trajectory` the text of every message the monitor read
-and of every blocked attempt, as `monitor_log`'s samples do. They
-never enter a run's input or the result of `invoke()` and `ainvoke()`, but
-`values`, `updates` and `agent.get_state(config)` show them. One more key,
-`monitor_delegation`, is part of every monitored agent's input: the monitor
-sets it for each subagent it starts, so leave it out of your own input. [What
-streams](../explanation/design.md#what-streams) explains how the library keeps
-the other calls out of the message stream.
+the run, by label. They never enter a run's input or the result of
+`invoke()` and `ainvoke()`, but `values`, `updates` and
+`agent.get_state(config)` show them, the text they hold included
+([private state keys](../explanation/design.md#private-state-keys)). One more
+key, `monitor_delegation`, is part of every monitored agent's input: the
+monitor sets it for each subagent it starts, so leave it out of your own
+input. [What streams](../explanation/design.md#what-streams) explains how the
+library keeps the other calls out of the message stream.
 
 ## Allow for the graph steps
 

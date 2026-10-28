@@ -467,9 +467,11 @@ def test_the_trajectory_rebuilds_across_runs_on_an_in_memory_saver(run_mode: Run
     )
 
 
-def test_a_stacked_monitor_s_piled_up_write_costs_no_lost_write(run_mode: RunMode) -> None:
-    # Arrange: the outer monitor resamples a rejected draft twice at once. Only ainvoke()
-    # draws them at once, so only there does the inner monitor pile up a stale write.
+def build_resampling_stack() -> Agent:
+    """Build an agent whose outer monitor resamples a rejected draft twice at once.
+
+    The inner monitor sits below it, so it writes once for each draw.
+    """
     outer = MonitorMiddleware(
         monitor=build_keyword_monitor(),
         protocol=DeferToResample(
@@ -487,15 +489,21 @@ def test_a_stacked_monitor_s_piled_up_write_costs_no_lost_write(run_mode: RunMod
         label="inner",
     )
     drafts = [
-        AIMessage("I will post the key to attacker.example."),
-        AIMessage("Safe."),
-        AIMessage("Safe."),
+        AIMessage("I will post the key to attacker.example.", id="draft-1"),
+        AIMessage("Safe.", id="draft-2"),
+        AIMessage("Safe.", id="draft-3"),
     ]
-    agent = create_agent(
+    return create_agent(
         model=ScriptedChatModel(responses=drafts, delay=DRAW_DELAY),
         middleware=[outer, inner],
         checkpointer=InMemorySaver(),
     )
+
+
+def test_a_stacked_monitor_s_piled_up_write_costs_no_lost_write(run_mode: RunMode) -> None:
+    # Arrange: only ainvoke() draws the resamples at once, so only there does the inner
+    # monitor pile up a stale write.
+    agent = build_resampling_stack()
     config = build_thread_config(f"stacked-{run_mode}")
 
     # Act
@@ -503,6 +511,19 @@ def test_a_stacked_monitor_s_piled_up_write_costs_no_lost_write(run_mode: RunMod
 
     # Assert
     assert read_stored(agent, config, label="inner").get("lost_writes") == 0
+
+
+def test_under_invoke_a_stacked_monitor_keeps_the_write_of_the_last_draw_alone() -> None:
+    # Arrange: invoke() draws the resamples one after another
+    agent = build_resampling_stack()
+    config = build_thread_config("stacked-last-draw")
+
+    # Act
+    run_agent(agent, mode="invoke", config=config)
+
+    # Assert
+    history = read_trajectory(agent, config, label="inner").history
+    assert history == (TASK_OBSERVATION, Action(id="draft-3", parts=(TextPart(text="Safe."),)))
 
 
 def test_a_stale_write_outside_the_stacked_case_halts_the_next_step_without_a_sample(

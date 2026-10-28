@@ -1358,14 +1358,16 @@ limit is linked from where it arises above.
   id [@langchain2026]. The trajectory reads that answer twice.
 - **Messages without an id.** An id-less message whose type and text match
   one already read, and for a tool result whose answered call matches too, is
-  not read in its step. It enters the trajectory once, in the next run, under
-  the id it is given. Where a message with an id and the same text comes
-  before the message the trajectory read, the id given to the read message is
-  not marked read, and the trajectory reads it again under that id. A message
-  that lacks an id when Deep Agents' `PatchToolCallsMiddleware` writes the
-  history back, at the start of a run after one that stopped with a tool call
-  unanswered, gets its id from LangGraph there, not from the monitor, so the
-  trajectory reads it again under that id [@deepagents2026; @langgraph2026].
+  not read in its step. One in the state enters the trajectory once, in the
+  next run, under the id the monitor gives it; one only the model request
+  holds is never given an id and never enters. Where a message with an id and
+  the same text comes before the message the trajectory read, the id given to
+  the read message is not marked read, and the trajectory reads it again under
+  that id. A message that lacks an id when Deep Agents'
+  `PatchToolCallsMiddleware` writes the history back, at the start of a run
+  after one that stopped with a tool call unanswered, gets its id from
+  LangGraph there, not from the monitor, so the trajectory reads it again under
+  that id [@deepagents2026; @langgraph2026].
 - **Ids in a history passed in.** Each action and each tool call needs an id
   of its own: a message whose action reuses an id already in the trajectory
   raises `MessageFormatError`. Anthropic's Messages API describes a tool use

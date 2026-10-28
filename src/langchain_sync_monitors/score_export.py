@@ -209,7 +209,7 @@ class StepScores:
 
 def read_step_scores(decisions: Sequence[ProtocolDecision], *, flagged: bool) -> StepScores:
     """Return the step's highest and lowest recorded scores, none when it judged no sample."""
-    scores = [score for _, score in find_rated(decisions)]
+    scores = [rated.score for rated in find_rated(decisions)]
     if not scores:
         return StepScores(extremes=None, flagged=flagged)
     value = operator.attrgetter("value")

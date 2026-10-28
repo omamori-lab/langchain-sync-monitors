@@ -16,13 +16,13 @@ from langchain.agents import create_agent
 from langchain_core.messages import AIMessage
 from langgraph.graph.state import CompiledStateGraph
 
-from langchain_sync_monitors import Redaction
+from langchain_sync_monitors import Channel, Redaction, View
 from langchain_sync_monitors.contracts import TaskAuthor
 from langchain_sync_monitors.middleware import MonitorMiddleware
 from tests.support.agents import RunMode, read_stored_trajectory, run_agent
 from tests.support.chat_models import ScriptedChatModel
 from tests.support.deep_agents import build_deep_agent, build_delegation_step
-from tests.support.monitors import KeywordMonitor
+from tests.support.monitors import KeywordMonitor, RenderingMonitor
 from tests.support.protocols import RUN_EVERY_STEP
 from tests.support.redaction import (
     LAST_REPLY_WITH_SECRET,
@@ -134,10 +134,10 @@ def test_a_parent_redacts_the_trajectory_of_a_subagent_whose_monitor_has_no_reda
     assert Trajectory.load(stored).subagents["call-task"].history == MASKED_WORKER_HISTORY
 
 
-def test_a_subagent_monitored_by_monitor_subagents_takes_the_redaction_of_its_parent(
-    run_mode: RunMode,
-) -> None:
-    # Arrange
+def test_a_subagent_s_monitor_is_asked_redacted_content(run_mode: RunMode) -> None:
+    # Arrange: monitor_subagents copies the main monitor for the worker, rendering model and all
+    view = View(channels=Channel.DEFAULT | Channel.TOOL_OBSERVATIONS | Channel.AGENT_PARTS)
+    monitor = RenderingMonitor(view=view)
     agent = build_deep_agent(
         main_model=ScriptedChatModel(
             responses=[
@@ -149,21 +149,22 @@ def test_a_subagent_monitored_by_monitor_subagents_takes_the_redaction_of_its_pa
             ],
         ),
         worker_model=ScriptedChatModel(responses=[AIMessage(LAST_REPLY_WITH_SECRET, id="step-1")]),
-        main_monitor=build_monitor("main", task_author=TaskAuthor.USER),
+        main_monitor=MonitorMiddleware(
+            monitor=monitor,
+            protocol=RUN_EVERY_STEP,
+            redaction=MASK_SECRET,
+        ),
     )
 
     # Act
-    result = run_agent(agent, mode=run_mode, task=TASK_WITH_SECRET)
+    run_agent(agent, mode=run_mode, task=TASK_WITH_SECRET)
 
-    # Assert
-    stored = read_stored_trajectory(result)
-    assert SECRET not in json.dumps(stored)
-    worker = Trajectory.load(stored).subagents["call-task"]
-    assert worker.history[0] == Observation(
-        author=Author.DELEGATOR,
-        parts=(TextPart(text=f"Find the sources, key {MASK}."),),
-    )
-    assert worker.history[-1] == Action(id="step-1", parts=(TextPart(text=MASKED_LAST_REPLY),))
+    # Assert: the main agent rates twice and the worker once
+    assert len(monitor.readings) == 3
+    read = "\n".join(f"{each.trajectory}\n{each.proposed_action}" for each in monitor.readings)
+    assert SECRET not in read
+    assert f"Find the sources, key {MASK}." in read
+    assert MASKED_LAST_REPLY in read
 
 
 def test_a_nested_subagent_s_joined_trajectory_holds_what_the_redaction_leaves(

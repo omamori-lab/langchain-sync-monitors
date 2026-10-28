@@ -313,7 +313,7 @@ towards `recursion_limit`:
 | `monitor[main].before_agent` | Once per run | Records the human messages that are the run's input |
 | `monitor[main].before_model` | Before each step | Tags the other human messages as notes, and opens a step |
 | `monitor[main].after_model` | After each step | Ends the run after a halt |
-| `monitor[main].after_agent` | Once per run | Tags the notes written since the last step, and closes the run |
+| `monitor[main].after_agent` | Once per run | Tags the notes written since the last step, marks the ids it gives as read in the monitors' trajectories, and closes the run |
 
 So a run of N steps, runs of the model node, takes 2N + 2 more graph steps,
 and each further monitor stacked in the agent adds another 2N + 2.

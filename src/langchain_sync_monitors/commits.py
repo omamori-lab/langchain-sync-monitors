@@ -115,7 +115,8 @@ def build_step_response(result: StepResult, *, step: Step) -> AgentModelResponse
     replace commits the draw of the action it runs, whole, with its
     structured response, and adds what follows the reply in the draw to the
     trajectory. An audit commits the held reply alone, for a person to
-    answer before any tool runs. A halt commits `DEFAULT_HALT_MESSAGE`.
+    answer before any of the agent's own tools run. A halt commits
+    `DEFAULT_HALT_MESSAGE`.
     """
     match result.final:
         case Run(action=action) | Flag(action=action) | Replace(action=action):

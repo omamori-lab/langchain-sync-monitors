@@ -319,7 +319,7 @@ streams differ in what they show:
 
 | Stream | What it shows |
 |---|---|
-| `stream_mode="messages"` | Only committed steps, each whole once the protocol commits it, not token by token. Rejected samples and the built-in monitors' calls never appear; a call that a monitor of your own makes with its own `tags` does |
+| `stream_mode="messages"` | Only committed steps, each whole once the protocol commits it, not token by token. Samples the protocol rejected and the built-in monitors' calls never appear; a call that a monitor of your own makes with its own `tags` does. A held reply is committed before its answer, so it appears even when the person then rejects or stops it |
 | `stream_mode="custom"` | One `monitor_step` event per committed step and one `monitor_step_failed` event per failed one; a subagent's only with `subgraphs=True` |
 | `stream_mode="values"` | The whole state after each graph step: `monitor_log`, rejected samples included, and the monitor's private keys |
 | `stream_mode="updates"` | Each node's writes, the same keys included. A message the monitor tags as a note arrives twice: from the node that wrote it, and again, tagged, from the next node where the monitor runs, `model` when it commits a step or one of its hooks, such as `monitor[main].before_model` |
@@ -331,7 +331,10 @@ read `stream_mode="messages"` instead, or the experimental
 committed steps. A consumer that builds the conversation from `updates` should
 merge messages by id, as LangGraph's message reducer does [@langgraph2026],
 not append them. A blocked reply and its feedback are committed whole with
-the step that follows them, so they stream with it.
+the step that follows them, so they stream with it. A reply held for a
+person streams when the run pauses; an interface that should show only what
+ran keeps the last reply of a paused run back until its answer, as
+[Answer an audit](answer-an-audit.md) gives.
 
 The monitor keeps five private keys in the state: `monitor_task_messages`,
 `monitor_seen_human_messages`, `monitor_run_open`, `monitor_inputs_at_halt`

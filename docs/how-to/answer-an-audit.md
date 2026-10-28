@@ -1,7 +1,8 @@
 # Answer an audit
 
-This guide answers a step the protocol audits: the run pauses before any tool
-runs, and a person approves, edits, rejects or stops the held step.
+This guide answers a step the protocol audits: the run pauses before any of
+the agent's own tools run, and a person approves, edits, rejects or stops the
+held step.
 
 [TOC]
 
@@ -15,8 +16,9 @@ request a person reads, the answers it takes, and what each one commits.
 
 The model call that draws the held step commits the held reply alone, and
 the monitor's `after_model` hook pauses the run with LangGraph's `interrupt`
-before any tool runs, as LangChain's `HumanInTheLoopMiddleware` does
-[@langchain2026]. The pause needs a checkpointer, and the run's config a
+before any of the agent's own tools run, as LangChain's
+`HumanInTheLoopMiddleware` does [@langchain2026]. A provider's server-side
+tool in the held reply ran inside the model call that drew it. The pause needs a checkpointer, and the run's config a
 thread id [@langgraph2026].
 
 The run returns the pause under `__interrupt__`: one `Interrupt` per held
@@ -119,7 +121,10 @@ keeps nothing of such an answer, so the same interrupt can be answered again
 New input sent to a paused thread, rather than `Command(resume=...)`, stops
 the held step: the held reply goes, the step is recorded as `halted` and
 flagged, and the run goes on with the new input, which lifts the halt.
-[Asking a person](../explanation/design.md#asking-a-person) gives how.
+[Asking a person](../explanation/design.md#asking-a-person) gives how. A
+subagent's held step is the exception: new input while a subagent is paused
+records no halt for it, and its held call never runs
+([issue #155](https://github.com/omamori-lab/langchain-sync-monitors/issues/155)).
 
 ## Audits in subagents
 
@@ -137,6 +142,7 @@ An audit needs a checkpointer, and two cases leave a held step unanswered or
 incomplete; [Known limits](../explanation/design.md#protocols-and-configuration)
 lists them. An agent that also pauses through LangChain's
 `HumanInTheLoopMiddleware`, as Deep Agents' `interrupt_on` adds one, is not
-yet tested beside the monitor's audit (issue #157).
+yet tested beside the monitor's audit
+([issue #157](https://github.com/omamori-lab/langchain-sync-monitors/issues/157)).
 
 ## References

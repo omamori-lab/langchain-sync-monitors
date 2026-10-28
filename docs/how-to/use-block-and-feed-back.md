@@ -159,9 +159,10 @@ with the step, and the outer monitor records only the reply that runs;
 To review what was blocked:
 
 ```python
-for record in result["monitor_log"]:
-    # A blocked proposal is a sample that did not run.
-    blocked = [sample for sample in record["samples"] if not sample["executed"]]
+for record in result.get("monitor_log", []):
+    # A step's blocked proposals come first among its samples, in the order rated;
+    # the last sample ran, or was audited.
+    blocked = record["samples"][: record["blocked_count"]]
     for sample in blocked:
         print(f"Step {record['step_number']}, blocked at {sample['suspicion']:.2f}")
         # The blocked proposal's tool calls, each with its argument text.

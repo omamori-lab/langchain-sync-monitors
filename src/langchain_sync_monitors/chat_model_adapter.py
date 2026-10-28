@@ -428,7 +428,13 @@ class ChatModelAdapter:
     (`read_failure` gives the rules), and any other is raised as it is.
     """
 
-    def __init__(self, model: str | BaseChatModel, *, source: str) -> None:
+    def __init__(
+        self,
+        model: str | BaseChatModel,
+        *,
+        source: str,
+        top_log_probabilities: int = 0,
+    ) -> None:
         """Resolve the chat model and build both generative models from it.
 
         `source` goes into the `lc_source` metadata of every call and must be

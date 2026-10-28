@@ -195,6 +195,12 @@ class MonitorMiddleware(AgentMiddleware[MonitorState, AgentContext, StructuredOu
     and the monitor's next step halts without a sample. A thread whose
     decided steps outlive the trajectory raises `MonitorError`.
 
+    `redaction`, hyoshigi's `Redaction`, redacts each entry, rating and record
+    before the trajectory keeps it, so `monitor_trajectory`, `monitor_log`,
+    the spans, the streamed events and the monitor's model hold the redacted
+    text; `messages` keep the original. The function must return its own
+    output unchanged. The how-to Redact what the monitor keeps has the rest.
+
     A halted step ends the run. The middleware's `after_model` hook routes the
     agent to its end, since the halt message alone does not end an agent that
     loops until it has a structured response. On a halted step it skips the
@@ -282,6 +288,13 @@ class MonitorMiddleware(AgentMiddleware[MonitorState, AgentContext, StructuredOu
                 parameter_name="flag_threshold",
             )
             object.__setattr__(self, "flag_threshold", flag_threshold)
+        if self.redaction is not None:
+            check_instance_option(
+                self.redaction,
+                option_type=Redaction,
+                parameter_name="redaction",
+                hint="Build one with Redaction(text=..., media=...).",
+            )
         protocols = self.protocol.build(trace_monitors(self.monitor))
         if self.trusted_model is not None:
             check_trusted_model_use(protocols, protocol_name=type(self.protocol).__name__)
@@ -529,5 +542,6 @@ class MonitorMiddleware(AgentMiddleware[MonitorState, AgentContext, StructuredOu
             update=update,
             label=self.label,
             task_author=self.task_author,
+            redaction=self.redaction,
         )
         return {**update, **trajectories}

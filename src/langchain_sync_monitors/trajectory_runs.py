@@ -11,6 +11,11 @@ message as the instruction; afterwards it joins its stored trajectory there,
 so the records it adds take the run's next numbers. A label without a run
 keeps a trajectory at the root of a run of its own. Once the call returns
 the subagent's state, `trajectory_channel` joins it into its parent's.
+
+A monitor's redaction applies to every trajectory it loads, as hyoshigi's
+`Trajectory` keeps it for the entries added later. A stored trajectory was
+redacted before it was kept, so it loads as it was stored; the join passes a
+subagent's stored trajectory through the redaction once more.
 """
 
 from __future__ import annotations
@@ -19,7 +24,7 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 
 import hyoshigi
-from hyoshigi import Action, ToolCall, Trajectory
+from hyoshigi import JSON, Action, Redaction, StoredContent, ToolCall, Trajectory
 from langchain_core.messages import BaseMessage, HumanMessage
 
 from langchain_sync_monitors._langchain import MONITOR_DELEGATION_KEY, read_delegation
@@ -44,21 +49,52 @@ class RunPlace:
     instruction: BaseMessage | None
 
 
-def load_run(state: Mapping[str, object], *, label: str) -> RunPlace:
+def load_stored_trajectory(
+    data: dict[str, JSON],
+    *,
+    redaction: Redaction | None,
+) -> Trajectory:
+    """Load a stored trajectory as it was stored, keeping the redaction for the entries added later.
+
+    The stored entries already passed through the redaction, so they are not
+    redacted again.
+    """
+    if redaction is None:
+        return Trajectory.load(data)
+    return Trajectory.load(data, redaction=redaction, content=StoredContent.REDACTED)
+
+
+def load_run(
+    state: Mapping[str, object],
+    *,
+    label: str,
+    redaction: Redaction | None,
+) -> RunPlace:
     """Load a label's trajectory from the state, placed in the run its delegation holds.
 
-    A run that does not load, or cannot hold the trajectory under the call,
-    raises `ConfigurationError`.
+    Every trajectory it loads or starts keeps `redaction`. A run that does not
+    load, or cannot hold the trajectory under the call, raises
+    `ConfigurationError`.
     """
     stored = read_trajectory_state(state, label=label)
-    own = None if stored is None else Trajectory.load(stored["trajectory"])
+    own = (
+        None
+        if stored is None
+        else load_stored_trajectory(stored["trajectory"], redaction=redaction)
+    )
     delegation = read_delegation(state)
     if delegation is None or label not in delegation["runs"]:
-        root = own or Trajectory()
+        root = own or Trajectory(redaction=redaction)
         return RunPlace(trajectory=root, root=root, path=(), instruction=None)
     run = delegation["runs"][label]
     try:
-        return place_in_run(run, call_id=delegation["tool_call_id"], own=own, state=state)
+        return place_in_run(
+            run,
+            call_id=delegation["tool_call_id"],
+            own=own,
+            state=state,
+            redaction=redaction,
+        )
     except (hyoshigi.FormatError, hyoshigi.ConfigurationError) as error:
         raise ConfigurationError(build_run_message(label)) from error
 
@@ -69,12 +105,13 @@ def place_in_run(
     call_id: str,
     own: Trajectory | None,
     state: Mapping[str, object],
+    redaction: Redaction | None,
 ) -> RunPlace:
     """Join the agent's stored trajectory under the call, or start it there with its task.
 
     A path that leads to no trajectory raises `ConfigurationError`.
     """
-    root = Trajectory.load(run["trajectory"])
+    root = load_stored_trajectory(run["trajectory"], redaction=redaction)
     parent = find_subagent(root, path=run["path"])
     if parent is None:
         message = f"{MONITOR_DELEGATION_KEY} holds a run whose path leads to no trajectory."
@@ -122,10 +159,14 @@ def find_tool_call(trajectory: Trajectory, *, call_id: str) -> ToolCall | None:
 
 
 def build_delegated_runs(state: Mapping[str, object], *, call_id: str) -> dict[str, DelegatedRun]:
-    """Return the run a call hands its subagent for each label whose trajectory holds the call."""
+    """Return the run a call hands its subagent for each label whose trajectory holds the call.
+
+    The trajectories are stored redacted and this adds nothing to them, so they
+    load without a redaction.
+    """
     runs: dict[str, DelegatedRun] = {}
     for label in read_labels(state):
-        place = load_run(state, label=label)
+        place = load_run(state, label=label, redaction=None)
         if find_tool_call(place.trajectory, call_id=call_id) is not None:
             runs[label] = DelegatedRun(trajectory=place.root.dump(), path=list(place.path))
     return runs

@@ -92,7 +92,8 @@ change raises the minor version.
   `PIIMiddleware`'s redaction in its `before_model` hook, or a tool's write
   under the input's id, no longer reaches the monitor. The checkpointed
   `monitor_trajectory` holds the unredacted text, and the monitor's model
-  reads it unless the monitor's view redacts it, with hyoshigi's
+  reads it unless `MonitorMiddleware(redaction=...)` redacted it before the
+  trajectory kept it, or the monitor's view redacts it, with hyoshigi's
   `View(redaction=...)`.
 - A monitor's model call that fails on an exhausted rate limit, a server
   error, a timeout or a failed connection no longer raises: the rating fails
@@ -300,6 +301,20 @@ change raises the minor version.
 - A thread whose `monitor_log` holds steps this agent's protocol decided,
   while its trajectory under the monitor's label is missing, raises
   `MonitorError`, at the start of a run or a step.
+- `MonitorMiddleware(redaction=...)`, with hyoshigi's `Redaction` exported as
+  the same object. Each entry, rating and record passes through it before the
+  monitor's trajectory keeps it, so `monitor_trajectory`, `monitor_log`, the
+  spans, the streamed events and the monitor's model hold the redacted text,
+  in the root's trajectory and in each subagent's joined under its call. A
+  judgement span's reason, and the reasons and error of a `monitor_step_failed`
+  event, pass through the text function, since they are built before a record
+  exists, and that event leaves the proposals out. The function must return its
+  own output unchanged: a subagent's trajectory is redacted again when it
+  joins its parent's. The redaction does not reach `messages`, LangChain's
+  own traces of model calls (LangChain's `PIIMiddleware`, LangSmith's
+  `anonymizer` and Langfuse's `mask` cover those), or the text a thread
+  stored before the redaction was set; a view-only redaction stays
+  `View(redaction=...)`. Any other value raises `ConfigurationError`.
 - `MonitorTwins(monitor=..., async_monitor=...)`, a monitor of your own
   written as hyoshigi's sync and async twins, which the middleware and the
   wrappers take as they take the library's monitors.
@@ -354,10 +369,10 @@ change raises the minor version.
   in the tracing tools: the stop opens no span.
 - Each subagent receives its run's whole trajectory in `monitor_delegation`,
   so the state and the checkpoints grow with the run.
-- `MonitorMiddleware` offers no entry redaction: the trajectory keeps each
-  entry as the monitor first read it, so the checkpointed
-  `monitor_trajectory` holds the text unredacted, and a redaction made after
-  that first read, such as `PIIMiddleware`'s, never reaches it. hyoshigi's
+- The trajectory keeps each entry as the monitor first read it, so a redaction
+  made after that first read, such as `PIIMiddleware`'s, never reaches it, and
+  the checkpointed `monitor_trajectory` holds the text unredacted unless
+  `MonitorMiddleware(redaction=...)` redacted it first. hyoshigi's
   `View(redaction=...)` redacts only what a monitor's model reads.
 - A step whose reply holds a server tool's result fails closed every time,
   so it is audited, except under trusted monitoring.

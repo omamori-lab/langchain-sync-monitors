@@ -40,6 +40,11 @@ none at all.
 A message whose action reuses an action id or a tool-call id already in the
 trajectory raises `MessageFormatError`, as hyoshigi's own readers refuse one
 [@hyoshigi2026].
+
+With a redaction, each entry, rating and record passes through it before the
+trajectory keeps it, so the state key holds redacted text only, and the
+trajectory loads as stored; `trajectory_runs` says how. The system message is
+compared with the latest one observed in its redacted form.
 """
 
 from __future__ import annotations
@@ -56,6 +61,7 @@ from hyoshigi import (
     Event,
     Halt,
     Observation,
+    Redaction,
     ToolCall,
     Trajectory,
 )
@@ -123,6 +129,7 @@ def load_trajectory(
     *,
     label: str,
     task_author: TaskAuthor,
+    redaction: Redaction | None,
 ) -> LoadedTrajectory:
     """Load a label's trajectory from the state, placed in its run as `load_run` says.
 
@@ -132,7 +139,7 @@ def load_trajectory(
     stored = read_trajectory_state(state, label=label) or build_empty_state(
         delegation_id=read_delegation_id(state),
     )
-    place = load_run(state, label=label)
+    place = load_run(state, label=label, redaction=redaction)
     loaded = LoadedTrajectory(
         label=label,
         trajectory=place.trajectory,
@@ -246,12 +253,24 @@ def find_latest_system_observation(trajectory: Trajectory) -> Observation | None
     return None
 
 
+def redact_observation(observation: Observation, *, redaction: Redaction | None) -> Event:
+    """Return the observation as a trajectory with this redaction would keep it."""
+    scratch = Trajectory(redaction=redaction)
+    scratch.observe(observation)
+    return scratch.history[0]
+
+
 def add_changed_system_message(loaded: LoadedTrajectory, *, message: SystemMessage | None) -> None:
-    """Observe the request's system message when it differs from the latest one observed."""
+    """Observe the request's system message when it differs from the latest one observed.
+
+    The latest one was kept redacted, so the message is compared in its
+    redacted form.
+    """
     if message is None:
         return
     observation = read_observation(message, task_author=loaded.task_author)
-    if observation != find_latest_system_observation(loaded.trajectory):
+    redacted = redact_observation(observation, redaction=loaded.trajectory.redaction)
+    if redacted != find_latest_system_observation(loaded.trajectory):
         loaded.trajectory.observe(observation)
 
 
@@ -270,6 +289,7 @@ def load_step_trajectory(
     *,
     label: str,
     task_author: TaskAuthor,
+    redaction: Redaction | None,
 ) -> LoadedTrajectory:
     """Load a label's trajectory at the start of a step, and sync what the step's request holds.
 
@@ -277,7 +297,7 @@ def load_step_trajectory(
     the messages only the request holds.
     """
     state = request.state
-    loaded = load_trajectory(state, label=label, task_author=task_author)
+    loaded = load_trajectory(state, label=label, task_author=task_author, redaction=redaction)
     add_changed_system_message(loaded, message=request.system_message)
     state_messages = read_state_messages(state)
     request_only = find_request_only_messages(request.messages, state_messages=state_messages)
@@ -315,6 +335,7 @@ def load_run_start_trajectory(
     given: Sequence[GivenId],
     label: str,
     task_author: TaskAuthor,
+    redaction: Redaction | None,
     stop: Halt | None,
 ) -> LoadedTrajectory:
     """Load a label's trajectory at the start of a run, and sync the state `update` leaves.
@@ -325,7 +346,7 @@ def load_run_start_trajectory(
     position.
     """
     started = read_state_after(state, update=update)
-    loaded = load_trajectory(started, label=label, task_author=task_author)
+    loaded = load_trajectory(started, label=label, task_author=task_author, redaction=redaction)
     if stop is not None:
         loaded.trajectory.record(stop)
     mark_given_ids(loaded, given=given)

@@ -81,7 +81,6 @@ def build_agent(
     )
 
 
-@pytest.mark.xfail(strict=True, reason="PR 8 redacts the trajectory at entry")
 def test_the_stored_trajectory_holds_what_the_redaction_leaves(run_mode: RunMode) -> None:
     # Arrange
     agent = build_agent(KeywordMonitor())
@@ -100,7 +99,6 @@ def test_the_stored_trajectory_holds_what_the_redaction_leaves(run_mode: RunMode
     )
 
 
-@pytest.mark.xfail(strict=True, reason="PR 8 redacts the trajectory at entry")
 def test_each_step_record_holds_the_explanation_the_redaction_leaves(run_mode: RunMode) -> None:
     # Arrange
     agent = build_agent(KeywordMonitor(suspicion_by_keyword=SUSPICION_BY_SECRET))
@@ -118,7 +116,6 @@ def test_each_step_record_holds_the_explanation_the_redaction_leaves(run_mode: R
     assert MASK in json.dumps(log[1]["samples"][0]["proposal"])
 
 
-@pytest.mark.xfail(strict=True, reason="PR 8 redacts the trajectory at entry")
 def test_each_streamed_step_holds_the_explanation_the_redaction_leaves(run_mode: RunMode) -> None:
     # Arrange
     agent = build_agent(KeywordMonitor(suspicion_by_keyword=SUSPICION_BY_SECRET))
@@ -134,7 +131,6 @@ def test_each_streamed_step_holds_the_explanation_the_redaction_leaves(run_mode:
     ]
 
 
-@pytest.mark.xfail(strict=True, reason="PR 8 redacts the trajectory at entry")
 def test_the_monitor_spans_hold_no_text_the_redaction_removes(run_mode: RunMode) -> None:
     # Arrange
     agent = build_agent(KeywordMonitor(suspicion_by_keyword=SUSPICION_BY_SECRET))
@@ -176,7 +172,6 @@ def stream_failed_step(agent: Agent, *, mode: RunMode) -> tuple[list[dict[str, A
     return events, raised.value
 
 
-@pytest.mark.xfail(strict=True, reason="PR 8 redacts the trajectory at entry")
 def test_a_failed_step_reports_redacted_explanations_and_no_proposals(run_mode: RunMode) -> None:
     # Arrange: the first reply is rated 0.7 and resampled, and the resample raises
     suspicious = build_tool_call_message(
@@ -203,7 +198,6 @@ def test_a_failed_step_reports_redacted_explanations_and_no_proposals(run_mode: 
     ]
 
 
-@pytest.mark.xfail(strict=True, reason="PR 8 redacts the trajectory at entry")
 def test_the_monitor_s_model_is_asked_redacted_content(run_mode: RunMode) -> None:
     # Arrange: a view that shows the tool result and the agent's text as well as the task
     view = View(channels=Channel.DEFAULT | Channel.TOOL_OBSERVATIONS | Channel.AGENT_PARTS)
@@ -238,7 +232,6 @@ def test_the_messages_keep_the_text_the_redaction_removes(run_mode: RunMode) -> 
     ]
 
 
-@pytest.mark.xfail(strict=True, reason="PR 8 redacts the trajectory at entry")
 def test_a_stored_trajectory_is_not_redacted_again_when_a_step_loads_it(run_mode: RunMode) -> None:
     # Arrange: each pass through this redaction adds a mark to a text
     monitor = KeywordMonitor()
@@ -255,7 +248,6 @@ def test_a_stored_trajectory_is_not_redacted_again_when_a_step_loads_it(run_mode
     )
 
 
-@pytest.mark.xfail(strict=True, reason="PR 8 redacts the trajectory at entry")
 def test_a_system_prompt_the_redaction_changes_is_observed_once(run_mode: RunMode) -> None:
     # Arrange
     agent = build_agent(KeywordMonitor(), system_prompt=f"You are helpful, key {SECRET}.")

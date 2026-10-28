@@ -34,6 +34,7 @@ from hyoshigi import (
     Policy,
     ProtocolDecision,
     ProtocolRequest,
+    Redaction,
     Replace,
     Run,
     SuspicionScore,
@@ -130,6 +131,29 @@ def build_sample_records(
             executed=rated.action.id == executed_id,
         )
         for rated in find_rated(weighed)
+    ]
+
+
+def redact_failed_samples(
+    samples: Sequence[SampleRecord],
+    *,
+    redaction: Redaction,
+) -> list[SampleRecord]:
+    """Return a failed step's samples with each explanation redacted and each proposal left out.
+
+    The protocol's latest answer was not recorded, so its proposals and scores
+    have not passed through the trajectory's redaction. Each explanation
+    passes through the redaction's text function, and each proposal becomes an
+    empty dict.
+    """
+    return [
+        SampleRecord(
+            suspicion=sample["suspicion"],
+            reason=redaction.text(sample["reason"]),
+            proposal={},
+            executed=sample["executed"],
+        )
+        for sample in samples
     ]
 
 

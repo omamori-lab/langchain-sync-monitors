@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import json
 
-import pytest
 from deepagents import CompiledSubAgent, create_deep_agent
 from hyoshigi import Action, Author, Observation, TextPart, ToolCall, ToolObservation, Trajectory
 from langchain.agents import create_agent
@@ -49,7 +48,6 @@ def build_monitor(agent_name: str, *, task_author: TaskAuthor) -> MonitorMiddlew
     )
 
 
-@pytest.mark.xfail(strict=True, reason="PR 8 redacts the trajectory at entry")
 def test_a_subagent_s_joined_trajectory_holds_what_the_redaction_leaves(run_mode: RunMode) -> None:
     # Arrange: the worker's instruction, tool result and replies all hold the token
     worker = CompiledSubAgent(
@@ -93,7 +91,6 @@ def test_a_subagent_s_joined_trajectory_holds_what_the_redaction_leaves(run_mode
     )
 
 
-@pytest.mark.xfail(strict=True, reason="PR 8 redacts the trajectory at entry")
 def test_a_subagent_monitored_by_monitor_subagents_takes_the_redaction_of_its_parent(
     run_mode: RunMode,
 ) -> None:
@@ -126,7 +123,6 @@ def test_a_subagent_monitored_by_monitor_subagents_takes_the_redaction_of_its_pa
     assert worker.history[-1] == Action(id="step-1", parts=(TextPart(text=MASKED_LAST_REPLY),))
 
 
-@pytest.mark.xfail(strict=True, reason="PR 8 redacts the trajectory at entry")
 def test_a_nested_subagent_s_joined_trajectory_holds_what_the_redaction_leaves(
     run_mode: RunMode,
 ) -> None:

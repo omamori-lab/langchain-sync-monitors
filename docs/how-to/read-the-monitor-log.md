@@ -348,8 +348,9 @@ input or the result of `invoke()` and `ainvoke()`, but `values`, `updates` and
 each subagent's joined under the call that started it, with every decision
 of the protocol that `monitor_log`'s records project. It holds the text of
 every message the monitor read, as it first read it, and of every blocked
-reply, as `monitor_log`'s samples do; a later redaction of a message does
-not reach it
+reply, as `monitor_log`'s samples do, redacted by the middleware's `redaction`
+if it has one ([Redact what the monitor keeps](redact-what-the-monitor-keeps.md));
+a later redaction of a message does not reach it
 ([Know what the trajectory holds](choose-what-the-monitor-reads.md#know-what-the-trajectory-holds)).
 It never enters a run's input, and the result of `invoke()` and `ainvoke()`
 holds it, as a subagent's result returns it to its parent. A thread whose

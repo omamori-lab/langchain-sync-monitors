@@ -10,7 +10,10 @@ change after it starts. The names are fixed, so LangSmith and Langfuse filter
 and count spans by name, and what varies goes in metadata under flat keys
 that start with `monitor_` [@langsmith2026traces; @langfuse2026]. The
 monitor's own model calls inside a judgement carry a fixed name too,
-`model_calls.MONITOR_CALL_NAME`.
+`model_calls.MONITOR_CALL_NAME`. A judgement span ends before the trajectory
+records the score, so with a redaction its reason passes through the text
+function there; the other spans are built from the recorded, redacted
+decisions.
 
 Every span is tagged `monitor`. The spans below the step span also carry
 `ls_agent_type: "middleware"`, which keeps them out of LangSmith's Trajectory
@@ -30,7 +33,7 @@ from types import MappingProxyType
 from uuid import UUID
 
 import hyoshigi
-from hyoshigi import Action, ProtocolDecision, SuspicionScore, Trajectory
+from hyoshigi import Action, ProtocolDecision, Redaction, SuspicionScore, Trajectory
 from langchain_core.utils.uuid import uuid7
 
 from langchain_sync_monitors._langchain import (
@@ -230,13 +233,20 @@ def build_judgement_span(*, monitor: object) -> TraceSpan:
     )
 
 
-def build_score_outputs(score: SuspicionScore) -> dict[str, TraceValue]:
+def build_score_outputs(
+    score: SuspicionScore,
+    *,
+    redaction: Redaction | None,
+) -> dict[str, TraceValue]:
     """Return a judgement span's outputs: the score's value, its explanation, and whether it failed
     closed.
+
+    The explanation passes through the redaction's text function, if any.
     """
+    reason = score.explanation if redaction is None else redaction.text(score.explanation)
     return {
         "suspicion": score.value,
-        "reason": score.explanation,
+        "reason": reason,
         "failed_closed": score.failed_closed,
     }
 
@@ -251,7 +261,7 @@ class TracedMonitor(hyoshigi.Monitor):
         """Rate the action with the inner twin, inside its judgement span."""
         with open_traced_run_sync(build_judgement_span(monitor=self.inner)) as traced_judgement:
             score = self.inner.rate(action, trajectory=trajectory)
-            traced_judgement.outputs = build_score_outputs(score)
+            traced_judgement.outputs = build_score_outputs(score, redaction=trajectory.redaction)
         return score
 
 
@@ -265,7 +275,7 @@ class AsyncTracedMonitor(hyoshigi.AsyncMonitor):
         """Rate the action with the inner twin, inside its judgement span."""
         async with open_traced_run(build_judgement_span(monitor=self.inner)) as traced_judgement:
             score = await self.inner.rate(action, trajectory=trajectory)
-            traced_judgement.outputs = build_score_outputs(score)
+            traced_judgement.outputs = build_score_outputs(score, redaction=trajectory.redaction)
         return score
 
 

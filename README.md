@@ -135,7 +135,8 @@ A monitor in every Deep Agents subagent: [Monitor Deep Agents subagents](docs/ho
   raw tool output or context notes; each is one flag away. It keeps each
   message as it first read it, so a later redaction, such as
   `PIIMiddleware`'s, never reaches the monitor's model or its checkpointed
-  trajectory.
+  trajectory. `MonitorMiddleware(redaction=...)` redacts each entry before the
+  monitor keeps it ([Redact what the monitor keeps](docs/how-to/redact-what-the-monitor-keeps.md)).
 - **Halts.** A halt stands until a later run brings a message the monitor
   records as new input from the user. A middleware listed before the monitor
   can still lift it, with an untagged human message written from its

@@ -194,7 +194,9 @@ monitor = LLMMonitor(
 ```
 
 The monitor keeps each message as it first read it, so a redaction made after
-that never reaches it.
+that never reaches it; `MonitorMiddleware(redaction=...)` redacts it before
+the monitor keeps it
+([Redact what the monitor keeps](how-to/redact-what-the-monitor-keeps.md)).
 [Choose what the monitor reads](how-to/choose-what-the-monitor-reads.md)
 covers every channel, the limit on recent entries and what the monitor
 keeps.

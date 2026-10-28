@@ -324,7 +324,8 @@ class MonitorStepFailedEvent(TypedDict):
     A call inside the step raised, so no record reaches `monitor_log`. The
     event keeps what the monitor had rated by then: `samples` holds each
     rated sample, none of them executed, and `error` names the exception,
-    which the middleware raises again after the event.
+    which the middleware raises again after the event. A `redaction` redacts
+    both and leaves each proposal out.
     """
 
     type: Literal["monitor_step_failed"]

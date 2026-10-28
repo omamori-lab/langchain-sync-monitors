@@ -241,7 +241,12 @@ def find_held_step(
     stored = read_trajectory_state(state, label=middleware.label)
     if stored is None or not is_audit_last(stored["trajectory"]):
         return None
-    loaded = load_trajectory(state, label=middleware.label, task_author=middleware.task_author)
+    loaded = load_trajectory(
+        state,
+        label=middleware.label,
+        task_author=middleware.task_author,
+        redaction=None,
+    )
     records = loaded.trajectory.records
     # read_draw gave the held reply its action's id.
     match records:
@@ -557,6 +562,7 @@ def stop_held_step(
         update=update,
         label=middleware.label,
         task_author=middleware.task_author,
+        redaction=None,
         stop=halt,
     )
     written = update.get("messages")

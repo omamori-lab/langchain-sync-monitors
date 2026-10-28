@@ -15,7 +15,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 
-from hyoshigi import Halt
+from hyoshigi import Halt, Redaction
 from langchain_core.messages import BaseMessage
 from langgraph.types import Overwrite
 
@@ -69,13 +69,17 @@ def load_marked_trajectories(
     given: Sequence[GivenId],
     task_author: TaskAuthor,
 ) -> dict[str, LoadedTrajectory]:
-    """Load every label's trajectory, with each given id marked where the label read it."""
+    """Load every label's trajectory, with each given id marked where the label read it.
+
+    No entry is added to them, so they load as stored, without a redaction.
+    """
     stored = state.get(TRAJECTORY_KEY)
     labels = (
         [label for label in stored if isinstance(label, str)] if isinstance(stored, Mapping) else []
     )
     loaded = {
-        label: load_trajectory(state, label=label, task_author=task_author) for label in labels
+        label: load_trajectory(state, label=label, task_author=task_author, redaction=None)
+        for label in labels
     }
     for trajectory in loaded.values():
         mark_given_ids(trajectory, given=given)
@@ -111,6 +115,7 @@ def build_run_start_trajectories_update(
     update: AgentStateUpdate,
     label: str,
     task_author: TaskAuthor,
+    redaction: Redaction | None,
     stop: Halt | None = None,
 ) -> AgentStateUpdate:
     """Return the update that adds a run's input to the trajectories, with the given ids marked.
@@ -125,6 +130,7 @@ def build_run_start_trajectories_update(
         given=given,
         label=label,
         task_author=task_author,
+        redaction=redaction,
         stop=stop,
     )
     return build_trajectories_update(state, given=given, task_author=task_author, own=own)

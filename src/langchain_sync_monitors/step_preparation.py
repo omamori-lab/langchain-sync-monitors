@@ -56,6 +56,7 @@ def prepare_step(request: AgentModelRequest, *, middleware: MonitorMiddleware) -
         request,
         label=middleware.label,
         task_author=middleware.task_author,
+        redaction=middleware.redaction,
     )
     identity = build_step_identity(request.state, middleware=middleware)
     halt = find_lost_write_halt(

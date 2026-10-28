@@ -24,11 +24,6 @@ change raises the minor version.
   id already in the run now raises `MessageFormatError`, at the start of the
   run or of the step that reads it. A history passed in must give each action
   and each tool call an id of its own.
-- A stale write to a monitor's trajectory, outside a stack of monitors, halts
-  that monitor's next step without a sample, with a warning. The halt stands
-  until a later run brings new input.
-- A tool's write to `monitor_trajectory` is dropped with a warning, as is its
-  write to every other key only the monitor writes.
 
 ### Added
 
@@ -37,9 +32,12 @@ change raises the minor version.
   can leave them out of training corpora.
 - Each monitor keeps its trajectory of the run, every message it read or
   committed, once, as hyoshigi's actions and observations, under the new
-  private state key `monitor_trajectory`, by monitor label. `get_state` and
-  the `values` and `updates` streams show it; a run's `invoke()` result does
-  not. A blocked attempt enters it with its text and its feedback, whatever
+  private state key `monitor_trajectory`, by monitor label. A stale write
+  outside a stack of monitors halts that monitor's next step without a
+  sample, with a warning, until a later run brings new input. A tool's write
+  to `monitor_trajectory` is dropped with a warning. `get_state` and the
+  `values` and `updates` streams show it; a run's `invoke()` result does not.
+  A blocked attempt enters it with its text and its feedback, whatever
   `feedback_visibility` says, as `monitor_log`'s samples already hold it; the
   message stream still never carries a blocked attempt's text. A halt message
   never enters it. The protocols do not read it yet.

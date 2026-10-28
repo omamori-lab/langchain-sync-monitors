@@ -395,7 +395,7 @@ labels each send their own.
 
 - **Where it goes.** To the tools the run is traced to, through the tracer's
   own client. For a `LangChainTracer`, the feedback goes to the tracer's
-  project, looked up once per client and project. For Langfuse's LangChain
+  project, whose id is looked up and remembered per client and project. For Langfuse's LangChain
   handler, the scores go through the handler's client. No key is read from the
   environment, and Langfuse needs the `langfuse` extra: without it, building
   the monitor raises `MissingExtraError`.

@@ -196,10 +196,10 @@ class MonitorMiddleware(AgentMiddleware[MonitorState, AgentContext, StructuredOu
     decided steps outlive the trajectory raises `MonitorError`.
 
     `redaction`, hyoshigi's `Redaction`, redacts each entry, rating and record
-    before the trajectory keeps it, so `monitor_trajectory`, `monitor_log`,
-    the spans, the streamed events and the monitor's model hold the redacted
-    text; `messages` keep the original. The function must return its own
-    output unchanged. The how-to Redact what the monitor keeps has the rest.
+    before the trajectory keeps it, so what the monitor keeps and emits holds
+    the redacted text; `messages` keep the original. The function must return
+    its own output unchanged. A subagent whose own monitor has none joins
+    unredacted. The how-to Redact what the monitor keeps has the rest.
 
     A halted step ends the run. The middleware's `after_model` hook routes the
     agent to its end, since the halt message alone does not end an agent that

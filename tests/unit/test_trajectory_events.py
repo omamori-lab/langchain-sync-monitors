@@ -238,10 +238,11 @@ REPLIES: dict[str, tuple[AIMessage, Action]] = {
         ),
         Action(id="chatcmpl-01", parts=(TextPart(text=REFUSAL),)),
     ),
-    "refusal-kept-and-in-a-block": (
+    # The Responses API at output_version="v0": the translator gives the kept refusal as a block.
+    "openai-responses-v0-refusal": (
         AIMessage(
             id="resp_02",
-            content=[{"type": "refusal", "refusal": REFUSAL}],
+            content=[],
             additional_kwargs={"refusal": REFUSAL},
             response_metadata={"model_provider": "openai"},
         ),
@@ -787,7 +788,7 @@ MALFORMED_MESSAGES: dict[str, tuple[BaseMessage, str]] = {
         "HumanMessage.content_blocks[0]: expected a text block with its text",
     ),
     "invalid-base64": (
-        HumanMessage([{"type": "image", "base64": "not base64!", "mime_type": "image/png"}]),
+        HumanMessage([{"type": "image", "base64": "aGk=!", "mime_type": "image/png"}]),
         "HumanMessage.content_blocks[0]: expected base64 data",
     ),
     "invalid-media-type": (
@@ -832,7 +833,6 @@ MALFORMED_MESSAGES: dict[str, tuple[BaseMessage, str]] = {
 """Messages the reader cannot read, and the error each one raises."""
 
 
-@pytest.mark.xfail(strict=True)
 @pytest.mark.parametrize("read", READERS.values(), ids=READERS.keys())
 @pytest.mark.parametrize(("reply", "action"), REPLIES.values(), ids=REPLIES.keys())
 def test_a_reply_without_server_tools_is_one_action_under_either_reader(
@@ -847,7 +847,6 @@ def test_a_reply_without_server_tools_is_one_action_under_either_reader(
     assert events == [action]
 
 
-@pytest.mark.xfail(strict=True)
 @pytest.mark.parametrize(
     ("reply", "history"),
     SERVER_TOOL_HISTORIES.values(),
@@ -864,7 +863,6 @@ def test_a_server_tool_result_in_the_history_is_the_server_s_observation_after_t
     assert events == history
 
 
-@pytest.mark.xfail(strict=True)
 @pytest.mark.parametrize(
     ("reply", "proposed"),
     SERVER_TOOL_PROPOSALS.values(),
@@ -881,7 +879,6 @@ def test_a_server_tool_result_in_a_rated_reply_is_an_opaque_part_where_it_stood(
     assert action == proposed
 
 
-@pytest.mark.xfail(strict=True)
 @pytest.mark.parametrize(
     ("task_author", "message", "observation"),
     HUMAN_MESSAGES.values(),
@@ -899,7 +896,6 @@ def test_a_human_message_is_observed_as_written_by_the_author_its_tag_names(
     assert events == [observation]
 
 
-@pytest.mark.xfail(strict=True)
 @pytest.mark.parametrize(
     ("message", "observation"), OTHER_MESSAGES.values(), ids=OTHER_MESSAGES.keys()
 )
@@ -914,7 +910,6 @@ def test_a_system_or_tool_message_is_one_observation_by_its_writer(
     assert events == [observation]
 
 
-@pytest.mark.xfail(strict=True)
 @pytest.mark.parametrize(
     ("message", "observation"), MEDIA_MESSAGES.values(), ids=MEDIA_MESSAGES.keys()
 )
@@ -929,7 +924,6 @@ def test_media_becomes_media_parts_by_url_or_bytes_and_media_without_either_is_o
     assert events == [observation]
 
 
-@pytest.mark.xfail(strict=True)
 @pytest.mark.parametrize(
     ("message", "error"),
     MALFORMED_MESSAGES.values(),
@@ -947,7 +941,6 @@ def test_a_malformed_message_raises_naming_where_and_quoting_nothing(
     assert str(raised.value) == error
 
 
-@pytest.mark.xfail(strict=True)
 @pytest.mark.parametrize("read", READERS.values(), ids=READERS.keys())
 @pytest.mark.parametrize("message_id", [None, ""], ids=["none", "empty"])
 def test_an_ai_message_without_an_id_raises(

@@ -498,14 +498,19 @@ def read_grounding_call(message: AIMessage) -> tuple[ToolCall, ...]:
 
 
 def read_grounding_result(message: AIMessage) -> tuple[ToolObservation, ...]:
-    """Read the sources a Gemini reply's grounding searches found as the server's observation."""
+    """Read what a Gemini reply's grounding searches found as the server's observation.
+
+    The searches ran when the metadata holds queries or sources, so the
+    observation is there, without parts, even when they found nothing.
+    """
     sources = read_grounding_metadata(message).get(GROUNDING_SOURCES_KEY)
-    if not sources:
+    if not sources and not read_grounding_call(message):
         return ()
+    parts = (TextPart(text=render_arguments(sources)),) if sources else ()
     observation = ToolObservation(
         call_id=build_grounding_call_id(message),
         source=SERVER_SOURCE,
-        parts=(TextPart(text=render_arguments(sources)),),
+        parts=parts,
     )
     return (observation,)
 

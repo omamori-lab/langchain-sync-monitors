@@ -897,7 +897,6 @@ def test_a_server_tool_result_in_a_rated_reply_is_an_opaque_part_where_it_stood(
     assert action == proposed
 
 
-@pytest.mark.xfail(strict=True)
 def test_a_grounded_reply_whose_search_found_nothing_still_has_the_server_s_observation() -> None:
     # Act
     events = read_events(GEMINI_UNSOURCED_REPLY, task_author=TaskAuthor.USER)
@@ -913,7 +912,6 @@ def test_a_grounded_reply_whose_search_found_nothing_still_has_the_server_s_obse
     ]
 
 
-@pytest.mark.xfail(strict=True)
 def test_a_rated_grounded_reply_whose_search_found_nothing_still_fails_closed() -> None:
     # Act
     action = read_proposed_action(GEMINI_UNSOURCED_REPLY)

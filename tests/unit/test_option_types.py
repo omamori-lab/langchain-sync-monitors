@@ -50,6 +50,7 @@ from langchain_sync_monitors.placement import check_monitor_placement
 from langchain_sync_monitors.protocols import DEFAULT_FEEDBACK_TEMPLATE, FeedbackTemplate
 from tests.support.monitors import KeywordMonitor, ScriptedGeneration
 from tests.support.protocols import RUN_EVERY_STEP
+from tests.support.redaction import mask_secret
 from tests.unit.monitors.doubles import CallPath, rate_on_path
 
 
@@ -103,6 +104,24 @@ def test_the_middleware_refuses_feedback_given_as_plain_text() -> None:
         match=r"feedback must be a FeedbackTemplate, got 'Blocked: \{reason\}'\. Wrap the text",
     ):
         build_middleware(feedback="Blocked: {reason}")
+
+
+@pytest.mark.xfail(strict=True, reason="PR 8 redacts the trajectory at entry")
+@pytest.mark.parametrize(
+    ("redaction", "message"),
+    [
+        (mask_secret, r"redaction must be a Redaction, got an instance of function\. Build one"),
+        ("mask the token", r"redaction must be a Redaction, got 'mask the token'\. Build one"),
+    ],
+    ids=["a-function", "plain-text"],
+)
+def test_the_middleware_refuses_a_redaction_that_is_not_a_redaction(
+    redaction: object,
+    message: str,
+) -> None:
+    # Act / Assert
+    with pytest.raises(ConfigurationError, match=message):
+        build_middleware(redaction=redaction)
 
 
 def test_a_feedback_text_that_is_not_text_is_refused() -> None:

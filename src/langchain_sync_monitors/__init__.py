@@ -29,6 +29,7 @@ from hyoshigi import (
     HardLabelWarning,
     MediaTypes,
     MonitorPrompt,
+    Redaction,
     Resampling,
     View,
 )
@@ -127,6 +128,7 @@ __all__ = [
     "MonitorStepFailedEvent",
     "MonitorTwins",
     "Outcome",
+    "Redaction",
     "RejectAnswer",
     "RepeatedMonitor",
     "Resampling",

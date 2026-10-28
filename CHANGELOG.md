@@ -238,7 +238,7 @@ change raises the minor version.
   environment's now gets its scores. `Tracer.LANGFUSE` without the `langfuse`
   package raises `MissingExtraError`, which is a `ConfigurationError`.
 - The scores no longer wait on Langfuse to ingest a step or on a window of ten
-  seconds. LangSmith's project lookup, once per client and project, and its
+  seconds. LangSmith's project lookup, whose id is remembered per client and project, and its
   posts run on up to 4 daemon threads, which keep running for up to 30
   seconds at exit, and Langfuse's client queues each score at once. A score
   that cannot be sent is logged by `langchain_sync_monitors.score_export`,

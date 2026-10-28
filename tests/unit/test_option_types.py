@@ -436,6 +436,12 @@ def typesafe_key(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("TYPESAFE_API_KEY", "unit-test-key")
 
 
+@pytest.fixture(autouse=True)
+def openrouter_key(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Give the `openrouter:` decision model a key, so no refusal below is the missing key's."""
+    monkeypatch.setenv("OPENROUTER_API_KEY", "unit-test-key")
+
+
 def merge_options(defaults: dict[str, Any], options: dict[str, Any]) -> dict[str, Any]:
     return {**defaults, **options}
 
@@ -451,6 +457,10 @@ def build_guard_monitor(**options: Any) -> GuardMonitor:
 
 def build_decision_monitor(**options: Any) -> DecisionMonitor:
     return DecisionMonitor(**merge_options({"model": "typesafe:jev-1.14"}, options))
+
+
+def build_openrouter_decision_monitor(**options: Any) -> DecisionMonitor:
+    return DecisionMonitor(**merge_options({"model": "openrouter:typesafe/jev-1.14"}, options))
 
 
 def build_monitor_twins(**options: Any) -> MonitorTwins:
@@ -523,6 +533,12 @@ REFUSAL_RULES: list[tuple[Build, str, list[object], str]] = [
     (build_decision_monitor, "aggregation", WRONG_OBJECTS, "be an Aggregation, got"),
     (build_decision_monitor, "statements", [*WRONG_OBJECTS, ["x"]], "be a tuple, got"),
     (build_decision_monitor, "statements", [()], "not be empty"),
+    (
+        build_openrouter_decision_monitor,
+        "perceives",
+        [*WRONG_OBJECTS, ["image/png"]],
+        "be a MediaTypes, got",
+    ),
     (build_decision_monitor, "model", WRONG_TEXTS, "be a str, got"),
     (
         build_decision_monitor,
@@ -570,6 +586,7 @@ REFUSAL_CASES = [
         {parameter: value},
         f"{parameter} must {message}",
         id=f"{name_builder(build)}-{parameter}-{describe_option_value(value)}",
+        marks=pytest.mark.xfail(strict=True) if build is build_openrouter_decision_monitor else (),
     )
     for build, parameter, values, message in REFUSAL_RULES
     for value in values

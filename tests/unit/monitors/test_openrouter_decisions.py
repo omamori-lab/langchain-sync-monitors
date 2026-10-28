@@ -137,6 +137,13 @@ def three_attempts() -> Iterator[None]:
         yield
 
 
+@pytest.fixture
+def configured_attempts() -> Iterator[None]:
+    # Capped, so the client's own number of attempts holds while waits are skipped.
+    with stamina.set_testing(True, attempts=10, cap=True):
+        yield
+
+
 async def test_a_statement_goes_in_one_request_as_a_noul_question(call_path: CallPath) -> None:
     # Arrange
     server = DecisionsServer(responders=[answer_with(0.98)])
@@ -274,6 +281,20 @@ async def test_a_failure_on_every_attempt_is_unavailable(
     assert decided == outcome
     assert len(server.requests) == 3
     assert len(retry_details) == 2
+
+
+@pytest.mark.usefixtures("configured_attempts")
+async def test_a_request_is_sent_at_most_five_times(call_path: CallPath) -> None:
+    # Arrange: an answer waits behind the fifth failure, so a sixth attempt would succeed
+    responders = [fail_with(503)] * 5 + [answer_with(0.1)]
+    server = DecisionsServer(responders=responders)
+
+    # Act
+    decided = await decide_on_path(server.build_models(), call_path=call_path)
+
+    # Assert
+    assert decided == Unavailable(status=503)
+    assert len(server.requests) == 5
 
 
 @pytest.mark.usefixtures("three_attempts")

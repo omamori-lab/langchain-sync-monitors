@@ -456,6 +456,8 @@ def build_guard_monitor(**options: Any) -> GuardMonitor:
 
 
 def build_decision_monitor(**options: Any) -> DecisionMonitor:
+    # A typesafe: model needs the typesafe extra, which the job without extras leaves out.
+    pytest.importorskip("typesafe_sdk")
     return DecisionMonitor(**merge_options({"model": "typesafe:jev-1.14"}, options))
 
 

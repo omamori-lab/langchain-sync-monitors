@@ -98,7 +98,7 @@ async def test_a_reply_without_log_probabilities_fails_the_rating_closed_after_o
     [
         -1,
         True,
-        pytest.param(sys.maxsize + 1, marks=pytest.mark.xfail(strict=True), id="above-sys.maxsize"),
+        pytest.param(sys.maxsize + 1, id="above-sys.maxsize"),
     ],
 )
 def test_a_count_that_is_no_whole_number_from_zero_to_sys_maxsize_is_a_configuration_error(

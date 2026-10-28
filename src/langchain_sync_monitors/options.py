@@ -16,6 +16,7 @@ from __future__ import annotations
 import math
 import numbers
 import operator
+import sys
 from enum import Enum
 from typing import Final, TypeGuard
 
@@ -126,7 +127,7 @@ def is_whole_number(value: object) -> TypeGuard[numbers.Integral]:
 def read_count_option(value: object, *, parameter_name: str, minimum: int) -> int:
     """Return a count option as an `int`, raising `ConfigurationError` unless it is one.
 
-    The value must be a whole number of at least `minimum`.
+    The value must be a whole number from `minimum` to `sys.maxsize`.
     """
     if not is_whole_number(value):
         message = (
@@ -137,6 +138,11 @@ def read_count_option(value: object, *, parameter_name: str, minimum: int) -> in
     count = operator.index(value)
     if count < minimum:
         message = f"{parameter_name} must be at least {minimum}, got {describe_option_value(count)}"
+        raise ConfigurationError(message)
+    if count > sys.maxsize:
+        message = (
+            f"{parameter_name} must be at most {sys.maxsize}, got {describe_option_value(count)}"
+        )
         raise ConfigurationError(message)
     return count
 

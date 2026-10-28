@@ -91,11 +91,11 @@ def build_position(position: PositionPayload) -> TokenLogProbability:
 def read_log_probabilities(payload: object) -> tuple[TokenLogProbability, ...] | None:
     """Return the positions of a choice's `logprobs`, or `None` if they are unreadable.
 
-    A payload of `None`, or with no `content`, holds no positions and reads as
-    `()`; nothing is invented for it. A value that hyoshigi refuses as a
-    log-probability, such as a positive one or NaN, makes the payload
-    unreadable too. The warning names the payload's type alone, since its
-    tokens are the model's reply.
+    A payload of `None`, or whose `content` is `None` or empty, holds no
+    positions and reads as `()`; nothing is invented for it. A payload with
+    no `content`, or with a value that hyoshigi refuses as a log-probability,
+    such as a positive one or NaN, is unreadable. The warning names the
+    payload's type alone, since its tokens are the model's reply.
     """
     if payload is None:
         return ()

@@ -1,13 +1,27 @@
 """Reading LangChain messages into hyoshigi's actions and observations.
 
-The replies and inputs are built as the providers' LangChain integrations build
-them. The content of the Anthropic and OpenAI Responses replies, and of the human
-inputs, follows langchain-core 1.7.0's own block translator tests
-(`libs/core/tests/unit_tests/messages/block_translators/test_anthropic.py` and
-`test_openai.py`), with real base64 in place of their placeholders. `tool_calls`
-are filled as langchain-anthropic 1.7.6's `_format_output` fills them. The
-OpenRouter reply is what langchain-openrouter 0.2.9's `_convert_dict_to_message`
-builds from the `reasoning_details` of OpenRouter's reasoning tokens guide.
+Where the inputs come from:
+
+- The `anthropic` and `openai-responses` replies, the Anthropic server tool reply,
+  and the `openai-input` and `anthropic-input` messages follow langchain-core
+  1.7.0's block translator tests, at the tag `langchain-core==1.7.0`
+  (`libs/core/tests/unit_tests/messages/block_translators/test_anthropic.py` and
+  `test_openai.py`). They are shortened, with ids added and real base64 in place
+  of the placeholders. The `redacted_thinking` block, the reasoning items'
+  `encrypted_content`, the refusal block and the image's `output_format` are
+  added by hand.
+- The `tool_calls` of an Anthropic reply are filled as langchain-anthropic
+  1.7.6's `_format_output` fills them.
+- The OpenRouter reply has the shape langchain-openrouter 0.2.9's
+  `_convert_dict_to_message` builds.
+- The OpenAI web search, remote MCP and Gemini grounding replies come from
+  `tests/support/server_tools.py`.
+- Every other input is built by hand from LangChain's message classes and
+  content block types, or with lsm's own builders: the Anthropic replies with an
+  invalid call or without `model_provider`, the invalid calls, the refusals, the
+  streamed blocks, the Anthropic web search error, the Gemini reply without
+  sources, the standard media blocks, the human, system and tool messages, and
+  the malformed messages.
 """
 
 from __future__ import annotations

@@ -900,9 +900,12 @@ hold the text as first read
   ([hyoshigi's protocols](https://omamori-lab.github.io/hyoshigi/explanation/control-protocols/)).
 - A reply whose id, or a call's id, the run already holds, as a cached or
   scripted model's or a retry after a block can give, is read under fresh
-  `uuid4` ids, set in the committed message, in the tool messages of its draw
-  that answer the call and in the recorded action alike, since the trajectory
-  refuses an id it holds and LangGraph merges messages that share one.
+  `uuid4` ids, and so is each call after the first that shares an id with
+  another call of the reply. The new ids are set by position in the
+  committed message, in the tool messages of its draw, which keep answering
+  the call they answered first, and in the recorded action alike, since the
+  trajectory refuses an id it holds and LangGraph merges messages that share
+  one.
 - A subagent's trajectory, its own steps included, joins the parent's under
   the call that started it when the call returns
   ([delegations](#delegations)). When the answer to a Deep Agents `task`

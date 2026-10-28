@@ -14,6 +14,8 @@ change raises the minor version.
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-10-29
+
 ### Changed
 
 - langchain-sync-monitors depends on `hyoshigi>=0.5.0`, the framework-free
@@ -239,15 +241,16 @@ change raises the minor version.
   environment's now gets its scores. `Tracer.LANGFUSE` without the `langfuse`
   package raises `MissingExtraError`, which is a `ConfigurationError`.
 - The scores no longer wait on Langfuse to ingest a step or on a window of ten
-  seconds. LangSmith's project lookup, whose id is remembered per client and project, and its
-  posts run on up to 4 daemon threads, which keep running for up to 30
-  seconds at exit, and Langfuse's client queues each score at once. A score
-  that cannot be sent is logged by `langchain_sync_monitors.score_export`,
+  seconds. LangSmith's project lookup, whose id is remembered per client and
+  project, and its posts run on up to 4 daemon threads, which keep running for
+  up to 30 seconds at exit, and Langfuse's client queues each score at once. A
+  score that cannot be sent is logged by `langchain_sync_monitors.score_export`,
   and a failed LangSmith project lookup by
   `langchain_sync_monitors.request_pool`, each with the error's type alone;
-  neither stops the scores or the tools after it. A Langfuse client that traces nothing drops the scores
-  itself, so the library no longer reads its private attributes to tell; a
-  handler that holds no observation of the step warns once.
+  neither stops the scores or the tools after it. A Langfuse client that
+  traces nothing drops the scores itself, so the library no longer reads its
+  private attributes to tell; a handler that holds no observation of the step
+  warns once.
 - `langsmith>=0.14.11` is a direct dependency.
 
 ### Added
@@ -296,8 +299,8 @@ change raises the minor version.
   the model that writes a trusted step, the message a blocked step sends the
   agent, and the lowest sample that flags a step. A `trusted_model` the
   protocol never asks for raises `ConfigurationError`.
-- `BlockAndFeedBack`, and hyoshigi's `Resampling`, `FailureResponse` and
-  `AuditResponse`, re-exported as the same objects.
+- `BlockAndFeedBack`. hyoshigi's `Resampling`, `FailureResponse` and
+  `AuditResponse` are exported as the same objects.
 - A thread whose `monitor_log` holds steps this agent's protocol decided,
   while its trajectory under the monitor's label is missing, raises
   `MonitorError`, at the start of a run or a step.
@@ -330,8 +333,6 @@ change raises the minor version.
 - `MonitorTwins(monitor=..., async_monitor=...)`, a monitor of your own
   written as hyoshigi's sync and async twins, which the middleware and the
   wrappers take as they take the library's monitors.
-- `GPT_OSS_SAFEGUARD` and `QWEN3GUARD`, the labels of those two guards, and
-  `MediaTypes` and `DEFAULT_STATEMENT` are exported.
 - The `langfuse` extra, which installs `hyoshigi[langfuse]` and Langfuse's SDK.
 
 ### Removed
@@ -381,13 +382,6 @@ change raises the minor version.
   in the tracing tools: the stop opens no span.
 - Each subagent receives its run's whole trajectory in `monitor_delegation`,
   so the state and the checkpoints grow with the run.
-- The trajectory keeps each entry as the monitor first read it, so a redaction
-  made after that first read, such as `PIIMiddleware`'s, never reaches it, and
-  the checkpointed `monitor_trajectory` holds the text unredacted unless
-  `MonitorMiddleware(redaction=...)` redacted it first. hyoshigi's
-  `View(redaction=...)` redacts only what a monitor's model reads.
-- A step whose reply holds a server tool's result fails closed every time,
-  so it is audited, except under trusted monitoring.
 - An `openrouter:` decision model reads text only, so an action that holds
   media fails closed.
 - The first steps of a brand-new LangSmith project may lose their scores:
@@ -594,7 +588,8 @@ change raises the minor version.
 - The full list is in
   [Known limits and open paths](https://omamori-lab.github.io/langchain-sync-monitors/explanation/design/#known-limits-and-open-paths).
 
-[Unreleased]: https://github.com/omamori-lab/langchain-sync-monitors/compare/v0.1.5...HEAD
+[Unreleased]: https://github.com/omamori-lab/langchain-sync-monitors/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/omamori-lab/langchain-sync-monitors/compare/v0.1.5...v0.2.0
 [0.1.5]: https://github.com/omamori-lab/langchain-sync-monitors/compare/v0.1.4...v0.1.5
 [0.1.4]: https://github.com/omamori-lab/langchain-sync-monitors/compare/v0.1.3...v0.1.4
 [0.1.3]: https://github.com/omamori-lab/langchain-sync-monitors/compare/v0.1.2...v0.1.3

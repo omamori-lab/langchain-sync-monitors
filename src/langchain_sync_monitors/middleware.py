@@ -138,7 +138,8 @@ class MonitorMiddleware(AgentMiddleware[MonitorState, AgentContext, StructuredOu
     of the graph nodes the hooks become. `task_author` says
     who wrote the task the monitor reads. `feedback_visibility` decides whether
     blocked attempts and their feedback are committed with the step or only
-    shown to the retry. `when_subagent_halts=SubagentHalt.STOP_WHOLE_RUN` halts
+    shown to the retry; the monitor's trajectory keeps them, text included,
+    either way. `when_subagent_halts=SubagentHalt.STOP_WHOLE_RUN` halts
     this agent before its next model call once a subagent was halted. Each
     option must be a member of its enum; a plain string raises
     `ConfigurationError`, as do a `monitor` that is not a `Monitor` and a

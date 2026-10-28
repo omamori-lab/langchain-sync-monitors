@@ -39,9 +39,10 @@ change raises the minor version.
   committed, once, as hyoshigi's actions and observations, under the new
   private state key `monitor_trajectory`, by monitor label. `get_state` and
   the `values` and `updates` streams show it; a run's `invoke()` result does
-  not. A blocked attempt enters it with its feedback, whatever
-  `feedback_visibility` says, and a halt message never does. The protocols do
-  not read it yet.
+  not. A blocked attempt enters it with its text and its feedback, whatever
+  `feedback_visibility` says, as `monitor_log`'s samples already hold it; the
+  message stream still never carries a blocked attempt's text. A halt message
+  never enters it. The protocols do not read it yet.
 - `MessageFormatError` is exported.
 
 ### Known limits

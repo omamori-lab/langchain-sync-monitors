@@ -10,6 +10,7 @@ from langchain.agents.middleware.types import ModelResponse
 from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import AIMessage
 
+from langchain_sync_monitors import AuditResponse, DeferToResample
 from langchain_sync_monitors.contracts import (
     BlockedAttempt,
     ControlProtocol,
@@ -24,6 +25,13 @@ from langchain_sync_monitors.contracts import (
 SUSPICION_THRESHOLD = 0.5
 HALT_MESSAGE = "[Safety monitor] Stopped by the safety monitor."
 FEEDBACK_PREFIX = "[Safety monitor] Blocked: "
+RUN_EVERY_STEP = DeferToResample(
+    defer_threshold=1.0,
+    audit_threshold=1.0,
+    max_resamples=0,
+    on_audit=AuditResponse.FLAG,
+)
+"""Trusted monitoring at 1.0: every step runs, and one rated 1.0 is flagged."""
 
 
 def build_halt_decision(

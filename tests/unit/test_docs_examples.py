@@ -449,8 +449,8 @@ def test_a_module_the_package_does_not_have_is_reported() -> None:
         ("AutoMode(block_limit=3)", "unexpected keyword argument 'block_limit'"),
         ("AutoMode(0.6)", "too many positional arguments"),
         (
-            "DeferToResample(defer_threshold=0.6)",
-            "missing a required keyword-only argument: 'fallback'",
+            "sync_monitors.MonitorMiddleware(label='guard')",
+            "missing a required keyword-only argument: 'monitor'",
         ),
         ("sync_monitors.HaltRun(text='Stopped.')", "unexpected keyword argument 'text'"),
     ],

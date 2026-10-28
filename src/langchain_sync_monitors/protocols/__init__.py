@@ -11,6 +11,7 @@ one instance can serve parallel subagent runs.
 from langchain_sync_monitors.protocols.auto_mode import (
     DEFAULT_FEEDBACK_TEMPLATE,
     AutoMode,
+    BlockAndFeedBack,
     FeedbackTemplate,
 )
 from langchain_sync_monitors.protocols.defer_to_resample import DeferToResample, DeferToTrusted
@@ -25,6 +26,7 @@ __all__ = [
     "DEFAULT_FEEDBACK_TEMPLATE",
     "DEFAULT_HALT_MESSAGE",
     "AutoMode",
+    "BlockAndFeedBack",
     "DeferToResample",
     "DeferToTrusted",
     "DeferToTrustedModel",

@@ -6,6 +6,8 @@ import string
 from dataclasses import dataclass
 from typing import Final
 
+from hyoshigi import FailureResponse
+
 from langchain_sync_monitors.contracts import (
     BlockedAttempt,
     ControlProtocol,
@@ -249,3 +251,26 @@ def build_accepted_decision(
         flagged=bool(blocked_attempts),
         blocked_attempts=blocked_attempts,
     )
+
+
+class BlockAndFeedBack(ControlProtocol):
+    """A stub of hyoshigi's block and feed back, for its tests: it runs each step's first sample."""
+
+    def __init__(
+        self,
+        *,
+        block_threshold: float,
+        blocks_in_a_row: int = 3,
+        blocks_in_total: int = 20,
+        on_unavailable: FailureResponse = FailureResponse.AUDIT,
+    ) -> None:
+        """Keep the settings, which the stub does not read."""
+        self.block_threshold = block_threshold
+        self.blocks_in_a_row = blocks_in_a_row
+        self.blocks_in_total = blocks_in_total
+        self.on_unavailable = on_unavailable
+
+    async def decide(self, step: PendingStep) -> StepDecision:
+        """Draw one sample and run it."""
+        [sample] = await step.sample(count=1)
+        return build_accepted_decision(sample=sample, samples=(sample,), blocked_attempts=())

@@ -53,6 +53,23 @@ class InvalidSuspicionError(MonitorError, ValueError):
     """
 
 
+class MessageFormatError(MonitorError, ValueError):
+    """A LangChain message that the trajectory reader cannot read.
+
+    It is raised for an AI message without an id, a message of a type the
+    reader does not read, and a block of a known type that lacks what its
+    type requires. The message names where the problem is, such as
+    `AIMessage.content_blocks[2]`, and what was expected there, and quotes
+    nothing the message holds. It is both a `MonitorError` and a
+    `ValueError`, so code that catches either one sees it.
+    """
+
+    def __init__(self, *, path: str, expected: str) -> None:
+        """Name where in the message the problem is, and what was expected there."""
+        super().__init__(f"{path}: expected {expected}")
+        self.path = path
+
+
 class SynchronousRunError(MonitorError):
     """A control protocol or a monitor needed an event loop during a synchronous `invoke()`.
 

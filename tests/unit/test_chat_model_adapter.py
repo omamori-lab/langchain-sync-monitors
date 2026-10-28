@@ -690,12 +690,7 @@ FAILURE_OUTCOMES = [
     pytest.param(lambda: httpx.ConnectError("refused"), Unavailable(), id="httpx-connect-error"),
     pytest.param(lambda: TimeoutError(), Unavailable(), id="builtin-timeout"),
     pytest.param(lambda: ConnectionResetError(), Unavailable(), id="builtin-connection-error"),
-    pytest.param(
-        build_no_response_error,
-        Unavailable(),
-        marks=UNFIXED,
-        id="openrouter-no-response",
-    ),
+    pytest.param(build_no_response_error, Unavailable(), id="openrouter-no-response"),
     pytest.param(
         lambda: ProviderResponseFailure(503),
         Unavailable(status=503),

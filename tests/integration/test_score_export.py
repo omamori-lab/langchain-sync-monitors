@@ -23,6 +23,7 @@ from langchain.agents.middleware.types import AgentMiddleware
 from langchain_core.callbacks import BaseCallbackHandler
 from langchain_core.messages import AIMessage
 from langchain_core.runnables import Runnable, RunnableConfig
+from langgraph.checkpoint.memory import InMemorySaver
 from stamina.instrumentation import RetryDetails
 
 from langchain_sync_monitors import AuditResponse, MonitorTwins, middleware
@@ -38,7 +39,9 @@ from tests.support.agents import (
     build_exfiltration_step,
     build_keyword_monitor,
     build_read_step,
+    build_task_input,
     run_agent,
+    run_stopping_audits,
 )
 from tests.support.chat_models import ScriptedChatModel
 from tests.support.log_records import find_logged_leaks
@@ -314,7 +317,8 @@ def test_a_step_with_no_sample_writes_no_score(
     run_mode: RunMode,
     score_services: ScoreServices,
 ) -> None:
-    # Arrange: the first step is halted, and the steps a returning hook asks for halt unsampled
+    # Arrange: the first step is audited and stopped, and the steps a returning hook asks for
+    # halt unsampled
     langfuse = LangfuseHandler()
     handlers: list[BaseCallbackHandler] = [build_langsmith_tracer(MagicMock()), langfuse]
     monitor = MonitorMiddleware(
@@ -327,10 +331,12 @@ def test_a_step_with_no_sample_writes_no_score(
         model=ScriptedChatModel(responses=[build_exfiltration_step(), build_read_step()]),
         tools=Workspace().build_tools(),
         middleware=stack,
+        checkpointer=InMemorySaver(),
     )
+    config = RunnableConfig(callbacks=handlers, configurable={"thread_id": "no-sample"})
 
     # Act
-    result = run_traced(agent, mode=run_mode, handlers=handlers)
+    result = run_stopping_audits(agent, build_task_input(), mode=run_mode, config=config)
     score_services.langfuse.ingest_steps(langfuse)
     score_services.send_window()
 

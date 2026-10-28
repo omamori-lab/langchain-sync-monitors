@@ -7,6 +7,7 @@ from typing import Any
 import pytest
 from deepagents import CompiledSubAgent, SubAgent, create_deep_agent
 from langchain_core.messages import AIMessage
+from langgraph.checkpoint.memory import InMemorySaver
 from langgraph.graph.state import CompiledStateGraph
 
 from langchain_sync_monitors.deepagents import monitor_subagents
@@ -18,7 +19,9 @@ from tests.support.agents import (
     build_benign_post,
     build_exfiltration_step,
     build_keyword_monitor,
-    run_agent,
+    build_task_input,
+    build_thread_config,
+    run_stopping_audits,
     summarise_records,
 )
 from tests.support.chat_models import ScriptedChatModel
@@ -33,7 +36,10 @@ def build_nested_agent(
     middle_model: ScriptedChatModel,
     inner_model: ScriptedChatModel,
 ) -> CompiledStateGraph[Any, Any, Any, Any]:
-    """Build main, which delegates to `middle`, a deep agent that delegates to `inner`."""
+    """Build main, which delegates to `middle`, a deep agent that delegates to `inner`.
+
+    Main keeps a checkpointer, which its subagents share, so an audit can pause.
+    """
     main_monitor = MonitorMiddleware(
         monitor=build_keyword_monitor(),
         protocol=BlockAndFeedBack(block_threshold=0.6, blocks_in_total=MAX_TOTAL_BLOCKS),
@@ -55,6 +61,7 @@ def build_nested_agent(
         subagents=[
             CompiledSubAgent(name="middle", description="Delegates again.", runnable=middle),
         ],
+        checkpointer=InMemorySaver(),
     )
 
 
@@ -102,10 +109,15 @@ def test_a_nested_subagent_counts_the_blocks_of_every_agent_above_it(
     )
 
     # Act
-    result = run_agent(agent, mode=run_mode)
+    result = run_stopping_audits(
+        agent,
+        build_task_input(),
+        mode=run_mode,
+        config=build_thread_config("nested"),
+    )
 
     # Assert: the inner's third block is the run's fifth, so its next proposal is audited and
-    # halted; the audit resets the total, so middle and main run on.
+    # stopped; the audit resets the total, so middle and main run on.
     assert summarise_records(result["monitor_log"]) == [
         ("main", "steered", 1, None),
         ("middle", "steered", 1, main_task_call_id),

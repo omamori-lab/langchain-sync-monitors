@@ -26,6 +26,7 @@ from collections.abc import Iterable, Mapping, Sequence, Sized
 from hyoshigi import (
     JSON,
     Action,
+    Audit,
     Block,
     Flag,
     Halt,
@@ -61,6 +62,10 @@ OUTCOME_NAMES: dict[Outcome, OutcomeName] = {
     Outcome.DEFERRED_TO_TRUSTED: "deferred_to_trusted",
     Outcome.STEERED: "steered",
     Outcome.HALTED: "halted",
+    Outcome.APPROVED: "approved",
+    Outcome.EDITED: "edited",
+    Outcome.REJECTED: "rejected",
+    Outcome.AUDITED: "audited",
 }
 """Each outcome as the plain string a record stores."""
 
@@ -120,7 +125,34 @@ def read_executed_id(decisions: Sequence[ProtocolDecision]) -> str | None:
 
 
 def read_outcome(decisions: Sequence[ProtocolDecision]) -> Outcome:
-    """Name how a step's decisions end it; a step with none halted without a sample.
+    """Name how a step's decisions end it: as a person answered its audit, else as the protocol
+    decided.
+    """
+    return read_audit_outcome(decisions) or read_protocol_outcome(decisions)
+
+
+def read_audit_outcome(decisions: Sequence[ProtocolDecision]) -> Outcome | None:
+    """Name a step held for a person, or answered by one; None for any other step.
+
+    A run approved it, a replace edited it and a block rejected it; a step
+    whose last decision is the audit is held. A halt after the audit is the
+    protocol's outcome too.
+    """
+    match decisions:
+        case [*_, Audit()]:
+            return Outcome.AUDITED
+        case [*_, Audit(), Run()]:
+            return Outcome.APPROVED
+        case [*_, Audit(), Replace()]:
+            return Outcome.EDITED
+        case [*_, Audit(), Block()]:
+            return Outcome.REJECTED
+        case _:
+            return None
+
+
+def read_protocol_outcome(decisions: Sequence[ProtocolDecision]) -> Outcome:
+    """Name how the protocol's decisions end a step; a step with none halted without a sample.
 
     A run after a block steered the agent, and a replace ran a resample or
     the trusted model's step, as the policy of its action's proposal says.
@@ -158,6 +190,15 @@ def is_flagged(
     return is_halt or has_flag or reaches
 
 
+def count_blocks(decisions: Sequence[ProtocolDecision]) -> int:
+    """Count the step's blocks; a person's rejection of an audit is the step's outcome, not one."""
+    match decisions:
+        case [*held, Audit(), Block()]:
+            return sum(isinstance(decision, Block) for decision in held)
+        case _:
+            return sum(isinstance(decision, Block) for decision in decisions)
+
+
 def build_step_record(
     decisions: Sequence[ProtocolDecision],
     *,
@@ -179,7 +220,7 @@ def build_step_record(
         step_number=step_number,
         outcome=OUTCOME_NAMES[read_outcome(decisions)],
         flagged=is_flagged(decisions, samples=samples, flag_threshold=flag_threshold),
-        blocked_count=sum(isinstance(decision, Block) for decision in decisions),
+        blocked_count=count_blocks(decisions),
         samples=samples,
     )
     if delegation_id is not None:

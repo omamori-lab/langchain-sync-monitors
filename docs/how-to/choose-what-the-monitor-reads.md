@@ -100,8 +100,9 @@ sets out:
 
 A rating that fails closed this way is audited, whatever the protocol, as
 [a failure without a verdict goes to a person by default](https://omamori-lab.github.io/hyoshigi/explanation/control-protocols/#a-failure-without-a-verdict-goes-to-a-person-by-default)
-sets out, so the step halts while no person can answer, or, under
-`on_audit=AuditResponse.FLAG`, runs flagged.
+sets out, so the run pauses for a person's answer
+([Answer an audit](answer-an-audit.md)), or, under
+`on_audit=AuditResponse.FLAG`, the step runs flagged.
 
 ## Know what server tools have done
 

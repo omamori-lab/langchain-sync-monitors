@@ -129,7 +129,7 @@ A `SampleRecord` describes one sample:
 | `suspicion` | `float` | The monitor's suspicion, from 0 to 1 |
 | `reason` | `str` | The monitor's reason: the explanation of its score |
 | `proposal` | `dict` | The action the monitor rated, whatever the monitor read, as hyoshigi stores an action in a trajectory ([a trajectory round-trips through JSON](https://omamori-lab.github.io/hyoshigi/how-to/keeping-a-trajectory/#a-trajectory-round-trips-through-json)): its `kind`, `id`, `thought`, `parts` and `tool_calls`, each call with its argument text. A server tool's result in it is an opaque placeholder |
-| `executed` | `bool` | Whether this is the sample whose tool calls ran; at most one per step, and none when the trusted model's step ran or the step halted. Server tools ran in every sample drawn. For a monitor inside another, it marks the sample this monitor's protocol chose; when the outer monitor halts the step, nothing ran, and only the outer record says so ([Two monitors in one agent](../explanation/design.md#two-monitors-in-one-agent)) |
+| `executed` | `bool` | Whether this is the sample whose tool calls ran; at most one per step, and none when the trusted model's step ran, a person edited or rejected the step, or the step halted. Server tools ran in every sample drawn. For a monitor inside another, it marks the sample this monitor's protocol chose; when the outer monitor halts the step, nothing ran, and only the outer record says so ([Two monitors in one agent](../explanation/design.md#two-monitors-in-one-agent)) |
 
 Records hold plain values only, so they pass through checkpointers and
 `json.dumps` unchanged.
@@ -142,7 +142,14 @@ Records hold plain values only, so they pass through checkpointers and
 | `resampled` | Defer to Resample | The least suspicious resample below `defer_threshold` | That sample |
 | `steered` | Block and Feed Back | The first sample that was not blocked, after one or more blocks | That sample |
 | `deferred_to_trusted` | Defer to Resample or Defer to Trusted with a `trusted_model` | The trusted model's step | None |
-| `halted` | An audit, which halts the step while no person can answer it; a subagent's halt under `SubagentHalt.STOP_WHOLE_RUN`; a write the monitor's trajectory lost; or an earlier halt that still stands | A final message that ends the run | None |
+| `approved` | A person's approval of an audited step | The audited sample | That sample |
+| `edited` | A person's edit of an audited step | The audited step with the person's calls | None |
+| `rejected` | A person's rejection of an audited step; the agent then proposes again, in a step of its own | Nothing: the person's reason reached the agent as feedback | None |
+| `halted` | A person's stop of an audited step, or new input sent in place of an answer; a subagent's halt under `SubagentHalt.STOP_WHOLE_RUN`; a write the monitor's trajectory lost; or an earlier halt that still stands | A final message that ends the run, or, for new input, the run goes on with that input | None |
+
+An audited step writes its record when a person answers it, as
+[Answer an audit](answer-an-audit.md) sets out; a run paused at an audit
+holds no record of that step yet.
 
 A halt stands until a later run brings new input from the user, so every
 further step halts again without a sample. Two paths through a middleware
@@ -170,8 +177,8 @@ is the kind.
 Block and Feed Back counts the blocks in total over the run's records, a
 subagent's included, as hyoshigi replays them
 ([block and feed back](https://omamori-lab.github.io/hyoshigi/explanation/control-protocols/#block-and-feed-back-follows-claude-codes-auto-mode)).
-At a limit, the next reply is drawn and audited, so the step halts with its
-samples. Subagents that run in parallel do not see each other's blocks, so
+At a limit, the next reply is drawn and audited, for a person to answer, and
+its record holds the step's samples. Subagents that run in parallel do not see each other's blocks, so
 together they can pass the total; their parent counts every one of them at
 its next step. Other monitors' records, stacked in the same agent, may sit
 between the records of one monitor.
@@ -183,8 +190,9 @@ A flag marks a step for a person to review after the fact, as
 
 - its protocol flags it: under `on_audit=AuditResponse.FLAG`, as in Trusted
   Monitoring, an audited step runs and is flagged;
-- it halts: an audit while no person can answer, a standing halt, a lost
-  write, or a subagent's halt under `SubagentHalt.STOP_WHOLE_RUN`;
+- it halts: a person's stop of an audited step or new input in its place, a
+  standing halt, a lost write, or a subagent's halt under
+  `SubagentHalt.STOP_WHOLE_RUN`;
 - `MonitorMiddleware`'s `flag_threshold` is set, and the lowest suspicion
   across the step's samples is at or above it.
 
@@ -222,6 +230,7 @@ The monitor writes one event per step to `stream_mode="custom"`:
 
 - a `MonitorStepEvent`, `{"type": "monitor_step", "record": ...}`, when a step
   is committed, carrying the same `StepRecord` that goes into `monitor_log`;
+  an audited step's comes with the person's answer;
 - a `MonitorStepFailedEvent`, `{"type": "monitor_step_failed", ...}`, when
   something inside the step raises before it is committed, such as one of the
   agent's samples, a monitor's call that fails on a bad key or another misuse,
@@ -293,6 +302,7 @@ which the monitor judged the first sample and the agent's model then raised a
 
 LangGraph's own control flow, such as the `GraphInterrupt` that `interrupt()`
 raises, is not a failed step: it passes through with no record and no event.
+The pause at an audit is such an interrupt.
 
 A middleware outside the monitor that retries failed model calls, such as
 LangChain's `ModelRetryMiddleware`, runs the whole step again with fresh

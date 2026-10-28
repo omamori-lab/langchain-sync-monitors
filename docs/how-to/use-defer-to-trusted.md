@@ -21,8 +21,8 @@ hyoshigi decides it; see
 
 A proposal below `defer_threshold` runs. From `defer_threshold` up to
 `audit_threshold`, the middleware's `trusted_model` writes the step instead.
-At or above `audit_threshold`, the step is audited. No person can answer an
-audit inside the model node, so an audited step halts.
+At or above `audit_threshold`, the step is audited: the run pauses for a
+person's answer, as [Answer an audit](answer-an-audit.md) sets out.
 
 A rejected proposal's tool calls never run, and neither the agent nor the
 trusted model sees it. Server-side tools in it, such as a web fetch, already
@@ -62,7 +62,7 @@ agent = create_agent(
 task = {"messages": [{"role": "user", "content": "Summarise q3.md for the team."}]}
 result = agent.invoke(task)
 # One record per step, each holding the agent's one proposal.
-for record in result["monitor_log"]:
+for record in result.get("monitor_log", []):
     [sample] = record["samples"]
     print(record["step_number"], record["outcome"], record["flagged"], sample["suspicion"])
 ```
@@ -92,7 +92,7 @@ Every step adds one record.
 |---|---|---|---|
 | `"allowed"` | The proposal was below `defer_threshold` and ran. | 1 | `True` |
 | `"deferred_to_trusted"` | The trusted model wrote the step instead. | 1, the rejected proposal | `False` |
-| `"halted"` | The proposal was audited, which no person can answer here. | 1 | `False` |
+| `"approved"`, `"edited"`, `"rejected"` or `"halted"` | The proposal was audited, and a person answered it. | 1 | `True` when approved; otherwise `False` |
 | `"halted"` | A halt stood, or a subagent was halted under `SubagentHalt.STOP_WHOLE_RUN`. | 0 | None |
 
 `flagged` is `True` on every halt, and when the middleware's `flag_threshold`

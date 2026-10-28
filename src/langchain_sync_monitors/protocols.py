@@ -32,9 +32,6 @@ DEFAULT_HALT_MESSAGE: Final = (
 )
 """The final message of a step the protocol's decision halts."""
 
-NO_PERSON_REASON: Final = "The step was held for a person to audit, and no person can answer."
-"""The reason the trajectory records for the halt that follows an audit."""
-
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class ProtocolTwins:

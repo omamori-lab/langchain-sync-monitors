@@ -10,7 +10,6 @@ cannot keep the user's new message from lifting it. The two open paths that
 
 from __future__ import annotations
 
-import asyncio
 from dataclasses import dataclass
 from typing import Any
 
@@ -44,13 +43,15 @@ from langchain_sync_monitors.halts import (
 from langchain_sync_monitors.middleware import MonitorMiddleware
 from langchain_sync_monitors.state_keys import TASK_MESSAGES_KEY
 from tests.support.agents import (
+    TASK,
     RunMode,
     Workspace,
     build_exfiltration_step,
     build_keyword_monitor,
     build_read_step,
+    build_task_input,
     build_thread_config,
-    run_agent,
+    run_stopping_audits,
 )
 from tests.support.chat_models import ScriptedChatModel
 from tests.unit.middleware.test_standing_halts import (
@@ -241,15 +242,24 @@ def build_halted_thread(
     )
     agent = build_agent(model, workspace=workspace, middleware=stack)
     config = build_thread_config(f"reminder-{hook}-{reminder_listed_first}-{mode}")
-    assert read_outcomes(run_agent(agent, mode=mode, config=config))[0] == "halted"
+    assert read_outcomes(run_task(agent, mode=mode, config=config))[0] == "halted"
     return HaltedThread(agent=agent, model=model, workspace=workspace, config=config)
 
 
+def run_task(
+    agent: Any,
+    *,
+    mode: RunMode,
+    config: RunnableConfig,
+    task: str = TASK,
+) -> dict[str, Any]:
+    """Run the agent on a task, stopping each step held for a person."""
+    return run_stopping_audits(agent, build_task_input(task), mode=mode, config=config)
+
+
 def run_without_input(agent: Any, *, mode: RunMode, config: RunnableConfig) -> dict[str, Any]:
-    payload: dict[str, Any] = {"messages": []}
-    if mode == "invoke":
-        return agent.invoke(payload, config)
-    return asyncio.run(agent.ainvoke(payload, config))
+    """Run the agent with no new message, stopping each step held for a person."""
+    return run_stopping_audits(agent, {"messages": []}, mode=mode, config=config)
 
 
 def test_removing_the_halt_message_does_not_lift_the_halt(run_mode: RunMode) -> None:
@@ -261,10 +271,10 @@ def test_removing_the_halt_message_does_not_lift_the_halt(run_mode: RunMode) -> 
         HaltRemovingMiddleware(),
         build_halting_monitor(),
     ]
-    agent = create_agent(model, tools=workspace.build_tools(), middleware=stack)
+    agent = build_agent(model, workspace=workspace, middleware=stack)
 
     # Act
-    result = run_agent(agent, mode=run_mode)
+    result = run_task(agent, mode=run_mode, config=build_thread_config(f"removed-halt-{run_mode}"))
 
     # Assert
     assert read_outcomes(result) == ["halted", "halted"]
@@ -284,7 +294,7 @@ def test_trimming_the_history_does_not_lift_the_halt_on_a_run_without_input(
         middleware=[TrimmingMiddleware(), build_halting_monitor()],
     )
     config = build_thread_config(f"trim-{run_mode}")
-    assert read_outcomes(run_agent(agent, mode=run_mode, config=config)) == ["halted"]
+    assert read_outcomes(run_task(agent, mode=run_mode, config=config)) == ["halted"]
 
     # Act
     second = run_without_input(agent, mode=run_mode, config=config)
@@ -307,10 +317,10 @@ def test_the_users_new_message_lifts_the_halt_despite_context_written_after_it(
         middleware=[ContextInjectingMiddleware(), build_halting_monitor()],
     )
     config = build_thread_config(f"injected-context-{run_mode}")
-    assert read_outcomes(run_agent(agent, mode=run_mode, config=config)) == ["halted"]
+    assert read_outcomes(run_task(agent, mode=run_mode, config=config)) == ["halted"]
 
     # Act
-    second = run_agent(agent, mode=run_mode, config=config, task="Summarise q3.md only.")
+    second = run_task(agent, mode=run_mode, config=config, task="Summarise q3.md only.")
 
     # Assert
     assert read_outcomes(second) == ["halted", "allowed", "allowed"]
@@ -368,8 +378,8 @@ def test_a_thread_that_halts_again_after_new_input_stands_again(run_mode: RunMod
     ]
     agent = build_agent(model, workspace=workspace, middleware=stack)
     config = build_thread_config(f"halt-twice-{run_mode}")
-    run_agent(agent, mode=run_mode, config=config)
-    second = run_agent(agent, mode=run_mode, config=config, task="Try once more.")
+    run_task(agent, mode=run_mode, config=config)
+    second = run_task(agent, mode=run_mode, config=config, task="Try once more.")
 
     # Act
     third = run_without_input(agent, mode=run_mode, config=config)
@@ -404,10 +414,10 @@ def test_an_outer_monitor_s_halt_stands_on_its_own_latest_count(run_mode: RunMod
     )
     agent = build_agent(model, workspace=workspace, middleware=[outer, inner])
     config = build_thread_config(f"stacked-counts-{run_mode}")
-    first = run_agent(agent, mode=run_mode, config=config)
+    first = run_task(agent, mode=run_mode, config=config)
 
     # Act: a new message lifts the guard's halt, the guard halts again, then no input
-    second = run_agent(agent, mode=run_mode, config=config, task="Try once more.")
+    second = run_task(agent, mode=run_mode, config=config, task="Try once more.")
     third = run_without_input(agent, mode=run_mode, config=config)
 
     # Assert: each run without new input stands on the guard's latest count

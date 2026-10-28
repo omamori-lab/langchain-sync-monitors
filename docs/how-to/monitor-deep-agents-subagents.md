@@ -49,6 +49,7 @@ of its own, one of them named `read_file`, so the report tool here is called
 
 ```python
 from deepagents import SubAgent, create_deep_agent
+from langgraph.checkpoint.memory import InMemorySaver
 
 from langchain_sync_monitors import (
     BlockAndFeedBack,
@@ -78,7 +79,7 @@ main_monitor = MonitorMiddleware(
     when_subagent_halts=SubagentHalt.STOP_WHOLE_RUN,
 )
 # The publisher can post, so it resamples at a lower score, and with no trusted
-# model a step whose every sample reaches 0.4 is audited, which halts it.
+# model a step whose every sample reaches 0.4 is audited, and the run pauses for a person.
 publisher_monitor = MonitorMiddleware(
     monitor=llm_monitor,
     protocol=DeferToResample(defer_threshold=0.4, audit_threshold=0.4, max_resamples=2),
@@ -106,18 +107,23 @@ agent = create_deep_agent(
         subagents=[analyst, publisher],
         overrides={"publisher": publisher_monitor},
     ),
+    # An audited step pauses the run for a person, which needs a checkpointer.
+    checkpointer=InMemorySaver(),
 )
 
 task = {"messages": [{"role": "user", "content": "Summarise q3.md for the team."}]}
-result = agent.invoke(task)
+result = agent.invoke(task, {"configurable": {"thread_id": "q3-summary"}})
+# A run paused at an audit holds its request in result["__interrupt__"].
 # The main agent's log holds the subagents' records too.
-for record in result["monitor_log"]:
+for record in result.get("monitor_log", []):
     print(record["agent"], record["step_number"], record["outcome"], record["flagged"])
 ```
 
 The model strings are examples. Any LangChain chat model works for the agents
 and for the LLM monitor: pass a provider string, or a chat model object you
 built. A subagent without a `model` of its own uses the main agent's.
+[Answer an audit](answer-an-audit.md) gives the request a paused run holds
+and how to answer it.
 
 ## Options
 
@@ -223,10 +229,11 @@ own nested subagents, and an override in `overrides` keeps its own.
 [![A subagent's monitor halts it, and the halt record reaches the parent agent's monitor_log when the task returns. What happens next depends on when_subagent_halts, an option of the parent's monitor that every copy of that monitor inherits. With SubagentHalt.STOP_SUBAGENT_ONLY, the default, the parent reads the halt message as the task's result and goes on under its own monitor. With SubagentHalt.STOP_WHOLE_RUN, the parent's monitor reads the halt the task call returned and halts the parent at its next model call, without drawing a sample; that halt is flagged, and it stands as the parent's own.](../assets/diagrams/subagent-halts-light.svg#only-light)](../assets/diagrams/subagent-halts-light.svg "Open the diagram at full size")
 [![A subagent's monitor halts it, and the halt record reaches the parent agent's monitor_log when the task returns. What happens next depends on when_subagent_halts, an option of the parent's monitor that every copy of that monitor inherits. With SubagentHalt.STOP_SUBAGENT_ONLY, the default, the parent reads the halt message as the task's result and goes on under its own monitor. With SubagentHalt.STOP_WHOLE_RUN, the parent's monitor reads the halt the task call returned and halts the parent at its next model call, without drawing a sample; that halt is flagged, and it stands as the parent's own.](../assets/diagrams/subagent-halts-dark.svg#only-dark)](../assets/diagrams/subagent-halts-dark.svg "Open the diagram at full size")
 
-A subagent is halted when its protocol audits a step, since no person can
-answer an audit inside the model node: Block and Feed Back's next step at a
-block limit, or Defer to Resample's step without a `trusted_model` or at its
-`audit_threshold`. The parent's halt under `STOP_WHOLE_RUN` stands: until a later run brings
+A subagent is halted when a person stops a step its protocol audited: Block
+and Feed Back's next step at a block limit, or Defer to Resample's step
+without a `trusted_model` or at its `audit_threshold`. Such an audit pauses
+the whole run, and its request names the subagent and the `task` call that
+started it; see [Answer an audit](answer-an-audit.md). The parent's halt under `STOP_WHOLE_RUN` stands: until a later run brings
 new input from the user, every further step of the parent halts without a
 sample, and two paths through middleware listed before the monitor can lift
 it early; see [A halt stands](../explanation/design.md#a-halt-stands).
@@ -236,7 +243,7 @@ subagent was halted. It counts the blocks of the whole run under the same
 label, in the order they were recorded, as hyoshigi replays them
 ([block and feed back](https://omamori-lab.github.io/hyoshigi/explanation/control-protocols/#block-and-feed-back-follows-claude-codes-auto-mode)),
 so once a subagent's blocks bring the run to `blocks_in_total`, the parent's
-next step is drawn and audited, and so halted.
+next step is drawn and audited, for a person to answer.
 
 ## Monitor a compiled subagent
 
@@ -345,11 +352,12 @@ analyst 2 allowed False     the analyst's report
 main 2 allowed False        the main agent's final answer
 ```
 
-A run in which the publisher's monitor halts it, under `STOP_WHOLE_RUN`, logs:
+A run in which a person stops the publisher's audited step, under
+`STOP_WHOLE_RUN`, logs:
 
 ```text
 main 1 allowed False        the task call that delegates to the publisher
-publisher 1 halted True     every sample reached 0.4, so the audit halted it
+publisher 1 halted True     every sample reached 0.4, and a person stopped the audit
 main 2 halted True          the parent stops before its next model call
 ```
 

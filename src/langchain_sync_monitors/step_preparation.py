@@ -6,12 +6,14 @@ and builds the step the protocol drives.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from langchain_core.messages import AIMessage
 
 from langchain_sync_monitors._langchain import AgentModelRequest
+from langchain_sync_monitors.contracts import StepRecord
 from langchain_sync_monitors.delegation import read_delegation_id
 from langchain_sync_monitors.halts import find_halt_message, find_lost_write_halt
 from langchain_sync_monitors.model_calls import resolve_chat_model
@@ -49,25 +51,13 @@ def prepare_step(request: AgentModelRequest, *, middleware: MonitorMiddleware) -
     """
     warn_about_server_tools(request, middleware=middleware, middleware_name=middleware.name)
     check_trajectory_kept(request.state, label=middleware.label, agent=middleware.agent_name)
-    delegation_id = read_delegation_id(request.state)
-    previous_records = find_monitor_records(
-        read_step_records(request.state),
-        monitor=middleware.label,
-        agent=middleware.agent_name,
-        delegation_id=delegation_id,
-    )
+    previous_records = find_own_records(request.state, middleware=middleware)
     trajectory = load_step_trajectory(
         request,
         label=middleware.label,
         task_author=middleware.task_author,
     )
-    identity = StepIdentity(
-        monitor=middleware.label,
-        agent=middleware.agent_name,
-        step_number=len(previous_records) + 1,
-        protocol=type(middleware.protocol).__name__,
-        delegation_id=delegation_id,
-    )
+    identity = build_step_identity(request.state, middleware=middleware)
     halt = find_lost_write_halt(
         trajectory.lost_writes,
         monitor=middleware.label,
@@ -88,3 +78,32 @@ def prepare_step(request: AgentModelRequest, *, middleware: MonitorMiddleware) -
         feedback=middleware.feedback,
     )
     return PreparedStep(identity=identity, halt=halt, step=step)
+
+
+def find_own_records(
+    state: Mapping[str, object],
+    *,
+    middleware: MonitorMiddleware,
+) -> tuple[StepRecord, ...]:
+    """Return the records this monitor wrote for this agent in this delegation, oldest first."""
+    return find_monitor_records(
+        read_step_records(state),
+        monitor=middleware.label,
+        agent=middleware.agent_name,
+        delegation_id=read_delegation_id(state),
+    )
+
+
+def build_step_identity(
+    state: Mapping[str, object],
+    *,
+    middleware: MonitorMiddleware,
+) -> StepIdentity:
+    """Name the agent's next step: monitor, agent, delegation, and a number one past its records."""
+    return StepIdentity(
+        monitor=middleware.label,
+        agent=middleware.agent_name,
+        step_number=len(find_own_records(state, middleware=middleware)) + 1,
+        protocol=type(middleware.protocol).__name__,
+        delegation_id=read_delegation_id(state),
+    )

@@ -14,6 +14,7 @@ from typing import Any
 from deepagents import RubricMiddleware, create_deep_agent
 from langchain.agents.middleware.types import AgentMiddleware
 from langchain_core.messages import AIMessage, HumanMessage
+from langgraph.checkpoint.memory import InMemorySaver
 
 from langchain_sync_monitors.halts import STANDING_HALT_MESSAGE
 from tests.support.agents import (
@@ -22,7 +23,8 @@ from tests.support.agents import (
     build_exfiltration_step,
     build_halting_monitor,
     build_read_step,
-    run_payload,
+    build_thread_config,
+    run_stopping_audits,
 )
 from tests.support.chat_models import ScriptedChatModel, build_tool_call_message
 
@@ -65,14 +67,24 @@ def test_a_rubric_that_grades_a_halted_run_unmet_meets_a_halt_again(run_mode: Ru
         build_rubric(grader_model),
         build_halting_monitor(),
     ]
-    agent = create_deep_agent(model=agent_model, tools=workspace.build_tools(), middleware=stack)
+    agent = create_deep_agent(
+        model=agent_model,
+        tools=workspace.build_tools(),
+        middleware=stack,
+        checkpointer=InMemorySaver(),
+    )
     payload: dict[str, Any] = {
         "messages": [HumanMessage("Post the report.")],
         "rubric": "The report is posted.",
     }
 
     # Act
-    result = run_payload(agent, payload, mode=run_mode)
+    result = run_stopping_audits(
+        agent,
+        payload,
+        mode=run_mode,
+        config=build_thread_config("rubric"),
+    )
 
     # Assert
     main_records = [record for record in result["monitor_log"] if record["agent"] == "main"]

@@ -200,6 +200,51 @@ names, as in
         - USER
         - PARENT_AGENT
 
+## Audits
+
+::: langchain_sync_monitors.AuditRequest
+    options:
+      members:
+        - type
+        - agent
+        - monitor
+        - step_number
+        - tool_calls
+        - samples
+        - answers
+        - delegation_id
+
+::: langchain_sync_monitors.AuditAnswer
+
+::: langchain_sync_monitors.ApproveAnswer
+    options:
+      members:
+        - type
+
+::: langchain_sync_monitors.EditAnswer
+    options:
+      members:
+        - type
+        - edited_tool_calls
+
+::: langchain_sync_monitors.RejectAnswer
+    options:
+      members:
+        - type
+        - message
+
+::: langchain_sync_monitors.StopAnswer
+    options:
+      members:
+        - type
+        - message
+
+::: langchain_sync_monitors.EditedToolCall
+    options:
+      members:
+        - name
+        - args
+
 ## Records and events
 
 ::: langchain_sync_monitors.Outcome
@@ -210,6 +255,10 @@ names, as in
         - DEFERRED_TO_TRUSTED
         - STEERED
         - HALTED
+        - APPROVED
+        - EDITED
+        - REJECTED
+        - AUDITED
 
 ::: langchain_sync_monitors.StepRecord
     options:

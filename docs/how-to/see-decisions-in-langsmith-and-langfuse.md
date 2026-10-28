@@ -40,6 +40,13 @@ model
   one before it ends with the rate-limit error. A decision monitor calls its
   provider's API without LangChain, so its requests show only as the
   judgement around them.
+- **Audits.** A step the protocol audits ends its step span with a decision
+  span tagged `monitor:audited`, before the run pauses for a person. The
+  pause ends the `monitor[main].after_model` run with LangGraph's
+  `GraphInterrupt`, and no monitor span. The person's answer opens a
+  `monitor decision` span of its own under `monitor[main].after_model`,
+  outside any step span, tagged with the step's outcome, such as
+  `monitor:approved`; [Answer an audit](answer-an-audit.md) gives the answers.
 - **Errors.** A halt is a decision like any other, so it never marks a span as
   failed, and nor does a rating that failed closed: its judgement ends with
   `failed_closed` set. A span ends with an error only when the step fails: a
@@ -106,7 +113,7 @@ Every monitor span of a step carries flat metadata keys that name the step:
 | `monitor_agent` | The agent: `main`, or a subagent's name | Every monitor span |
 | `monitor_step_number` | The step's number, as in `monitor_log` | Every monitor span |
 | `monitor_protocol` | The protocol's class, such as `BlockAndFeedBack` | Every monitor span |
-| `monitor_step_id` | The step span's run id | Every monitor span |
+| `monitor_step_id` | The step span's run id | Every monitor span but the decision span of a person's answer, which opens after the step span ended |
 | `monitor_delegation_id` | The id of the `task` call that started the subagent | Every monitor span inside a subagent that a monitored agent started |
 | `monitor_outcome`, `monitor_flagged` | The decision | `monitor decision` |
 | `monitor_max_suspicion` | The highest suspicion among the step's samples | `monitor decision`, when the step judged a sample |
@@ -242,8 +249,10 @@ flagged step:
 | Everything but the monitor's spans and model calls | `and(neq(name, "monitor step"), neq(name, "monitor judgement"), neq(name, "monitor decision"), neq(name, "monitor call"), neq(metadata_key, "ls_message_view_exclude"))` | Name none of `monitor step`, `monitor judgement`, `monitor decision` and `monitor call` |
 | Steps above a suspicion | `and(eq(name, "monitor decision"), eq(metadata_key, "monitor_max_suspicion"), gte(metadata_value, 0.5))`, with the threshold as a number; with `export_scores`, also `and(eq(feedback_key, "monitor_suspicion"), gte(feedback_score, 0.5))` | Only with `export_scores`: scores named `monitor_suspicion` with a minimum value, as [Find steps by suspicion](#find-steps-by-suspicion) shows; metadata filters compare strings only |
 
-Replace `halted` with `allowed`, `resampled`, `steered` or
-`deferred_to_trusted` to find those steps. LangSmith's filter language cannot
+Replace `halted` with `allowed`, `resampled`, `steered`,
+`deferred_to_trusted`, `approved`, `edited` or `rejected` to find those
+steps, or with `audited` to find each step held for a person; a halted step
+that a person stopped shows both, on its two decision spans. LangSmith's filter language cannot
 negate a tag, so leave the monitor's spans out by name. Langfuse keeps a
 span's tags only in its metadata, so filter on `monitor_outcome` and
 `monitor_flagged` there.
@@ -584,6 +593,7 @@ explains.
   with `tracing_enabled=False` or `sample_rate=0` exited about a second after
   its run, where the full 30-second drain ran once the private read was
   bypassed. What each tool's UI shows for the scores rests on their APIs
+  alone. The spans of an audited step and of its answer rest on the tests
   alone.
 - **Two tracers together can split a trace.** The monitor opens its spans
   from the model node's own callback manager, so they nest under `model` for

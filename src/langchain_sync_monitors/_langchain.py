@@ -440,8 +440,8 @@ def append_subagent_middleware(
     return [*existing, cast("SubagentMiddleware", middleware)]
 
 
-def write_stream_event(request: AgentModelRequest, *, event: MonitorStreamEvent) -> None:
-    """Write the event to `stream_mode="custom"`, if the request runs inside a graph.
+def write_stream_event(runtime: object, *, event: MonitorStreamEvent) -> None:
+    """Write the event to `stream_mode="custom"` through the runtime of a graph's hook or request.
 
     A request built outside a graph has no runtime, and so no writer. A writer
     that fails must change nothing else: a committed step stays committed, and
@@ -450,7 +450,7 @@ def write_stream_event(request: AgentModelRequest, *, event: MonitorStreamEvent)
     no traceback: the writer was handed the event, whose samples quote the
     transcript, and its error's message could too.
     """
-    writer = getattr(request.runtime, "stream_writer", None)
+    writer = getattr(runtime, "stream_writer", None)
     if writer is None:
         return
     try:

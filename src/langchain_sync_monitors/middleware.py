@@ -51,6 +51,7 @@ from langchain_sync_monitors._langchain import (
     ToolCallResult,
     hide_model_calls_from_message_stream,
 )
+from langchain_sync_monitors.audits import find_held_step, resolve_held_step, stop_held_step
 from langchain_sync_monitors.commits import build_step_response, commit_step, report_failed_step
 from langchain_sync_monitors.context_values import set_context_value
 from langchain_sync_monitors.contracts import SubagentHalt, TaskAuthor
@@ -88,6 +89,8 @@ from langchain_sync_monitors.spans import (
     counting_judgements,
     open_step_span,
     open_step_span_sync,
+    trace_answer,
+    trace_answer_sync,
     trace_decision,
     trace_decision_sync,
     trace_monitors,
@@ -146,8 +149,10 @@ class MonitorMiddleware(AgentMiddleware[MonitorState, AgentContext, StructuredOu
     and the feedback are committed with the step that follows them. A step is
     flagged for a person to review when its protocol flags it, when it halts,
     and, with `flag_threshold`, a number from 0 to 1, when its lowest sample
-    is at or above it. While no person can answer an audit inside the model
-    node, an audited step halts.
+    is at or above it. A step the protocol audits is held: the middleware's
+    `after_model` hook pauses the run before any tool runs, for a person's
+    answer, and new input in place of an answer stops the step; `audits` has
+    the rules.
 
     Before each tool call, the middleware adds a `Delegation` to the state the
     tool sees: the call's id, `agent_name`, and the run each monitor's
@@ -209,9 +214,9 @@ class MonitorMiddleware(AgentMiddleware[MonitorState, AgentContext, StructuredOu
     `MonitorStepFailedEvent`, their suspicions are logged as a warning, and
     the exception is raised again. LangGraph's own control flow, such as the
     `GraphInterrupt` that `interrupt()` raises, passes through unreported.
-    Yet a monitor must not call `interrupt()`: on resume LangGraph runs the
-    model node again [@langgraph2026], so the step is sampled and rated
-    afresh, and the person's answer applies to samples they never saw.
+    No monitor pauses inside the model node: on resume LangGraph runs the
+    node again [@langgraph2026], so the step would be sampled and rated
+    afresh, and the answer would apply to samples the person never saw.
 
     In LangChain tracers such as LangSmith and Langfuse, each step is a
     `monitor step` span, with the spans that `spans` describes nested in it.
@@ -415,7 +420,7 @@ class MonitorMiddleware(AgentMiddleware[MonitorState, AgentContext, StructuredOu
     @override
     def before_agent(self, state: MonitorState, runtime: AgentRuntime) -> AgentStateUpdate | None:
         """Record this run's input, and add it to the trajectory, under `invoke()`."""
-        return self.build_run_start_update(state)
+        return self.build_run_start_update(state, runtime=runtime)
 
     @override
     async def abefore_agent(  # lanorme: ignore[NAMING-011]
@@ -424,7 +429,7 @@ class MonitorMiddleware(AgentMiddleware[MonitorState, AgentContext, StructuredOu
         runtime: AgentRuntime,
     ) -> AgentStateUpdate | None:
         """Record this run's input, and add it to the trajectory, under `ainvoke()`."""
-        return self.build_run_start_update(state)
+        return self.build_run_start_update(state, runtime=runtime)
 
     @override
     def before_model(self, state: MonitorState, runtime: AgentRuntime) -> AgentStateUpdate | None:
@@ -441,21 +446,31 @@ class MonitorMiddleware(AgentMiddleware[MonitorState, AgentContext, StructuredOu
         return build_step_start_update(state)
 
     # Without `can_jump_to`, `create_agent` gives the hook a plain edge and ignores `jump_to`.
-    @hook_config(can_jump_to=["end"])
+    @hook_config(can_jump_to=["end", "model"])
     @override
     def after_model(self, state: MonitorState, runtime: AgentRuntime) -> AgentStateUpdate | None:
-        """End the run after a step this monitor halted, under `invoke()`."""
-        return self.build_halt_end_update(state)
+        """Pause for a person's answer to a held step, or end a halted run, under `invoke()`."""
+        held = find_held_step(state, middleware=self)
+        if held is None:
+            return self.build_halt_end_update(state)
+        answered = resolve_held_step(held, state=state, runtime=runtime, middleware=self)
+        trace_answer_sync(held.identity, record=answered.record)
+        return answered.update
 
-    @hook_config(can_jump_to=["end"])
+    @hook_config(can_jump_to=["end", "model"])
     @override
     async def aafter_model(
         self,
         state: MonitorState,
         runtime: AgentRuntime,
     ) -> AgentStateUpdate | None:
-        """End the run after a step this monitor halted, under `ainvoke()`."""
-        return self.build_halt_end_update(state)
+        """Pause for a person's answer to a held step, or end a halted run, under `ainvoke()`."""
+        held = find_held_step(state, middleware=self)
+        if held is None:
+            return self.build_halt_end_update(state)
+        answered = resolve_held_step(held, state=state, runtime=runtime, middleware=self)
+        await trace_answer(held.identity, record=answered.record)
+        return answered.update
 
     @override
     def after_agent(self, state: MonitorState, runtime: AgentRuntime) -> AgentStateUpdate | None:
@@ -491,15 +506,19 @@ class MonitorMiddleware(AgentMiddleware[MonitorState, AgentContext, StructuredOu
         )
         return {**update, **trajectories}
 
-    def build_run_start_update(self, state: MonitorState) -> AgentStateUpdate:
+    def build_run_start_update(self, state: MonitorState, *, runtime: object) -> AgentStateUpdate:
         """Return the update a run starts with, which adds the run's input to the trajectory.
 
         The trajectory reads the state as the run's own update leaves it, its
         ids given and its unconfirmed input tagged, before a summariser can
-        remove the input. A thread whose decided steps outlive the trajectory
-        raises `MonitorError`, as `trajectories` says.
+        remove the input. Input to a run paused at an audit stops the held
+        step first, as `audits` says. A thread whose decided steps outlive
+        the trajectory raises `MonitorError`, as `trajectories` says.
         """
         check_trajectory_kept(state, label=self.label, agent=self.agent_name)
+        held = find_held_step(state, middleware=self)
+        if held is not None:
+            return stop_held_step(held, state=state, runtime=runtime, middleware=self)
         update = build_run_start_update(state)
         trajectories = build_run_start_trajectories_update(
             state,

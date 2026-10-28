@@ -130,6 +130,7 @@ nav:
           - Use Defer to Trusted: how-to/use-defer-to-trusted.md
           - Use Defer to Resample: how-to/use-defer-to-resample.md
           - Use Block and Feed Back: how-to/use-block-and-feed-back.md
+          - Answer an audit: how-to/answer-an-audit.md
           - Monitor Deep Agents subagents: how-to/monitor-deep-agents-subagents.md
       - Monitors:
           - Use an LLM monitor: how-to/use-an-llm-monitor.md

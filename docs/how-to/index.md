@@ -14,6 +14,8 @@ This page lists the how-to guides, each of which solves one concrete task.
   the least suspicious one, as in Ctrl-Z.
 - [Use Block and Feed Back](use-block-and-feed-back.md): block a step, tell
   the agent why, and audit its next step after too many blocks.
+- [Answer an audit](answer-an-audit.md): approve, edit, reject or stop a step
+  the protocol holds for a person.
 - [Monitor Deep Agents subagents](monitor-deep-agents-subagents.md): give every
   subagent a monitor and choose what a subagent halt does.
 

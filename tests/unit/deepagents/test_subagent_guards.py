@@ -6,12 +6,19 @@ import pytest
 from deepagents import CompiledSubAgent, SubAgent, create_deep_agent
 from langchain.agents import create_agent
 from langchain_core.messages import AIMessage
+from langgraph.checkpoint.memory import InMemorySaver
 
 from langchain_sync_monitors.contracts import SubagentHalt, TaskAuthor
 from langchain_sync_monitors.deepagents import monitor_subagents
 from langchain_sync_monitors.errors import ConfigurationError
 from langchain_sync_monitors.middleware import MonitorMiddleware
-from tests.support.agents import RunMode, run_agent
+from tests.support.agents import (
+    RunMode,
+    build_task_input,
+    build_thread_config,
+    run_agent,
+    run_stopping_audits,
+)
 from tests.support.chat_models import ScriptedChatModel
 from tests.support.deep_agents import build_delegation_step, read_monitor
 from tests.support.monitors import KeywordMonitor
@@ -115,10 +122,16 @@ def test_following_the_compiled_subagent_advice_keeps_stop_whole_run_working(
         model=main_model,
         middleware=[main_monitor],
         subagents=[build_compiled_worker(worker_monitor=worker_monitor)],
+        checkpointer=InMemorySaver(),
     )
 
     # Act
-    result = run_agent(agent, mode=run_mode)
+    result = run_stopping_audits(
+        agent,
+        build_task_input(),
+        mode=run_mode,
+        config=build_thread_config("compiled-advice"),
+    )
 
     # Assert
     outcomes = [(record["agent"], record["outcome"]) for record in result["monitor_log"]]

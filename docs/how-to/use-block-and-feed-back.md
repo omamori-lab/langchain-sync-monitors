@@ -20,8 +20,9 @@ A step whose score is at or above `block_threshold` is blocked. Its tool calls
 never run, the agent reads the feedback, and it proposes again, within the
 same step. The first proposal below the threshold runs. Once the agent's
 blocks reach `blocks_in_a_row` in a row, or its run's reach `blocks_in_total`
-in all, the next proposal is still drawn and rated, then audited. No person
-can answer an audit inside the model node, so the step halts.
+in all, the next proposal is still drawn and rated, then audited: the run
+pauses for a person's answer, as [Answer an audit](answer-an-audit.md) sets
+out.
 
 Server-side tools in a blocked proposal, such as a web fetch, already ran
 inside the model call that drew it, once per proposal.
@@ -79,7 +80,7 @@ agent = create_agent(
 config = {"configurable": {"thread_id": "q3-summary"}}
 task = {"messages": [{"role": "user", "content": "Summarise q3.md for the team."}]}
 result = agent.invoke(task, config=config)
-for record in result["monitor_log"]:
+for record in result.get("monitor_log", []):
     print(record["step_number"], record["outcome"], record["blocked_count"], record["flagged"])
 ```
 
@@ -109,8 +110,8 @@ state keeps under the monitor's `label` and a checkpointer keeps across a
 thread's turns. Blocks in a row count the agent's own decisions; blocks in
 total count its run's, in the order they were recorded: in a Deep Agent, the
 parent's and every subagent's under the same label. An audit at the total
-starts the count again, so the run goes on after a person, or a new run,
-answers the halt. Without a checkpointer each run starts with an empty
+starts the count again, so the run goes on once a person answers the audit,
+or new input stops it. Without a checkpointer each run starts with an empty
 trajectory.
 
 Two limits of the count:
@@ -152,7 +153,8 @@ with the step, and the outer monitor records only the reply that runs;
 |---|---|---|---|---|
 | `"allowed"` | The first proposal ran. | 0 | The first | No |
 | `"steered"` | One or more proposals were blocked, then one ran. | 1 or more | The last | No, unless `flag_threshold` says so |
-| `"halted"` | A limit was reached, and the audited proposal halted the step. | 0 or more | None | Yes |
+| `"approved"`, `"edited"` or `"rejected"` | A limit was reached, the next proposal was audited, and a person answered it. | 0 or more | The audited proposal when approved; otherwise none | No, unless `flag_threshold` says so |
+| `"halted"` | A limit was reached, and a person stopped the audited proposal, or new input arrived in place of an answer. | 0 or more | None | Yes |
 
 To review what was blocked:
 
@@ -176,8 +178,8 @@ for record in result["monitor_log"]:
   If that matters more than steering, use Defer to Resample, where the agent
   never sees a rejected proposal.
 - **A limit draws one more proposal.** The proposal after the last block is
-  drawn and rated, then audited and halted, so a limit costs one more call
-  of the agent's model and one of the monitor.
+  drawn and rated, then audited, so a limit costs one more call of the
+  agent's model and one of the monitor.
 - **Put the monitor last** in the `create_agent` middleware list. Every
   setting of this protocol can call the model more than once in a step, so a
   second monitor inside it loses records; see

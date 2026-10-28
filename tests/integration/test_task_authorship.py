@@ -50,10 +50,12 @@ from tests.support.agents import (
     Workspace,
     build_exfiltration_step,
     build_read_step,
+    build_task_input,
     build_thread_config,
     run_agent,
     run_messages,
     run_payload,
+    run_stopping_audits,
     stream_messages,
 )
 from tests.support.chat_models import ScriptedChatModel, build_tool_call_message
@@ -1319,10 +1321,16 @@ def test_every_parallel_sample_reads_a_middleware_note_as_a_note(run_mode: RunMo
         NudgingMiddleware(),
         MonitorMiddleware(monitor=monitor, protocol=protocol),
     ]
-    agent = create_agent(model=model, tools=build_tools(), middleware=middleware)
+    agent = create_agent(
+        model=model,
+        tools=build_tools(),
+        middleware=middleware,
+        checkpointer=InMemorySaver(),
+    )
+    config = build_thread_config("parallel-notes")
 
-    # Act
-    state = run_agent(agent, mode=run_mode, task=TASK)
+    # Act: a person stops the audited step
+    state = run_stopping_audits(agent, build_task_input(TASK), mode=run_mode, config=config)
 
     # Assert
     assert state["monitor_log"][0]["outcome"] == "halted"

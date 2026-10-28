@@ -54,6 +54,7 @@ from hyoshigi import (
     Author,
     ConfigurationError,
     Event,
+    Halt,
     Observation,
     ToolCall,
     Trajectory,
@@ -314,14 +315,19 @@ def load_run_start_trajectory(
     given: Sequence[GivenId],
     label: str,
     task_author: TaskAuthor,
+    stop: Halt | None,
 ) -> LoadedTrajectory:
     """Load a label's trajectory at the start of a run, and sync the state `update` leaves.
 
     Each id `update` gave a message is marked read first, where the label read
-    the message under its key.
+    the message under its key. `stop`, the halt of a held step the run's
+    input stopped, is recorded before the input is read, at the held step's
+    position.
     """
     started = read_state_after(state, update=update)
     loaded = load_trajectory(started, label=label, task_author=task_author)
+    if stop is not None:
+        loaded.trajectory.record(stop)
     mark_given_ids(loaded, given=given)
     add_unread_messages(
         loaded,

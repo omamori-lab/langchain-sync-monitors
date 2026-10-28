@@ -7,9 +7,15 @@ starts every delegation without its parent's, and its own never flows back.
 from __future__ import annotations
 
 from langchain_core.messages import AIMessage
+from langgraph.checkpoint.memory import InMemorySaver
 
 from langchain_sync_monitors.middleware import MonitorMiddleware
-from tests.support.agents import RunMode, run_agent
+from tests.support.agents import (
+    RunMode,
+    build_task_input,
+    build_thread_config,
+    run_stopping_audits,
+)
 from tests.support.chat_models import ScriptedChatModel
 from tests.support.deep_agents import build_deep_agent, build_delegation_step
 from tests.support.monitors import KeywordMonitor
@@ -17,7 +23,8 @@ from tests.support.protocols import HALT_EVERY_STEP, RUN_EVERY_STEP
 
 
 def test_a_subagent_halted_in_one_delegation_is_sampled_in_the_next(run_mode: RunMode) -> None:
-    # Arrange: the worker's monitor halts every step, and the parent delegates twice
+    # Arrange: the worker's monitor audits every step, each stopped, and the parent delegates
+    # twice
     main_model = ScriptedChatModel(
         responses=[
             build_delegation_step(call_id="call-task-1"),
@@ -33,10 +40,16 @@ def test_a_subagent_halted_in_one_delegation_is_sampled_in_the_next(run_mode: Ru
         worker_model=worker_model,
         main_monitor=MonitorMiddleware(monitor=KeywordMonitor(), protocol=RUN_EVERY_STEP),
         worker_monitor=MonitorMiddleware(monitor=KeywordMonitor(), protocol=HALT_EVERY_STEP),
+        checkpointer=InMemorySaver(),
     )
 
     # Act
-    result = run_agent(agent, mode=run_mode)
+    result = run_stopping_audits(
+        agent,
+        build_task_input(),
+        mode=run_mode,
+        config=build_thread_config("halted-twice"),
+    )
 
     # Assert: each delegation drew a sample of its own
     worker_records = [record for record in result["monitor_log"] if record["agent"] == "worker"]

@@ -33,6 +33,7 @@ from tests.support.agents import (
     build_task_input,
     build_thread_config,
     run_agent,
+    run_stopping_audits,
 )
 from tests.support.chat_models import ScriptedChatModel, build_tool_call_message
 
@@ -312,14 +313,19 @@ def build_agent_with_delegation_input(
         monitor=build_keyword_monitor(),
         protocol=BlockAndFeedBack(block_threshold=0.6, blocks_in_total=blocks_in_total),
     )
-    return create_agent(model, tools=workspace.build_tools(), middleware=[monitor])
+    return create_agent(
+        model,
+        tools=workspace.build_tools(),
+        middleware=[monitor],
+        checkpointer=InMemorySaver(),
+    )
 
 
 def run_with_delegation(agent: Any, *, delegation: object, mode: RunMode) -> dict[str, Any]:
+    """Run the agent as a subagent handed `delegation`, stopping each step held for a person."""
     payload = {**build_task_input(), "monitor_delegation": delegation}
-    if mode == "invoke":
-        return agent.invoke(payload)
-    return asyncio.run(agent.ainvoke(payload))
+    config = build_thread_config("delegated-run")
+    return run_stopping_audits(agent, payload, mode=mode, config=config)
 
 
 EMPTY_RUN: dict[str, Any] = {
@@ -515,7 +521,7 @@ def test_the_run_a_valid_delegation_hands_on_counts_towards_the_total(run_mode: 
     # Act
     result = run_with_delegation(agent, delegation=delegation, mode=run_mode)
 
-    # Assert: its own block reaches the total, so its next proposal is audited and halted
+    # Assert: its own block reaches the total, so its next proposal is audited, then stopped
     [record] = result["monitor_log"]
     assert (record["outcome"], record["blocked_count"]) == ("halted", 1)
     assert record["delegation_id"] == "call-caller"

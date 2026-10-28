@@ -1,9 +1,9 @@
-"""At a block limit the next proposal is drawn and audited, and the audit halts the run.
+"""At a block limit the next proposal is drawn and audited, and a person's stop halts the run.
 
 Block and feed back counts the blocks in a row in the agent's own records,
 and the blocks in total in its run's. Once either reaches its
 limit, the next proposal is still drawn and rated, then held for a person,
-and while no person can answer an audit, the step halts.
+and when the person stops it, the step halts.
 """
 
 from __future__ import annotations
@@ -11,6 +11,7 @@ from __future__ import annotations
 import pytest
 from langchain.agents import create_agent
 from langchain_core.messages import AIMessage
+from langgraph.checkpoint.memory import InMemorySaver
 
 from langchain_sync_monitors import DEFAULT_HALT_MESSAGE, BlockAndFeedBack, MonitorMiddleware
 from tests.support.agents import (
@@ -19,8 +20,10 @@ from tests.support.agents import (
     Workspace,
     build_exfiltration_step,
     build_keyword_monitor,
+    build_task_input,
+    build_thread_config,
     read_stored_trajectory,
-    run_agent,
+    run_stopping_audits,
 )
 from tests.support.chat_models import ScriptedChatModel
 
@@ -49,10 +52,16 @@ def test_after_three_blocks_the_next_proposal_is_drawn_audited_and_halted(
         ],
     )
     middleware = MonitorMiddleware(monitor=build_keyword_monitor(), protocol=protocol)
-    agent = create_agent(model, tools=workspace.build_tools(), middleware=[middleware])
+    agent = create_agent(
+        model,
+        tools=workspace.build_tools(),
+        middleware=[middleware],
+        checkpointer=InMemorySaver(),
+    )
+    config = build_thread_config("block-limit")
 
     # Act
-    result = run_agent(agent, mode=run_mode)
+    result = run_stopping_audits(agent, build_task_input(), mode=run_mode, config=config)
 
     # Assert
     assert len(model.calls) == 4

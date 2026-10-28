@@ -16,6 +16,7 @@ from hyoshigi import Action
 from langchain.agents.middleware import ToolRetryMiddleware
 from langchain.agents.middleware.types import AgentMiddleware
 from langchain_core.messages import AIMessage
+from langgraph.checkpoint.memory import InMemorySaver
 
 from langchain_sync_monitors import AuditResponse, BlockAndFeedBack, DeferToResample, SubagentHalt
 from langchain_sync_monitors.deepagents import monitor_subagents
@@ -26,7 +27,10 @@ from tests.support.agents import (
     build_exfiltration_step,
     build_keyword_monitor,
     build_read_step,
+    build_task_input,
+    build_thread_config,
     run_agent,
+    run_stopping_audits,
 )
 from tests.support.chat_models import ScriptedChatModel
 from tests.support.deep_agents import build_delegation_step
@@ -168,7 +172,8 @@ def test_a_monitor_added_inside_a_spec_s_single_call_monitor_is_not_named(
 def test_a_subagent_halt_leaves_a_monitor_inside_a_single_call_monitor_sound(
     run_mode: RunMode,
 ) -> None:
-    # Arrange: the outer monitor halts the worker's suspicious step and stops the whole run,
+    # Arrange: the outer monitor audits the worker's suspicious step, which is stopped, and stops
+    # the whole run,
     # so the main agent's next step halts without a sample
     inner_monitor = KeywordMonitor()
     outer = MonitorMiddleware(
@@ -188,10 +193,16 @@ def test_a_subagent_halt_leaves_a_monitor_inside_a_single_call_monitor_sound(
         model=main_model,
         middleware=[outer, inner],
         subagents=monitor_subagents(middleware=outer, subagents=[worker]),
+        checkpointer=InMemorySaver(),
     )
 
     # Act
-    result = run_agent(agent, mode=run_mode)
+    result = run_stopping_audits(
+        agent,
+        build_task_input(),
+        mode=run_mode,
+        config=build_thread_config("stacked-subagent"),
+    )
 
     # Assert: the main agent drew one sample, and the inner monitor recorded it
     main_records = [record for record in result["monitor_log"] if record["agent"] == "main"]

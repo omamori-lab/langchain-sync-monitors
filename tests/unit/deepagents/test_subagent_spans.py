@@ -10,15 +10,21 @@ from __future__ import annotations
 
 import pytest
 from langchain_core.messages import AIMessage
+from langgraph.checkpoint.memory import InMemorySaver
 
 from langchain_sync_monitors.contracts import SubagentHalt
 from langchain_sync_monitors.middleware import MonitorMiddleware
-from tests.support.agents import RunMode
+from tests.support.agents import (
+    RunMode,
+    build_task_input,
+    build_thread_config,
+    run_stopping_audits,
+)
 from tests.support.chat_models import ScriptedChatModel
 from tests.support.deep_agents import build_deep_agent, build_delegation_step
 from tests.support.monitors import KeywordMonitor
 from tests.support.protocols import HALT_EVERY_STEP, RUN_EVERY_STEP
-from tests.support.tracing import RecordedRun, run_traced_agent
+from tests.support.tracing import RecordedRun, RecordingTracer, run_traced_agent
 
 WORKER_REPORT = "Three sources found."
 MAIN_ANSWER = "Here is the summary."
@@ -87,12 +93,15 @@ def test_a_halt_after_a_subagent_halt_is_a_step_span_with_only_its_decision(
             when_subagent_halts=SubagentHalt.STOP_WHOLE_RUN,
         ),
         worker_monitor=MonitorMiddleware(monitor=monitor, protocol=HALT_EVERY_STEP),
+        checkpointer=InMemorySaver(),
     )
+    tracer = RecordingTracer()
+    config = build_thread_config("subagent-halt-spans") | {"callbacks": [tracer]}
 
     # Act
-    _, tracer = run_traced_agent(agent, mode=run_mode)
+    run_stopping_audits(agent, build_task_input(), mode=run_mode, config=config)
 
-    # Assert
+    # Assert: the worker's audit is stopped, which stops the whole run
     steps = tracer.find_runs("monitor step")
     assert read_step_names(steps) == [
         ("main", 1, None),

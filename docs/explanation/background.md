@@ -79,8 +79,7 @@ library takes four things from Hughes's account of it:
   [@hughes2026automode]. `BlockAndFeedBack` uses the same numbers; here a
   session is the monitor's trajectory of the conversation thread, the twenty
   include the blocks inside its subagents, and at either limit the next
-  proposal is audited, which halts the run, since no person can answer inside
-  the model node.
+  proposal is audited: the run pauses for a person's answer.
 - **Two stages.** A fast single-token filter runs first, and reasoning
   follows only when it flags the action (section "Two-stage classification:
   efficiency and recall") [@hughes2026automode]. `CascadeMonitor` runs a
@@ -259,7 +258,8 @@ blocks, prompts and the response cache come from langchain-core
 [@langchaincore2026]. LangGraph [@langgraph2026] runs the agent graph: its
 reducers merge `monitor_log` across subagents, its `nostream` tag keeps
 unvetted samples out of `stream_mode="messages"`, and its rerun of a node on
-resume is why nothing in the model node may interrupt. Deep Agents [@deepagents2026]
+resume is why nothing in the model node may interrupt, and why the monitor
+pauses for a person in its `after_model` hook instead. Deep Agents [@deepagents2026]
 contributes the subagent model, and its `RubricMiddleware` the convention of
 tagging injected messages. TypeSafe's `AutoModeMiddleware`
 [@typesafe2026langchain] was the starting point for the tool-call classifier.

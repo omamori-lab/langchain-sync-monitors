@@ -89,8 +89,12 @@ def build_media(
     data: bytes | None = None,
     url: str | None = None,
 ) -> MediaPart:
-    """Build a media part of the block's media type, or of its type's range when it names none."""
-    media_type = block.get("mime_type") or MEDIA_RANGES[block["type"]]
+    """Build a media part of the block's media type, or of its type's range when it has none.
+
+    Only a block without a `mime_type` takes the range; an empty or invalid
+    media type raises `MessageFormatError`.
+    """
+    media_type = block["mime_type"] if "mime_type" in block else MEDIA_RANGES[block["type"]]
     try:
         return MediaPart(media_type=media_type, data=data, url=url)
     except HyoshigiConfigurationError:

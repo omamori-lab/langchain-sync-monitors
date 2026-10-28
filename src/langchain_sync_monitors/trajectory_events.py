@@ -195,6 +195,8 @@ def read_action(message: AIMessage, *, server_result: tuple[Part, ...]) -> Actio
     path = type(message).__name__
     if not message.id:
         raise MessageFormatError(path=f"{path}.id", expected="an id")
+    # langchain-core's Gemini translator fails on grounding metadata that is not a mapping.
+    read_grounding_metadata(message)
     blocks = message.content_blocks
     return Action(
         id=message.id,
@@ -375,15 +377,17 @@ def read_tool_block(
     """Read a server tool's result, or a call block, which is opaque unless it repeats a call.
 
     A server tool result is checked as the history checks it, then is what
-    `server_result` makes it. A call block whose id is not among the
-    message's tool calls and malformed calls is an opaque part, so it fails
-    closed.
+    `server_result` makes it. A call block whose id is not text, or not among
+    the message's tool calls and malformed calls, is an opaque part, so it
+    fails closed.
     """
     if block["type"] == "server_tool_result":
         read_server_call_id(block, path=path)
         return server_result
     values: Mapping[str, object] = block
-    return () if values.get("id") in call_ids else (OpaquePart(kind=block["type"]),)
+    if is_repeated_tool_call(values, known_call_ids=call_ids):
+        return ()
+    return (OpaquePart(kind=block["type"]),)
 
 
 def read_unmapped_agent_block(
@@ -508,10 +512,19 @@ def read_grounding_metadata(message: AIMessage) -> Mapping[str, object]:
     there, with no server tool call block, only for a grounded reply, and
     dumps every field of google-genai's `GroundingMetadata`
     [@langchaingooglegenai2026]. So metadata that holds anything is one
-    server tool use, whatever its keys.
+    server tool use, whatever its keys. Raises `MessageFormatError` on
+    metadata that is not a mapping; only an absent key or None means no
+    grounding.
     """
     metadata = message.response_metadata.get(GROUNDING_METADATA_KEY)
-    return metadata if isinstance(metadata, Mapping) else {}
+    if metadata is None:
+        return {}
+    if not isinstance(metadata, Mapping):
+        raise MessageFormatError(
+            path=f"{type(message).__name__}.response_metadata.{GROUNDING_METADATA_KEY}",
+            expected="a mapping of grounding metadata",
+        )
+    return metadata
 
 
 def build_grounding_call_id(message: AIMessage) -> str:

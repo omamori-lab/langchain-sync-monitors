@@ -845,8 +845,10 @@ The monitor keeps its run state in ten keys. Eight are private: they never
 enter a run's `invoke` output or an isolated subagent's input, though Deep
 Agents hands a forked subagent its parent's private state, but they do appear
 in `stream_mode="values"`, `stream_mode="updates"` and `get_state`. So
-`monitor_run_inputs` and `monitor_trajectory` carry the text of the user's
-turns into those three.
+`monitor_run_inputs` carries the text of the user's turns into those three,
+and `monitor_trajectory` the text of every message the monitor read, tool
+results included, and of every blocked attempt, whatever
+`feedback_visibility` says, as `monitor_log`'s samples already do.
 
 | Key | Holds | In a run's input | In `invoke` output | In `values`, `updates`, `get_state` |
 |---|---|---|---|---|
@@ -895,10 +897,14 @@ The key is a LangGraph `DeltaChannel`: each hook writes a delta, the entries
 beyond the lengths it loaded, a checkpoint stores the deltas, and LangGraph
 rebuilds the value from them [@langgraph2026]. A delta applies only on the
 lengths it was computed against. A monitor inside another monitor's step
-writes once for each draw the outer monitor makes, and draws made at once
-under `ainvoke()` pile up deltas on the same lengths: the first applies, and
-the rest are dropped ([two monitors in one agent](#two-monitors-in-one-agent)).
-Any other stale write is dropped as well, and counts as a lost write: the
+writes once for each draw the outer monitor makes. Under `invoke()`,
+LangChain keeps the last draw's write alone; under `ainvoke()`, draws made at
+once pile up deltas on the same lengths, the first to finish applies, and
+the rest are dropped. Either way, the write kept may come from a draw the
+outer monitor did not run, so the inner monitor's trajectory can hold an
+action that never ran, as its records can
+([two monitors in one agent](#two-monitors-in-one-agent)). Any other stale
+write is dropped as well, and counts as a lost write: the
 monitor's next step halts without a sample, flagged, with a warning, and the
 halt stands until a later run brings new input
 ([a halt stands](#a-halt-stands)).

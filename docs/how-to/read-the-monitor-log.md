@@ -294,8 +294,9 @@ The monitor keeps eight private keys in the state: `monitor_task_messages`,
 messages were a run's input and the text of each, the inputs a tool wrote
 over, how many inputs the thread had at a halt, the subagent halts and blocks
 a tool call returned, until the next step, and each monitor's trajectory of
-the run, by label. So `monitor_run_inputs` and `monitor_trajectory` hold the
-text of the user's turns. They
+the run, by label. So `monitor_run_inputs` holds the text of the user's
+turns, and `monitor_trajectory` the text of every message the monitor read
+and of every blocked attempt, as `monitor_log`'s samples do. They
 never enter a run's input or the result of `invoke()` and `ainvoke()`, but
 `values`, `updates` and `agent.get_state(config)` show them. One more key,
 `monitor_delegation`, is part of every monitored agent's input: the monitor

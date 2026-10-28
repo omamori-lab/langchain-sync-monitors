@@ -17,11 +17,16 @@ from langchain.agents import create_agent
 from langchain_core.messages import AIMessage
 from langchain_core.runnables import Runnable
 
-from langchain_sync_monitors import GuardLabels, GuardMonitor, LLMMonitor, MonitorPrompt
-from langchain_sync_monitors.contracts import ControlProtocol
+from langchain_sync_monitors import (
+    AuditResponse,
+    DeferToResample,
+    GuardLabels,
+    GuardMonitor,
+    LLMMonitor,
+    MonitorPrompt,
+)
 from langchain_sync_monitors.middleware import MonitorMiddleware
 from langchain_sync_monitors.monitors import MonitorConfiguration
-from langchain_sync_monitors.protocols import DeferToTrusted, TrustedMonitoring
 from tests.support.agents import (
     RunMode,
     Workspace,
@@ -59,7 +64,6 @@ def build_named_model(reply: str) -> NamedFakeChatModel:
 def build_agent(
     *,
     monitor: MonitorConfiguration,
-    protocol: ControlProtocol | None = None,
 ) -> Runnable[Any, Any]:
     """Build an agent that reads a file and then answers, so the monitor judges two steps."""
     return create_agent(
@@ -68,7 +72,12 @@ def build_agent(
         middleware=[
             MonitorMiddleware(
                 monitor=monitor,
-                protocol=protocol or TrustedMonitoring(audit_threshold=0.8),
+                protocol=DeferToResample(
+                    defer_threshold=0.8,
+                    audit_threshold=0.8,
+                    max_resamples=0,
+                    on_audit=AuditResponse.FLAG,
+                ),
             ),
         ],
     )
@@ -160,11 +169,12 @@ def test_the_trusted_model_s_step_keeps_its_model_s_name(run_mode: RunMode) -> N
         middleware=[
             MonitorMiddleware(
                 monitor=LLMMonitor(model=build_named_model(ALARMED_MONITOR_REPLY)),
-                protocol=DeferToTrusted(
-                    trusted_model=trusted_model,
+                protocol=DeferToResample(
                     defer_threshold=0.6,
-                    audit_threshold=0.85,
+                    audit_threshold=0.95,
+                    max_resamples=0,
                 ),
+                trusted_model=trusted_model,
             ),
         ],
     )

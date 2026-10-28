@@ -21,12 +21,6 @@ MONITOR_FEEDBACK_SOURCE = "monitor"
 REASONING_BLOCK_TYPES = frozenset({"thinking", "redacted_thinking", "reasoning"})
 """The types of provider blocks that hold the model's reasoning, encrypted or not."""
 
-PROSE_BLOCK_TYPES = frozenset({"refusal"})
-"""The types of provider blocks that hold text the model wrote, under a key named after the type.
-
-OpenAI gives a refusal as a `refusal` item, which LangChain keeps as a block it does not map.
-"""
-
 REFUSAL_KEY = "refusal"
 """The key under which langchain-openai keeps a refusal in `additional_kwargs`."""
 

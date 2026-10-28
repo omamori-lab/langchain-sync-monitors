@@ -251,7 +251,7 @@ def read_package_bindings(tree: ast.Module) -> PackageBindings:
 def resolve_call_target(expression: ast.expr, *, bindings: PackageBindings) -> object | None:
     """Return the package object a call's function names, through module attributes only.
 
-    `AutoMode(...)` and `monitors.AutoMode(...)` resolve; a method called on an
+    `BlockAndFeedBack(...)` and `monitors.BlockAndFeedBack(...)` resolve; a method called on an
     instance does not, since its object is known only when the example runs.
     """
     if isinstance(expression, ast.Name):
@@ -343,7 +343,7 @@ def test_every_name_a_page_calls_is_defined_or_imported_first(page: Path) -> Non
 
 
 def test_a_call_to_a_name_never_imported_is_reported() -> None:
-    # Arrange: the second block calls AutoMode and create_agent, and imports neither.
+    # Arrange: the second block calls BlockAndFeedBack and create_agent, and imports neither.
     page = REPOSITORY_ROOT / "docs" / "example.md"
     blocks = [
         CodeBlock(
@@ -352,7 +352,9 @@ def test_a_call_to_a_name_never_imported_is_reported() -> None:
         CodeBlock(
             path=page,
             line_number=5,
-            source="monitor = LLMMonitor(model='m')\nagent = create_agent(protocol=AutoMode())",
+            source=(
+                "monitor = LLMMonitor(model='m')\nagent = create_agent(protocol=BlockAndFeedBack())"
+            ),
         ),
     ]
 
@@ -361,7 +363,7 @@ def test_a_call_to_a_name_never_imported_is_reported() -> None:
 
     # Assert
     assert len(problems) == 2
-    assert any("AutoMode(...)" in problem for problem in problems)
+    assert any("BlockAndFeedBack(...)" in problem for problem in problems)
     assert any("create_agent(...)" in problem for problem in problems)
 
 
@@ -401,11 +403,12 @@ def test_a_correct_example_has_no_problems() -> None:
     # Arrange
     source = """
 import langchain_sync_monitors as sync_monitors
-from langchain_sync_monitors import AutoMode, HaltRun as Halt, MonitorMiddleware
+from langchain_sync_monitors import BlockAndFeedBack, FeedbackTemplate as Feedback
 
-protocol = AutoMode(block_threshold=0.7, when_limit_reached=Halt(message="Stopped."))
-middleware = MonitorMiddleware(monitor=monitor, protocol=protocol)
-fallback = sync_monitors.DeferToTrustedModel(trusted_model="openrouter:xiaomi/mimo-v2.6-flash")
+protocol = BlockAndFeedBack(block_threshold=0.7, blocks_in_a_row=2)
+feedback = Feedback(text="{reason}")
+middleware = sync_monitors.MonitorMiddleware(monitor=monitor, protocol=protocol)
+deferral = sync_monitors.DeferToResample(defer_threshold=0.6, audit_threshold=0.9, max_resamples=0)
 """
 
     # Act
@@ -421,7 +424,7 @@ fallback = sync_monitors.DeferToTrustedModel(trusted_model="openrouter:xiaomi/mi
 def test_a_name_the_package_does_not_export_is_reported() -> None:
     # Act
     problems = check_source(
-        "from langchain_sync_monitors import AutoMode, LLMJudge",
+        "from langchain_sync_monitors import BlockAndFeedBack, LLMJudge",
         check=find_import_problems,
     )
 
@@ -446,20 +449,26 @@ def test_a_module_the_package_does_not_have_is_reported() -> None:
 @pytest.mark.parametrize(
     ("call", "expected"),
     [
-        ("AutoMode(block_limit=3)", "unexpected keyword argument 'block_limit'"),
-        ("AutoMode(0.6)", "too many positional arguments"),
+        (
+            "BlockAndFeedBack(block_threshold=0.6, block_limit=3)",
+            "unexpected keyword argument 'block_limit'",
+        ),
+        ("BlockAndFeedBack(0.6)", "too many positional arguments"),
         (
             "sync_monitors.MonitorMiddleware(label='guard')",
             "missing a required keyword-only argument: 'monitor'",
         ),
-        ("sync_monitors.HaltRun(text='Stopped.')", "unexpected keyword argument 'text'"),
+        (
+            "sync_monitors.FeedbackTemplate(text='{reason}', reason='Stopped.')",
+            "unexpected keyword argument 'reason'",
+        ),
     ],
 )
 def test_a_call_that_does_not_fit_its_signature_is_reported(call: str, expected: str) -> None:
     # Arrange
     source = (
         "import langchain_sync_monitors as sync_monitors\n"
-        f"from langchain_sync_monitors import AutoMode, DeferToResample\n{call}"
+        f"from langchain_sync_monitors import BlockAndFeedBack, DeferToResample\n{call}"
     )
 
     # Act
@@ -556,7 +565,7 @@ unclosed = 3
 @pytest.mark.parametrize(
     ("relative_path", "expected"),
     [
-        ("how-to/use-auto-mode.md", True),
+        ("how-to/use-block-and-feed-back.md", True),
         ("plans/initial-implementation/README.md", False),
         ("references.bib", False),
     ],

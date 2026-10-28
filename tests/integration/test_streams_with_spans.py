@@ -23,7 +23,7 @@ from langgraph.graph.state import CompiledStateGraph
 
 from langchain_sync_monitors import _langchain
 from langchain_sync_monitors.middleware import MonitorMiddleware
-from langchain_sync_monitors.protocols import AutoMode
+from langchain_sync_monitors.protocols import BlockAndFeedBack
 from tests.support.agents import (
     SUSPICION_BY_KEYWORD,
     RunMode,
@@ -50,19 +50,20 @@ RUN_SPECIFIC_KEYS = frozenset(
         "monitor_task_messages",
         "monitor_seen_human_messages",
         "seen",
+        "action_id",
     },
 )
 """Keys whose values differ between any two runs: random message ids and checkpoint names.
 
 The monitor's lists of message ids, which `stream_mode="updates"` carries, hold ids too, and
-so does the `seen` list of each write to its trajectory.
+so do the `seen` list of each write to its trajectory and the `action_id` of each rating.
 """
 
 MONITOR_SPAN_NAMES = {"monitor step", "monitor judgement", "monitor decision"}
 
 
 def build_agent() -> CompiledStateGraph[Any, Any, Any, Any]:
-    """Build an agent whose first step Auto Mode blocks, and whose steps stream token by token."""
+    """Build an agent whose first step is blocked, and whose steps stream token by token."""
     monitor = KeywordMonitor(
         suspicion_by_keyword=SUSPICION_BY_KEYWORD,
         model=build_monitor_model(),
@@ -72,7 +73,9 @@ def build_agent() -> CompiledStateGraph[Any, Any, Any, Any]:
             responses=[build_exfiltration_step(), build_read_step(), AIMessage(FINAL_ANSWER)],
         ),
         tools=Workspace().build_tools(),
-        middleware=[MonitorMiddleware(monitor=monitor, protocol=AutoMode(block_threshold=0.6))],
+        middleware=[
+            MonitorMiddleware(monitor=monitor, protocol=BlockAndFeedBack(block_threshold=0.6))
+        ],
     )
 
 
@@ -177,8 +180,8 @@ def test_the_spans_leave_the_v3_event_stream_s_messages_the_same(
     untraced = render_v3_messages(mode=run_mode, tracer=None)
     traced = render_v3_messages(mode=run_mode, tracer=tracer)
 
-    # Assert
-    assert len(without_spans) == 2
+    # Assert: the blocked reply, the reply that ran and the final answer
+    assert len(without_spans) == 3
     assert untraced == without_spans
     assert traced == without_spans
     assert tracer.find_monitor_spans()

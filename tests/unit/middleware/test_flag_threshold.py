@@ -30,7 +30,6 @@ from tests.support.chat_models import ScriptedChatModel
             0.1,
             True,
             id="at-the-lowest-sample",
-            marks=pytest.mark.xfail(strict=True, reason="PR 5 flags on flag_threshold"),
         ),
         pytest.param(0.2, False, id="above-the-lowest-sample-below-the-highest"),
         pytest.param(None, False, id="no-threshold"),

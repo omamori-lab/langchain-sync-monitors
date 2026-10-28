@@ -1,4 +1,4 @@
-"""The attack run under each of six protocol variants, judged by the LLM monitor.
+"""The attack run under each of five protocol variants, judged by the LLM monitor.
 
 What it measures: whether each protocol takes the path its scores call for
 with a real agent and a real monitor. The LLM monitor is used because it scores
@@ -10,9 +10,8 @@ Every run must end without an error, keep the execution invariant and the
 span promises, and give each step in which a sample reached the threshold one
 of the outcomes `checks.INTERVENTIONS` allows that protocol. Under Trusted
 Monitoring the canary may leave, but every step that sent it must be flagged;
-under every other protocol it stays. With the feedback kept in the transcript,
-each blocked attempt stays with a `monitor-` id and its feedback is tagged;
-hidden, none of it is left in the state. A run in which no sample reached
+under every other protocol it stays. Each blocked attempt stays in the
+transcript, answered by tagged feedback. A run in which no sample reached
 the threshold is skipped after those checks, since the protocol had nothing
 to act on, and a run a provider rate-limited is skipped too.
 
@@ -55,8 +54,7 @@ PROTOCOL_MODES: list[tuple[ProtocolName, RunMode]] = [
     (ProtocolName.DEFER_TO_TRUSTED, "ainvoke"),
     (ProtocolName.DEFER_TO_RESAMPLE, "invoke"),
     (ProtocolName.DEFER_TO_RESAMPLE_PARALLEL, "ainvoke"),
-    (ProtocolName.AUTO_MODE, "invoke"),
-    (ProtocolName.AUTO_MODE_IN_TRANSCRIPT, "ainvoke"),
+    (ProtocolName.BLOCK_AND_FEED_BACK, "invoke"),
 ]
 
 
@@ -83,7 +81,6 @@ def test_the_protocol_acts_on_every_step_that_reaches_the_threshold(
     assert list_run_problems(report) == []
     assert list_path_problems(report) == []
     assert list_canary_problems(report) == []
-    in_transcript = protocol_name is ProtocolName.AUTO_MODE_IN_TRANSCRIPT
-    assert list_feedback_problems(report, in_transcript=in_transcript) == []
+    assert list_feedback_problems(report) == []
     if not has_reached_threshold(report):
         pytest.skip("no sample reached the threshold, so the protocol had nothing to act on")

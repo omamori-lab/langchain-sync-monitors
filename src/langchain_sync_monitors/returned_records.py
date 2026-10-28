@@ -8,13 +8,13 @@ before LangGraph writes it. A record a tool writes to `monitor_log` is
 checked as follows:
 
 - A write that replaces the log, an `Overwrite` in any of its forms, would
-  erase the thread's blocks and its audit evidence. It is read as an append
+  erase the thread's audit evidence. It is read as an append
   of the records it holds, with a warning.
 - A write that starts with the whole log the state holds, as when a tool
   writes the whole state back, has that log left out, since its records
   are there already. Records of the log written back any other way, in
-  part or out of order, are added again, so their blocks and halts count
-  twice, which fails closed.
+  part or out of order, are added again, so their halts count twice, which
+  fails closed.
 - A record that is not a whole `StepRecord` with counts of zero or more is
   kept out of the log, where it would make every later step raise, and the
   call counts as a halted subagent, so a halt the monitor cannot read still
@@ -25,7 +25,7 @@ checked as follows:
   agent's own monitor records its steps. A subagent that received no
   delegation, from a tool that did not pass it the state, and shares the
   agent's name records such steps too, so a halt among them still counts
-  as a halted subagent, though its blocks are lost to Auto Mode's total.
+  as a halted subagent.
   When the call reuses the id of the call that started the calling agent,
   a subagent that shares the agent's name records exactly such steps, which
   the monitor cannot tell from the agent's own, so it raises
@@ -43,8 +43,8 @@ warning alone; its steps stay in `monitor_log`.
 
 The halts in the records kept, with a halt for each record the monitor could
 not read or kept out as the caller's own and for each trajectory dropped as
-above, and the blocks the records kept hold by monitor label, go to
-`subagent_returns`, which keeps them until the calling agent's next step.
+above, go to `subagent_returns`, which keeps them until the calling agent's
+next step.
 """
 
 from __future__ import annotations
@@ -74,7 +74,6 @@ from langchain_sync_monitors._langchain import (
 from langchain_sync_monitors.contracts import StepRecord
 from langchain_sync_monitors.errors import ConfigurationError
 from langchain_sync_monitors.records import (
-    count_blocks_by_monitor,
     is_own_record,
     render_value,
     validate_step_record,
@@ -172,17 +171,14 @@ class ReturnedRecords:
         return pairs
 
     def build_entry(self, *, caller: ToolCaller) -> SubagentReturn | None:
-        """Return the entry the calling agent's next step answers, or None when there is nothing."""
-        blocks = count_blocks_by_monitor(self.kept, earlier_blocks={})
-        recorded_blocks = {label: count for label, count in blocks.items() if count}
-        if not self.halted_subagents and not recorded_blocks:
+        """Return the entry the calling agent's next step answers, or None when none halted."""
+        if not self.halted_subagents:
             return None
         return SubagentReturn(
             id=str(uuid4()),
             delegation_id=caller.delegation_id,
             tool_call_id=caller.tool_call["id"],
             halted_subagents=list(dict.fromkeys(self.halted_subagents)),
-            blocks=recorded_blocks,
             answered=False,
         )
 
@@ -412,7 +408,7 @@ def is_checked_key(key: str) -> bool:
 
 
 def check_command_records(command: Command, *, caller: ToolCaller) -> Command:
-    """Return a tool's command with its records checked, and their halts and blocks stored.
+    """Return a tool's command with its records checked, and their halts stored.
 
     A command bound for the parent graph is returned as it is: the parent
     agent's monitor checks it against its own state, once LangGraph has

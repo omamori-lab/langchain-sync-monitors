@@ -17,7 +17,7 @@ from tests.support.agents import RunMode
 from tests.support.chat_models import ScriptedChatModel
 from tests.support.deep_agents import build_deep_agent, build_delegation_step
 from tests.support.monitors import KeywordMonitor
-from tests.support.protocols import AcceptFirst, HaltAfterOneSample
+from tests.support.protocols import HALT_EVERY_STEP, RUN_EVERY_STEP
 from tests.support.tracing import RecordedRun, run_traced_agent
 
 WORKER_REPORT = "Three sources found."
@@ -49,7 +49,7 @@ def test_a_subagent_s_spans_nest_under_its_task_call_and_carry_its_delegation_id
     agent = build_deep_agent(
         main_model=ScriptedChatModel(responses=[build_delegation_step(), AIMessage(MAIN_ANSWER)]),
         worker_model=ScriptedChatModel(responses=[AIMessage(WORKER_REPORT)]),
-        main_monitor=MonitorMiddleware(monitor=monitor, protocol=AcceptFirst()),
+        main_monitor=MonitorMiddleware(monitor=monitor, protocol=RUN_EVERY_STEP),
     )
 
     # Act
@@ -83,10 +83,10 @@ def test_a_halt_after_a_subagent_halt_is_a_step_span_with_only_its_decision(
         worker_model=ScriptedChatModel(responses=[AIMessage(WORKER_REPORT)]),
         main_monitor=MonitorMiddleware(
             monitor=monitor,
-            protocol=AcceptFirst(),
+            protocol=RUN_EVERY_STEP,
             when_subagent_halts=SubagentHalt.STOP_WHOLE_RUN,
         ),
-        worker_monitor=MonitorMiddleware(monitor=monitor, protocol=HaltAfterOneSample()),
+        worker_monitor=MonitorMiddleware(monitor=monitor, protocol=HALT_EVERY_STEP),
     )
 
     # Act

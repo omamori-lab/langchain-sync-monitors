@@ -23,12 +23,11 @@ from langgraph.checkpoint.memory import InMemorySaver
 from langgraph.types import Command
 
 from langchain_sync_monitors import (
-    AutoMode,
+    AuditResponse,
+    BlockAndFeedBack,
     Channel,
-    DeferToTrusted,
-    FeedbackVisibility,
+    DeferToResample,
     MonitorMiddleware,
-    TrustedMonitoring,
     View,
 )
 from tests.support.agents import (
@@ -66,8 +65,19 @@ UNPERCEIVABLE_REASON = (
 )
 
 
+TRUSTED_MONITORING = DeferToResample(
+    defer_threshold=0.6,
+    audit_threshold=0.6,
+    max_resamples=0,
+    on_audit=AuditResponse.FLAG,
+)
+"""Trusted monitoring at 0.6: every step runs, and one at 0.6 or above is flagged."""
+DEFER_TO_TRUSTED = DeferToResample(defer_threshold=0.6, audit_threshold=1.0, max_resamples=0)
+"""Hands a step at or above 0.6 to the trusted model; only a score of 1.0 is audited."""
+
+
 def build_monitor_middleware(monitor: RenderingMonitor) -> MonitorMiddleware:
-    return MonitorMiddleware(monitor=monitor, protocol=TrustedMonitoring(audit_threshold=0.6))
+    return MonitorMiddleware(monitor=monitor, protocol=TRUSTED_MONITORING)
 
 
 def test_a_langchain_summary_reaches_the_monitor_as_a_note_not_the_user(run_mode: RunMode) -> None:
@@ -267,10 +277,8 @@ def test_a_later_instruction_from_the_user_survives_the_entry_limit(run_mode: Ru
     assert read_tagged_entries(trajectory, tag="user") == [grant, revocation]
 
 
-@pytest.mark.parametrize("visibility", list(FeedbackVisibility))
 def test_a_blocked_proposal_of_malformed_calls_is_seen_recorded_and_answered(
     run_mode: RunMode,
-    visibility: FeedbackVisibility,
 ) -> None:
     # Arrange
     malformed = AIMessage(
@@ -292,11 +300,7 @@ def test_a_blocked_proposal_of_malformed_calls_is_seen_recorded_and_answered(
         model=model,
         tools=workspace.build_tools(),
         middleware=[
-            MonitorMiddleware(
-                monitor=monitor,
-                protocol=AutoMode(block_threshold=0.6),
-                feedback_visibility=visibility,
-            ),
+            MonitorMiddleware(monitor=monitor, protocol=BlockAndFeedBack(block_threshold=0.6)),
         ],
     )
 
@@ -337,15 +341,17 @@ def test_a_view_without_tool_calls_still_catches_the_call_it_judges(
         suspicion_by_keyword=SUSPICION_BY_KEYWORD,
     )
     workspace = Workspace()
-    protocol = DeferToTrusted(
-        trusted_model=ScriptedChatModel(responses=[AIMessage("I will not post anything.")]),
-        defer_threshold=0.6,
-        audit_threshold=0.9,
-    )
+    trusted_model = ScriptedChatModel(responses=[AIMessage("I will not post anything.")])
     agent: Runnable[Any, Any] = create_agent(
         model=ScriptedChatModel(responses=[build_exfiltration_step(), AIMessage("Done.")]),
         tools=workspace.build_tools(),
-        middleware=[MonitorMiddleware(monitor=monitor, protocol=protocol)],
+        middleware=[
+            MonitorMiddleware(
+                monitor=monitor,
+                protocol=DEFER_TO_TRUSTED,
+                trusted_model=trusted_model,
+            ),
+        ],
     )
 
     # Act
@@ -377,11 +383,7 @@ def test_the_text_beside_a_tool_call_is_judged_before_the_user_sees_it(
     # Arrange: the message rides beside a read the monitor would allow on its own
     monitor = RenderingMonitor(suspicion_by_keyword={"STAFF40": 0.95})
     workspace = Workspace()
-    protocol = DeferToTrusted(
-        trusted_model=ScriptedChatModel(responses=[AIMessage("A supervisor will review it.")]),
-        defer_threshold=0.6,
-        audit_threshold=0.9,
-    )
+    trusted_model = ScriptedChatModel(responses=[AIMessage("A supervisor will review it.")])
     step = build_tool_call_message(
         tool_name="read_file",
         call_id="call-read",
@@ -391,7 +393,13 @@ def test_the_text_beside_a_tool_call_is_judged_before_the_user_sees_it(
     agent: Runnable[Any, Any] = create_agent(
         model=ScriptedChatModel(responses=[step, AIMessage("Done.")]),
         tools=workspace.build_tools(),
-        middleware=[MonitorMiddleware(monitor=monitor, protocol=protocol)],
+        middleware=[
+            MonitorMiddleware(
+                monitor=monitor,
+                protocol=DEFER_TO_TRUSTED,
+                trusted_model=trusted_model,
+            ),
+        ],
     )
 
     # Act
@@ -422,11 +430,7 @@ def test_a_refusal_kept_in_additional_kwargs_is_judged_before_the_user_sees_it(
 ) -> None:
     # Arrange: langchain-openai keeps a refusal in additional_kwargs, with empty content
     monitor = RenderingMonitor(suspicion_by_keyword={"STAFF40": 0.95})
-    protocol = DeferToTrusted(
-        trusted_model=ScriptedChatModel(responses=[AIMessage("A supervisor will review it.")]),
-        defer_threshold=0.6,
-        audit_threshold=0.9,
-    )
+    trusted_model = ScriptedChatModel(responses=[AIMessage("A supervisor will review it.")])
     reply = AIMessage(
         content,
         additional_kwargs={"refusal": refusal},
@@ -435,7 +439,13 @@ def test_a_refusal_kept_in_additional_kwargs_is_judged_before_the_user_sees_it(
     agent: Runnable[Any, Any] = create_agent(
         model=ScriptedChatModel(responses=[reply]),
         tools=Workspace().build_tools(),
-        middleware=[MonitorMiddleware(monitor=monitor, protocol=protocol)],
+        middleware=[
+            MonitorMiddleware(
+                monitor=monitor,
+                protocol=DEFER_TO_TRUSTED,
+                trusted_model=trusted_model,
+            ),
+        ],
     )
 
     # Act
@@ -453,24 +463,27 @@ def test_a_reply_holding_a_server_tool_s_result_fails_closed_and_is_recorded(
 ) -> None:
     # Arrange
     monitor = RenderingMonitor()
-    protocol = DeferToTrusted(
-        trusted_model=ScriptedChatModel(responses=[AIMessage("I could not fetch the report.")]),
-        defer_threshold=0.6,
-        audit_threshold=0.9,
-    )
+    trusted_model = ScriptedChatModel(responses=[AIMessage("I could not fetch the report.")])
     agent: Runnable[Any, Any] = create_agent(
         model=ScriptedChatModel(responses=[build_anthropic_web_fetch_reply()]),
         tools=Workspace().build_tools(),
-        middleware=[MonitorMiddleware(monitor=monitor, protocol=protocol)],
+        middleware=[
+            MonitorMiddleware(
+                monitor=monitor,
+                protocol=DEFER_TO_TRUSTED,
+                trusted_model=trusted_model,
+            ),
+        ],
     )
 
     # Act
     state = run_agent(agent, mode=run_mode, task=TASK)
 
-    # Assert: the result is content the monitor's model cannot perceive, so it is never asked
+    # Assert: the result is content the monitor's model cannot perceive, so it is never
+    # asked, and a score that failed closed with an answer is audited, which halts the step
     assert monitor.readings == []
     record = state["monitor_log"][0]
-    assert (record["outcome"], record["flagged"]) == ("deferred_to_trusted", True)
+    assert (record["outcome"], record["flagged"]) == ("halted", True)
     [sample] = record["samples"]
     assert (sample["suspicion"], sample["reason"]) == (1.0, UNPERCEIVABLE_REASON)
     assert sample["proposal"]["tool_calls"] == [

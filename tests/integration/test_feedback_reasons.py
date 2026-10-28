@@ -1,6 +1,6 @@
-"""The reason Auto Mode shows the agent carries no scores, however the monitor is wrapped.
+"""The reason a block shows the agent carries no scores, however the monitor is wrapped.
 
-Auto Mode sends the monitor's reason to the agent word for word. A score in it
+Block and feed back sends the monitor's reason to the agent word for word. A score in it
 would tell an attacker how close its step came to the threshold, so the
 wrappers keep numbers in the record, for the auditor, and out of the reason.
 """
@@ -14,7 +14,7 @@ from langchain_core.messages import AIMessage, ToolMessage
 
 from langchain_sync_monitors.middleware import MonitorMiddleware
 from langchain_sync_monitors.monitors import CalibratedMonitor, CascadeMonitor, RepeatedMonitor
-from langchain_sync_monitors.protocols import AutoMode
+from langchain_sync_monitors.protocols import BlockAndFeedBack
 from tests.support.agents import (
     RunMode,
     Workspace,
@@ -46,7 +46,7 @@ def test_the_feedback_on_a_block_carries_the_reason_without_numbers(run_mode: Ru
     )
     middleware = MonitorMiddleware(
         monitor=build_wrapped_monitor(),
-        protocol=AutoMode(block_threshold=0.9),
+        protocol=BlockAndFeedBack(block_threshold=0.9),
     )
     agent = create_agent(model, tools=Workspace().build_tools(), middleware=[middleware])
 

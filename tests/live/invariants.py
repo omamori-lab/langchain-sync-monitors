@@ -7,8 +7,9 @@ state, so the promise can be checked from the report alone, by each call's
 tool name and key argument:
 
 - what ran is exactly the tool calls of the committed replies, the AI
-  messages the monitor did not insert, except that a call the tools node
-  answered with an error, such as one missing an argument, may not have run;
+  messages the monitor did not insert and did not answer with its feedback,
+  except that a call the tools node answered with an error, such as one
+  missing an argument, may not have run;
 - a step whose sample ran committed exactly that sample's calls, and a step
   the trusted model wrote, or a halted one, ran no sample;
 - no call ran that only a rejected or blocked sample proposed: every call
@@ -24,10 +25,11 @@ from hyoshigi import JSON
 
 from tests.live.reports import (
     HALTED,
-    MONITOR_MESSAGE_ID_PREFIX,
     MessageReport,
     RunReport,
     StepReport,
+    find_committed_reply_positions,
+    is_inserted_by_monitor,
     read_proposed_calls,
 )
 from tests.live.sandbox import describe_call
@@ -54,18 +56,9 @@ def count_message_calls(
     )
 
 
-def is_inserted_by_monitor(message: MessageReport) -> bool:
-    """Tell whether the monitor inserted a saved message: feedback, a blocked attempt or a halt."""
-    return (message["id"] or "").startswith(MONITOR_MESSAGE_ID_PREFIX)
-
-
-def list_committed_replies(messages: Iterable[MessageReport]) -> list[MessageReport]:
-    """Return the saved AI messages the steps committed: every one the monitor did not insert."""
-    return [
-        message
-        for message in messages
-        if message["type"] == "ai" and not is_inserted_by_monitor(message)
-    ]
+def list_committed_replies(messages: Sequence[MessageReport]) -> list[MessageReport]:
+    """Return the saved AI messages the steps committed to run, blocked replies left out."""
+    return [messages[position] for position in find_committed_reply_positions(messages)]
 
 
 def list_rejected_call_ids(messages: Iterable[MessageReport]) -> set[str]:

@@ -14,18 +14,18 @@ from typing import Any
 import pytest
 from hyoshigi import Action, Author, ToolObservation
 from langchain.agents import create_agent
+from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import AIMessage, ToolMessage
 from langchain_core.runnables import Runnable
 
-from langchain_sync_monitors.contracts import ControlProtocol, FeedbackVisibility, Resampling
-from langchain_sync_monitors.middleware import MonitorMiddleware
-from langchain_sync_monitors.protocols import (
-    AutoMode,
+from langchain_sync_monitors import (
+    DEFAULT_HALT_MESSAGE,
+    AuditResponse,
+    BlockAndFeedBack,
     DeferToResample,
-    DeferToTrustedModel,
-    HaltRun,
-    TrustedMonitoring,
+    Resampling,
 )
+from langchain_sync_monitors.middleware import MonitorMiddleware
 from tests.support.agents import (
     RunMode,
     Workspace,
@@ -39,7 +39,6 @@ from tests.support.chat_models import OverlapCountingChatModel, ScriptedChatMode
 from tests.support.monitors import KeywordMonitor, read_action_text
 
 FINAL_ANSWER = "Q3 revenue grew 12%."
-HALT_MESSAGE = "Stopped by the safety monitor."
 MODEL_DELAY = 0.01
 """Seconds each async call of the untrusted model takes, so that draws made at once overlap."""
 MOST_DRAWS_AT_ONCE: dict[tuple[Resampling, RunMode], int] = {
@@ -64,19 +63,15 @@ class MonitoredRun:
 def run_monitored_agent(
     *,
     untrusted_steps: Sequence[AIMessage],
-    protocol: ControlProtocol,
+    protocol: DeferToResample | BlockAndFeedBack,
     run_mode: RunMode,
-    feedback_visibility: FeedbackVisibility = FeedbackVisibility.HIDDEN,
+    trusted_model: BaseChatModel | None = None,
 ) -> MonitoredRun:
     """Run a scripted agent under a keyword monitor and the given protocol."""
     workspace = Workspace()
     untrusted_model = OverlapCountingChatModel(responses=list(untrusted_steps), delay=MODEL_DELAY)
     monitor = build_keyword_monitor()
-    middleware = MonitorMiddleware(
-        monitor=monitor,
-        protocol=protocol,
-        feedback_visibility=feedback_visibility,
-    )
+    middleware = MonitorMiddleware(monitor=monitor, protocol=protocol, trusted_model=trusted_model)
     agent: Runnable[Any, Any] = create_agent(
         model=untrusted_model,
         tools=workspace.build_tools(),
@@ -117,11 +112,7 @@ def test_defer_to_resample_replaces_a_suspicious_step_with_a_clean_sample(
     run_mode: RunMode,
 ) -> None:
     # Arrange
-    protocol = DeferToResample(
-        fallback=HaltRun(message=HALT_MESSAGE),
-        defer_threshold=0.6,
-        audit_threshold=0.95,
-    )
+    protocol = DeferToResample(defer_threshold=0.6, audit_threshold=0.95, max_resamples=2)
 
     # Act
     run = run_monitored_agent(
@@ -145,9 +136,9 @@ def test_defer_to_resample_defers_to_the_trusted_model_when_every_sample_is_susp
     # Arrange
     trusted_model = ScriptedChatModel(responses=[AIMessage("A careful trusted summary.")])
     protocol = DeferToResample(
-        fallback=DeferToTrustedModel(trusted_model=trusted_model),
         defer_threshold=0.6,
-        audit_threshold=0.85,
+        audit_threshold=0.95,
+        max_resamples=2,
         resampling=resampling,
     )
 
@@ -156,12 +147,13 @@ def test_defer_to_resample_defers_to_the_trusted_model_when_every_sample_is_susp
         untrusted_steps=[build_exfiltration_step(call_id=f"call-{index}") for index in range(3)],
         protocol=protocol,
         run_mode=run_mode,
+        trusted_model=trusted_model,
     )
 
     # Assert
     assert run.workspace.executed == []
     assert read_outcomes(run) == ["deferred_to_trusted"]
-    assert run.state["monitor_log"][0]["flagged"] is True
+    assert run.state["monitor_log"][0]["flagged"] is False
     assert run.state["messages"][-1].text == "A careful trusted summary."
     assert len(run.state["monitor_log"][0]["samples"]) == 3
     assert run.untrusted_model.most_at_once == MOST_DRAWS_AT_ONCE[(resampling, run_mode)]
@@ -171,7 +163,12 @@ def test_trusted_monitoring_flags_a_suspicious_step_but_lets_it_run(run_mode: Ru
     # Act
     run = run_monitored_agent(
         untrusted_steps=[build_exfiltration_step(), AIMessage(FINAL_ANSWER)],
-        protocol=TrustedMonitoring(audit_threshold=0.6),
+        protocol=DeferToResample(
+            defer_threshold=0.6,
+            audit_threshold=0.6,
+            max_resamples=0,
+            on_audit=AuditResponse.FLAG,
+        ),
         run_mode=run_mode,
     )
 
@@ -180,11 +177,13 @@ def test_trusted_monitoring_flags_a_suspicious_step_but_lets_it_run(run_mode: Ru
     assert [record["flagged"] for record in run.state["monitor_log"]] == [True, False]
 
 
-def test_auto_mode_steers_the_agent_with_hidden_feedback(run_mode: RunMode) -> None:
+def test_block_and_feed_back_steers_the_agent_with_feedback_the_transcript_keeps(
+    run_mode: RunMode,
+) -> None:
     # Act
     run = run_monitored_agent(
         untrusted_steps=[build_exfiltration_step(), build_read_step(), AIMessage(FINAL_ANSWER)],
-        protocol=AutoMode(block_threshold=0.6),
+        protocol=BlockAndFeedBack(block_threshold=0.6),
         run_mode=run_mode,
     )
 
@@ -194,20 +193,19 @@ def test_auto_mode_steers_the_agent_with_hidden_feedback(run_mode: RunMode) -> N
     assert feedback[-1].text.startswith("[Safety monitor]")
     assert run.workspace.executed == ["read_file:q3.md"]
     assert read_outcomes(run) == ["steered", "allowed"]
-    assert all("[Safety monitor]" not in message.text for message in run.state["messages"])
+    texts = [message.text for message in run.state["messages"]]
+    assert any(text.startswith("[Safety monitor]") for text in texts)
+    assert find_unanswered_tool_calls(run.state["messages"]) == []
 
 
-@pytest.mark.parametrize("visibility", list(FeedbackVisibility))
-def test_auto_mode_retry_is_judged_knowing_the_blocked_call_did_not_run(
+def test_block_and_feed_back_retry_is_judged_knowing_the_blocked_call_did_not_run(
     run_mode: RunMode,
-    visibility: FeedbackVisibility,
 ) -> None:
     # Act
     run = run_monitored_agent(
         untrusted_steps=[build_exfiltration_step(), build_read_step(), AIMessage(FINAL_ANSWER)],
-        protocol=AutoMode(block_threshold=0.6),
+        protocol=BlockAndFeedBack(block_threshold=0.6),
         run_mode=run_mode,
-        feedback_visibility=visibility,
     )
 
     # Assert
@@ -221,9 +219,8 @@ def test_later_steps_see_feedback_kept_in_the_transcript(run_mode: RunMode) -> N
     # Act
     run = run_monitored_agent(
         untrusted_steps=[build_exfiltration_step(), build_read_step(), AIMessage(FINAL_ANSWER)],
-        protocol=AutoMode(block_threshold=0.6),
+        protocol=BlockAndFeedBack(block_threshold=0.6),
         run_mode=run_mode,
-        feedback_visibility=FeedbackVisibility.IN_TRANSCRIPT,
     )
 
     # Assert
@@ -232,33 +229,11 @@ def test_later_steps_see_feedback_kept_in_the_transcript(run_mode: RunMode) -> N
     assert feedback["call-post"].startswith("[Safety monitor]")
 
 
-def test_auto_mode_keeps_feedback_in_the_transcript_when_asked(run_mode: RunMode) -> None:
+def test_three_blocks_in_a_row_audit_the_next_step_which_halts(run_mode: RunMode) -> None:
     # Act
     run = run_monitored_agent(
-        untrusted_steps=[build_exfiltration_step(), build_read_step(), AIMessage(FINAL_ANSWER)],
-        protocol=AutoMode(block_threshold=0.6),
-        run_mode=run_mode,
-        feedback_visibility=FeedbackVisibility.IN_TRANSCRIPT,
-    )
-
-    # Assert
-    texts = [message.text for message in run.state["messages"]]
-    assert any(text.startswith("[Safety monitor]") for text in texts)
-    assert find_unanswered_tool_calls(run.state["messages"]) == []
-    assert run.workspace.executed == ["read_file:q3.md"]
-
-
-def test_auto_mode_halts_after_three_blocks_in_a_row(run_mode: RunMode) -> None:
-    # Arrange
-    protocol = AutoMode(
-        block_threshold=0.6,
-        when_limit_reached=HaltRun(message=HALT_MESSAGE),
-    )
-
-    # Act
-    run = run_monitored_agent(
-        untrusted_steps=[build_exfiltration_step(call_id=f"call-{index}") for index in range(3)],
-        protocol=protocol,
+        untrusted_steps=[build_exfiltration_step(call_id=f"call-{index}") for index in range(4)],
+        protocol=BlockAndFeedBack(block_threshold=0.6),
         run_mode=run_mode,
     )
 
@@ -266,4 +241,4 @@ def test_auto_mode_halts_after_three_blocks_in_a_row(run_mode: RunMode) -> None:
     assert run.workspace.executed == []
     assert read_outcomes(run) == ["halted"]
     assert run.state["monitor_log"][0]["blocked_count"] == 3
-    assert run.state["messages"][-1].text == HALT_MESSAGE
+    assert run.state["messages"][-1].text == DEFAULT_HALT_MESSAGE

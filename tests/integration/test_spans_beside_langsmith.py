@@ -28,9 +28,8 @@ from langchain_core.runnables import Runnable, RunnableConfig
 from langchain_core.tracers.langchain import LangChainTracer
 from langsmith import traceable, tracing_context
 
-from langchain_sync_monitors import MonitorTwins
+from langchain_sync_monitors import AuditResponse, DeferToResample, MonitorTwins
 from langchain_sync_monitors.middleware import MonitorMiddleware
-from langchain_sync_monitors.protocols import DeferToResample, HaltRun, TrustedMonitoring
 from tests.support.agents import (
     SUSPICION_BY_KEYWORD,
     RunMode,
@@ -118,12 +117,21 @@ def find_sent_parent(runs: dict[str, SentRun], run: SentRun) -> SentRun:
     return runs[run.parent_run_id]
 
 
+TRUSTED_MONITORING = DeferToResample(
+    defer_threshold=0.8,
+    audit_threshold=0.8,
+    max_resamples=0,
+    on_audit=AuditResponse.FLAG,
+)
+"""Trusted monitoring at 0.8: every step runs, and one at 0.8 or above is flagged."""
+
+
 def build_agent() -> Runnable[Any, Any]:
     monitor = KeywordMonitor(
         suspicion_by_keyword=SUSPICION_BY_KEYWORD,
         model=build_monitor_model(),
     )
-    protocol = DeferToResample(fallback=HaltRun(), defer_threshold=0.6, audit_threshold=0.95)
+    protocol = DeferToResample(defer_threshold=0.6, audit_threshold=0.95, max_resamples=2)
     return create_agent(
         model=ScriptedChatModel(
             responses=[build_exfiltration_step(), build_read_step(), AIMessage("Done.")],
@@ -141,12 +149,12 @@ def build_stacked_agent() -> Runnable[Any, Any]:
         middleware=[
             MonitorMiddleware(
                 monitor=build_traceable_monitor(),
-                protocol=TrustedMonitoring(audit_threshold=0.8),
+                protocol=TRUSTED_MONITORING,
                 label="outer",
             ),
             MonitorMiddleware(
                 monitor=build_traceable_monitor(),
-                protocol=TrustedMonitoring(audit_threshold=0.8),
+                protocol=TRUSTED_MONITORING,
                 label="inner",
             ),
         ],

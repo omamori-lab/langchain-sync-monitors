@@ -20,7 +20,7 @@ from langgraph.types import Command
 from langchain_sync_monitors.contracts import TaskAuthor
 from langchain_sync_monitors.deepagents import monitor_subagents
 from langchain_sync_monitors.middleware import MonitorMiddleware
-from langchain_sync_monitors.protocols import AutoMode
+from langchain_sync_monitors.protocols import BlockAndFeedBack
 from tests.support.agents import (
     RunMode,
     Workspace,
@@ -38,10 +38,10 @@ from tests.support.chat_models import ScriptedChatModel
 from tests.support.deep_agents import build_delegation_step
 
 
-def build_auto_mode_monitor() -> MonitorMiddleware:
+def build_blocking_monitor() -> MonitorMiddleware:
     return MonitorMiddleware(
         monitor=build_keyword_monitor(),
-        protocol=AutoMode(block_threshold=0.6),
+        protocol=BlockAndFeedBack(block_threshold=0.6),
     )
 
 
@@ -49,7 +49,7 @@ def build_worker_monitor(*, max_total_blocks: int) -> MonitorMiddleware:
     """Build the compiled worker's own monitor, under a label the parent does not have."""
     return MonitorMiddleware(
         monitor=build_keyword_monitor(),
-        protocol=AutoMode(block_threshold=0.6, max_total_blocks=max_total_blocks),
+        protocol=BlockAndFeedBack(block_threshold=0.6, blocks_in_total=max_total_blocks),
         label="worker-monitor",
         agent_name="worker",
         task_author=TaskAuthor.PARENT_AGENT,
@@ -92,7 +92,7 @@ def test_a_subagent_keeps_its_delegation_when_resumed_after_an_interrupt(
             AIMessage("Report."),
         ],
     )
-    main_monitor = build_auto_mode_monitor()
+    main_monitor = build_blocking_monitor()
     worker = SubAgent(
         name="worker",
         description="Finds sources.",
@@ -133,7 +133,7 @@ def test_an_unmonitored_subagent_runs_under_a_monitored_parent(run_mode: RunMode
     worker_model = ScriptedChatModel(responses=[AIMessage("Report.")])
     agent = create_deep_agent(
         model=main_model,
-        middleware=[build_auto_mode_monitor()],
+        middleware=[build_blocking_monitor()],
         subagents=[SubAgent(name="worker", description="Finds sources.", model=worker_model)],
     )
 
@@ -170,7 +170,7 @@ def test_a_subagent_monitor_with_a_label_of_its_own_counts_apart(run_mode: RunMo
         worker_model=worker_model,
         main_monitor=MonitorMiddleware(
             monitor=build_keyword_monitor(),
-            protocol=AutoMode(block_threshold=0.6, max_total_blocks=3),
+            protocol=BlockAndFeedBack(block_threshold=0.6, blocks_in_total=3),
         ),
         worker_monitor=build_worker_monitor(max_total_blocks=3),
     )
@@ -213,7 +213,7 @@ def test_a_parent_counts_apart_from_a_subagent_monitor_with_a_label_of_its_own(
         worker_model=worker_model,
         main_monitor=MonitorMiddleware(
             monitor=build_keyword_monitor(),
-            protocol=AutoMode(block_threshold=0.6, max_total_blocks=2),
+            protocol=BlockAndFeedBack(block_threshold=0.6, blocks_in_total=2),
         ),
         worker_monitor=build_worker_monitor(max_total_blocks=3),
     )
@@ -236,11 +236,12 @@ def test_a_parent_counts_apart_from_a_subagent_monitor_with_a_label_of_its_own(
 def test_a_parent_at_its_total_still_samples_after_blocks_returned_under_another_label(
     run_mode: RunMode,
 ) -> None:
-    # Arrange: the parent reached its total of one on the first turn, and a new turn lifts
-    # its halt
+    # Arrange: the parent reached its total of one on the first turn, so its next proposal
+    # was audited, which resets the total; a new turn lifts its halt
     main_model = ScriptedChatModel(
         responses=[
             build_exfiltration_step(call_id="call-post-main"),
+            AIMessage("Drafting the summary."),
             build_delegation_step(call_id="call-task-1"),
             AIMessage("Done."),
         ],
@@ -253,7 +254,7 @@ def test_a_parent_at_its_total_still_samples_after_blocks_returned_under_another
         worker_model=worker_model,
         main_monitor=MonitorMiddleware(
             monitor=build_keyword_monitor(),
-            protocol=AutoMode(block_threshold=0.6, max_total_blocks=1),
+            protocol=BlockAndFeedBack(block_threshold=0.6, blocks_in_total=1),
         ),
         worker_monitor=build_worker_monitor(max_total_blocks=3),
         checkpointer=InMemorySaver(),
@@ -270,7 +271,7 @@ def test_a_parent_at_its_total_still_samples_after_blocks_returned_under_another
         for record in result["monitor_log"]
     ]
     assert rows == [
-        ("main", "monitor", "halted", 1),
+        ("main", "monitor", "halted", 2),
         ("main", "monitor", "allowed", 1),
         ("worker", "worker-monitor", "steered", 2),
         ("main", "monitor", "allowed", 1),

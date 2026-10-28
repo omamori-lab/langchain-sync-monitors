@@ -22,7 +22,7 @@ from langchain_sync_monitors.contracts import SubagentHalt
 from langchain_sync_monitors.middleware import MonitorMiddleware
 from tests.support.agents import RunMode, build_keyword_monitor, run_agent
 from tests.support.chat_models import ScriptedChatModel, build_tool_call_message
-from tests.support.protocols import AcceptFirst
+from tests.support.protocols import RUN_EVERY_STEP
 
 OWN_STATE = {
     "trajectory": Trajectory().dump(),
@@ -102,7 +102,7 @@ def test_a_forged_trajectory_write_counts_as_a_halt_that_stops_the_whole_run(
     )
     monitor = MonitorMiddleware(
         monitor=build_keyword_monitor(),
-        protocol=AcceptFirst(),
+        protocol=RUN_EVERY_STEP,
         when_subagent_halts=SubagentHalt.STOP_WHOLE_RUN,
     )
     agent = create_agent(model, tools=[build_tidy_tool(written)], middleware=[monitor])

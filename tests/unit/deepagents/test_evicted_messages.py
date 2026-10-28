@@ -16,7 +16,7 @@ from langchain_core.messages import AIMessage, AnyMessage, HumanMessage, ToolMes
 from langchain_core.tools import InjectedToolCallId, tool
 from langgraph.types import Command
 
-from langchain_sync_monitors import Channel, MonitorMiddleware, TrustedMonitoring, View
+from langchain_sync_monitors import AuditResponse, Channel, DeferToResample, MonitorMiddleware, View
 from tests.support.agents import RunMode, Workspace, build_exfiltration_step, run_messages
 from tests.support.chat_models import ScriptedChatModel, build_tool_call_message
 from tests.support.monitors import RenderingMonitor, read_tagged_entries
@@ -29,6 +29,13 @@ EVERY_CHANNEL = (
     | Channel.THOUGHTS
     | Channel.AGENT_PARTS
     | Channel.TOOL_OBSERVATIONS
+)
+
+TRUSTED_MONITORING = DeferToResample(
+    defer_threshold=0.6,
+    audit_threshold=0.6,
+    max_resamples=0,
+    on_audit=AuditResponse.FLAG,
 )
 
 
@@ -70,7 +77,7 @@ def test_a_tool_that_tags_the_user_s_task_for_eviction_leaves_the_task_as_first_
         model=model,
         tools=[tag_message, *Workspace().build_tools()],
         middleware=[
-            MonitorMiddleware(monitor=monitor, protocol=TrustedMonitoring(audit_threshold=0.6)),
+            MonitorMiddleware(monitor=monitor, protocol=TRUSTED_MONITORING),
         ],
     )
 

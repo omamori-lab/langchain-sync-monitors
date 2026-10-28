@@ -23,9 +23,9 @@ from langgraph.checkpoint.memory import InMemorySaver
 from langgraph.runtime import Runtime
 from pydantic import BaseModel
 
+from langchain_sync_monitors import DeferToResample
 from langchain_sync_monitors.contracts import Delegation, OutcomeName, StepRecord
 from langchain_sync_monitors.middleware import MonitorMiddleware, MonitorState
-from langchain_sync_monitors.protocols import AutoMode, HaltRun
 from tests.support.agents import (
     ATTACKER_URL,
     RunMode,
@@ -71,7 +71,8 @@ def build_report_json(*, destination: str) -> AIMessage:
 
 
 def build_halting_monitor() -> MonitorMiddleware:
-    protocol = AutoMode(block_threshold=0.5, max_consecutive_blocks=1, when_limit_reached=HaltRun())
+    """Build a monitor that audits, and so halts, the first suspicious step, drawing once."""
+    protocol = DeferToResample(defer_threshold=0.5, audit_threshold=0.5, max_resamples=0)
     return MonitorMiddleware(monitor=build_keyword_monitor(), protocol=protocol)
 
 
@@ -315,7 +316,6 @@ async def test_a_same_named_subagent_s_hook_ends_its_run_only_after_its_own_halt
     state["monitor_delegation"] = Delegation(
         tool_call_id="call-fork",
         delegating_agent="main",
-        blocks_before={},
         runs={},
     )
     middleware = build_halting_monitor()

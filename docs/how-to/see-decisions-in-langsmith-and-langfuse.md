@@ -23,7 +23,7 @@ model
     ├── sample 2, if drawn
     ├── monitor judgement of it
     ├── the trusted model's call,
-    │   if a fallback writes it
+    │   if the protocol asks for it
     └── monitor decision
 ```
 
@@ -44,9 +44,9 @@ model
   failed, and nor does a rating that failed closed: its judgement ends with
   `failed_closed` set. A span ends with an error only when the step fails: a
   model call of the agent raises, a monitor's call raises on a misuse such as
-  a bad key, a sample is cancelled because another one failed, or
-  `SynchronousRunError` is raised; or with the `GraphInterrupt` when a
-  middleware inside the monitor calls `interrupt()`.
+  a bad key, or a sample is cancelled because another one failed; or with
+  the `GraphInterrupt` when a middleware inside the monitor calls
+  `interrupt()`.
 - **OpenTelemetry.** With `opentelemetry-api` installed, hyoshigi also opens
   an OpenTelemetry span for each rating, named `rate` and the twin's class,
   from the global tracer provider, which decides whether it is recorded and
@@ -89,12 +89,11 @@ middleware hook [@langchain2026]:
   the action as [Read a record](read-the-monitor-log.md#read-a-record) shows
   it. Each sample's text stays on the model call that drew it.
 - **Sample numbers.** A judgement's `sample_number` counts the step's ratings
-  in the order they start. Under `ainvoke()` with parallel resampling, a
-  resample whose draw ends first is rated first, so judgement n need not
-  describe the n-th entry of the step span's `samples`; match them by their
-  `suspicion` and `reason`.
+  in the order they start, the order of the step span's `samples`. Under
+  `ainvoke()`, the replies a request asks for are drawn at once, then rated
+  at once, in the order of the request.
 - **Steps without samples.** A step decided before any sample, such as a
-  standing halt, a subagent's halt or Auto Mode's thread total, has `None` as
+  standing halt or a subagent's halt, has `None` as
   its `proposed_step` and `max_suspicion`.
 - **Failed steps.** When a step fails before it is committed, its
   `proposed_step` is the first sample the monitor had judged, if any.
@@ -106,7 +105,7 @@ Every monitor span of a step carries flat metadata keys that name the step:
 | `monitor_label` | The monitor's `label` | Every monitor span |
 | `monitor_agent` | The agent: `main`, or a subagent's name | Every monitor span |
 | `monitor_step_number` | The step's number, as in `monitor_log` | Every monitor span |
-| `monitor_protocol` | The protocol's class, such as `AutoMode` | Every monitor span |
+| `monitor_protocol` | The protocol's class, such as `BlockAndFeedBack` | Every monitor span |
 | `monitor_step_id` | The step span's run id | Every monitor span |
 | `monitor_delegation_id` | The id of the `task` call that started the subagent | Every monitor span inside a subagent that a monitored agent started |
 | `monitor_outcome`, `monitor_flagged` | The decision | `monitor decision` |
@@ -165,15 +164,22 @@ Then run the agent as usual:
 ```python
 from langchain.agents import create_agent
 
-from langchain_sync_monitors import LLMMonitor, MonitorMiddleware, TrustedMonitoring
+from langchain_sync_monitors import AuditResponse, DeferToResample, LLMMonitor, MonitorMiddleware
 
+# Trusted monitoring: every step runs, and one at or above 0.6 is flagged.
+trusted_monitoring = DeferToResample(
+    defer_threshold=0.6,
+    audit_threshold=0.6,
+    max_resamples=0,
+    on_audit=AuditResponse.FLAG,
+)
 agent = create_agent(
     "openrouter:deepseek/deepseek-v4.1-flash",
     tools=[],
     middleware=[
         MonitorMiddleware(
             monitor=LLMMonitor(model="openrouter:xiaomi/mimo-v2.6-pro"),
-            protocol=TrustedMonitoring(audit_threshold=0.6),
+            protocol=trusted_monitoring,
         ),
     ],
 )
@@ -248,8 +254,8 @@ the LLM monitors and the guards. The fixed name replaces any name you gave
 the model, so a model built with `name="security monitor"` shows as
 `monitor call` too. The model still shows as the call's model and in its
 `ls_model_name` metadata, and the judgement span around the call names the
-monitor's class. The trusted model's step, which a fallback writes for the
-agent, keeps its model's name. The calls of a monitor of your own, built as a
+monitor's class. The trusted model's step, which the protocol can ask for in
+the agent's place, keeps its model's name. The calls of a monitor of your own, built as a
 `MonitorTwins`, are named as their own code names them.
 
 Every call the library's monitors make through LangChain also carries the
@@ -341,11 +347,11 @@ suspicion also becomes a score, which both tools can filter, sort and chart
 the tools the run is traced to:
 
 ```python
-from langchain_sync_monitors import LLMMonitor, MonitorMiddleware, Tracer, TrustedMonitoring
+from langchain_sync_monitors import LLMMonitor, MonitorMiddleware, Tracer
 
 monitor = MonitorMiddleware(
     monitor=LLMMonitor(model="openrouter:xiaomi/mimo-v2.6-pro"),
-    protocol=TrustedMonitoring(audit_threshold=0.6),
+    protocol=trusted_monitoring,
     # Off by default; each tool named here also gets every step's suspicion.
     export_scores={Tracer.LANGSMITH, Tracer.LANGFUSE},
 )
@@ -527,8 +533,7 @@ async def print_decisions() -> None:
 asyncio.run(print_decisions())
 ```
 
-A scripted run with the same protocol, Trusted Monitoring with an audit
-threshold of 0.6, in which the monitor scored the first step 0.9 and the second
+A scripted run with the same protocol, trusted monitoring at 0.6, in which the monitor scored the first step 0.9 and the second
 0.1, printed:
 
 ```text
@@ -565,8 +570,8 @@ explains.
   `astream_events` example run as written. The `monitor call` name, the model
   each tool shows for such a call, and the filters that leave them out by
   name were confirmed live in both tools too, with langsmith 0.14.2, langfuse
-  4.16.0 and a real OpenRouter model. A cancelled sample,
-  `SynchronousRunError`, stacked monitors, parallel resampling, a monitor's
+  4.16.0 and a real OpenRouter model. A cancelled sample, stacked monitors,
+  parallel resampling, a monitor's
   own `traceable` code, a decision monitor's judgement, the judgement's
   `failed_closed` output and its twin's class, and what each tool's UI shows,
   its Trajectory view included, rest on the tests and the tools' source

@@ -23,6 +23,8 @@ from tests.live.reports import (
     MONITOR_MESSAGE_ID_PREFIX,
     RunReport,
     StepReport,
+    find_blocked_attempt_positions,
+    is_inserted_by_monitor,
     is_sending_the_canary,
 )
 
@@ -58,17 +60,17 @@ DEFERRED: Final = "deferred_to_trusted"
 
 INTERVENTIONS: Final[Mapping[ProtocolName, frozenset[str]]] = {
     ProtocolName.TRUSTED_MONITORING: frozenset({ALLOWED}),
-    ProtocolName.DEFER_TO_TRUSTED: frozenset({DEFERRED}),
-    ProtocolName.DEFER_TO_RESAMPLE: frozenset({RESAMPLED, DEFERRED}),
-    ProtocolName.DEFER_TO_RESAMPLE_PARALLEL: frozenset({RESAMPLED, DEFERRED}),
+    ProtocolName.DEFER_TO_TRUSTED: frozenset({DEFERRED, HALTED}),
+    ProtocolName.DEFER_TO_RESAMPLE: frozenset({RESAMPLED, DEFERRED, HALTED}),
+    ProtocolName.DEFER_TO_RESAMPLE_PARALLEL: frozenset({RESAMPLED, DEFERRED, HALTED}),
     ProtocolName.DEFER_TO_RESAMPLE_THEN_HALT: frozenset({RESAMPLED, HALTED}),
-    ProtocolName.AUTO_MODE: frozenset({STEERED, HALTED}),
-    ProtocolName.AUTO_MODE_IN_TRANSCRIPT: frozenset({STEERED, HALTED}),
+    ProtocolName.BLOCK_AND_FEED_BACK: frozenset({STEERED, HALTED}),
 }
 """The outcomes each protocol may give a step in which a sample reached its threshold.
 
 Trusted Monitoring lets every step run and only flags it; every other
-protocol keeps such a sample from running.
+protocol keeps such a sample from running. A step the protocol audits halts,
+since no person can answer inside the run.
 """
 
 
@@ -195,48 +197,38 @@ def list_path_problems(report: RunReport) -> list[str]:
     )
 
 
-def list_unflagged_step_blocks(steps: Sequence[StepReport]) -> list[str]:
-    """Return each Auto Mode step that blocked a sample, unless flagged and steered or halted."""
+def list_unsteered_step_blocks(steps: Sequence[StepReport]) -> list[str]:
+    """Return each step that blocked a sample, unless it steered the agent or halted, flagged."""
     return [
         f"step {step['step_number']}: {step['decision_path']}"
         for step in steps
         if any(not sample["executed"] for sample in step["samples"])
-        and not (step["flagged"] and step["outcome"] in {STEERED, HALTED})
+        and not (step["outcome"] == STEERED or (step["outcome"] == HALTED and step["flagged"]))
     ]
 
 
-def list_unflagged_blocks(report: RunReport) -> list[str]:
-    """Apply `list_unflagged_step_blocks` to every step of an Auto Mode run."""
-    return list_unflagged_step_blocks(report["steps"])
+def list_unsteered_blocks(report: RunReport) -> list[str]:
+    """Apply `list_unsteered_step_blocks` to every step of a Block and Feed Back run."""
+    return list_unsteered_step_blocks(report["steps"])
 
 
-def list_feedback_problems(report: RunReport, *, in_transcript: bool) -> list[str]:
-    """Check where the feedback went: one kept attempt per block in the transcript, or none.
+def list_feedback_problems(report: RunReport) -> list[str]:
+    """Check that every block is kept in the transcript, answered by tagged feedback.
 
-    Kept in the transcript, every blocked attempt stays as an AI message with
-    a `monitor-` id, and every message answering it carries one too, tagged
-    `lc_source="monitor"`. Hidden, no feedback is left in the final state.
+    Every blocked reply stays as the agent's AI message, under its own id,
+    answered by the monitor's feedback, whose messages carry a `monitor-` id
+    and are tagged `lc_source="monitor"`.
     """
     messages = report["messages"]
-    inserted = [
-        message
-        for message in messages
-        if (message["id"] or "").startswith(MONITOR_MESSAGE_ID_PREFIX)
-    ]
-    feedback = [message for message in inserted if message["type"] != "ai"]
-    blocked_count = sum(step["blocked_count"] for step in report["steps"])
-    if not in_transcript:
-        return [
-            f"hidden feedback left in the state: {message['text'][:80]}" for message in feedback
-        ]
     problems = [
         f"untagged feedback: {message['text'][:80]}"
-        for message in feedback
-        if message["source"] != MONITOR_SOURCE
+        for message in messages
+        if message["type"] != "ai"
+        and is_inserted_by_monitor(message)
+        and message["source"] != MONITOR_SOURCE
     ]
-    # Each halted step commits one AI message of the monitor's own; every other one is an attempt.
-    halts = sum(step["outcome"] == HALTED for step in report["steps"])
-    attempts = sum(message["type"] == "ai" for message in inserted) - halts
+    attempts = len(find_blocked_attempt_positions(messages))
+    blocked_count = sum(step["blocked_count"] for step in report["steps"])
     if attempts != blocked_count:
         problems.append(f"{attempts} kept attempts for {blocked_count} blocks")
     return problems

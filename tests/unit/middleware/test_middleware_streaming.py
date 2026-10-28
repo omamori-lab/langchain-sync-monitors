@@ -23,7 +23,7 @@ from tests.support.agents import (
 )
 from tests.support.chat_models import ScriptedChatModel
 from tests.support.monitors import MONITOR_CALL_SOURCE, KeywordMonitor
-from tests.support.protocols import AcceptFirst
+from tests.support.protocols import RUN_EVERY_STEP
 
 MONITOR_REPLY_TEXT = "judge verdict text"
 AGENT_ANSWER = "Q3 revenue grew 12%."
@@ -36,7 +36,7 @@ def build_model_calling_middleware(*, call_tags: Sequence[str] = ()) -> MonitorM
         model=monitor_model,
         call_tags=call_tags,
     )
-    return MonitorMiddleware(monitor=monitor, protocol=AcceptFirst())
+    return MonitorMiddleware(monitor=monitor, protocol=RUN_EVERY_STEP)
 
 
 @pytest.fixture
@@ -47,7 +47,7 @@ def model_calling_middleware() -> MonitorMiddleware:
 def test_each_committed_step_is_streamed_as_a_custom_event(run_mode: RunMode) -> None:
     # Arrange
     model = ScriptedChatModel(responses=[build_read_step(), AIMessage(AGENT_ANSWER)])
-    middleware = MonitorMiddleware(monitor=KeywordMonitor(), protocol=AcceptFirst())
+    middleware = MonitorMiddleware(monitor=KeywordMonitor(), protocol=RUN_EVERY_STEP)
     agent = create_agent(model, tools=Workspace().build_tools(), middleware=[middleware])
 
     # Act

@@ -33,7 +33,7 @@ from tests.support.agents import (
     run_agent,
 )
 from tests.support.chat_models import ScriptedChatModel
-from tests.support.protocols import AcceptFirst
+from tests.support.protocols import RUN_EVERY_STEP
 
 WEB_SEARCH = {"type": "web_search_20250305", "name": "web_search", "max_uses": 1}
 
@@ -89,7 +89,7 @@ def test_an_unhashable_middleware_subclass_runs_and_warns_once(
     tools: list[dict[str, Any]],
 ) -> None:
     # Arrange: the tests' keyword monitor is a plain dataclass, so the subclass is unhashable
-    middleware = TeamMonitorMiddleware(monitor=build_keyword_monitor(), protocol=AcceptFirst())
+    middleware = TeamMonitorMiddleware(monitor=build_keyword_monitor(), protocol=RUN_EVERY_STEP)
     model = ServerToolChatModel(responses=[AIMessage("First."), AIMessage("Second.")])
     agent = create_agent(model, tools=tools, middleware=[middleware])
 
@@ -106,7 +106,7 @@ def test_an_unhashable_middleware_subclass_runs_and_warns_once(
 
 def test_a_collected_middleware_s_mark_is_forgotten(run_mode: RunMode) -> None:
     # Arrange: a middleware that warned, so its id is marked
-    middleware = MonitorMiddleware(monitor=build_keyword_monitor(), protocol=AcceptFirst())
+    middleware = MonitorMiddleware(monitor=build_keyword_monitor(), protocol=RUN_EVERY_STEP)
     model = ServerToolChatModel(responses=[AIMessage("First.")])
     agent = create_agent(model, tools=[WEB_SEARCH], middleware=[middleware])
     with warnings.catch_warnings():
@@ -129,7 +129,7 @@ def test_a_middleware_whose_first_request_has_no_server_tool_warns_at_the_next(
     # Arrange: the server tool joins the request only from the second model call on
     workspace = Workspace()
     model = ServerToolChatModel(responses=[build_read_step(), AIMessage("Done.")])
-    monitor = MonitorMiddleware(monitor=build_keyword_monitor(), protocol=AcceptFirst())
+    monitor = MonitorMiddleware(monitor=build_keyword_monitor(), protocol=RUN_EVERY_STEP)
     stack: list[AgentMiddleware[Any, Any, Any]] = [SecondCallToolMiddleware(), monitor]
     agent = create_agent(model, tools=workspace.build_tools(), middleware=stack)
 

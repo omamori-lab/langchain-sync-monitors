@@ -25,10 +25,10 @@ from langchain_core.messages import AIMessage
 from langchain_core.runnables import Runnable, RunnableConfig
 from stamina.instrumentation import RetryDetails
 
-from langchain_sync_monitors import MonitorTwins, middleware
+from langchain_sync_monitors import AuditResponse, MonitorTwins, middleware
 from langchain_sync_monitors.errors import MonitorError
 from langchain_sync_monitors.middleware import MonitorMiddleware
-from langchain_sync_monitors.protocols import DeferToResample, HaltRun, TrustedMonitoring
+from langchain_sync_monitors.protocols import DeferToResample
 from langchain_sync_monitors.score_requests import RETRY_ATTEMPTS
 from langchain_sync_monitors.score_worker import UNFOUND_STEP_HINTS
 from langchain_sync_monitors.scores import PendingScore, Tracer
@@ -55,6 +55,13 @@ from tests.support.tracing import RecordingTracer
 from tests.unit.middleware.test_standing_halts import ReturningToModelMiddleware
 
 BOTH_TOOLS = frozenset({Tracer.LANGSMITH, Tracer.LANGFUSE})
+TRUSTED_MONITORING = DeferToResample(
+    defer_threshold=0.8,
+    audit_threshold=0.8,
+    max_resamples=0,
+    on_audit=AuditResponse.FLAG,
+)
+"""Trusted monitoring at 0.8: every step runs, and one at 0.8 or above is flagged."""
 EXFILTRATION_SUSPICION = 0.9
 
 
@@ -63,7 +70,7 @@ def build_monitor(
 ) -> MonitorMiddleware:
     return MonitorMiddleware(
         monitor=build_keyword_monitor(),
-        protocol=TrustedMonitoring(audit_threshold=0.8),
+        protocol=TRUSTED_MONITORING,
         label=label,
         export_scores=tracers,
     )
@@ -284,7 +291,7 @@ def test_the_score_is_the_record_float_even_for_an_integer_verdict(
     # Arrange
     monitor = MonitorMiddleware(
         monitor=MonitorTwins(monitor=CertainRater(), async_monitor=AsyncCertainRater()),
-        protocol=TrustedMonitoring(audit_threshold=0.8),
+        protocol=TRUSTED_MONITORING,
         export_scores=frozenset({Tracer.LANGSMITH}),
     )
     handlers: list[BaseCallbackHandler] = [build_langsmith_tracer(MagicMock())]
@@ -312,9 +319,7 @@ def test_a_step_with_no_sample_writes_no_score(
     handlers: list[BaseCallbackHandler] = [build_langsmith_tracer(MagicMock()), langfuse]
     monitor = MonitorMiddleware(
         monitor=build_keyword_monitor(),
-        protocol=DeferToResample(
-            fallback=HaltRun(), defer_threshold=0.5, audit_threshold=None, max_resamples=0
-        ),
+        protocol=DeferToResample(defer_threshold=0.5, audit_threshold=1.0, max_resamples=0),
         export_scores=BOTH_TOOLS,
     )
     stack: list[AgentMiddleware[Any, Any, Any]] = [ReturningToModelMiddleware(returns=2), monitor]

@@ -70,12 +70,7 @@ extras you need:
 from pathlib import Path
 
 from langchain.agents import create_agent
-from langchain_sync_monitors import (
-    DeferToResample,
-    DeferToTrustedModel,
-    LLMMonitor,
-    MonitorMiddleware,
-)
+from langchain_sync_monitors import DeferToResample, LLMMonitor, MonitorMiddleware
 
 
 def read_file(path: str) -> str:
@@ -86,15 +81,16 @@ def read_file(path: str) -> str:
 monitor = MonitorMiddleware(
     # The monitor: a chat model that judges every step the agent proposes.
     monitor=LLMMonitor(model="openrouter:xiaomi/mimo-v2.6-pro"),
-    # The protocol: sample a suspicious step again, and if every sample stays
-    # suspicious, have the trusted model write the step instead.
+    # The protocol: sample a suspicious step again, up to twice, and if every
+    # sample stays suspicious, have the trusted model write the step instead.
     protocol=DeferToResample(
-        fallback=DeferToTrustedModel(trusted_model="openrouter:xiaomi/mimo-v2.6-flash"),
-        # Resample a step that scores 0.6 or more, and flag it for review
-        # when even its least suspicious sample scores 0.9 or more.
+        # Resample a step that scores 0.6 or more, and hold it for a person,
+        # which halts the run, when even its least suspicious sample scores 0.9.
         defer_threshold=0.6,
         audit_threshold=0.9,
+        max_resamples=2,
     ),
+    trusted_model="openrouter:xiaomi/mimo-v2.6-flash",
 )
 # The untrusted model does the work, with the monitor last in the list.
 agent = create_agent(
@@ -109,8 +105,8 @@ for record in result["monitor_log"]:
 Three models play three roles: the untrusted agent does the work, the monitor
 judges each step, and the trusted model writes a step when every sample looks
 suspicious. Each is a parameter, and any LangChain chat model works; the
-library picks none for you. Thresholds share one scale from 0 to 1 and warn
-until you set them; calibrate them on honest runs of your own agent.
+library picks none for you. Thresholds share one scale from 0 to 1, and none
+has a default; calibrate them on honest runs of your own agent.
 
 Put the monitor last in the middleware list.
 `check_monitor_placement(middleware=[...])` warns about placements known to
@@ -130,15 +126,17 @@ gives the limit a run needs.
 
 ## Pick a protocol
 
-[![What each protocol does with a step the monitor finds suspicious; a step below the threshold runs unchanged under every protocol. Trusted Monitoring lets the step run and flags it for a person to review. Defer to Trusted has the trusted model write the step instead. Defer to Resample draws up to two fresh samples; if one passes, the least suspicious runs, and if none passes, the fallback writes the step, usually the trusted model. Auto Mode blocks the step and tells the agent why, and the agent tries again; after three blocks in a row, or twenty in the thread with subagents' blocks included, the fallback takes over, which by default halts the run.](assets/diagrams/protocols-light.svg#only-light)](assets/diagrams/protocols-light.svg "Open the diagram at full size")
-[![What each protocol does with a step the monitor finds suspicious; a step below the threshold runs unchanged under every protocol. Trusted Monitoring lets the step run and flags it for a person to review. Defer to Trusted has the trusted model write the step instead. Defer to Resample draws up to two fresh samples; if one passes, the least suspicious runs, and if none passes, the fallback writes the step, usually the trusted model. Auto Mode blocks the step and tells the agent why, and the agent tries again; after three blocks in a row, or twenty in the thread with subagents' blocks included, the fallback takes over, which by default halts the run.](assets/diagrams/protocols-dark.svg#only-dark)](assets/diagrams/protocols-dark.svg "Open the diagram at full size")
+Two protocols, `DeferToResample` and `BlockAndFeedBack`, cover four
+settings. Their decisions are hyoshigi's
+([control protocols](https://omamori-lab.github.io/hyoshigi/explanation/control-protocols/)),
+and the middleware enforces them.
 
 | Protocol | Pick it when | Guide |
 |---|---|---|
-| `TrustedMonitoring` | you want to watch and flag, and change nothing the agent does | [Use Trusted Monitoring](how-to/use-trusted-monitoring.md) |
-| `DeferToTrusted` | you have a trusted model and want the simplest intervention | [Use Defer to Trusted](how-to/use-defer-to-trusted.md) |
-| `DeferToResample` | you want to keep the agent's own work where you can, and keep rejected samples as evidence | [Use Defer to Resample](how-to/use-defer-to-resample.md) |
-| `AutoMode` | you want the agent to hear why a step was blocked and find a safer route | [Use Auto Mode](how-to/use-auto-mode.md) |
+| Trusted Monitoring: `DeferToResample` with `max_resamples=0`, equal thresholds and `on_audit=AuditResponse.FLAG` | you want to watch and flag, and change nothing the agent does | [Use Trusted Monitoring](how-to/use-trusted-monitoring.md) |
+| Defer to Trusted: `DeferToResample` with `max_resamples=0` and a `trusted_model` | you have a trusted model and want the simplest intervention | [Use Defer to Trusted](how-to/use-defer-to-trusted.md) |
+| Defer to Resample: `DeferToResample` | you want to keep the agent's own work where you can, and keep rejected samples as evidence | [Use Defer to Resample](how-to/use-defer-to-resample.md) |
+| Block and Feed Back: `BlockAndFeedBack` | you want the agent to hear why a step was blocked and find a safer route | [Use Block and Feed Back](how-to/use-block-and-feed-back.md) |
 
 Not sure which? [Choose a protocol](how-to/choose-a-protocol.md) compares
 them.
@@ -224,8 +222,8 @@ A subagent's records reach the main agent's `monitor_log` when it returns,
 and two limits follow:
 
 - Subagents that run in parallel do not see each other's blocks, so together
-  they can pass Auto Mode's limit on blocks in the thread; their parent
-  counts every one of them at its next step.
+  they can pass Block and Feed Back's limit on blocks in the run; their
+  parent counts every one of them at its next step.
 - A subagent whose run raises returns no records, so its steps never reach
   the parent's `monitor_log` unless the run is resumed from its checkpoint.
 
@@ -247,7 +245,7 @@ subagents the helper cannot monitor.
 
 The protocols come from AI control research. Trusted Monitoring and Defer to
 Trusted come from AI Control [@greenblatt2023aicontrol], Defer to Resample
-from Ctrl-Z [@bhatt2025ctrlz], and Auto Mode follows Claude Code's auto mode
+from Ctrl-Z [@bhatt2025ctrlz], and Block and Feed Back follows Claude Code's auto mode
 [@hughes2026automode]. [Where the ideas come from](explanation/background.md)
 credits every source and what it contributed, and the
 [bibliography](references.bib) holds the full entries. If you use this

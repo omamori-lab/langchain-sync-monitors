@@ -23,10 +23,19 @@ its key is marked seen as well, in the same write (`given_ids`), so the message
 is not read again under its id.
 
 Each message a step commits is marked seen in the step's own write, so it is
-never read again. The step's events stand in for them: each
-blocked attempt as its proposal and the monitor's feedback, whatever the
-feedback visibility, then the reply that runs as the action the monitor
-rated and the results of its server tools. A halt message adds nothing.
+never read again. The decisions the step records stand in for them: a block
+adds the blocked reply's action and the monitor's feedback, and the decision
+that runs a reply adds the action the monitor rated, which is then followed
+by the results of its server tools and the messages after the reply in its
+draw. A halt adds nothing.
+
+A thread whose `monitor_log` holds steps this agent's protocol decided, while
+its trajectory under the label is missing, raises `MonitorError`: a
+checkpointer that prunes without walking the key's delta chain rebuilds it
+empty, and a thread checkpointed before the key existed has none, and the
+protocol would count its records from nothing. A trajectory that is there
+but holds fewer records is not checked, since such a checkpointer leaves
+none at all.
 
 A message whose action reuses an action id or a tool-call id already in the
 trajectory raises `MessageFormatError`, as hyoshigi's own readers refuse one
@@ -49,16 +58,16 @@ from hyoshigi import (
     ToolCall,
     Trajectory,
 )
-from langchain_core.messages import AIMessage, BaseMessage, SystemMessage, ToolMessage
+from langchain_core.messages import BaseMessage, SystemMessage, ToolMessage
 from langgraph.graph.message import Messages, add_messages
 from langgraph.types import Overwrite
 
 from langchain_sync_monitors._langchain import AgentModelRequest, AgentStateUpdate
-from langchain_sync_monitors.contracts import BlockedAttempt, Outcome, StepDecision, TaskAuthor
+from langchain_sync_monitors.contracts import TaskAuthor
 from langchain_sync_monitors.delegation import read_delegation_id
-from langchain_sync_monitors.errors import MessageFormatError
-from langchain_sync_monitors.feedback import build_feedback_messages
+from langchain_sync_monitors.errors import MessageFormatError, MonitorError
 from langchain_sync_monitors.message_keys import build_message_key
+from langchain_sync_monitors.records import find_monitor_records, read_step_records
 from langchain_sync_monitors.state_keys import TASK_MESSAGES_KEY, TRAJECTORY_KEY
 from langchain_sync_monitors.task_authorship import (
     read_message_ids,
@@ -73,11 +82,7 @@ from langchain_sync_monitors.trajectory_channel import (
     read_list,
     read_trajectory_state,
 )
-from langchain_sync_monitors.trajectory_events import (
-    read_events,
-    read_observation,
-    read_proposed_action,
-)
+from langchain_sync_monitors.trajectory_events import read_events, read_observation
 from langchain_sync_monitors.trajectory_runs import find_tool_call, load_run
 
 DELEGATION_TOOL_NAME = "task"
@@ -326,40 +331,43 @@ def load_run_start_trajectory(
     return loaded
 
 
-def add_reply(loaded: LoadedTrajectory, *, message: AIMessage) -> None:
-    """Add a reply that runs: the action the monitor rated, then its server tools' results."""
-    path = type(message).__name__
-    add_event(loaded, event=read_proposed_action(message), path=path)
-    add_events(loaded, events=read_events(message, task_author=loaded.task_author)[1:], path=path)
+def add_reply_results(loaded: LoadedTrajectory, *, messages: Sequence[BaseMessage]) -> None:
+    """Add what follows a reply that ran: its server tools' results, then each later message.
 
-
-def add_step_events(loaded: LoadedTrajectory, *, decision: StepDecision) -> None:
-    """Add a decided step's events.
-
-    Each blocked attempt adds its proposal and the monitor's feedback on it.
-    A halt adds nothing more. Otherwise the response's first AI message adds
-    the action the monitor rated, and each other message its events.
+    `messages` are the reply, whose action the step recorded, and the
+    messages after it in its draw, such as the tool message of tool-strategy
+    structured output.
     """
-    for attempt in decision.blocked_attempts:
-        add_blocked_attempt(loaded, attempt=attempt)
-    if decision.outcome is Outcome.HALTED:
+    reply, *later = messages
+    add_events(
+        loaded, events=read_events(reply, task_author=loaded.task_author)[1:], path="AIMessage"
+    )
+    for message in later:
+        events = read_events(message, task_author=loaded.task_author)
+        add_events(loaded, events=events, path=type(message).__name__)
+
+
+def check_trajectory_kept(state: Mapping[str, object], *, label: str, agent: str) -> None:
+    """Raise `MonitorError` when this agent's decided steps outlive its trajectory under `label`.
+
+    A decided step is one of the agent's records that holds a sample.
+    """
+    if read_trajectory_state(state, label=label) is not None:
         return
-    messages = decision.response.result
-    reply = next((message for message in messages if isinstance(message, AIMessage)), None)
-    for message in messages:
-        if message is reply:
-            add_reply(loaded, message=message)
-        else:
-            events = read_events(message, task_author=loaded.task_author)
-            add_events(loaded, events=events, path=type(message).__name__)
-
-
-def add_blocked_attempt(loaded: LoadedTrajectory, *, attempt: BlockedAttempt) -> None:
-    """Add a blocked attempt: the action the monitor rated, then its feedback on it."""
-    add_event(loaded, event=read_proposed_action(attempt.proposal), path="AIMessage")
-    for feedback in build_feedback_messages(attempt=attempt)[1:]:
-        events = read_events(feedback, task_author=loaded.task_author)
-        add_events(loaded, events=events, path=type(feedback).__name__)
+    records = find_monitor_records(
+        read_step_records(state),
+        monitor=label,
+        agent=agent,
+        delegation_id=read_delegation_id(state),
+    )
+    if any(record["samples"] for record in records):
+        message = (
+            f"monitor_log holds steps the monitor {label!r} decided for the agent {agent!r}, "
+            f"but monitor_trajectory holds no trajectory for it: the checkpointer lost it, or "
+            "the thread was checkpointed before the key existed. The protocol would count its "
+            "records from nothing, so the monitor stops; start a new thread."
+        )
+        raise MonitorError(message)
 
 
 def mark_committed(loaded: LoadedTrajectory, *, committed: Sequence[BaseMessage]) -> None:

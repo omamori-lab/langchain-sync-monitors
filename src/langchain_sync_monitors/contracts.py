@@ -1,31 +1,17 @@
-"""The types every control protocol and the middleware exchange.
-
-The rest of the package codes against these definitions, so they change only in
-a dedicated pull request. How they fit together is explained in
-`docs/explanation/design.md`.
+"""The options and records the middleware and its users exchange.
 
 A step is one run of the agent's model node, as defined under "The monitored
 step" in `docs/explanation/design.md`. The untrusted model proposes it, the
-monitor rates it, and a `ControlProtocol` decides what the agent state
-receives. Protocols reach the model only through a `PendingStep`, which is how
-one copy of each protocol serves both `invoke()` and `ainvoke()`.
+monitor rates it, and a control protocol decides what the agent state
+receives; `monitor_log` keeps one `StepRecord` per step.
 """
 
 from __future__ import annotations
 
-import math
-from abc import ABC, abstractmethod
-from dataclasses import dataclass
 from enum import StrEnum
 from typing import Literal, NotRequired, TypedDict
 
 from hyoshigi import JSON
-from langchain.agents.middleware.types import ModelResponse
-from langchain_core.language_models import BaseChatModel
-from langchain_core.messages import AIMessage
-from pydantic import NonNegativeInt
-
-from langchain_sync_monitors.errors import InvalidSuspicionError
 
 
 class TaskAuthor(StrEnum):
@@ -37,40 +23,6 @@ class TaskAuthor(StrEnum):
 
     USER = "user"
     PARENT_AGENT = "parent_agent"
-
-
-class Resampling(StrEnum):
-    """How Defer to Resample draws its extra samples."""
-
-    SEQUENTIAL = "sequential"
-    PARALLEL = "parallel"
-
-
-class SampleDrawing(StrEnum):
-    """How `PendingStep.sample` draws the samples of one call.
-
-    `SEQUENTIAL` draws them one after another: each sample's model call and
-    judgement finish before the next draw starts. `CONCURRENT` starts every
-    draw at once where an event loop can run them, under `ainvoke()`; under
-    `invoke()` there is none, so they are drawn one after another. Either way
-    the call returns all `count` samples. Stopping at the first acceptable
-    one, as `Resampling.SEQUENTIAL` does, is for the protocol to do, one call
-    at a time.
-    """
-
-    SEQUENTIAL = "sequential"
-    CONCURRENT = "concurrent"
-
-
-class FeedbackVisibility(StrEnum):
-    """Whether the feedback on a blocked step is kept in the agent's transcript.
-
-    `IN_TRANSCRIPT` commits each blocked attempt, its text withheld, and its
-    feedback before the accepted step; `HIDDEN` commits neither.
-    """
-
-    HIDDEN = "hidden"
-    IN_TRANSCRIPT = "in_transcript"
 
 
 class SubagentHalt(StrEnum):
@@ -85,7 +37,7 @@ OutcomeName = Literal["allowed", "resampled", "deferred_to_trusted", "steered", 
 
 
 class Outcome(StrEnum):
-    """What a control protocol did with a step."""
+    """What became of a step, as `StepRecord.outcome` names it."""
 
     ALLOWED = "allowed"
     RESAMPLED = "resampled"
@@ -94,65 +46,13 @@ class Outcome(StrEnum):
     HALTED = "halted"
 
 
-@dataclass(frozen=True, slots=True, kw_only=True)
-class Verdict:
-    """A monitor's judgement of one step, as a control protocol reads it.
-
-    `suspicion` runs from 0 (benign) to 1 (certainly an attack), and
-    `reason` is the monitor's explanation: the value and explanation of the
-    monitor's `SuspicionScore` [@hyoshigi2026].
-    """
-
-    suspicion: float
-    reason: str
-
-    def __post_init__(self) -> None:
-        """Reject a suspicion outside [0, 1], including NaN, with `InvalidSuspicionError`."""
-        if math.isnan(self.suspicion) or not 0.0 <= self.suspicion <= 1.0:
-            message = f"suspicion must be between 0 and 1, got {self.suspicion!r}"
-            raise InvalidSuspicionError(message)
-
-
-@dataclass(frozen=True, slots=True, kw_only=True)
-class Sample:
-    """One draw from the untrusted model, with the monitor's verdict on it."""
-
-    response: ModelResponse
-    proposal: AIMessage
-    verdict: Verdict
-
-
-@dataclass(frozen=True, slots=True, kw_only=True)
-class BlockedAttempt:
-    """A step the Auto Mode protocol blocked, and the feedback the agent receives."""
-
-    proposal: AIMessage
-    feedback: str
-
-
-@dataclass(frozen=True, slots=True, kw_only=True)
-class StepDecision:
-    """What a control protocol decided for one step.
-
-    `response` is what the agent state receives. `samples` holds every
-    untrusted sample the monitor judged, so rejected samples survive as audit
-    evidence. `executed_sample` is `None` when a trusted model or a halt wrote
-    the step.
-    """
-
-    outcome: Outcome
-    response: ModelResponse
-    samples: tuple[Sample, ...]
-    executed_sample: Sample | None
-    flagged: bool
-    blocked_attempts: tuple[BlockedAttempt, ...] = ()
-
-
 class SampleRecord(TypedDict):
-    """One judged sample as stored in the agent state.
+    """One rated proposal of the agent's model, as stored in the agent state.
 
-    `proposal` is the action the monitor rated, as `Trajectory.dump` stores
-    an action in a trajectory's history [@hyoshigi2026].
+    `suspicion` and `reason` are the score's value and explanation, and
+    `proposal` the action the monitor rated, as `Trajectory.dump` stores an
+    action in a trajectory's history [@hyoshigi2026]. `executed` is true for
+    the proposal that ran.
     """
 
     suspicion: float
@@ -203,101 +103,13 @@ class Delegation(TypedDict):
     `tool_call_id` is the id of that tool call, which the subagent's records
     carry as their `delegation_id`. `delegating_agent` names the agent that
     made the call, for whoever reads the delegation; the monitor decides
-    nothing by it. `blocks_before` holds, for each monitor label, the blocks recorded in the
-    conversation thread when the subagent started, none of them negative, so
-    that the subagent's Auto Mode counts from the thread's total. `runs` holds,
-    for each monitor label whose trajectory holds the call, the run the
-    subagent's trajectory joins. The state key that holds it is part of every
-    monitored agent's input, and a value that does not fit this shape raises
+    nothing by it. `runs` holds, for each monitor label whose trajectory holds
+    the call, the run the subagent's trajectory joins, so a protocol counts
+    the run's records. The state key that holds it is part of every monitored
+    agent's input, and a value that does not fit this shape raises
     `ConfigurationError` when it is read.
     """
 
     tool_call_id: str
     delegating_agent: str
-    blocks_before: dict[str, NonNegativeInt]
     runs: dict[str, DelegatedRun]
-
-
-class PendingStep(ABC):
-    """The step the agent is about to take, as a control protocol sees it."""
-
-    @property
-    @abstractmethod
-    def previous_records(self) -> tuple[StepRecord, ...]:
-        """This monitor's records from earlier steps of the thread.
-
-        Every turn of a checkpointed thread counts. Inside a subagent, they are
-        the records of its current delegation.
-        """
-
-    @property
-    def blocks_in_thread(self) -> int:
-        """The blocks this monitor recorded in the conversation thread before this step.
-
-        A subagent's copy of a monitor keeps its label, so the count covers
-        this agent's earlier steps, its subagents' steps, nested ones included,
-        and, inside a subagent, the blocks recorded before the subagent
-        started. It misses the blocks of a subagent whose run raised, which
-        returned no records, and of sibling subagents still running in
-        parallel, whose records arrive when they return. By default it sums
-        `previous_records` alone.
-        """
-        return sum(record["blocked_count"] for record in self.previous_records)
-
-    @property
-    def new_subagent_blocks(self) -> int:
-        """The blocks this monitor recorded inside subagents since this agent's last step.
-
-        Like `blocks_in_thread`, it misses the blocks of a subagent whose run
-        raised. It is 0 by default.
-        """
-        return 0
-
-    @abstractmethod
-    async def sample(
-        self,
-        *,
-        count: int,
-        blocked_attempts: tuple[BlockedAttempt, ...] = (),
-        drawing: SampleDrawing = SampleDrawing.SEQUENTIAL,
-    ) -> tuple[Sample, ...]:
-        """Draw `count` samples of the step and have the monitor judge each one.
-
-        With `blocked_attempts`, each earlier blocked proposal and its feedback
-        come before the request, so the agent sees why it was blocked.
-        `drawing` says whether the samples are drawn one after another or at
-        once; a value that is not a `SampleDrawing` member, such as the plain
-        string `"concurrent"`, raises `ConfigurationError`.
-        """
-
-    @abstractmethod
-    async def request_trusted_step(self, *, trusted_model: BaseChatModel) -> ModelResponse:
-        """Have the trusted model write the step, with the same conversation and tools."""
-
-
-class ControlProtocol(ABC):
-    """Decides what the agent state receives for each step.
-
-    Like a monitor, a protocol runs inside the agent's model node and must not
-    call LangGraph's `interrupt()`, since on resume the step is sampled and
-    judged afresh [@langgraph2026].
-    """
-
-    @abstractmethod
-    async def decide(self, step: PendingStep) -> StepDecision:
-        """Sample and judge the step as the protocol requires, then decide."""
-
-
-class Fallback(ABC):
-    """Writes the step when no untrusted sample is acceptable."""
-
-    @abstractmethod
-    async def take_over(
-        self,
-        step: PendingStep,
-        *,
-        samples: tuple[Sample, ...],
-        flagged: bool,
-        blocked_attempts: tuple[BlockedAttempt, ...] = (),
-    ) -> StepDecision:
-        """Produce the step decision in place of the untrusted model."""

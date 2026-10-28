@@ -81,7 +81,6 @@ def build_thread_with_log(record: StepRecord, *, thread_id: str) -> tuple[Any, R
     return agent, config
 
 
-@pytest.mark.xfail(strict=True, reason="PR 5 checks that its own steps' trajectory is kept")
 def test_a_thread_whose_own_steps_outlive_its_trajectory_raises(run_mode: RunMode) -> None:
     # Arrange
     agent, config = build_thread_with_log(OWN_STEP, thread_id=f"own-step-{run_mode}")

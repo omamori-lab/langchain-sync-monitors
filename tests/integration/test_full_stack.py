@@ -15,12 +15,11 @@ from langchain_core.messages import AIMessage
 from langchain_core.runnables import Runnable
 
 from langchain_sync_monitors import (
-    AutoMode,
+    AuditResponse,
+    BlockAndFeedBack,
     DeferToResample,
-    HaltRun,
     LLMMonitor,
     MonitorMiddleware,
-    TrustedMonitoring,
 )
 from tests.support.agents import (
     RunMode,
@@ -49,9 +48,9 @@ def test_llm_monitor_drives_defer_to_resample_end_to_end(run_mode: RunMode) -> N
     middleware = MonitorMiddleware(
         monitor=LLMMonitor(model=monitor_model),
         protocol=DeferToResample(
-            fallback=HaltRun(message="Stopped."),
             defer_threshold=0.6,
             audit_threshold=0.95,
+            max_resamples=2,
         ),
     )
     agent: Runnable[Any, Any] = create_agent(
@@ -88,7 +87,12 @@ def test_a_rate_limited_monitor_call_is_made_again_and_the_step_commits(run_mode
     workspace = Workspace()
     middleware = MonitorMiddleware(
         monitor=LLMMonitor(model=monitor_model),
-        protocol=TrustedMonitoring(audit_threshold=0.9),
+        protocol=DeferToResample(
+            defer_threshold=0.9,
+            audit_threshold=0.9,
+            max_resamples=0,
+            on_audit=AuditResponse.FLAG,
+        ),
     )
     agent: Runnable[Any, Any] = create_agent(
         model=ScriptedChatModel(responses=[build_read_step(), AIMessage(FINAL_ANSWER)]),
@@ -106,7 +110,7 @@ def test_a_rate_limited_monitor_call_is_made_again_and_the_step_commits(run_mode
     assert [record["outcome"] for record in state["monitor_log"]] == ["allowed", "allowed"]
 
 
-def test_auto_mode_steers_a_deep_agent_subagent_and_the_parent_sees_its_record(
+def test_block_and_feed_back_steers_a_deep_agent_subagent_and_the_parent_sees_its_record(
     run_mode: RunMode,
 ) -> None:
     # Arrange
@@ -115,7 +119,8 @@ def test_auto_mode_steers_a_deep_agent_subagent_and_the_parent_sees_its_record(
 
     workspace = Workspace()
     monitor = MonitorMiddleware(
-        monitor=build_keyword_monitor(), protocol=AutoMode(block_threshold=0.6)
+        monitor=build_keyword_monitor(),
+        protocol=BlockAndFeedBack(block_threshold=0.6),
     )
     agent = build_deep_agent(
         main_model=ScriptedChatModel(

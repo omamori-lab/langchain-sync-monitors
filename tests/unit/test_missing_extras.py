@@ -10,13 +10,13 @@ import pytest
 from langchain_core.language_models.fake_chat_models import FakeListChatModel
 
 from langchain_sync_monitors import (
+    AuditResponse,
     ConfigurationError,
     DecisionMonitor,
-    DeferToTrustedModel,
+    DeferToResample,
     LLMMonitor,
     MissingExtraError,
     MonitorMiddleware,
-    TrustedMonitoring,
     monitor_subagents,
 )
 from langchain_sync_monitors.deepagents import INSTALL_HINT
@@ -31,7 +31,12 @@ REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 def middleware() -> MonitorMiddleware:
     return MonitorMiddleware(
         monitor=LLMMonitor(model=FakeListChatModel(responses=["unused"])),
-        protocol=TrustedMonitoring(audit_threshold=0.6),
+        protocol=DeferToResample(
+            defer_threshold=0.6,
+            audit_threshold=0.6,
+            max_resamples=0,
+            on_audit=AuditResponse.FLAG,
+        ),
     )
 
 
@@ -39,9 +44,13 @@ def middleware() -> MonitorMiddleware:
     "build_with_model",
     [
         lambda model: LLMMonitor(model=model),
-        lambda model: DeferToTrustedModel(trusted_model=model),
+        lambda model: MonitorMiddleware(
+            monitor=LLMMonitor(model=FakeListChatModel(responses=["unused"])),
+            protocol=DeferToResample(defer_threshold=0.5, audit_threshold=1.0, max_resamples=0),
+            trusted_model=model,
+        ),
     ],
-    ids=["monitor", "trusted-model-fallback"],
+    ids=["monitor", "trusted-model"],
 )
 def test_an_openrouter_model_string_without_its_extra_names_the_extra(
     build_with_model: Callable[[str], object],

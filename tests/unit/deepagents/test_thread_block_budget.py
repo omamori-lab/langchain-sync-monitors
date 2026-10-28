@@ -1,4 +1,10 @@
-"""Auto Mode's block total covers the whole thread, subagents included, and names delegations."""
+"""The run's block total covers its subagents in the order recorded, and names delegations.
+
+Block and feed back counts the blocks of every trajectory in the run
+[@hyoshigi2026]: a subagent counts its delegators' blocks, and the parent
+counts each subagent's once its trajectory joins. At the total, the next
+proposal is audited, and so halted, and the audit resets the total.
+"""
 
 from __future__ import annotations
 
@@ -14,7 +20,7 @@ from langgraph.graph.state import CompiledStateGraph
 from langchain_sync_monitors.contracts import StepRecord
 from langchain_sync_monitors.deepagents import monitor_subagents
 from langchain_sync_monitors.middleware import MonitorMiddleware
-from langchain_sync_monitors.protocols import AutoMode
+from langchain_sync_monitors.protocols import BlockAndFeedBack
 from tests.support.agents import (
     RunMode,
     Workspace,
@@ -33,15 +39,15 @@ from tests.support.deep_agents import (
     build_parallel_delegation,
 )
 from tests.support.flaky_models import TriggeredFailureMonitor
-from tests.support.protocols import AcceptFirst
+from tests.support.protocols import RUN_EVERY_STEP
 
 MAIN_ANSWER = "Here is the summary."
 
 
-def build_auto_mode_monitor(*, max_total_blocks: int = 20) -> MonitorMiddleware:
+def build_blocking_monitor(*, blocks_in_total: int = 20) -> MonitorMiddleware:
     return MonitorMiddleware(
         monitor=build_keyword_monitor(),
-        protocol=AutoMode(block_threshold=0.6, max_total_blocks=max_total_blocks),
+        protocol=BlockAndFeedBack(block_threshold=0.6, blocks_in_total=blocks_in_total),
     )
 
 
@@ -72,7 +78,7 @@ def http_tools() -> list[BaseTool]:
     return Workspace().build_http_tools()
 
 
-def test_repeated_delegations_halt_at_exactly_the_thread_total(run_mode: RunMode) -> None:
+def test_repeated_delegations_are_audited_at_exactly_the_run_s_total(run_mode: RunMode) -> None:
     # Arrange
     delegations = 11
     main_model = ScriptedChatModel(
@@ -91,20 +97,24 @@ def test_repeated_delegations_halt_at_exactly_the_thread_total(run_mode: RunMode
     agent = build_deep_agent(
         main_model=main_model,
         worker_model=ScriptedChatModel(responses=worker_responses),
-        main_monitor=build_auto_mode_monitor(),
+        main_monitor=build_blocking_monitor(),
     )
 
     # Act
     result = run_agent(agent, mode=run_mode)
 
-    # Assert
+    # Assert: the tenth worker's second block is the twentieth, so its report is audited and
+    # halted; the audit resets the total, so the eleventh delegation blocks twice again
     log = result["monitor_log"]
-    assert sum(record["blocked_count"] for record in log) == 20
+    assert sum(record["blocked_count"] for record in log) == 22
     worker_rows = [row for row in summarise(log) if row[0] == "worker"]
-    assert worker_rows == [("worker", "steered", 2)] * 9 + [("worker", "halted", 2)]
-    assert summarise(log)[-1] == ("main", "halted", 0)
-    assert log[-1]["samples"] == []
-    assert len(main_model.calls) == 10
+    assert worker_rows == [
+        *[("worker", "steered", 2)] * 9,
+        ("worker", "halted", 2),
+        ("worker", "steered", 2),
+    ]
+    assert summarise(log)[-1] == ("main", "allowed", 0)
+    assert len(main_model.calls) == 12
 
 
 def test_blocks_made_before_a_delegation_count_inside_it(run_mode: RunMode) -> None:
@@ -126,19 +136,20 @@ def test_blocks_made_before_a_delegation_count_inside_it(run_mode: RunMode) -> N
     agent = build_deep_agent(
         main_model=main_model,
         worker_model=worker_model,
-        main_monitor=build_auto_mode_monitor(max_total_blocks=3),
+        main_monitor=build_blocking_monitor(blocks_in_total=3),
     )
 
     # Act
     result = run_agent(agent, mode=run_mode)
 
-    # Assert
+    # Assert: the main agent's block and the worker's two reach the total of three, so the
+    # worker's report is audited and halted, which resets the total
     assert summarise(result["monitor_log"]) == [
         ("main", "steered", 1),
         ("worker", "halted", 2),
-        ("main", "halted", 0),
+        ("main", "allowed", 0),
     ]
-    assert len(worker_model.calls) == 2
+    assert len(worker_model.calls) == 3
 
 
 def test_each_delegation_names_its_records_with_its_own_id(
@@ -164,7 +175,7 @@ def test_each_delegation_names_its_records_with_its_own_id(
     agent = build_deep_agent(
         main_model=main_model,
         worker_model=worker_model,
-        main_monitor=build_auto_mode_monitor(),
+        main_monitor=build_blocking_monitor(),
         tools=http_tools,
     )
 
@@ -222,7 +233,7 @@ def test_parallel_subagents_count_each_block_once(run_mode: RunMode) -> None:
         main_model=main_model,
         worker_model=worker_model,
         reviewer_model=reviewer_model,
-        main_monitor=build_auto_mode_monitor(max_total_blocks=5),
+        main_monitor=build_blocking_monitor(blocks_in_total=5),
     )
 
     # Act
@@ -235,7 +246,7 @@ def test_parallel_subagents_count_each_block_once(run_mode: RunMode) -> None:
     assert rows[3:] == [
         ("main", "allowed", 0),
         ("worker", "halted", 2),
-        ("main", "halted", 0),
+        ("main", "allowed", 0),
     ]
     assert result["monitor_log"][4]["delegation_id"] == "call-task-again"
     assert "monitor_delegation" not in result
@@ -264,7 +275,7 @@ def test_a_thread_s_second_turn_keeps_the_subagent_blocks_of_the_first(
     agent = build_deep_agent(
         main_model=main_model,
         worker_model=worker_model,
-        main_monitor=build_auto_mode_monitor(max_total_blocks=2),
+        main_monitor=build_blocking_monitor(blocks_in_total=2),
         checkpointer=InMemorySaver(),
     )
     config = build_thread_config(f"budget-{run_mode}")
@@ -280,64 +291,24 @@ def test_a_thread_s_second_turn_keeps_the_subagent_blocks_of_the_first(
         ("main", "allowed", 0),
         ("main", "allowed", 0),
         ("worker", "halted", 1),
-        ("main", "halted", 0),
-    ]
-    assert "monitor_delegation" not in agent.get_state(config).values
-
-
-def test_a_later_turn_samples_its_first_step_after_subagents_reached_the_total(
-    run_mode: RunMode,
-) -> None:
-    # Arrange
-    main_model = ScriptedChatModel(
-        responses=[
-            build_delegation_step(call_id="call-task-1"),
-            AIMessage(MAIN_ANSWER),
-            build_delegation_step(call_id="call-task-2"),
-            AIMessage("Third answer."),
-        ],
-    )
-    worker_model = ScriptedChatModel(
-        responses=[
-            build_exfiltration_step(call_id="call-post-1"),
-            AIMessage("First report."),
-            build_exfiltration_step(call_id="call-post-2"),
-        ],
-    )
-    agent = build_deep_agent(
-        main_model=main_model,
-        worker_model=worker_model,
-        main_monitor=build_auto_mode_monitor(max_total_blocks=2),
-        checkpointer=InMemorySaver(),
-    )
-    config = build_thread_config(f"third-turn-{run_mode}")
-    run_agent(agent, mode=run_mode, config=config)
-    run_agent(agent, mode=run_mode, config=config)
-
-    # Act
-    result = run_agent(agent, mode=run_mode, config=config)
-
-    # Assert
-    assert summarise(result["monitor_log"])[-3:] == [
-        ("worker", "halted", 1),
-        ("main", "halted", 0),
         ("main", "allowed", 0),
     ]
-    assert len(result["monitor_log"][-1]["samples"]) == 1
-    assert read_texts(result["messages"])[-1] == "Third answer."
-    assert len(main_model.calls) == 4
+    assert "monitor_delegation" not in agent.get_state(config).values
 
 
 def test_a_subagent_halt_under_the_total_leaves_the_parent_running(run_mode: RunMode) -> None:
     # Arrange
     main_model = ScriptedChatModel(responses=[build_delegation_step(), AIMessage(MAIN_ANSWER)])
     worker_model = ScriptedChatModel(
-        responses=[build_exfiltration_step(call_id=f"call-post-{index}") for index in range(3)],
+        responses=[
+            *(build_exfiltration_step(call_id=f"call-post-{index}") for index in range(3)),
+            AIMessage("Report."),
+        ],
     )
     agent = build_deep_agent(
         main_model=main_model,
         worker_model=worker_model,
-        main_monitor=build_auto_mode_monitor(),
+        main_monitor=build_blocking_monitor(),
     )
 
     # Act
@@ -356,14 +327,14 @@ def test_a_failed_subagent_step_names_its_delegation(run_mode: RunMode) -> None:
     # Arrange
     worker_monitor = MonitorMiddleware(
         monitor=TriggeredFailureMonitor(inner=build_keyword_monitor(), trigger="Three sources"),
-        protocol=AcceptFirst(),
+        protocol=RUN_EVERY_STEP,
     )
     agent = build_deep_agent(
         main_model=ScriptedChatModel(
             responses=[build_delegation_step(call_id="call-task-7"), AIMessage(MAIN_ANSWER)],
         ),
         worker_model=ScriptedChatModel(responses=[AIMessage("Three sources found.")]),
-        main_monitor=build_auto_mode_monitor(),
+        main_monitor=build_blocking_monitor(),
         worker_monitor=worker_monitor,
     )
 

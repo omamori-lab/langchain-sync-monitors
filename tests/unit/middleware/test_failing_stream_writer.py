@@ -29,7 +29,7 @@ from tests.support.agents import (
 )
 from tests.support.chat_models import ScriptedChatModel
 from tests.support.flaky_models import FlakyChatModel
-from tests.support.protocols import AcceptFirst
+from tests.support.protocols import RUN_EVERY_STEP
 
 STREAM_WRITER_LOGGER = "langchain_sync_monitors._langchain"
 DROPPED_EVENT_TEXT = (
@@ -70,7 +70,7 @@ class FailingStreamWriterMiddleware(AgentMiddleware[Any, Any, Any]):
 
 
 def build_agent(model: ScriptedChatModel | FlakyChatModel) -> Runnable[Any, Any]:
-    monitor = MonitorMiddleware(monitor=build_keyword_monitor(), protocol=AcceptFirst())
+    monitor = MonitorMiddleware(monitor=build_keyword_monitor(), protocol=RUN_EVERY_STEP)
     stack: list[AgentMiddleware[Any, Any, Any]] = [FailingStreamWriterMiddleware(), monitor]
     return create_agent(model, middleware=stack)
 
@@ -122,7 +122,7 @@ def test_a_working_stream_writer_logs_no_error(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
     # Arrange
-    monitor = MonitorMiddleware(monitor=build_keyword_monitor(), protocol=AcceptFirst())
+    monitor = MonitorMiddleware(monitor=build_keyword_monitor(), protocol=RUN_EVERY_STEP)
     agent = create_agent(ScriptedChatModel(responses=[AIMessage(ANSWER)]), middleware=[monitor])
     caplog.set_level(logging.ERROR, logger=STREAM_WRITER_LOGGER)
 

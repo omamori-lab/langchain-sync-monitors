@@ -15,12 +15,12 @@ from tests.support.agents import RunMode, run_agent
 from tests.support.chat_models import ScriptedChatModel
 from tests.support.deep_agents import build_delegation_step, read_monitor
 from tests.support.monitors import KeywordMonitor
-from tests.support.protocols import AcceptFirst, HaltAfterOneSample
+from tests.support.protocols import HALT_EVERY_STEP, RUN_EVERY_STEP
 
 
 @pytest.fixture
 def middleware() -> MonitorMiddleware:
-    return MonitorMiddleware(monitor=KeywordMonitor(), protocol=AcceptFirst())
+    return MonitorMiddleware(monitor=KeywordMonitor(), protocol=RUN_EVERY_STEP)
 
 
 def build_compiled_worker(*, worker_monitor: MonitorMiddleware | None = None) -> CompiledSubAgent:
@@ -101,14 +101,14 @@ def test_following_the_compiled_subagent_advice_keeps_stop_whole_run_working(
     # Arrange: the worker's own graph carries the monitor the error message describes
     worker_monitor = MonitorMiddleware(
         monitor=KeywordMonitor(),
-        protocol=HaltAfterOneSample(),
+        protocol=HALT_EVERY_STEP,
         agent_name="worker",
         task_author=TaskAuthor.PARENT_AGENT,
     )
     main_model = ScriptedChatModel(responses=[build_delegation_step(), AIMessage("never drawn")])
     main_monitor = MonitorMiddleware(
         monitor=KeywordMonitor(),
-        protocol=AcceptFirst(),
+        protocol=RUN_EVERY_STEP,
         when_subagent_halts=SubagentHalt.STOP_WHOLE_RUN,
     )
     agent = create_deep_agent(

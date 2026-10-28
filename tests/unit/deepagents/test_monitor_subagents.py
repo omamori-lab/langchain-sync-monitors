@@ -15,12 +15,12 @@ from langchain_sync_monitors.middleware import MonitorMiddleware
 from tests.support.chat_models import ScriptedChatModel
 from tests.support.deep_agents import read_monitor
 from tests.support.monitors import KeywordMonitor
-from tests.support.protocols import AcceptFirst, HaltAfterOneSample
+from tests.support.protocols import HALT_EVERY_STEP, RUN_EVERY_STEP
 
 
 @pytest.fixture
 def middleware() -> MonitorMiddleware:
-    return MonitorMiddleware(monitor=KeywordMonitor(), protocol=AcceptFirst())
+    return MonitorMiddleware(monitor=KeywordMonitor(), protocol=RUN_EVERY_STEP)
 
 
 @pytest.fixture
@@ -156,7 +156,7 @@ def test_overrides_give_named_subagents_a_different_monitor(
     researcher: SubAgent,
 ) -> None:
     # Arrange
-    strict = MonitorMiddleware(monitor=KeywordMonitor(), protocol=HaltAfterOneSample())
+    strict = MonitorMiddleware(monitor=KeywordMonitor(), protocol=HALT_EVERY_STEP)
 
     # Act
     specs = monitor_subagents(
@@ -190,7 +190,7 @@ def test_an_override_with_another_label_is_rejected(
     researcher: SubAgent,
 ) -> None:
     # Arrange
-    guard = MonitorMiddleware(monitor=KeywordMonitor(), protocol=AcceptFirst(), label="guard")
+    guard = MonitorMiddleware(monitor=KeywordMonitor(), protocol=RUN_EVERY_STEP, label="guard")
 
     # Act / Assert
     with pytest.raises(ConfigurationError, match=r"label 'guard'.*parent's label, 'monitor'"):

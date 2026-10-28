@@ -22,6 +22,7 @@ from langchain_core.messages import AIMessage
 from langgraph.checkpoint.memory import InMemorySaver
 from langgraph.graph.state import CompiledStateGraph
 
+from langchain_sync_monitors import DeferToResample
 from langchain_sync_monitors.contracts import SubagentHalt, TaskAuthor
 from langchain_sync_monitors.deepagents import monitor_subagents
 from langchain_sync_monitors.middleware import MonitorMiddleware
@@ -36,11 +37,13 @@ from tests.support.agents import (
 from tests.support.chat_models import ScriptedChatModel
 from tests.support.deep_agents import build_delegation_step
 from tests.support.monitors import KeywordMonitor
-from tests.support.protocols import HaltAfterOneSample, SteerWithFeedback
+from tests.support.protocols import HALT_EVERY_STEP
 
 type Thread = Literal["fresh", "after-a-halt-of-its-own"]
 MAIN_ANSWER = "MAIN CARRIES ON"
 CALL_ID = "call-task"
+HALT_SUSPICIOUS_STEPS = DeferToResample(defer_threshold=0.5, audit_threshold=0.5, max_resamples=0)
+"""Audits, and so halts, a step at or above 0.5, drawing nothing more."""
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -56,7 +59,7 @@ class SubagentKind:
 def build_main_monitor(when_subagent_halts: SubagentHalt) -> MonitorMiddleware:
     return MonitorMiddleware(
         monitor=build_keyword_monitor(),
-        protocol=SteerWithFeedback(max_blocks=1),
+        protocol=HALT_SUSPICIOUS_STEPS,
         when_subagent_halts=when_subagent_halts,
     )
 
@@ -95,7 +98,7 @@ def build_compiled_parent_factory(
     ) -> tuple[CompiledStateGraph[Any, Any, Any, Any], ScriptedChatModel]:
         worker_monitor = MonitorMiddleware(
             monitor=KeywordMonitor(),
-            protocol=HaltAfterOneSample(),
+            protocol=HALT_EVERY_STEP,
             label=label,
             agent_name=agent_name or "main",
             task_author=TaskAuthor.PARENT_AGENT,

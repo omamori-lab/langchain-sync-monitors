@@ -23,7 +23,7 @@ from langgraph.types import Command, Overwrite
 from langchain_sync_monitors.contracts import SubagentHalt, TaskAuthor
 from langchain_sync_monitors.deepagents import monitor_subagents
 from langchain_sync_monitors.middleware import MonitorMiddleware
-from langchain_sync_monitors.protocols import AutoMode, HaltRun
+from langchain_sync_monitors.protocols import BlockAndFeedBack
 from tests.support.agents import (
     RunMode,
     Workspace,
@@ -34,7 +34,7 @@ from tests.support.agents import (
 )
 from tests.support.chat_models import ScriptedChatModel, build_tool_call_message
 from tests.support.deep_agents import build_delegation_step
-from tests.support.protocols import AcceptFirst, HaltAfterOneSample
+from tests.support.protocols import HALT_EVERY_STEP, RUN_EVERY_STEP
 
 type Shape = Literal["returned", "raised"]
 
@@ -79,7 +79,7 @@ def test_a_subagent_s_tool_cannot_erase_the_parent_s_log_through_the_parent_grap
     worker_model = ScriptedChatModel(
         responses=[build_tool_call_message(tool_name="tidy", call_id="call-tidy")],
     )
-    protocol = AutoMode(block_threshold=0.5, max_total_blocks=2, when_limit_reached=HaltRun())
+    protocol = BlockAndFeedBack(block_threshold=0.5, blocks_in_total=2)
     main_monitor = MonitorMiddleware(monitor=build_keyword_monitor(), protocol=protocol)
     worker = SubAgent(
         name="worker",
@@ -97,7 +97,8 @@ def test_a_subagent_s_tool_cannot_erase_the_parent_s_log_through_the_parent_grap
     # Act
     result = run_agent(agent, mode=run_mode)
 
-    # Assert: the thread's first block still counts, so the second one halts the run
+    # Assert: the log keeps the first block's step, and after the second block the next
+    # proposal is audited, so the run halts
     rows = [
         (record["agent"], record["outcome"], record["blocked_count"])
         for record in result["monitor_log"]
@@ -116,7 +117,7 @@ def build_same_named_levels() -> CompiledStateGraph[Any, Any, Any, Any]:
         middleware=[
             MonitorMiddleware(
                 monitor=build_keyword_monitor(),
-                protocol=HaltAfterOneSample(),
+                protocol=HALT_EVERY_STEP,
                 task_author=TaskAuthor.PARENT_AGENT,
             ),
         ],
@@ -131,7 +132,7 @@ def build_same_named_levels() -> CompiledStateGraph[Any, Any, Any, Any]:
         middleware=[
             MonitorMiddleware(
                 monitor=build_keyword_monitor(),
-                protocol=AcceptFirst(),
+                protocol=RUN_EVERY_STEP,
                 task_author=TaskAuthor.PARENT_AGENT,
             ),
         ],
@@ -147,7 +148,7 @@ def build_same_named_levels() -> CompiledStateGraph[Any, Any, Any, Any]:
         middleware=[
             MonitorMiddleware(
                 monitor=build_keyword_monitor(),
-                protocol=AcceptFirst(),
+                protocol=RUN_EVERY_STEP,
                 when_subagent_halts=SubagentHalt.STOP_WHOLE_RUN,
             ),
         ],

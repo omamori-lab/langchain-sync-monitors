@@ -31,7 +31,7 @@ from tests.support.agents import (
     run_agent,
 )
 from tests.support.chat_models import ScriptedChatModel, build_tool_call_message
-from tests.support.protocols import AcceptFirst
+from tests.support.protocols import RUN_EVERY_STEP
 from tests.support.written_human_messages import NudgingMiddleware, rewrite_history
 
 SUBAGENT_HALT = StepRecord(
@@ -100,7 +100,7 @@ def build_parent_agent(
 ) -> CompiledStateGraph[Any, Any, Any, Any]:
     middleware = MonitorMiddleware(
         monitor=build_keyword_monitor(),
-        protocol=AcceptFirst(),
+        protocol=RUN_EVERY_STEP,
         when_subagent_halts=when_subagent_halts,
     )
     tools: list[BaseTool] = [delegating_tool]
@@ -109,7 +109,7 @@ def build_parent_agent(
 
 @pytest.fixture
 def middleware() -> MonitorMiddleware:
-    return MonitorMiddleware(monitor=build_keyword_monitor(), protocol=AcceptFirst())
+    return MonitorMiddleware(monitor=build_keyword_monitor(), protocol=RUN_EVERY_STEP)
 
 
 def test_the_log_is_an_appending_channel(middleware: MonitorMiddleware) -> None:
@@ -210,15 +210,20 @@ def test_a_halted_thread_takes_new_turns_again(run_mode: RunMode) -> None:
     assert result["monitor_log"][-1]["outcome"] == "allowed"
 
 
+def build_stacked_monitors() -> list[AgentMiddleware[Any, Any, Any]]:
+    """Return a `guard` monitor around the default one, each running every step."""
+    guard = MonitorMiddleware(
+        monitor=build_keyword_monitor(),
+        protocol=RUN_EVERY_STEP,
+        label="guard",
+    )
+    return [guard, MonitorMiddleware(monitor=build_keyword_monitor(), protocol=RUN_EVERY_STEP)]
+
+
 def test_two_monitors_on_one_agent_count_their_own_steps(run_mode: RunMode) -> None:
     # Arrange
-    outer_protocol, inner_protocol = AcceptFirst(), AcceptFirst()
-    guard = MonitorMiddleware(
-        monitor=build_keyword_monitor(), protocol=outer_protocol, label="guard"
-    )
-    monitor = MonitorMiddleware(monitor=build_keyword_monitor(), protocol=inner_protocol)
     model = ScriptedChatModel(responses=[AIMessage("first"), AIMessage("second")])
-    agent = create_agent(model, middleware=[guard, monitor], checkpointer=InMemorySaver())
+    agent = create_agent(model, middleware=build_stacked_monitors(), checkpointer=InMemorySaver())
     config = build_thread_config(f"labels-{run_mode}")
     run_agent(agent, mode=run_mode, config=config)
 
@@ -233,8 +238,6 @@ def test_two_monitors_on_one_agent_count_their_own_steps(run_mode: RunMode) -> N
         ("monitor", 1),
         ("monitor", 2),
     ]
-    assert [len(records) for records in inner_protocol.seen_previous_records] == [0, 1]
-    assert all(record["monitor"] == "monitor" for record in inner_protocol.seen_previous_records[1])
 
 
 @pytest.mark.parametrize("key", sorted(MONITOR_STATE_KEYS - {MONITOR_DELEGATION_KEY}))
@@ -254,12 +257,8 @@ def test_every_key_only_the_monitor_writes_is_private_except_the_delegation(
 def test_two_monitors_on_one_agent_record_each_message_id_once(run_mode: RunMode) -> None:
     # Arrange: the nudge is written after both monitors' before_model hooks, so both
     # monitors record it when they commit, in the same model node
-    guard = MonitorMiddleware(
-        monitor=build_keyword_monitor(), protocol=AcceptFirst(), label="guard"
-    )
-    monitor = MonitorMiddleware(monitor=build_keyword_monitor(), protocol=AcceptFirst())
     model = ScriptedChatModel(responses=[AIMessage("first"), AIMessage("second")])
-    middleware: list[AgentMiddleware[Any, Any, Any]] = [guard, monitor, NudgingMiddleware()]
+    middleware = [*build_stacked_monitors(), NudgingMiddleware()]
     agent = create_agent(model, middleware=middleware, checkpointer=InMemorySaver())
     config = build_thread_config(f"stacked-ids-{run_mode}")
     run_agent(agent, mode=run_mode, config=config)
@@ -281,10 +280,6 @@ def test_two_monitors_on_one_agent_check_a_tool_s_writes_once(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
     # Arrange: the tool writes the history back, which each monitor's tool-call check reads
-    guard = MonitorMiddleware(
-        monitor=build_keyword_monitor(), protocol=AcceptFirst(), label="guard"
-    )
-    monitor = MonitorMiddleware(monitor=build_keyword_monitor(), protocol=AcceptFirst())
     model = ScriptedChatModel(
         responses=[
             build_tool_call_message(tool_name="rewrite_history", call_id="call-rewrite"),
@@ -294,7 +289,7 @@ def test_two_monitors_on_one_agent_check_a_tool_s_writes_once(
     agent = create_agent(
         model,
         tools=[rewrite_history],
-        middleware=[guard, monitor],
+        middleware=build_stacked_monitors(),
         checkpointer=InMemorySaver(),
     )
     config = build_thread_config(f"stacked-tool-{run_mode}")

@@ -455,7 +455,7 @@ def test_the_docs_hold_pages_to_check() -> None:
     pages = {str(path.relative_to(DOCS_DIRECTORY)) for path in read_docs_pages()}
 
     # Assert
-    assert {"index.md", "reference/api.md", "how-to/use-auto-mode.md"} <= pages
+    assert {"index.md", "reference/api.md", "how-to/use-block-and-feed-back.md"} <= pages
     assert not any(page.startswith("plans/") for page in pages)
 
 

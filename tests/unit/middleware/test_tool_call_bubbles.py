@@ -21,7 +21,7 @@ from langgraph.types import Command, Interrupt
 from langchain_sync_monitors._langchain import read_update_pairs
 from langchain_sync_monitors.middleware import MonitorMiddleware
 from tests.support.agents import RunMode, build_keyword_monitor
-from tests.support.protocols import AcceptFirst
+from tests.support.protocols import RUN_EVERY_STEP
 
 MONITOR_SOURCE = {"lc_source": "monitor"}
 
@@ -46,7 +46,7 @@ def build_tool_request() -> ToolCallRequest:
 
 def call_through_the_monitor(raised: BaseException, *, mode: RunMode) -> BaseException:
     """Run a tool call whose handler raises `raised`, and return what leaves the hook."""
-    middleware = MonitorMiddleware(monitor=build_keyword_monitor(), protocol=AcceptFirst())
+    middleware = MonitorMiddleware(monitor=build_keyword_monitor(), protocol=RUN_EVERY_STEP)
     request = build_tool_request()
 
     def handler(_request: ToolCallRequest) -> ToolMessage:

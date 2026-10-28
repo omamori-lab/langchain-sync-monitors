@@ -13,9 +13,9 @@ from langchain_core.runnables import Runnable, RunnableConfig
 from langchain_core.tools import BaseTool, tool
 from langgraph.pregel import Pregel
 
+from langchain_sync_monitors import AuditResponse, DeferToResample
 from langchain_sync_monitors.contracts import StepRecord
 from langchain_sync_monitors.middleware import MonitorMiddleware
-from langchain_sync_monitors.protocols import DeferToResample, HaltRun, TrustedMonitoring
 from tests.support.chat_models import build_tool_call_message
 from tests.support.monitors import KeywordMonitor, RenderingMonitor
 
@@ -83,18 +83,19 @@ def build_keyword_monitor() -> KeywordMonitor:
 
 
 def build_halting_monitor() -> MonitorMiddleware:
-    """Build a monitor that halts the run at the first suspicious step, drawing no resample."""
-    protocol = DeferToResample(
-        fallback=HaltRun(),
-        defer_threshold=0.5,
-        audit_threshold=None,
-        max_resamples=0,
-    )
+    """Build a monitor that audits, and so halts, the first suspicious step, drawing no resample."""
+    protocol = DeferToResample(defer_threshold=0.5, audit_threshold=0.5, max_resamples=0)
     return MonitorMiddleware(monitor=build_keyword_monitor(), protocol=protocol)
 
 
 def build_reading_monitor(monitor: RenderingMonitor) -> MonitorMiddleware:
-    return MonitorMiddleware(monitor=monitor, protocol=TrustedMonitoring(audit_threshold=0.6))
+    protocol = DeferToResample(
+        defer_threshold=0.6,
+        audit_threshold=0.6,
+        max_resamples=0,
+        on_audit=AuditResponse.FLAG,
+    )
+    return MonitorMiddleware(monitor=monitor, protocol=protocol)
 
 
 def read_stored_trajectory(result: dict[str, Any], *, label: str = "monitor") -> dict[str, Any]:

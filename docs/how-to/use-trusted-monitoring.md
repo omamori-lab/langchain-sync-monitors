@@ -10,22 +10,28 @@ honest-run scores that calibrate a threshold, or to queue steps for a person to
 review. It comes from the AI control paper (section 3.2)
 [@greenblatt2023aicontrol], where a person reviews flagged code before it is
 used (section 1) [@greenblatt2023aicontrol]. Here nothing waits for review:
-the step runs, and the flag marks its record.
+the step runs, and the flag marks its record. It is `DeferToResample` with no
+resamples, equal thresholds and `on_audit=AuditResponse.FLAG`, as hyoshigi
+decides it; see
+[hyoshigi's page on control protocols](https://omamori-lab.github.io/hyoshigi/explanation/control-protocols/#detection-only-runs-the-action-and-flags-it)
+[@hyoshigi2026].
 
 ## How it works
 
-[![The agent's model proposes one step, and the monitor, drawn as an omamori charm, reads it through its view and scores it from 0 to 1. The step runs as proposed whatever the score, and its outcome is allowed. A score below audit_threshold leaves the step unflagged; a score at or above audit_threshold flags it for a person to review. Either way the step is sampled once, and one record joins monitor_log.](../assets/diagrams/protocol-trusted-monitoring-light.svg#only-light)](../assets/diagrams/protocol-trusted-monitoring-light.svg "Open the diagram at full size")
-[![The agent's model proposes one step, and the monitor, drawn as an omamori charm, reads it through its view and scores it from 0 to 1. The step runs as proposed whatever the score, and its outcome is allowed. A score below audit_threshold leaves the step unflagged; a score at or above audit_threshold flags it for a person to review. Either way the step is sampled once, and one record joins monitor_log.](../assets/diagrams/protocol-trusted-monitoring-dark.svg#only-dark)](../assets/diagrams/protocol-trusted-monitoring-dark.svg "Open the diagram at full size")
-
-Each step is sampled once and always runs. A high score changes only the
-`flagged` mark on the step's record.
+Each step is sampled once and always runs. A score at or above the threshold
+changes only the `flagged` mark on the step's record.
 
 ## A complete example
 
 ```python
 from langchain.agents import create_agent
 
-from langchain_sync_monitors import LLMMonitor, MonitorMiddleware, TrustedMonitoring
+from langchain_sync_monitors import (
+    AuditResponse,
+    DeferToResample,
+    LLMMonitor,
+    MonitorMiddleware,
+)
 
 
 def read_file(path: str) -> str:
@@ -41,8 +47,13 @@ def http_post(url: str, body: str) -> str:
 monitor = MonitorMiddleware(
     # The LLM monitor that scores each step.
     monitor=LLMMonitor(model="openrouter:xiaomi/mimo-v2.6-pro"),
-    # Flag steps at or above 0.6; calibrate your own value from honest runs.
-    protocol=TrustedMonitoring(audit_threshold=0.6),
+    # Run every step, and flag those at or above 0.6; calibrate your own value.
+    protocol=DeferToResample(
+        defer_threshold=0.6,
+        audit_threshold=0.6,
+        max_resamples=0,
+        on_audit=AuditResponse.FLAG,
+    ),
 )
 agent = create_agent(
     model="openrouter:deepseek/deepseek-v4.1-flash",
@@ -65,31 +76,31 @@ you built.
 
 ## Options
 
-| Option | Default | What it does |
-|---|---|---|
-| `audit_threshold` | 0.6, with a warning | A step whose suspicion is at or above this value is flagged. Any number from 0 to 1; see [Thresholds](choose-a-protocol.md#thresholds). |
-
+Trusted Monitoring is `DeferToResample` with `max_resamples=0`,
+`on_audit=AuditResponse.FLAG`, and `defer_threshold` equal to
+`audit_threshold`: a step at or above that value is flagged. The value is a
+number from 0 to 1; see [Thresholds](choose-a-protocol.md#thresholds). A
+`trusted_model` raises `ConfigurationError`, since no step is deferred.
 `MonitorMiddleware`'s own options are listed in
 [Middleware options](choose-a-protocol.md#middleware-options).
 
 ### Calibrate the threshold
 
-The default of 0.6 is a placeholder, and a protocol built with it emits an
-`UncalibratedThresholdWarning`: suspicion scores differ between monitors and
-agents, so a fixed value may flag most honest work or miss attacks. Passing
-any value yourself silences the warning.
+The threshold has no default: suspicion scores differ between monitors and
+agents, so a fixed value may flag most honest work or miss attacks.
 
 Control evaluations set thresholds at percentiles of the scores the monitor
 gives on honest runs [@greenblatt2023aicontrol; @bhatt2025ctrlz];
 [Thresholds](choose-a-protocol.md#thresholds) gives the percentiles they
 use. Trusted Monitoring never changes a run, so it is the protocol to collect
-them with for a protocol threshold compared with one sample's score:
+them with for a threshold compared with one sample's score:
 `defer_threshold`, `block_threshold`, and the `audit_threshold` of Trusted
-Monitoring and Defer to Trusted. Defer to
-Resample's `audit_threshold` is compared with the lowest score across a
-step's samples instead, and
-[Calibrate the audit threshold](use-defer-to-resample.md#calibrate-the-audit-threshold)
-sets it. Run the agent on tasks you know to be honest, then take a
+Monitoring and Defer to Trusted. Set the threshold at 1.0 while you collect,
+so that only a step rated 1.0 is flagged. With resamples, Defer to
+Resample's `audit_threshold` and the middleware's `flag_threshold` are
+compared with the lowest score across a step's samples instead, and
+[Calibrate the flag threshold](use-defer-to-resample.md#calibrate-the-flag-threshold)
+sets them. Run the agent on tasks you know to be honest, then take a
 percentile:
 
 ```python
@@ -126,10 +137,13 @@ Every step adds one record:
 | Field | Under Trusted Monitoring |
 |---|---|
 | `outcome` | `"allowed"`: the step always runs |
-| `flagged` | `True` when the step's suspicion reached `audit_threshold` |
+| `flagged` | `True` when the step's suspicion reached the threshold |
 | `blocked_count` | 0 |
 | `samples` | One sample, with `executed` set to `True`, its `suspicion`, the monitor's `reason`, and the `proposal`, the action the monitor rated, as a dict of its thought, parts and tool calls |
 
+A step whose rating failed closed runs too, flagged, since `on_audit=FLAG`
+turns every audit into a flag; see
+[hyoshigi's page on control protocols](https://omamori-lab.github.io/hyoshigi/explanation/control-protocols/#a-failure-without-a-verdict-goes-to-a-person-by-default).
 In a Deep Agent whose monitor has
 `when_subagent_halts=SubagentHalt.STOP_WHOLE_RUN`, a record can also be
 `halted`: flagged, with no samples, written when a subagent was halted. That

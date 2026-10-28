@@ -24,27 +24,16 @@ from langchain_core.messages import AIMessage
 from langchain_core.runnables import Runnable, RunnableConfig
 from langgraph.checkpoint.memory import InMemorySaver
 
-from langchain_sync_monitors.contracts import (
-    ControlProtocol,
-    FeedbackVisibility,
-    Outcome,
-    PendingStep,
+from langchain_sync_monitors import (
+    AuditResponse,
+    BlockAndFeedBack,
+    DeferToResample,
     Resampling,
-    StepDecision,
     StepRecord,
 )
-from langchain_sync_monitors.feedback import WITHHELD_TEXT_MESSAGE
 from langchain_sync_monitors.middleware import MonitorMiddleware
 from langchain_sync_monitors.monitors import CascadeMonitor, MonitorTwins
 from langchain_sync_monitors.placement import check_monitor_placement
-from langchain_sync_monitors.protocols import (
-    AutoMode,
-    DeferToResample,
-    DeferToTrusted,
-    DeferToTrustedModel,
-    HaltRun,
-    TrustedMonitoring,
-)
 from tests.support.agents import (
     RunMode,
     Workspace,
@@ -66,117 +55,91 @@ DRAW_DELAY = 0.01
 STEP_FAILURE = "the step failed after the monitors committed it"
 DOCS_DIRECTORY = Path(__file__).resolve().parents[3] / "docs"
 
-type ProtocolBuilder = Callable[[ScriptedChatModel], ControlProtocol]
+type OuterBuilder = Callable[[], MonitorMiddleware]
+
+TRUSTED_MONITORING = DeferToResample(
+    defer_threshold=THRESHOLD,
+    audit_threshold=THRESHOLD,
+    max_resamples=0,
+    on_audit=AuditResponse.FLAG,
+)
+"""Trusted monitoring: every step runs, flagged at or above the threshold."""
 
 
 def build_resampling(
-    trusted_model: ScriptedChatModel,
     *,
     max_resamples: int = 2,
-    halts: bool = False,
     resampling: Resampling = Resampling.SEQUENTIAL,
-) -> ControlProtocol:
-    fallback = HaltRun() if halts else DeferToTrustedModel(trusted_model=trusted_model)
+) -> DeferToResample:
+    """Build resampling whose rejected samples go to a trusted step."""
     return DeferToResample(
-        fallback=fallback,
         defer_threshold=THRESHOLD,
-        audit_threshold=THRESHOLD,
+        audit_threshold=1.0,
         max_resamples=max_resamples,
         resampling=resampling,
     )
 
 
-def build_auto_mode(
-    trusted_model: ScriptedChatModel,
+def build_monitor(
+    protocol: BlockAndFeedBack | DeferToResample,
     *,
-    max_consecutive_blocks: int,
-    max_total_blocks: int = 20,
-    halts: bool = True,
-) -> ControlProtocol:
-    fallback = HaltRun() if halts else DeferToTrustedModel(trusted_model=trusted_model)
-    return AutoMode(
-        block_threshold=THRESHOLD,
-        max_consecutive_blocks=max_consecutive_blocks,
-        max_total_blocks=max_total_blocks,
-        when_limit_reached=fallback,
+    label: str,
+    trusted_model: ScriptedChatModel | None = None,
+    monitor: KeywordMonitor | None = None,
+) -> MonitorMiddleware:
+    return MonitorMiddleware(
+        monitor=monitor or build_keyword_monitor(),
+        protocol=protocol,
+        label=label,
+        trusted_model=trusted_model,
     )
 
 
-class UnsetResample(DeferToResample):
-    """A project's own resampling that never calls `DeferToResample.__init__`.
-
-    It draws a second sample when the first is suspicious, and runs the second.
-    """
-
-    def __init__(self) -> None:
-        self.threshold = THRESHOLD
-
-    async def decide(self, step: PendingStep) -> StepDecision:
-        samples = await step.sample(count=1)
-        if samples[0].verdict.suspicion >= self.threshold:
-            samples += await step.sample(count=1)
-        return StepDecision(
-            outcome=Outcome.ALLOWED if len(samples) == 1 else Outcome.RESAMPLED,
-            response=samples[-1].response,
-            samples=samples,
-            executed_sample=samples[-1],
-            flagged=False,
-        )
+def build_outer(
+    protocol: BlockAndFeedBack | DeferToResample,
+    *,
+    trusted: bool = False,
+) -> OuterBuilder:
+    """Return a builder of the outer monitor, with a trusted model of its own when asked."""
+    return lambda: build_monitor(
+        protocol,
+        label="outer",
+        trusted_model=build_trusted_model() if trusted else None,
+    )
 
 
-OUTER_PROTOCOLS: dict[str, tuple[ProtocolBuilder, bool]] = {
-    "trusted-monitoring": (lambda _: TrustedMonitoring(audit_threshold=THRESHOLD), True),
-    "resample-none-then-halt": (
-        lambda trusted: build_resampling(trusted, max_resamples=0, halts=True),
-        True,
-    ),
-    "auto-mode-one-block-then-halt": (
-        lambda trusted: build_auto_mode(trusted, max_consecutive_blocks=1),
-        True,
-    ),
-    "auto-mode-one-block-in-thread-then-halt": (
-        lambda trusted: build_auto_mode(trusted, max_consecutive_blocks=3, max_total_blocks=1),
-        True,
-    ),
-    "resample-none-then-halt-with-message": (
-        lambda _: DeferToResample(
-            fallback=HaltRun(message="Stopped by the guard."),
-            defer_threshold=THRESHOLD,
-            audit_threshold=THRESHOLD,
-            max_resamples=0,
+OUTER_MONITORS: dict[str, tuple[OuterBuilder, bool]] = {
+    "trusted-monitoring": (build_outer(TRUSTED_MONITORING), True),
+    "audit-at-the-defer-threshold": (
+        build_outer(
+            DeferToResample(defer_threshold=THRESHOLD, audit_threshold=THRESHOLD, max_resamples=0),
         ),
         True,
     ),
-    "defer-to-trusted": (
-        lambda trusted: DeferToTrusted(
-            trusted_model=trusted, defer_threshold=THRESHOLD, audit_threshold=THRESHOLD
+    "defer-without-a-trusted-model": (build_outer(build_resampling(max_resamples=0)), True),
+    "defer-to-trusted": (build_outer(build_resampling(max_resamples=0), trusted=True), False),
+    "resample-once-then-audit": (
+        build_outer(
+            DeferToResample(defer_threshold=THRESHOLD, audit_threshold=THRESHOLD, max_resamples=1),
         ),
         False,
     ),
-    "resample-once-then-halt": (
-        lambda trusted: build_resampling(trusted, max_resamples=1, halts=True),
-        False,
-    ),
-    "resample-sequentially": (build_resampling, False),
+    "resample-sequentially": (build_outer(build_resampling(), trusted=True), False),
     "resample-in-parallel": (
-        lambda trusted: build_resampling(trusted, resampling=Resampling.PARALLEL),
+        build_outer(build_resampling(resampling=Resampling.PARALLEL), trusted=True),
         False,
     ),
-    "auto-mode-two-blocks-then-halt": (
-        lambda trusted: build_auto_mode(trusted, max_consecutive_blocks=2),
+    "block-and-feed-back": (build_outer(BlockAndFeedBack(block_threshold=THRESHOLD)), False),
+    "block-and-feed-back-one-in-a-row": (
+        build_outer(BlockAndFeedBack(block_threshold=THRESHOLD, blocks_in_a_row=1)),
         False,
     ),
-    "auto-mode-one-block-then-defer": (
-        lambda trusted: build_auto_mode(trusted, max_consecutive_blocks=1, halts=False),
+    "block-and-feed-back-one-in-total": (
+        build_outer(BlockAndFeedBack(block_threshold=THRESHOLD, blocks_in_total=1)),
         False,
     ),
-    "auto-mode-two-blocks-in-thread-then-halt": (
-        lambda trusted: build_auto_mode(trusted, max_consecutive_blocks=3, max_total_blocks=2),
-        False,
-    ),
-    "resample-subclass-without-settings": (lambda _: UnsetResample(), False),
 }
-"""Each outer protocol, and whether a monitor inside it keeps sound records."""
+"""Each outer monitor, and whether a monitor inside it keeps sound records."""
 
 
 def build_untrusted_model() -> ScriptedChatModel:
@@ -205,26 +168,24 @@ def check_placement_quietly(stack: list[MonitorMiddleware]) -> list[str]:
 
 
 @pytest.mark.parametrize(
-    ("build_outer_protocol", "is_sound"),
-    OUTER_PROTOCOLS.values(),
-    ids=OUTER_PROTOCOLS,
+    ("build_outer_monitor", "is_sound"),
+    OUTER_MONITORS.values(),
+    ids=OUTER_MONITORS,
 )
 def test_the_check_names_exactly_the_stacks_that_lose_an_inner_monitor_s_records(
     run_mode: RunMode,
-    build_outer_protocol: ProtocolBuilder,
+    build_outer_monitor: OuterBuilder,
     is_sound: bool,
 ) -> None:
     # Arrange: the outer monitor rejects the first draft, which the inner one allows
     inner_monitor = KeywordMonitor()
-    outer = MonitorMiddleware(
-        monitor=build_keyword_monitor(),
-        protocol=build_outer_protocol(build_trusted_model()),
-        label="outer",
+    inner = build_monitor(
+        build_resampling(),
+        label="inner",
+        trusted_model=build_trusted_model(),
+        monitor=inner_monitor,
     )
-    inner = MonitorMiddleware(
-        monitor=inner_monitor, protocol=build_resampling(build_trusted_model()), label="inner"
-    )
-    stack = [outer, inner]
+    stack = [build_outer_monitor(), inner]
     agent = create_agent(build_untrusted_model(), middleware=stack, checkpointer=InMemorySaver())
     config = build_thread_config(f"stacked-{run_mode}")
     run_agent(agent, mode=run_mode, config=config)
@@ -247,16 +208,8 @@ def test_a_monitor_inside_a_resampling_monitor_loses_the_rejected_draft_s_judgem
 ) -> None:
     # Arrange
     inner_monitor = KeywordMonitor()
-    outer = MonitorMiddleware(
-        monitor=build_keyword_monitor(),
-        protocol=build_resampling(build_trusted_model()),
-        label="outer",
-    )
-    inner = MonitorMiddleware(
-        monitor=inner_monitor,
-        protocol=TrustedMonitoring(audit_threshold=THRESHOLD),
-        label="inner",
-    )
+    outer = build_monitor(build_resampling(), label="outer", trusted_model=build_trusted_model())
+    inner = build_monitor(TRUSTED_MONITORING, label="inner", monitor=inner_monitor)
     agent = create_agent(build_untrusted_model(), middleware=[outer, inner])
 
     # Act
@@ -292,15 +245,9 @@ def test_parallel_resamples_leave_an_inner_monitor_one_record_per_resample_for_o
 ) -> None:
     # Arrange
     inner_monitor = KeywordMonitor()
-    protocol = build_resampling(
-        build_trusted_model(), max_resamples=max_resamples, resampling=Resampling.PARALLEL
-    )
-    outer = MonitorMiddleware(monitor=build_keyword_monitor(), protocol=protocol, label="outer")
-    inner = MonitorMiddleware(
-        monitor=inner_monitor,
-        protocol=TrustedMonitoring(audit_threshold=THRESHOLD),
-        label="inner",
-    )
+    protocol = build_resampling(max_resamples=max_resamples, resampling=Resampling.PARALLEL)
+    outer = build_monitor(protocol, label="outer", trusted_model=build_trusted_model())
+    inner = build_monitor(TRUSTED_MONITORING, label="inner", monitor=inner_monitor)
     agent = create_agent(
         build_untrusted_model(), middleware=[outer, inner], checkpointer=InMemorySaver()
     )
@@ -325,13 +272,9 @@ def test_a_trusted_step_after_parallel_resamples_leaves_the_inner_monitor_its_re
 ) -> None:
     # Arrange: every sample is rejected, so the trusted model writes the step last
     inner_monitor = KeywordMonitor()
-    protocol = build_resampling(
-        build_trusted_model(), max_resamples=3, resampling=Resampling.PARALLEL
-    )
-    outer = MonitorMiddleware(monitor=build_keyword_monitor(), protocol=protocol, label="outer")
-    inner = MonitorMiddleware(
-        monitor=inner_monitor, protocol=TrustedMonitoring(audit_threshold=THRESHOLD), label="inner"
-    )
+    protocol = build_resampling(max_resamples=3, resampling=Resampling.PARALLEL)
+    outer = build_monitor(protocol, label="outer", trusted_model=build_trusted_model())
+    inner = build_monitor(TRUSTED_MONITORING, label="inner", monitor=inner_monitor)
     untrusted_model = ScriptedChatModel(
         responses=[AIMessage(f"{UNSAFE_DRAFT} ({index})") for index in range(4)],
         delay=DRAW_DELAY,
@@ -351,34 +294,14 @@ def test_a_trusted_step_after_parallel_resamples_leaves_the_inner_monitor_its_re
     assert outer_record["outcome"] == "deferred_to_trusted"
 
 
-@pytest.mark.parametrize(
-    ("visibility", "expected_judged", "expected_named"),
-    [
-        (FeedbackVisibility.HIDDEN, SAFE_ANSWER, []),
-        (FeedbackVisibility.IN_TRANSCRIPT, WITHHELD_TEXT_MESSAGE, ["inner[main]"]),
-    ],
-    ids=["hidden", "in-transcript"],
-)
-def test_an_outer_monitor_judges_the_blocked_draft_an_inner_auto_mode_shows(
+def test_an_outer_monitor_judges_the_reply_an_inner_blocking_monitor_runs(
     run_mode: RunMode,
-    visibility: FeedbackVisibility,
-    expected_judged: str,
-    expected_named: list[str],
 ) -> None:
-    # Arrange: the inner Auto Mode blocks the first draft. Under IN_TRANSCRIPT the outer
-    # monitor judges that draft, committed first with its text withheld, not the step that runs.
+    # Arrange: the inner monitor blocks the first draft, and commits it with its feedback
+    # before the reply that runs, the last AI message of its response.
     outer_monitor = KeywordMonitor()
-    outer = MonitorMiddleware(
-        monitor=outer_monitor,
-        protocol=TrustedMonitoring(audit_threshold=THRESHOLD),
-        label="outer",
-    )
-    inner = MonitorMiddleware(
-        monitor=build_keyword_monitor(),
-        protocol=AutoMode(block_threshold=THRESHOLD),
-        label="inner",
-        feedback_visibility=visibility,
-    )
+    outer = build_monitor(TRUSTED_MONITORING, label="outer", monitor=outer_monitor)
+    inner = build_monitor(BlockAndFeedBack(block_threshold=THRESHOLD), label="inner")
     stack = [outer, inner]
     agent = create_agent(build_untrusted_model(), middleware=stack)
 
@@ -386,17 +309,17 @@ def test_an_outer_monitor_judges_the_blocked_draft_an_inner_auto_mode_shows(
     result = run_agent(agent, mode=run_mode)
     named = check_placement_quietly(stack)
 
-    # Assert: the step that ran is the safe answer, whatever the outer monitor judged
+    # Assert: the outer monitor judged the step that ran, and its trajectory leaves the draft out
     [outer_record] = find_records(result["monitor_log"], monitor="outer")
     [inner_record] = find_records(result["monitor_log"], monitor="inner")
     [judged] = [read_action_text(rating.action) for rating in outer_monitor.ratings]
     assert read_texts(result["messages"])[-1] == f"{SAFE_ANSWER} (1)"
     assert inner_record["outcome"] == "steered"
-    assert judged.startswith(expected_judged)
+    assert judged == f"{SAFE_ANSWER} (1)"
     [part] = cast("list[dict[str, str]]", outer_record["samples"][0]["proposal"]["parts"])
-    assert part["text"].startswith(expected_judged)
+    assert part["text"] == f"{SAFE_ANSWER} (1)"
     assert outer_record["samples"][0]["executed"]
-    assert named == expected_named
+    assert named == ["inner[main]"]
 
 
 def test_an_inner_record_marks_its_sample_executed_when_the_outer_monitor_halts(
@@ -404,16 +327,11 @@ def test_an_inner_record_marks_its_sample_executed_when_the_outer_monitor_halts(
 ) -> None:
     # Arrange: a sound stack, whose outer monitor halts on the tool call the inner one allowed
     workspace = Workspace()
-    outer = MonitorMiddleware(
-        monitor=build_keyword_monitor(),
-        protocol=build_resampling(build_trusted_model(), max_resamples=0, halts=True),
+    outer = build_monitor(
+        DeferToResample(defer_threshold=THRESHOLD, audit_threshold=THRESHOLD, max_resamples=0),
         label="outer",
     )
-    inner = MonitorMiddleware(
-        monitor=KeywordMonitor(),
-        protocol=TrustedMonitoring(audit_threshold=THRESHOLD),
-        label="inner",
-    )
+    inner = build_monitor(TRUSTED_MONITORING, label="inner", monitor=KeywordMonitor())
     model = ScriptedChatModel(responses=[build_exfiltration_step()])
     agent = create_agent(model, tools=workspace.build_tools(), middleware=[outer, inner])
 
@@ -427,39 +345,6 @@ def test_an_inner_record_marks_its_sample_executed_when_the_outer_monitor_halts(
     ]
     assert records == [("inner", "allowed", [True]), ("outer", "halted", [False])]
     assert workspace.executed == []
-
-
-def test_an_auto_mode_with_one_block_in_the_thread_calls_the_model_once_per_step(
-    run_mode: RunMode,
-) -> None:
-    # Arrange: both turns start with a draft the outer monitor blocks, so the thread is at
-    # its total when the second block comes
-    inner_monitor = KeywordMonitor()
-    protocol = build_auto_mode(build_trusted_model(), max_consecutive_blocks=3, max_total_blocks=1)
-    outer = MonitorMiddleware(monitor=build_keyword_monitor(), protocol=protocol, label="outer")
-    inner = MonitorMiddleware(
-        monitor=inner_monitor, protocol=TrustedMonitoring(audit_threshold=THRESHOLD), label="inner"
-    )
-    stack = [outer, inner]
-    model = ScriptedChatModel(
-        responses=[AIMessage(UNSAFE_DRAFT), AIMessage(UNSAFE_DRAFT), AIMessage(SAFE_ANSWER)],
-        delay=DRAW_DELAY,
-    )
-    agent = create_agent(model, middleware=stack, checkpointer=InMemorySaver())
-    config = build_thread_config(f"total-one-{run_mode}")
-    run_agent(agent, mode=run_mode, config=config)
-
-    # Act
-    result = run_agent(agent, mode=run_mode, config=config, task="Go on.")
-
-    # Assert: one draw per step, each judged once and recorded once
-    inner_records = find_records(result["monitor_log"], monitor="inner")
-    outer_records = find_records(result["monitor_log"], monitor="outer")
-    assert [record["outcome"] for record in outer_records] == ["halted", "halted"]
-    assert [record["step_number"] for record in inner_records] == [1, 2]
-    assert count_recorded_samples(inner_records) == len(inner_monitor.ratings) == 2
-    assert len(model.calls) == 2
-    assert check_placement_quietly(stack) == []
 
 
 class CombinedMonitorBuilder(Protocol):
@@ -507,11 +392,12 @@ def test_one_monitor_keeping_the_higher_suspicion_rejects_what_a_cascade_lets_th
         "higher-suspicion-flagging-second": higher_suspicion(first=clearing, second=flagging),
         "cascade": CascadeMonitor(fast=flagging, careful=clearing, escalation_threshold=THRESHOLD),
     }
-    protocol = build_resampling(build_trusted_model())
-    agent = create_agent(
-        build_untrusted_model(),
-        middleware=[MonitorMiddleware(monitor=monitors[combine], protocol=protocol)],
+    monitor = MonitorMiddleware(
+        monitor=monitors[combine],
+        protocol=build_resampling(),
+        trusted_model=build_trusted_model(),
     )
+    agent = create_agent(build_untrusted_model(), middleware=[monitor])
 
     # Act
     result = run_agent(agent, mode=run_mode)
@@ -568,16 +454,8 @@ def test_a_middleware_outside_a_sound_stack_that_raises_leaves_its_records_strea
     # Arrange
     stack: list[AgentMiddleware[Any, Any, Any]] = [
         FailingAfterStepMiddleware(),
-        MonitorMiddleware(
-            monitor=KeywordMonitor(),
-            protocol=TrustedMonitoring(audit_threshold=THRESHOLD),
-            label="outer",
-        ),
-        MonitorMiddleware(
-            monitor=KeywordMonitor(),
-            protocol=TrustedMonitoring(audit_threshold=THRESHOLD),
-            label="inner",
-        ),
+        build_monitor(TRUSTED_MONITORING, label="outer", monitor=KeywordMonitor()),
+        build_monitor(TRUSTED_MONITORING, label="inner", monitor=KeywordMonitor()),
     ]
     agent = create_agent(build_untrusted_model(), middleware=stack, checkpointer=InMemorySaver())
     config = build_thread_config(f"raising-{run_mode}")

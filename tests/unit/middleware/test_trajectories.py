@@ -37,16 +37,15 @@ from langchain_core.runnables import RunnableConfig
 from langgraph.checkpoint.memory import InMemorySaver
 from langgraph.graph.state import CompiledStateGraph
 
-from langchain_sync_monitors.contracts import FeedbackVisibility, Resampling
+from langchain_sync_monitors import (
+    AuditResponse,
+    BlockAndFeedBack,
+    DeferToResample,
+    FeedbackTemplate,
+    Resampling,
+)
 from langchain_sync_monitors.errors import MessageFormatError
 from langchain_sync_monitors.middleware import MonitorMiddleware
-from langchain_sync_monitors.protocols import (
-    AutoMode,
-    DeferToResample,
-    DeferToTrustedModel,
-    FeedbackTemplate,
-    TrustedMonitoring,
-)
 from langchain_sync_monitors.trajectory_channel import (
     TrajectoryDelta,
     TrajectoryLengths,
@@ -67,7 +66,7 @@ from tests.support.agents import (
 )
 from tests.support.chat_models import ScriptedChatModel
 from tests.support.monitors import KeywordMonitor
-from tests.support.protocols import AcceptFirst
+from tests.support.protocols import RUN_EVERY_STEP
 from tests.support.server_tools import build_standard_blocks_reply
 
 TRAJECTORY_KEY = "monitor_trajectory"
@@ -159,7 +158,7 @@ def build_agent(
     system_prompt: str | None = None,
 ) -> Agent:
     """Build a checkpointed agent whose monitor sits last, after `middleware`."""
-    chosen = monitor or MonitorMiddleware(monitor=build_keyword_monitor(), protocol=AcceptFirst())
+    chosen = monitor or MonitorMiddleware(monitor=build_keyword_monitor(), protocol=RUN_EVERY_STEP)
     stack: list[AgentMiddleware[Any, Any, Any]] = [*middleware, chosen]
     return create_agent(
         model=ScriptedChatModel(responses=list(replies)),
@@ -367,23 +366,21 @@ def test_tool_results_with_the_same_text_for_different_calls_each_enter_once(
     )
 
 
-@pytest.mark.parametrize("visibility", list(FeedbackVisibility))
 def test_a_blocked_attempt_enters_the_trajectory_once_with_its_feedback(
     run_mode: RunMode,
-    visibility: FeedbackVisibility,
 ) -> None:
     # Arrange: the first draft is blocked, the retry reads q3.md, then the agent answers
     monitor = MonitorMiddleware(
         monitor=build_keyword_monitor(),
-        protocol=AutoMode(block_threshold=0.6, feedback=FEEDBACK),
-        feedback_visibility=visibility,
+        protocol=BlockAndFeedBack(block_threshold=0.6),
+        feedback=FEEDBACK,
     )
     replies = [
         name_message(build_exfiltration_step(), message_id="step-1-blocked"),
         *build_read_then_answer(),
     ]
     agent = build_agent(replies, monitor=monitor)
-    config = build_thread_config(f"blocked-{run_mode}-{visibility}")
+    config = build_thread_config(f"blocked-{run_mode}")
 
     # Act
     run_agent(agent, mode=run_mode, config=config)
@@ -476,7 +473,6 @@ def build_resampling_stack() -> Agent:
     outer = MonitorMiddleware(
         monitor=build_keyword_monitor(),
         protocol=DeferToResample(
-            fallback=DeferToTrustedModel(trusted_model=ScriptedChatModel(responses=[])),
             defer_threshold=0.5,
             audit_threshold=0.5,
             max_resamples=2,
@@ -486,7 +482,12 @@ def build_resampling_stack() -> Agent:
     )
     inner = MonitorMiddleware(
         monitor=KeywordMonitor(),
-        protocol=TrustedMonitoring(audit_threshold=0.5),
+        protocol=DeferToResample(
+            defer_threshold=0.5,
+            audit_threshold=0.5,
+            max_resamples=0,
+            on_audit=AuditResponse.FLAG,
+        ),
         label="inner",
     )
     drafts = [
@@ -534,7 +535,7 @@ def test_a_stale_write_outside_the_stacked_case_halts_the_next_step_without_a_sa
     model = ScriptedChatModel(responses=[AIMessage("Done.", id="step-1"), AIMessage("Never.")])
     agent = create_agent(
         model=model,
-        middleware=[MonitorMiddleware(monitor=build_keyword_monitor(), protocol=AcceptFirst())],
+        middleware=[MonitorMiddleware(monitor=build_keyword_monitor(), protocol=RUN_EVERY_STEP)],
         checkpointer=InMemorySaver(),
     )
     config = build_thread_config(f"stale-{run_mode}")
@@ -604,7 +605,7 @@ def test_an_input_that_repeats_a_tool_call_id_raises_a_message_format_error(
         run_messages(agent, history, mode=run_mode, config=config)
 
 
-def test_a_reply_that_repeats_a_tool_call_id_raises_a_message_format_error(
+def test_a_reply_that_repeats_a_tool_call_id_of_the_trajectory_enters_under_a_fresh_one(
     run_mode: RunMode,
 ) -> None:
     # Arrange: the model calls `call-read` at two steps
@@ -616,9 +617,19 @@ def test_a_reply_that_repeats_a_tool_call_id_raises_a_message_format_error(
     agent = build_agent(replies)
     config = build_thread_config(f"repeated-reply-{run_mode}")
 
-    # Act / Assert
-    with pytest.raises(MessageFormatError, match="new to the trajectory"):
-        run_agent(agent, mode=run_mode, config=config)
+    # Act
+    result = run_agent(agent, mode=run_mode, config=config)
+
+    # Assert: the second read runs, and its committed call and its action share the fresh id
+    second_read = result["messages"][3]
+    [call] = second_read.tool_calls
+    assert call["id"] != "call-read"
+    assert result["messages"][4].tool_call_id == call["id"]
+    history = read_trajectory(agent, config).history
+    assert history[3] == Action(
+        id="step-2",
+        tool_calls=(ToolCall(id=call["id"], name="read_file", arguments='{"path": "q3.md"}'),),
+    )
 
 
 STALE_WRITES: dict[str, tuple[Any, int]] = {

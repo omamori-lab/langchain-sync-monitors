@@ -1,48 +1,46 @@
 """How a monitored step ends: committed once decided, or reported when it fails first.
 
-`commit_step` hands the agent state the decided messages and appends the
-step's record to `monitor_log`. `report_failed_step` covers a step in which a
-call raised before the protocol decided: that step is never committed, so its
-judged samples are reported instead. Both run inside `MonitorMiddleware`'s
-model-call hooks, and both log under `langchain_sync_monitors.middleware`, the
+`build_step_response` gives the messages a decided step commits, and
+`commit_step` hands them to the agent state and appends the step's record to
+`monitor_log`. `report_failed_step` covers a step in which a call raised
+before the step was decided: that step is never committed, so its rated
+proposals are reported instead. All run inside `MonitorMiddleware`'s
+model-call hooks, and log under `langchain_sync_monitors.middleware`, the
 logger the docs give for committed and failed steps.
 """
 
 import logging
 from collections.abc import Generator, Sequence
 from contextlib import contextmanager
+from typing import assert_never
 
+from hyoshigi import Flag, Halt, Replace, Run
 from langchain.agents.middleware.types import ExtendedModelResponse, ModelResponse
-from langchain_core.messages import BaseMessage
 from langgraph.errors import GraphBubbleUp
 from langgraph.types import Command
 
 from langchain_sync_monitors._langchain import (
     MONITOR_LOG_KEY,
     AgentModelRequest,
+    AgentModelResponse,
     MonitorStepEvent,
     MonitorStepFailedEvent,
     StructuredOutput,
     TracedRun,
     write_stream_event,
 )
-from langchain_sync_monitors.contracts import (
-    ControlProtocol,
-    FeedbackVisibility,
-    SampleRecord,
-    StepDecision,
-    StepRecord,
-)
-from langchain_sync_monitors.errors import MonitorError
-from langchain_sync_monitors.feedback import build_committed_attempt_messages
+from langchain_sync_monitors.contracts import SampleRecord, StepRecord
+from langchain_sync_monitors.feedback import build_halt_message
 from langchain_sync_monitors.halts import build_halt_inputs_update
-from langchain_sync_monitors.pending_steps import MonitoredStep
-from langchain_sync_monitors.records import build_sample_record, render_value
+from langchain_sync_monitors.protocols import DEFAULT_HALT_MESSAGE
+from langchain_sync_monitors.records import build_sample_records
 from langchain_sync_monitors.spans import StepIdentity, build_step_span_inputs
+from langchain_sync_monitors.steps import Step, StepResult, find_reply_position
 from langchain_sync_monitors.subagent_returns import build_answered_update
 from langchain_sync_monitors.task_authorship import build_note_update
 from langchain_sync_monitors.trajectories import (
     LoadedTrajectory,
+    add_reply_results,
     build_trajectory_update,
     mark_committed,
 )
@@ -58,18 +56,19 @@ def render_sample_suspicions(samples: Sequence[SampleRecord]) -> str:
 
 @contextmanager
 def report_failed_step(
-    step: MonitoredStep,
+    step: Step,
     *,
     identity: StepIdentity,
     traced_step: TracedRun,
     middleware_name: str,
 ) -> Generator[None, None, None]:
-    """Report the samples judged in a step whose block raises, before the error propagates.
+    """Report the proposals rated in a step whose block raises, before the error propagates.
 
     The step is never committed, so this is the only trace of its samples:
     a `MonitorStepFailedEvent` on `stream_mode="custom"`, which holds each
-    sample and the error, and the step span's inputs, which name the first
-    sample judged. When the monitor had judged anything, a warning also
+    rated proposal of the decisions recorded in the step and of the latest
+    outcome of its protocol, and the error, and the step span's inputs, which
+    name the first sample rated. When the monitor had rated anything, a warning also
     gives the error's type and each sample's suspicion, and says the event
     holds the samples. It quotes no proposal, reason or error message,
     since any of them can hold the transcript. `identity` names the step as
@@ -82,7 +81,7 @@ def report_failed_step(
         raise
     except BaseException as error:
         step_number = identity.step_number
-        samples = [build_sample_record(sample, executed=False) for sample in step.judged_samples]
+        samples = build_sample_records([*step.decisions, *step.outcomes[-1:]], executed_id=None)
         traced_step.inputs_at_end = build_step_span_inputs(step_number=step_number, samples=samples)
         event = MonitorStepFailedEvent(
             type="monitor_step_failed",
@@ -109,65 +108,48 @@ def report_failed_step(
         raise
 
 
-def check_step_decision(decision: object, *, protocol: ControlProtocol) -> StepDecision:
-    """Return a protocol's decision once it has the shape a commit reads, else raise `MonitorError`.
+def build_step_response(result: StepResult, *, step: Step) -> AgentModelResponse:
+    """Return the messages a decided step commits, as its last decision says.
 
-    A decision must be a `StepDecision` whose `response` is a `ModelResponse`
-    that holds a list of messages. A custom protocol could return a bare
-    `AIMessage` there, which `wrap_model_call` itself accepts from a
-    middleware [@langchain2026]; the commit would then fail after streaming
-    the step's record, and report none of its judged samples. Checked inside
-    the step instead, a malformed decision fails it as any error does. The
-    error names the value by its type alone, since a protocol could return
-    the model's text, and no error message may quote the transcript.
+    Each block's reply and the feedback on it come first. A run, a flag or a
+    replace commits the draw of the action it runs, whole, with its
+    structured response, and adds what follows the reply in the draw to the
+    trajectory. A halt commits `DEFAULT_HALT_MESSAGE`.
     """
-    protocol_name = type(protocol).__name__
-    if not isinstance(decision, StepDecision):
-        message = f"{protocol_name}.decide returned {render_value(decision)}, not a StepDecision"
-        raise MonitorError(message)
-    response = decision.response
-    is_model_response = isinstance(response, ModelResponse) and isinstance(response.result, list)
-    if not is_model_response or not all(isinstance(item, BaseMessage) for item in response.result):
-        message = (
-            f"{protocol_name} decided with a response that is {render_value(response)}, "
-            "not a ModelResponse holding a list of messages: wrap the messages in "
-            "ModelResponse(result=[...])"
-        )
-        raise MonitorError(message)
-    return decision
+    match result.final:
+        case Run(action=action) | Flag(action=action) | Replace(action=action):
+            drawn = step.drawn[action.id].response
+            add_reply_results(step.trajectory, messages=drawn.result[find_reply_position(drawn) :])
+            return ModelResponse(
+                result=[*result.blocked, *drawn.result],
+                structured_response=drawn.structured_response,
+            )
+        case Halt():
+            return ModelResponse(result=[*result.blocked, build_halt_message(DEFAULT_HALT_MESSAGE)])
+        case unreachable:
+            assert_never(unreachable)
 
 
 def commit_step(
     request: AgentModelRequest,
     *,
-    decision: StepDecision,
+    response: AgentModelResponse,
     record: StepRecord,
     middleware_name: str,
-    feedback_visibility: FeedbackVisibility,
     trajectory: LoadedTrajectory,
 ) -> ExtendedModelResponse[StructuredOutput]:
-    """Commit the decided messages and append the step's record to `monitor_log`.
+    """Commit the step's messages and append the step's record to `monitor_log`.
 
     The record is also written to `stream_mode="custom"`, once the response
-    and the update are built, so a commit that fails streams no record.
-    With `FeedbackVisibility.IN_TRANSCRIPT`, each blocked attempt, its text
-    withheld, and its feedback come before the step's own messages. The
+    and the update are built, so a commit that fails streams no record. The
     untagged human messages in the state that the monitor had not seen are
-    recorded as
-    seen, so the next run does not take them for its input, and the
-    subagent halts and blocks the step answered are removed. The monitor's
+    recorded as seen, so the next run does not take them for its input, and
+    the subagent halts the step answered are removed. The monitor's
     trajectory gains what the step added to it, every committed message is
     marked seen there, and the step answers the trajectory's lost writes,
     for which it halted.
     """
-    messages = list(decision.response.result)
-    if feedback_visibility is FeedbackVisibility.IN_TRANSCRIPT:
-        messages = [*build_committed_attempt_messages(decision.blocked_attempts), *messages]
-    response = ModelResponse(
-        result=messages,
-        structured_response=decision.response.structured_response,
-    )
-    mark_committed(trajectory, committed=messages)
+    mark_committed(trajectory, committed=response.result)
     update = {
         MONITOR_LOG_KEY: [record],
         # A middleware listed after the monitor runs its `before_model` hook after the

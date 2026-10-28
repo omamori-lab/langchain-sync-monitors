@@ -194,6 +194,6 @@ shows.
 ## Related guides
 
 - [Choose a protocol](choose-a-protocol.md) to decide what happens with the decision model's verdict.
-- [Use Auto Mode](use-auto-mode.md), where the decision model's reason becomes the agent's feedback.
+- [Use Block and Feed Back](use-block-and-feed-back.md), where the decision model's reason becomes the agent's feedback.
 
 ## References

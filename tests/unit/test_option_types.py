@@ -1,13 +1,9 @@
 """Constructors and functions check the type of their options when they are called.
 
-Protocols, fallbacks, the middleware, the monitors, `DefaultThreshold`,
-`monitor_subagents`, `check_monitor_placement` and `resolve_threshold` refuse
-an option of the wrong type with `ConfigurationError`. An option a monitor
-passes to hyoshigi is refused with hyoshigi's message, raised again as the
-library's error.
-A limit given as a float, or a protocol given where a fallback belongs, used to
-build without error and fail only at the first suspicious step: with a
-`TypeError` or an `AttributeError`, during the attack the protocol exists for.
+The middleware, the monitors, the feedback template, `monitor_subagents` and
+`check_monitor_placement` refuse an option of the wrong type with
+`ConfigurationError`. An option a monitor or a protocol passes to hyoshigi is
+refused with hyoshigi's message, raised again as the library's error.
 """
 
 from __future__ import annotations
@@ -15,7 +11,6 @@ from __future__ import annotations
 import dataclasses
 import math
 import numbers
-import sys
 from collections.abc import Callable
 from dataclasses import dataclass
 from decimal import Decimal
@@ -37,6 +32,7 @@ from langchain_sync_monitors import (
     CalibratedMonitor,
     CascadeMonitor,
     DecisionMonitor,
+    DeferToResample,
     FailureResponse,
     GuardLabels,
     GuardMonitor,
@@ -44,34 +40,17 @@ from langchain_sync_monitors import (
     MonitorPrompt,
     MonitorTwins,
     RepeatedMonitor,
+    Resampling,
 )
-from langchain_sync_monitors.contracts import Resampling, SampleDrawing
 from langchain_sync_monitors.deepagents import monitor_subagents
 from langchain_sync_monitors.errors import ConfigurationError
 from langchain_sync_monitors.middleware import MonitorMiddleware
 from langchain_sync_monitors.options import describe_option_value
 from langchain_sync_monitors.placement import check_monitor_placement
-from langchain_sync_monitors.protocols import (
-    DEFAULT_FEEDBACK_TEMPLATE,
-    AutoMode,
-    DeferToResample,
-    DeferToTrusted,
-    DeferToTrustedModel,
-    FeedbackTemplate,
-    HaltRun,
-    TrustedMonitoring,
-)
-from langchain_sync_monitors.thresholds import (
-    DEFAULT_BLOCK_THRESHOLD,
-    DefaultThreshold,
-    resolve_threshold,
-)
+from langchain_sync_monitors.protocols import DEFAULT_FEEDBACK_TEMPLATE, FeedbackTemplate
 from tests.support.monitors import KeywordMonitor, ScriptedGeneration
-from tests.support.protocols import AcceptFirst
+from tests.support.protocols import RUN_EVERY_STEP
 from tests.unit.monitors.doubles import CallPath, rate_on_path
-
-WRONG_COUNTS = [2.5, 2.0, "3", True, None]
-WRONG_COUNT_IDS = ["float", "whole-float", "string", "bool", "none"]
 
 
 class ArrayInteger:
@@ -91,191 +70,6 @@ def build_trusted_model() -> FakeListChatModel:
     return FakeListChatModel(responses=["unused"])
 
 
-def build_defer_to_trusted() -> DeferToTrusted:
-    return DeferToTrusted(
-        trusted_model=build_trusted_model(),
-        defer_threshold=0.6,
-        audit_threshold=0.9,
-    )
-
-
-def build_auto_mode(**options: Any) -> AutoMode:
-    return AutoMode(block_threshold=0.6, **options)
-
-
-def build_defer_to_resample(**options: Any) -> DeferToResample:
-    settings: dict[str, Any] = {"fallback": HaltRun(), **options}
-    return DeferToResample(defer_threshold=0.6, audit_threshold=0.9, **settings)
-
-
-@pytest.mark.parametrize("value", WRONG_COUNTS, ids=WRONG_COUNT_IDS)
-@pytest.mark.parametrize("parameter_name", ["max_consecutive_blocks", "max_total_blocks"])
-def test_auto_mode_refuses_a_block_limit_that_is_not_a_whole_number(
-    parameter_name: str,
-    value: object,
-) -> None:
-    # Act / Assert
-    with pytest.raises(
-        ConfigurationError,
-        match=f"{parameter_name} must be a whole number of at least 1",
-    ):
-        build_auto_mode(**{parameter_name: value})
-
-
-@pytest.mark.parametrize("value", WRONG_COUNTS, ids=WRONG_COUNT_IDS)
-def test_defer_to_resample_refuses_a_resample_count_that_is_not_a_whole_number(
-    value: object,
-) -> None:
-    # Act / Assert
-    with pytest.raises(
-        ConfigurationError,
-        match="max_resamples must be a whole number of at least 0",
-    ):
-        build_defer_to_resample(max_resamples=value)
-
-
-@pytest.mark.parametrize(
-    ("build", "parameter", "value", "shown"),
-    [
-        pytest.param(
-            build_defer_to_resample,
-            "max_resamples",
-            sys.maxsize + 1,
-            str(sys.maxsize + 1),
-            id="max_resamples-above-sys.maxsize",
-        ),
-        pytest.param(
-            build_auto_mode,
-            "max_consecutive_blocks",
-            sys.maxsize + 1,
-            str(sys.maxsize + 1),
-            id="max_consecutive_blocks-above-sys.maxsize",
-        ),
-        pytest.param(
-            build_defer_to_resample,
-            "max_resamples",
-            10**5000,
-            "an integer too long to write out",
-            id="max_resamples-too-long-to-write-out",
-        ),
-    ],
-)
-def test_a_count_above_sys_maxsize_is_refused_without_writing_it_out(
-    build: Callable[..., object],
-    parameter: str,
-    value: int,
-    shown: str,
-) -> None:
-    # Act / Assert
-    with pytest.raises(
-        ConfigurationError,
-        match=f"{parameter} must be at most {sys.maxsize}, got {shown}",
-    ):
-        build(**{parameter: value})
-
-
-def test_the_smallest_counts_are_accepted() -> None:
-    # Act
-    auto_mode = build_auto_mode(max_consecutive_blocks=1, max_total_blocks=1)
-    defer_to_resample = build_defer_to_resample(max_resamples=0)
-
-    # Assert
-    assert (auto_mode.max_consecutive_blocks, auto_mode.max_total_blocks) == (1, 1)
-    assert defer_to_resample.max_resamples == 0
-
-
-def test_integers_that_are_not_python_ints_are_accepted_as_ints() -> None:
-    # Act
-    auto_mode = build_auto_mode(
-        max_consecutive_blocks=ArrayInteger(2),
-        max_total_blocks=ArrayInteger(5),
-    )
-    defer_to_resample = build_defer_to_resample(max_resamples=ArrayInteger(3))
-
-    # Assert
-    assert (auto_mode.max_consecutive_blocks, auto_mode.max_total_blocks) == (2, 5)
-    assert defer_to_resample.max_resamples == 3
-    assert type(auto_mode.max_consecutive_blocks) is int
-    assert type(defer_to_resample.max_resamples) is int
-
-
-def test_infinity_lifts_the_total_block_limit() -> None:
-    # Act
-    auto_mode = build_auto_mode(max_total_blocks=math.inf)
-
-    # Assert
-    assert auto_mode.max_total_blocks == math.inf
-
-
-@pytest.mark.parametrize(
-    ("options", "message"),
-    [
-        ({"max_consecutive_blocks": math.inf}, "max_consecutive_blocks must be a whole number"),
-        ({"max_total_blocks": -math.inf}, "max_total_blocks must be a whole number"),
-        ({"max_total_blocks": math.nan}, "or math.inf for no limit, got nan"),
-        ({"max_total_blocks": 0}, "max_total_blocks must be a whole number of at least 1"),
-    ],
-    ids=["consecutive-infinity", "negative-infinity", "nan", "zero"],
-)
-def test_only_the_total_block_limit_accepts_infinity(
-    options: dict[str, object],
-    message: str,
-) -> None:
-    # Act / Assert
-    with pytest.raises(ConfigurationError, match=message):
-        build_auto_mode(**options)
-
-
-def test_infinity_is_refused_as_a_resample_count() -> None:
-    # Act / Assert
-    with pytest.raises(
-        ConfigurationError, match="max_resamples must be a whole number of at least 0, got inf"
-    ):
-        build_defer_to_resample(max_resamples=math.inf)
-
-
-@pytest.mark.parametrize(
-    "value", ["halt", None, build_trusted_model()], ids=["string", "none", "model"]
-)
-def test_auto_mode_refuses_a_limit_fallback_that_is_not_a_fallback(value: object) -> None:
-    # Act / Assert
-    with pytest.raises(ConfigurationError, match="when_limit_reached must be a Fallback"):
-        build_auto_mode(when_limit_reached=value)
-
-
-def test_a_protocol_given_as_a_fallback_points_to_the_fallback_it_resembles() -> None:
-    # Arrange
-    protocol = build_defer_to_trusted()
-
-    # Act / Assert
-    with pytest.raises(
-        ConfigurationError,
-        match=r"fallback must be a Fallback, got an instance of DeferToTrusted\. DeferToTrusted "
-        r"is a control "
-        r"protocol, .* use DeferToTrustedModel\(trusted_model=\.\.\.\)",
-    ):
-        build_defer_to_resample(fallback=protocol)
-
-
-def test_a_protocol_given_as_the_limit_fallback_points_to_the_fallback_it_resembles() -> None:
-    # Act / Assert
-    with pytest.raises(ConfigurationError, match=r"use DeferToTrustedModel\(trusted_model="):
-        build_auto_mode(when_limit_reached=build_defer_to_trusted())
-
-
-def test_a_fallback_given_as_the_protocol_points_to_the_protocol_it_resembles() -> None:
-    # Arrange
-    fallback = DeferToTrustedModel(trusted_model=build_trusted_model())
-
-    # Act / Assert
-    with pytest.raises(
-        ConfigurationError,
-        match=r"protocol must be a ControlProtocol, got an instance of DeferToTrustedModel\. "
-        r"DeferToTrustedModel is a fallback, .* use DeferToTrusted\(trusted_model=\.\.\.\)",
-    ):
-        MonitorMiddleware(monitor=KeywordMonitor(), protocol=fallback)  # ty: ignore[invalid-argument-type]
-
-
 @pytest.mark.parametrize(
     ("options", "message"),
     [
@@ -283,7 +77,10 @@ def test_a_fallback_given_as_the_protocol_points_to_the_protocol_it_resembles() 
             {"monitor": "openrouter:some/monitor-model"},
             "monitor must be one of LLMMonitor, .*, got 'openrouter:some/monitor-model'",
         ),
-        ({"protocol": "auto_mode"}, "protocol must be a ControlProtocol, got 'auto_mode'"),
+        (
+            {"protocol": "auto_mode"},
+            "protocol must be one of DeferToResample, BlockAndFeedBack, got 'auto_mode'",
+        ),
     ],
     ids=["monitor", "protocol"],
 )
@@ -292,40 +89,26 @@ def test_the_middleware_refuses_a_monitor_or_protocol_of_the_wrong_type(
     message: str,
 ) -> None:
     # Arrange
-    arguments: dict[str, Any] = {"monitor": KeywordMonitor(), "protocol": AcceptFirst(), **options}
+    arguments: dict[str, Any] = {"monitor": KeywordMonitor(), "protocol": RUN_EVERY_STEP, **options}
 
     # Act / Assert
     with pytest.raises(ConfigurationError, match=message):
         MonitorMiddleware(**arguments)
 
 
-def test_auto_mode_refuses_feedback_given_as_plain_text() -> None:
+def test_the_middleware_refuses_feedback_given_as_plain_text() -> None:
     # Act / Assert
     with pytest.raises(
         ConfigurationError,
         match=r"feedback must be a FeedbackTemplate, got 'Blocked: \{reason\}'\. Wrap the text",
     ):
-        build_auto_mode(feedback="Blocked: {reason}")
+        build_middleware(feedback="Blocked: {reason}")
 
 
-@pytest.mark.parametrize(
-    ("build", "message"),
-    [
-        (lambda: FeedbackTemplate(text=42), "text must be a str, got 42"),  # ty: ignore[invalid-argument-type]
-        (lambda: HaltRun(message=None), "message must be a str, got None"),  # ty: ignore[invalid-argument-type]
-    ],
-    ids=["feedback-text", "halt-message"],
-)
-def test_a_message_that_is_not_text_is_refused(build: Any, message: str) -> None:
+def test_a_feedback_text_that_is_not_text_is_refused() -> None:
     # Act / Assert
-    with pytest.raises(ConfigurationError, match=message):
-        build()
-
-
-def test_infinity_that_is_not_a_float_is_refused_as_the_total_limit() -> None:
-    # Act / Assert
-    with pytest.raises(ConfigurationError, match="max_total_blocks must be a whole number"):
-        build_auto_mode(max_total_blocks=Decimal("Infinity"))
+    with pytest.raises(ConfigurationError, match="text must be a str, got 42"):
+        FeedbackTemplate(text=42)  # ty: ignore[invalid-argument-type]
 
 
 def test_a_foreign_type_that_shares_a_builtin_name_is_named_with_its_module() -> None:
@@ -334,29 +117,9 @@ def test_a_foreign_type_that_shares_a_builtin_name_is_named_with_its_module() ->
 
     # Act / Assert
     with pytest.raises(ConfigurationError, match=r"got an instance of numpy\.bool$"):
-        build_auto_mode(max_consecutive_blocks=foreign_bool)
+        build_middleware(flag_threshold=foreign_bool)
 
 
-def build_protocol_with_threshold(protocol: str, *, parameter_name: str, value: object) -> object:
-    thresholds: dict[str, Any] = {parameter_name: value}
-    if protocol == "trusted-monitoring":
-        return TrustedMonitoring(**thresholds)
-    if protocol == "auto-mode":
-        return AutoMode(**thresholds)
-    settings: dict[str, Any] = {"defer_threshold": 0.6, "audit_threshold": 0.9, **thresholds}
-    return DeferToResample(fallback=HaltRun(), **settings)
-
-
-THRESHOLD_PARAMETERS = [
-    pytest.param("trusted-monitoring", "audit_threshold", id="trusted-monitoring-audit"),
-    pytest.param("auto-mode", "block_threshold", id="auto-mode-block"),
-    pytest.param("defer-to-resample", "defer_threshold", id="defer-to-resample-defer"),
-    pytest.param("defer-to-resample", "audit_threshold", id="defer-to-resample-audit"),
-]
-"""Each protocol threshold: Trusted Monitoring and Defer to Resample both take `audit_threshold`."""
-
-
-@pytest.mark.parametrize(("protocol", "parameter_name"), THRESHOLD_PARAMETERS)
 @pytest.mark.parametrize(
     ("value", "message"),
     [
@@ -370,38 +133,32 @@ THRESHOLD_PARAMETERS = [
     ],
     ids=["string", "bool", "list", "nan", "above-one", "below-zero", "signalling-nan"],
 )
-def test_a_threshold_that_is_not_a_number_from_zero_to_one_is_refused(
-    protocol: str,
-    parameter_name: str,
+def test_a_flag_threshold_that_is_not_a_number_from_zero_to_one_is_refused(
     value: object,
     message: str,
 ) -> None:
     # Act / Assert
-    with pytest.raises(ConfigurationError, match=f"{parameter_name} {message}"):
-        build_protocol_with_threshold(protocol, parameter_name=parameter_name, value=value)
+    with pytest.raises(ConfigurationError, match=f"flag_threshold {message}"):
+        build_middleware(flag_threshold=value)
 
 
-@pytest.mark.parametrize(("protocol", "parameter_name"), THRESHOLD_PARAMETERS)
 @pytest.mark.parametrize(
     "value",
     [0, 1, 0.6, Fraction(3, 5), Decimal("0.6")],
     ids=["zero", "one", "float", "fraction", "decimal"],
 )
-def test_a_threshold_given_as_any_real_number_from_zero_to_one_is_kept_as_a_float(
-    protocol: str,
-    parameter_name: str,
+def test_a_flag_threshold_given_as_any_real_number_from_zero_to_one_is_kept_as_a_float(
     value: float | Fraction | Decimal,
 ) -> None:
     # Act
-    built = build_protocol_with_threshold(protocol, parameter_name=parameter_name, value=value)
+    middleware = build_middleware(flag_threshold=value)
 
     # Assert
-    threshold = getattr(built, parameter_name)
+    threshold = middleware.flag_threshold
     assert type(threshold) is float
     assert threshold == float(value)
 
 
-@pytest.mark.parametrize(("protocol", "parameter_name"), THRESHOLD_PARAMETERS)
 @pytest.mark.parametrize(
     "value",
     [
@@ -429,23 +186,22 @@ def test_a_threshold_given_as_any_real_number_from_zero_to_one_is_kept_as_a_floa
         "infinity",
     ],
 )
-def test_a_threshold_just_outside_the_range_is_refused_before_it_is_rounded(
-    protocol: str,
-    parameter_name: str,
+def test_a_flag_threshold_just_outside_the_range_is_refused_before_it_is_rounded(
     value: object,
 ) -> None:
     # Act / Assert: a float would round the first four into [0, 1]
-    with pytest.raises(ConfigurationError, match=f"{parameter_name} must be between 0 and 1"):
-        build_protocol_with_threshold(protocol, parameter_name=parameter_name, value=value)
+    with pytest.raises(ConfigurationError, match="flag_threshold must be between 0 and 1"):
+        build_middleware(flag_threshold=value)
 
 
-def test_a_negative_zero_threshold_is_read_as_zero() -> None:
+def test_a_negative_zero_flag_threshold_is_read_as_zero() -> None:
     # Act
-    protocol = TrustedMonitoring(audit_threshold=-0.0)
+    middleware = build_middleware(flag_threshold=-0.0)
 
     # Assert
-    threshold = protocol.audit_threshold
+    threshold = middleware.flag_threshold
     assert threshold == 0.0
+    assert threshold is not None
     assert math.copysign(1.0, threshold) == 1.0
 
 
@@ -466,7 +222,7 @@ def test_a_monitor_named_apart_from_its_label_and_agent_is_refused() -> None:
         ConfigurationError,
         match=r"a monitor's name must be label\[agent_name\], monitor\[main\], got 'outer'",
     ):
-        RenamedMonitorMiddleware(monitor=KeywordMonitor(), protocol=AcceptFirst())
+        RenamedMonitorMiddleware(monitor=KeywordMonitor(), protocol=RUN_EVERY_STEP)
 
 
 POLICY_PROMPT = MonitorPrompt(system="", request="{trajectory}{proposed_action}")
@@ -534,17 +290,12 @@ WORKER_SPEC = {"name": "worker", "description": "Finds.", "system_prompt": "Find
 
 
 def build_middleware(**options: Any) -> MonitorMiddleware:
-    defaults = {"monitor": KeywordMonitor(), "protocol": AcceptFirst()}
+    defaults = {"monitor": KeywordMonitor(), "protocol": RUN_EVERY_STEP}
     return MonitorMiddleware(**merge_options(defaults, options))
 
 
 def build_monitored_subagents(**options: Any) -> list[Any]:
     return monitor_subagents(**merge_options({"middleware": build_middleware()}, options))
-
-
-def build_resolved_threshold(**options: Any) -> float:
-    defaults = {"parameter_name": "audit_threshold", "threshold": 0.5}
-    return resolve_threshold(**merge_options(defaults, options))
 
 
 type Build = Callable[..., object]
@@ -609,14 +360,6 @@ REFUSAL_RULES: list[tuple[Build, str, list[object], str]] = [
     (build_monitored_subagents, "skills", ["/skills/"], "be a list of skill source paths, not"),
     (build_monitored_subagents, "skills", [5, True, b"x"], "be a list of skill source paths, got"),
     (check_monitor_placement, "middleware", ["m", b"", True, None, iter([])], "be the list given"),
-    (DefaultThreshold, "value", WRONG_THRESHOLDS, BETWEEN_ZERO_AND_ONE),
-    (build_resolved_threshold, "parameter_name", WRONG_TEXTS, "be a str, got"),
-    (
-        build_resolved_threshold,
-        "statistic",
-        ["lowest_sample_score", *WRONG_OBJECTS],
-        "be one of ThresholdStatistic.SINGLE_SAMPLE_SCORE",
-    ),
 ]
 
 
@@ -763,8 +506,6 @@ ACCEPTED_CASES: list[tuple[Build, dict[str, object], str, object]] = [
     (build_middleware, {"label": "team[a"}, "name", "team[a[main]"),
     (build_middleware, {"agent_name": "worker[v2]"}, "name", "monitor[worker[v2]]"),
     (build_middleware, {"label": "team.a", "agent_name": "sub a"}, "name", "team.a[sub a]"),
-    (DefaultThreshold, {"value": 1}, "value", 1.0),
-    (DefaultThreshold, {"value": Decimal("0.6")}, "value", 0.6),
 ]
 
 
@@ -887,18 +628,11 @@ def test_a_refusal_ends_with_a_full_stop_only_after_a_hint(
 HUGE = 10**5000
 """An integer of 5,001 digits: by default Python refuses to write out one of over 4,300."""
 HUGE_OPTIONS = {
-    "audit-threshold": lambda: TrustedMonitoring(audit_threshold=HUGE),
-    "threshold-fraction": lambda: TrustedMonitoring(
-        audit_threshold=Fraction(HUGE, 3)  # ty: ignore[invalid-argument-type]
-    ),
-    "consecutive-blocks": lambda: AutoMode(block_threshold=0.6, max_consecutive_blocks=-HUGE),
-    "total-blocks": lambda: AutoMode(block_threshold=0.6, max_total_blocks=-HUGE),
-    "resamples": lambda: DeferToResample(
-        fallback=HaltRun(), defer_threshold=0.6, audit_threshold=None, max_resamples=-HUGE
-    ),
+    "flag-threshold": lambda: build_middleware(flag_threshold=HUGE),
+    "threshold-fraction": lambda: build_middleware(flag_threshold=Fraction(HUGE, 3)),
     "enum": lambda: MonitorMiddleware(
         monitor=KeywordMonitor(),
-        protocol=AcceptFirst(),
+        protocol=RUN_EVERY_STEP,
         task_author=HUGE,  # ty: ignore[invalid-argument-type]
     ),
     "highest-score": lambda: LLMMonitor(
@@ -961,19 +695,6 @@ FULL_REFUSALS: dict[str, tuple[Build, dict[str, object], str]] = {
         {"honest_scores": []},
         "honest_scores must hold at least one score",
     ),
-    "limit-fallback": (
-        build_auto_mode,
-        {"when_limit_reached": "halt"},
-        "when_limit_reached must be a Fallback, got 'halt'. Use HaltRun() or "
-        "DeferToTrustedModel(trusted_model=...).",
-    ),
-    "protocol-as-fallback": (
-        build_defer_to_resample,
-        {"fallback": build_defer_to_trusted()},
-        "fallback must be a Fallback, got an instance of DeferToTrusted. DeferToTrusted is a "
-        "control protocol, which decides whole steps. To have the trusted model write the "
-        "step, use DeferToTrustedModel(trusted_model=...).",
-    ),
     "both-reserved-characters": (
         build_middleware,
         {"label": "team:a|b"},
@@ -1006,8 +727,6 @@ def test_a_refusal_reads_in_full(
     [
         (Resampling, "sequential", Resampling.SEQUENTIAL),
         (Resampling, "parallel", Resampling.PARALLEL),
-        (SampleDrawing, "sequential", SampleDrawing.SEQUENTIAL),
-        (SampleDrawing, "concurrent", SampleDrawing.CONCURRENT),
     ],
 )
 def test_a_string_from_configuration_converts_to_the_member_it_names(
@@ -1024,8 +743,6 @@ def test_a_string_from_configuration_converts_to_the_member_it_names(
 
 SHARED_PRESETS: dict[str, tuple[object, str]] = {
     "default-feedback": (DEFAULT_FEEDBACK_TEMPLATE, "text"),
-    "default-limit-fallback": (build_auto_mode().when_limit_reached, "message"),
-    "default-threshold": (DEFAULT_BLOCK_THRESHOLD, "value"),
 }
 
 
@@ -1043,7 +760,6 @@ def test_a_preset_every_monitor_or_protocol_shares_cannot_be_changed_in_place(
         setattr(preset, field_name, "changed")
 
 
-@pytest.mark.xfail(strict=True, reason="PR 5 refuses a trusted model no protocol asks for")
 @pytest.mark.parametrize(
     "protocol",
     [

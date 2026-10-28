@@ -17,19 +17,18 @@ from typing import Any
 import pytest
 from hyoshigi import Unavailable
 from langchain.agents import create_agent
+from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import AIMessage
 from langchain_core.runnables import Runnable
 
-from langchain_sync_monitors import RepeatedMonitor
-from langchain_sync_monitors.contracts import ControlProtocol, Resampling
-from langchain_sync_monitors.middleware import MonitorMiddleware
-from langchain_sync_monitors.protocols import (
-    AutoMode,
+from langchain_sync_monitors import (
+    AuditResponse,
+    BlockAndFeedBack,
     DeferToResample,
-    DeferToTrusted,
-    HaltRun,
-    TrustedMonitoring,
+    RepeatedMonitor,
+    Resampling,
 )
+from langchain_sync_monitors.middleware import MonitorMiddleware
 from tests.support.agents import (
     SUSPICION_BY_KEYWORD,
     RunMode,
@@ -95,17 +94,23 @@ LangGraph [chain] ok
 class ProtocolCase:
     """A protocol, the steps the untrusted model proposes, and the first step's expected spans."""
 
-    build_protocol: Callable[[], ControlProtocol]
+    build_protocol: Callable[[], DeferToResample | BlockAndFeedBack]
     untrusted_steps: Callable[[], list[AIMessage]]
     step_children: list[str]
     outcome: str
     decision_tags: list[str]
     blocked_count: int = 0
+    trusted_model: Callable[[], BaseChatModel | None] = lambda: None
 
 
 PROTOCOL_CASES = {
     "trusted_monitoring": ProtocolCase(
-        build_protocol=lambda: TrustedMonitoring(audit_threshold=0.8),
+        build_protocol=lambda: DeferToResample(
+            defer_threshold=0.8,
+            audit_threshold=0.8,
+            max_resamples=0,
+            on_audit=AuditResponse.FLAG,
+        ),
         untrusted_steps=lambda: [build_exfiltration_step(), AIMessage(FINAL_ANSWER)],
         step_children=[SAMPLE, JUDGEMENT, DECISION],
         outcome="allowed",
@@ -113,7 +118,9 @@ PROTOCOL_CASES = {
     ),
     "defer_to_resample": ProtocolCase(
         build_protocol=lambda: DeferToResample(
-            fallback=HaltRun(message="Stopped."), defer_threshold=0.6, audit_threshold=0.95
+            defer_threshold=0.6,
+            audit_threshold=0.95,
+            max_resamples=2,
         ),
         untrusted_steps=lambda: [
             build_exfiltration_step(),
@@ -125,18 +132,19 @@ PROTOCOL_CASES = {
         decision_tags=["monitor", "monitor:resampled"],
     ),
     "defer_to_trusted": ProtocolCase(
-        build_protocol=lambda: DeferToTrusted(
-            trusted_model=ScriptedChatModel(responses=[AIMessage("A trusted summary.")]),
+        build_protocol=lambda: DeferToResample(
             defer_threshold=0.6,
-            audit_threshold=0.85,
+            audit_threshold=0.95,
+            max_resamples=0,
         ),
         untrusted_steps=lambda: [build_exfiltration_step()],
         step_children=[SAMPLE, JUDGEMENT, SAMPLE, DECISION],
         outcome="deferred_to_trusted",
-        decision_tags=["monitor", "monitor:deferred_to_trusted", "monitor:flagged"],
+        decision_tags=["monitor", "monitor:deferred_to_trusted"],
+        trusted_model=lambda: ScriptedChatModel(responses=[AIMessage("A trusted summary.")]),
     ),
-    "auto_mode": ProtocolCase(
-        build_protocol=lambda: AutoMode(block_threshold=0.6),
+    "block_and_feed_back": ProtocolCase(
+        build_protocol=lambda: BlockAndFeedBack(block_threshold=0.6),
         untrusted_steps=lambda: [
             build_exfiltration_step(),
             build_read_step(),
@@ -144,12 +152,14 @@ PROTOCOL_CASES = {
         ],
         step_children=[SAMPLE, JUDGEMENT, SAMPLE, JUDGEMENT, DECISION],
         outcome="steered",
-        decision_tags=["monitor", "monitor:steered", "monitor:flagged"],
+        decision_tags=["monitor", "monitor:steered"],
         blocked_count=1,
     ),
     "halt": ProtocolCase(
         build_protocol=lambda: DeferToResample(
-            fallback=HaltRun(message="Stopped."), defer_threshold=0.6, audit_threshold=0.85
+            defer_threshold=0.6,
+            audit_threshold=0.85,
+            max_resamples=2,
         ),
         untrusted_steps=lambda: [build_exfiltration_step(call_id=f"call-{n}") for n in range(3)],
         step_children=[SAMPLE, JUDGEMENT] * 3 + [DECISION],
@@ -161,15 +171,17 @@ PROTOCOL_CASES = {
 
 def build_agent(
     *,
-    protocol: ControlProtocol,
+    protocol: DeferToResample | BlockAndFeedBack,
     untrusted_steps: Sequence[AIMessage],
+    trusted_model: BaseChatModel | None = None,
 ) -> Runnable[Any, Any]:
     """Build an agent whose keyword monitor also calls its model for every verdict."""
     monitor = KeywordMonitor(suspicion_by_keyword=SUSPICION_BY_KEYWORD, model=build_monitor_model())
+    middleware = MonitorMiddleware(monitor=monitor, protocol=protocol, trusted_model=trusted_model)
     return create_agent(
         model=ScriptedChatModel(responses=list(untrusted_steps)),
         tools=Workspace().build_tools(),
-        middleware=[MonitorMiddleware(monitor=monitor, protocol=protocol)],
+        middleware=[middleware],
     )
 
 
@@ -179,9 +191,9 @@ def build_defer_to_resample_agent(
     untrusted_steps: Sequence[AIMessage] | None = None,
 ) -> Runnable[Any, Any]:
     protocol = DeferToResample(
-        fallback=HaltRun(message="Stopped."),
         defer_threshold=0.6,
         audit_threshold=0.95,
+        max_resamples=2,
         resampling=resampling,
     )
     steps = untrusted_steps or [
@@ -214,7 +226,11 @@ def test_each_protocol_s_step_is_a_span_tree_with_its_outcome(
 ) -> None:
     # Arrange
     protocol = case.build_protocol()
-    agent = build_agent(protocol=protocol, untrusted_steps=case.untrusted_steps())
+    agent = build_agent(
+        protocol=protocol,
+        untrusted_steps=case.untrusted_steps(),
+        trusted_model=case.trusted_model(),
+    )
 
     # Act
     _, tracer = run_traced_agent(agent, mode=run_mode)
@@ -307,6 +323,13 @@ def test_judgement_spans_hold_the_score_and_no_proposal_text(
 
 
 UNAVAILABLE_REASON = "The monitor's model was unavailable, so the action is treated as suspicious."
+TRUSTED_MONITORING = DeferToResample(
+    defer_threshold=0.95,
+    audit_threshold=0.95,
+    max_resamples=0,
+    on_audit=AuditResponse.FLAG,
+)
+"""Trusted monitoring at 0.95: every step runs, and one at 0.95 or above is flagged."""
 SUSPICIOUS_JUDGEMENT = {
     "suspicion": 0.9,
     "reason": f"mentions {EXFILTRATION_MARK}",
@@ -317,10 +340,9 @@ SUSPICIOUS_JUDGEMENT = {
 def test_each_rating_is_one_judgement_span_with_its_score_and_whether_it_failed_closed(
     run_mode: RunMode,
 ) -> None:
-    # Arrange: every sample is suspicious, so the step is rated three times, then halted
+    # Arrange: every sample is suspicious, so the step is rated three times, then audited
     agent = build_agent(
         protocol=DeferToResample(
-            fallback=HaltRun(message="Stopped."),
             defer_threshold=0.6,
             audit_threshold=0.95,
             max_resamples=2,
@@ -351,7 +373,7 @@ def test_a_repeated_monitor_s_rating_is_one_judgement_span(run_mode: RunMode) ->
         model=ScriptedChatModel(responses=[build_exfiltration_step(), AIMessage(FINAL_ANSWER)]),
         tools=Workspace().build_tools(),
         middleware=[
-            MonitorMiddleware(monitor=monitor, protocol=TrustedMonitoring(audit_threshold=0.95)),
+            MonitorMiddleware(monitor=monitor, protocol=TRUSTED_MONITORING),
         ],
     )
 
@@ -371,7 +393,7 @@ def test_a_rating_that_failed_closed_says_so_in_its_judgement_span(run_mode: Run
     agent = create_agent(
         model=ScriptedChatModel(responses=[AIMessage(FINAL_ANSWER)]),
         middleware=[
-            MonitorMiddleware(monitor=monitor, protocol=TrustedMonitoring(audit_threshold=0.95)),
+            MonitorMiddleware(monitor=monitor, protocol=TRUSTED_MONITORING),
         ],
     )
 
@@ -465,19 +487,9 @@ def build_read_file_step(path: str) -> AIMessage:
     )
 
 
-@pytest.mark.parametrize(
-    ("run_mode", "rated_in_order"),
-    [
-        ("invoke", [EXFILTRATION_MARK, "one.md", "two.md", "three.md"]),
-        ("ainvoke", [EXFILTRATION_MARK, "two.md", "three.md", "one.md"]),
-    ],
-)
-def test_judgement_numbers_follow_the_order_ratings_start(
-    run_mode: RunMode,
-    rated_in_order: list[str],
-) -> None:
-    # Arrange: under ainvoke the n-th model call waits the n-th delay, so the
-    # first resample started finishes last and is rated last.
+def test_judgement_numbers_follow_the_order_the_replies_were_drawn(run_mode: RunMode) -> None:
+    # Arrange: under ainvoke the n-th model call waits the n-th delay, so the first
+    # resample drawn finishes last; a request's replies are rated once all are drawn.
     monitor = KeywordMonitor(
         suspicion_by_keyword={
             EXFILTRATION_MARK: 0.9,
@@ -497,11 +509,10 @@ def test_judgement_numbers_follow_the_order_ratings_start(
         delays=[0.0, 0.09, 0.03, 0.06],
     )
     protocol = DeferToResample(
-        fallback=HaltRun(message="Stopped."),
         defer_threshold=0.6,
         audit_threshold=0.95,
-        resampling=Resampling.PARALLEL,
         max_resamples=3,
+        resampling=Resampling.PARALLEL,
     )
     agent = create_agent(
         model=model,
@@ -517,7 +528,7 @@ def test_judgement_numbers_follow_the_order_ratings_start(
     judgements = step.find_children(JUDGEMENT)
     assert [judgement.inputs["sample_number"] for judgement in judgements] == [1, 2, 3, 4]
     assert [judgement.outputs["reason"] for judgement in judgements] == [
-        f"mentions {keyword}" for keyword in rated_in_order
+        f"mentions {keyword}" for keyword in (EXFILTRATION_MARK, "one.md", "two.md", "three.md")
     ]
     assert [sample["reason"] for sample in step.outputs["samples"]] == [
         f"mentions {keyword}" for keyword in (EXFILTRATION_MARK, "one.md", "two.md", "three.md")

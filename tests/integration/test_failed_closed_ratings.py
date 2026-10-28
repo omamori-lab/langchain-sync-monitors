@@ -1,9 +1,11 @@
 """A rating that fails closed scores 1.0, so every protocol treats the step as suspicious.
 
 A monitor whose model gives no answer, after the adapter's retries, rates the
-action 1.0 with hyoshigi's reason, and the step goes on: trusted monitoring
-lets it run flagged, defer to resample sends it to its fallback, and auto mode
-blocks it. A readable score below the threshold lets the step run as usual.
+action 1.0 with hyoshigi's reason, and the protocol answers as its
+`on_unavailable` says: trusted monitoring lets the step run flagged, defer to
+resample audits it, which halts the step, and block and feed back, told to
+block, blocks it until its limit audits the next proposal. A readable score
+below the threshold lets the step run as usual.
 """
 
 from __future__ import annotations
@@ -17,15 +19,14 @@ from langchain.agents import create_agent
 from langchain_core.messages import AIMessage
 
 from langchain_sync_monitors import (
-    AutoMode,
-    ControlProtocol,
+    AuditResponse,
+    BlockAndFeedBack,
     DeferToResample,
+    FailureResponse,
     GuardLabels,
     GuardMonitor,
-    HaltRun,
     MonitorMiddleware,
     MonitorPrompt,
-    TrustedMonitoring,
 )
 from tests.support.agents import RunMode, Workspace, build_read_step, run_agent
 from tests.support.chat_models import ScriptedChatModel
@@ -69,7 +70,7 @@ def build_guard_on_a_failing_model() -> object:
 class ProtocolCase:
     """A protocol, and what it records for a first step whose every rating failed closed."""
 
-    build_protocol: Callable[[], ControlProtocol]
+    build_protocol: Callable[[], DeferToResample | BlockAndFeedBack]
     outcome: str
     blocked_count: int
     samples: list[tuple[float, str]]
@@ -77,14 +78,18 @@ class ProtocolCase:
 
 PROTOCOL_CASES = {
     "trusted_monitoring": ProtocolCase(
-        build_protocol=lambda: TrustedMonitoring(audit_threshold=0.5),
+        build_protocol=lambda: DeferToResample(
+            defer_threshold=0.5,
+            audit_threshold=0.5,
+            max_resamples=0,
+            on_audit=AuditResponse.FLAG,
+        ),
         outcome="allowed",
         blocked_count=0,
         samples=[FAILED_SAMPLE],
     ),
     "defer_to_resample": ProtocolCase(
         build_protocol=lambda: DeferToResample(
-            fallback=HaltRun(message="Stopped."),
             defer_threshold=0.5,
             audit_threshold=0.9,
             max_resamples=0,
@@ -93,15 +98,15 @@ PROTOCOL_CASES = {
         blocked_count=0,
         samples=[FAILED_SAMPLE],
     ),
-    "auto_mode": ProtocolCase(
-        build_protocol=lambda: AutoMode(
+    "block_and_feed_back": ProtocolCase(
+        build_protocol=lambda: BlockAndFeedBack(
             block_threshold=0.5,
-            max_consecutive_blocks=2,
-            when_limit_reached=HaltRun(message="Stopped."),
+            blocks_in_a_row=2,
+            on_unavailable=FailureResponse.BLOCK,
         ),
         outcome="halted",
         blocked_count=2,
-        samples=[FAILED_SAMPLE, FAILED_SAMPLE],
+        samples=[FAILED_SAMPLE, FAILED_SAMPLE, FAILED_SAMPLE],
     ),
 }
 
@@ -163,7 +168,12 @@ def test_a_readable_score_below_the_threshold_lets_the_step_run_unflagged(
         middleware=[
             MonitorMiddleware(
                 monitor=generation.build_twins(),
-                protocol=TrustedMonitoring(audit_threshold=0.5),
+                protocol=DeferToResample(
+                    defer_threshold=0.5,
+                    audit_threshold=0.5,
+                    max_resamples=0,
+                    on_audit=AuditResponse.FLAG,
+                ),
             ),
         ],
     )

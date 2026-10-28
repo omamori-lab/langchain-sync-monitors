@@ -1,8 +1,8 @@
 """A known limit: the blocks inside a delegation that raises count only if the run is resumed.
 
-A subagent's records reach its parent's log only through the result of the
-`task` call, so a subagent whose run raises returns none. These tests pin
-where Auto Mode's thread total misses those blocks, and where it keeps them.
+A subagent's records reach its parent's log and run only through the result
+of the `task` call, so a subagent whose run raises returns none. These tests
+pin where the run's block total misses those blocks, and where it keeps them.
 """
 
 from __future__ import annotations
@@ -20,7 +20,7 @@ from langgraph.graph.state import CompiledStateGraph
 
 from langchain_sync_monitors.deepagents import monitor_subagents
 from langchain_sync_monitors.middleware import MonitorMiddleware
-from langchain_sync_monitors.protocols import AutoMode
+from langchain_sync_monitors.protocols import BlockAndFeedBack
 from tests.support.agents import (
     RunMode,
     Workspace,
@@ -79,7 +79,7 @@ def build_agent(
 ) -> CompiledStateGraph[Any, Any, Any, Any]:
     main_monitor = MonitorMiddleware(
         monitor=build_keyword_monitor(),
-        protocol=AutoMode(block_threshold=0.6, max_total_blocks=MAX_TOTAL_BLOCKS),
+        protocol=BlockAndFeedBack(block_threshold=0.6, blocks_in_total=MAX_TOTAL_BLOCKS),
     )
     worker = SubAgent(name="worker", description="Finds sources.", model=worker_model)
     stack: list[AgentMiddleware[Any, Any, Any]] = [*(middleware or []), main_monitor]
@@ -134,7 +134,7 @@ def test_blocks_inside_a_delegation_answered_with_an_error_are_not_counted(
     # Act
     result = run_agent(agent, mode=run_mode)
 
-    # Assert: the first delegation's two blocks are missing, so the thread has had four.
+    # Assert: the first delegation's two blocks are missing, so the run has had four.
     assert summarise_records(result["monitor_log"]) == [
         ("main", "allowed", 0, None),
         ("main", "allowed", 0, None),
@@ -224,7 +224,7 @@ def test_blocks_inside_a_crashed_delegation_are_not_counted_on_the_next_turn(
         config=config,
     )
 
-    # Assert: the crashed delegation's two blocks are missing, so the thread has had four.
+    # Assert: the crashed delegation's two blocks are missing, so the run has had four.
     assert summarise_records(result["monitor_log"]) == [
         ("main", "allowed", 0, None),
         ("main", "allowed", 0, None),
@@ -263,16 +263,17 @@ def test_blocks_inside_a_crashed_delegation_count_when_the_run_is_resumed(
     # Act
     result = run_payload(agent, None, mode=run_mode, config=config)
 
-    # Assert: the resumed worker counts its first two blocks and halts at the third.
+    # Assert: the resumed worker counts its first two blocks, so after the third its next
+    # proposal is audited and halted; the audit resets the total for the main agent.
     assert summarise_records(result["monitor_log"]) == [
         ("main", "allowed", 0, None),
         ("worker", "steered", 1, "call-task-1"),
         ("worker", "steered", 1, "call-task-1"),
         ("worker", "allowed", 0, "call-task-1"),
         ("worker", "halted", 1, "call-task-1"),
-        ("main", "halted", 0, None),
+        ("main", "allowed", 0, None),
     ]
-    assert len(worker_model.calls) == 6
+    assert len(worker_model.calls) == 7
 
 
 def test_steps_inside_a_failed_delegation_still_stream_as_they_are_committed(

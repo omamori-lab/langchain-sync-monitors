@@ -51,9 +51,8 @@ of its own, one of them named `read_file`, so the report tool here is called
 from deepagents import SubAgent, create_deep_agent
 
 from langchain_sync_monitors import (
-    AutoMode,
+    BlockAndFeedBack,
     DeferToResample,
-    HaltRun,
     LLMMonitor,
     MonitorMiddleware,
     SubagentHalt,
@@ -74,18 +73,15 @@ def http_post(url: str, body: str) -> str:
 llm_monitor = LLMMonitor(model="openrouter:xiaomi/mimo-v2.6-pro")
 main_monitor = MonitorMiddleware(
     monitor=llm_monitor,
-    protocol=AutoMode(block_threshold=0.6),
+    protocol=BlockAndFeedBack(block_threshold=0.6),
     # A subagent's halt stops the main agent too.
     when_subagent_halts=SubagentHalt.STOP_WHOLE_RUN,
 )
-# The publisher can post, so it halts at a lower score.
+# The publisher can post, so it resamples at a lower score, and with no trusted
+# model a step whose every sample reaches 0.4 is audited, which halts it.
 publisher_monitor = MonitorMiddleware(
     monitor=llm_monitor,
-    protocol=DeferToResample(
-        fallback=HaltRun(),
-        defer_threshold=0.4,
-        audit_threshold=0.4,
-    ),
+    protocol=DeferToResample(defer_threshold=0.4, audit_threshold=0.4, max_resamples=2),
 )
 
 analyst = SubAgent(
@@ -145,14 +141,16 @@ monitor, or its entry in `overrides`, and changes two things on the copy:
   delegated task as the parent agent's words, shown as `<delegator>`, and not
   as the user's authorisation.
 
-Every other option is copied as it is, `label`, `feedback_visibility` and
-`when_subagent_halts` included, so nested subagents behave the same way. An
+Every other option is copied as it is, `label`, `protocol`, `trusted_model`,
+`feedback`, `flag_threshold` and `when_subagent_halts` included, so nested
+subagents behave the same way. An
 override keeps its own options, and must have `middleware`'s label: each
 subagent's trajectory joins its parent's under that label, as
 [delegations](../explanation/design.md#delegations) explains, so the
 subagent's steps sit in the parent's `monitor_trajectory` under the `task`
-call, and it shares the parent's Auto Mode total. To count a subagent apart,
-monitor it as a compiled subagent with a label of its own.
+call, and its blocks count in the run's total that Block and Feed Back
+limits. To count a subagent apart, monitor it as a compiled subagent with a
+label of its own.
 
 The monitor goes after the middleware the spec already has. Deep Agents then
 places middleware of its own after it, which runs inside the monitor: prompt
@@ -225,19 +223,20 @@ own nested subagents, and an override in `overrides` keeps its own.
 [![A subagent's monitor halts it, and the halt record reaches the parent agent's monitor_log when the task returns. What happens next depends on when_subagent_halts, an option of the parent's monitor that every copy of that monitor inherits. With SubagentHalt.STOP_SUBAGENT_ONLY, the default, the parent reads the halt message as the task's result and goes on under its own monitor. With SubagentHalt.STOP_WHOLE_RUN, the parent's monitor reads the halt the task call returned and halts the parent at its next model call, without drawing a sample; that halt is flagged, and it stands as the parent's own.](../assets/diagrams/subagent-halts-light.svg#only-light)](../assets/diagrams/subagent-halts-light.svg "Open the diagram at full size")
 [![A subagent's monitor halts it, and the halt record reaches the parent agent's monitor_log when the task returns. What happens next depends on when_subagent_halts, an option of the parent's monitor that every copy of that monitor inherits. With SubagentHalt.STOP_SUBAGENT_ONLY, the default, the parent reads the halt message as the task's result and goes on under its own monitor. With SubagentHalt.STOP_WHOLE_RUN, the parent's monitor reads the halt the task call returned and halts the parent at its next model call, without drawing a sample; that halt is flagged, and it stands as the parent's own.](../assets/diagrams/subagent-halts-dark.svg#only-dark)](../assets/diagrams/subagent-halts-dark.svg "Open the diagram at full size")
 
-A subagent is halted when its protocol's fallback is `HaltRun`: Auto Mode's
-default when it reaches a block limit, or Defer to Resample's when you choose
-it. The parent's halt under `STOP_WHOLE_RUN` stands: until a later run brings
+A subagent is halted when its protocol audits a step, since no person can
+answer an audit inside the model node: Block and Feed Back's next step at a
+block limit, or Defer to Resample's step without a `trusted_model` or at its
+`audit_threshold`. The parent's halt under `STOP_WHOLE_RUN` stands: until a later run brings
 new input from the user, every further step of the parent halts without a
 sample, and two paths through middleware listed before the monitor can lift
 it early; see [A halt stands](../explanation/design.md#a-halt-stands).
 
-Auto Mode's thread total acts under either value, whether or not the
-subagent was halted. When the parent runs Auto Mode, and blocks recorded
-under the same label inside subagents since the parent's last step leave the
-thread at or over its `max_total_blocks`, the total sends the parent's next
-step to its fallback, `when_limit_reached`, without a sample. The default
-fallback halts the run.
+Block and Feed Back's total acts under either value, whether or not the
+subagent was halted. It counts the blocks of the whole run under the same
+label, in the order they were recorded, as hyoshigi replays them
+([block and feed back](https://omamori-lab.github.io/hyoshigi/explanation/control-protocols/#block-and-feed-back-follows-claude-codes-auto-mode)),
+so once a subagent's blocks bring the run to `blocks_in_total`, the parent's
+next step is drawn and audited, and so halted.
 
 ## Monitor a compiled subagent
 
@@ -251,7 +250,7 @@ from deepagents import CompiledSubAgent, create_deep_agent
 from langchain.agents import create_agent
 
 from langchain_sync_monitors import (
-    AutoMode,
+    BlockAndFeedBack,
     LLMMonitor,
     MonitorMiddleware,
     SubagentHalt,
@@ -272,7 +271,7 @@ analyst_graph = create_agent(
     middleware=[
         MonitorMiddleware(
             monitor=llm_monitor,
-            protocol=AutoMode(block_threshold=0.6),
+            protocol=BlockAndFeedBack(block_threshold=0.6),
             # Name the monitor after the subagent, and read its task as the parent's.
             agent_name="analyst",
             task_author=TaskAuthor.PARENT_AGENT,
@@ -287,7 +286,7 @@ analyst = CompiledSubAgent(
 
 main_monitor = MonitorMiddleware(
     monitor=llm_monitor,
-    protocol=AutoMode(block_threshold=0.6),
+    protocol=BlockAndFeedBack(block_threshold=0.6),
     when_subagent_halts=SubagentHalt.STOP_WHOLE_RUN,
 )
 agent = create_deep_agent(
@@ -350,7 +349,7 @@ A run in which the publisher's monitor halts it, under `STOP_WHOLE_RUN`, logs:
 
 ```text
 main 1 allowed False        the task call that delegates to the publisher
-publisher 1 halted True     every sample was suspicious, so HaltRun ended it
+publisher 1 halted True     every sample reached 0.4, so the audit halted it
 main 2 halted True          the parent stops before its next model call
 ```
 
@@ -366,14 +365,15 @@ When you read it:
 - **The parent's halt has no samples.** When `STOP_WHOLE_RUN` stops the
   parent, its record has the outcome `halted`, is flagged, and holds no
   samples, because the parent's model was never called.
-- **Auto Mode's total counts the whole thread.** `max_total_blocks` counts
-  the blocks of every agent in the thread under the same monitor label,
-  subagents and nested subagents included, and a subagent starts from the
-  thread's count, so delegating again does not reset it. Subagents that run
-  in parallel do not see each other's blocks, so together they can pass the
-  total; their parent counts every one of them at its next step. See
-  [Thresholds and limits](use-auto-mode.md#thresholds-and-limits).
-  `max_consecutive_blocks` still counts one step of one agent.
+- **Block and Feed Back's total counts the whole run.** `blocks_in_total`
+  counts the blocks of every agent in the run under the same monitor label,
+  subagents and nested subagents included, and a subagent counts from the
+  run its parent handed it, so delegating again does not reset it; an audit
+  at the total does. Subagents that run in parallel do not see each other's
+  blocks, so together they can pass the total; their parent counts every one
+  of them at its next step. See
+  [Use Block and Feed Back](use-block-and-feed-back.md).
+  `blocks_in_a_row` counts the steps of one agent alone.
 - **The parent's monitor reads subagent reports.** The default view shows the
   parent's monitor each subagent's final report as `<subagent_report>`, since
   its trajectory records each `task` call's delegation, and it judges the
@@ -385,8 +385,8 @@ When you read it:
   which yields `(namespace, event)` pairs.
 - **`monitor_delegation` is the monitor's.** The monitor hands each subagent
   a `Delegation` in the `monitor_delegation` state key: the `task` call's id,
-  the delegating agent, the thread's block counts and, by label, the run the
-  subagent's trajectory joins. The key is part of every monitored agent's
+  the delegating agent and, by label, the run the subagent's trajectory
+  joins. The key is part of every monitored agent's
   input; leave it out of yours, since a value that is not a valid
   `Delegation` raises `ConfigurationError`.
 
@@ -402,8 +402,8 @@ publisher_steps = [record for record in log if record["agent"] == "publisher"]
 - **A subagent whose run raises loses its records.** A subagent's records
   reach the parent only in the result of the `task` call that started it, so
   a subagent whose run raises returns none. Its steps, flagged ones and halts
-  included, reach the parent's `monitor_log`, and Auto Mode's thread total,
-  only if the failed run is resumed from its checkpoint with `None` as input.
+  included, reach the parent's `monitor_log`, and its blocks the run's
+  total, only if the failed run is resumed from its checkpoint with `None` as input.
   They are lost from the log if the thread goes on with new input, or if a
   `ToolRetryMiddleware` or `ToolErrorMiddleware` answers or retries the
   failed `task` call. This is how the library behaves today. To see those
@@ -429,7 +429,7 @@ publisher_steps = [record for record in log if record["agent"] == "publisher"]
 
 ## Related guides
 
-- [Use Auto Mode](use-auto-mode.md) for the thread total that subagents share.
+- [Use Block and Feed Back](use-block-and-feed-back.md) for the run's total that subagents share.
 - [Choose what the monitor reads](choose-what-the-monitor-reads.md) for delegation tools and subagent reports.
 - [Read the monitor log](read-the-monitor-log.md) for the records subagents add to the parent's log.
 

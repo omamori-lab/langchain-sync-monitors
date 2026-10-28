@@ -195,7 +195,7 @@ oversteps its task.
 ## Read the reason
 
 The verdict's reason names the guard's label and finding, never a count of
-replies, and Auto Mode shows it to the agent; the numbers stay in the
+replies, and Block and Feed Back shows it to the agent; the numbers stay in the
 suspicion, which the log records keep. [hyoshigi's guide to choosing a
 monitor](https://omamori-lab.github.io/hyoshigi/how-to/choosing-a-monitor/)
 gives its wording.
@@ -203,6 +203,6 @@ gives its wording.
 ## Related guides
 
 - [Choose a protocol](choose-a-protocol.md) to decide what happens with the guard's verdict.
-- [Use Auto Mode](use-auto-mode.md), where the guard's reason becomes the agent's feedback.
+- [Use Block and Feed Back](use-block-and-feed-back.md), where the guard's reason becomes the agent's feedback.
 
 ## References

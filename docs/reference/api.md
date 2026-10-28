@@ -6,9 +6,10 @@ heading_numbers: false
 
 This reference is generated from the docstrings of the public package, every
 name `langchain_sync_monitors` exports, grouped by what it is for. The value
-types the monitors take, such as `View` and `MonitorPrompt`, and
-`HardLabelWarning`, are hyoshigi's own objects, which the package re-exports
-under the same names, as in
+types the monitors and protocols take, such as `View`, `MonitorPrompt`,
+`Resampling`, `FailureResponse` and `AuditResponse`, and `HardLabelWarning`,
+are hyoshigi's own objects, which the package re-exports under the same
+names, as in
 [hyoshigi's API reference](https://omamori-lab.github.io/hyoshigi/reference/api/).
 
 ## Middleware
@@ -45,20 +46,11 @@ under the same names, as in
 
 ## Protocols
 
-::: langchain_sync_monitors.ControlProtocol
-    options:
-      members:
-        - decide
-
-::: langchain_sync_monitors.TrustedMonitoring
-    options:
-      members: false
-
-::: langchain_sync_monitors.DeferToTrusted
-    options:
-      members: false
-
 ::: langchain_sync_monitors.DeferToResample
+    options:
+      members: false
+
+::: langchain_sync_monitors.BlockAndFeedBack
     options:
       members: false
 
@@ -68,9 +60,19 @@ under the same names, as in
         - SEQUENTIAL
         - PARALLEL
 
-::: langchain_sync_monitors.AutoMode
+::: langchain_sync_monitors.FailureResponse
     options:
-      members: false
+      members:
+        - AUDIT
+        - BLOCK
+        - TRUSTED_STEP
+        - RUN
+
+::: langchain_sync_monitors.AuditResponse
+    options:
+      members:
+        - HOLD
+        - FLAG
 
 ::: langchain_sync_monitors.FeedbackTemplate
     options:
@@ -82,13 +84,7 @@ under the same names, as in
     options:
       members: false
 
-::: langchain_sync_monitors.FeedbackVisibility
-    options:
-      members:
-        - HIDDEN
-        - IN_TRANSCRIPT
-
-::: langchain_sync_monitors.WITHHELD_TEXT_MESSAGE
+::: langchain_sync_monitors.DEFAULT_HALT_MESSAGE
     options:
       members: false
 
@@ -98,41 +94,6 @@ under the same names, as in
         - STOP_SUBAGENT_ONLY
         - STOP_WHOLE_RUN
 
-## Fallbacks
-
-::: langchain_sync_monitors.Fallback
-    options:
-      members:
-        - take_over
-
-::: langchain_sync_monitors.HaltRun
-    options:
-      members: false
-
-::: langchain_sync_monitors.DEFAULT_HALT_MESSAGE
-    options:
-      members: false
-
-::: langchain_sync_monitors.DeferToTrustedModel
-    options:
-      members: false
-
-## Thresholds
-
-::: langchain_sync_monitors.DefaultThreshold
-    options:
-      members: false
-
-::: langchain_sync_monitors.ThresholdStatistic
-    options:
-      members:
-        - SINGLE_SAMPLE_SCORE
-        - LOWEST_SAMPLE_SCORE
-
-::: langchain_sync_monitors.resolve_threshold
-    options:
-      members: false
-
 ## Monitors
 
 ::: langchain_sync_monitors.MonitorTwins
@@ -140,12 +101,6 @@ under the same names, as in
       members:
         - monitor
         - async_monitor
-
-::: langchain_sync_monitors.Verdict
-    options:
-      members:
-        - suspicion
-        - reason
 
 ::: langchain_sync_monitors.LLMMonitor
     options:
@@ -245,45 +200,7 @@ under the same names, as in
         - USER
         - PARENT_AGENT
 
-## Pending steps and decisions
-
-::: langchain_sync_monitors.PendingStep
-    options:
-      members:
-        - sample
-        - request_trusted_step
-        - previous_records
-        - blocks_in_thread
-        - new_subagent_blocks
-
-::: langchain_sync_monitors.SampleDrawing
-    options:
-      members:
-        - SEQUENTIAL
-        - CONCURRENT
-
-::: langchain_sync_monitors.Sample
-    options:
-      members:
-        - response
-        - proposal
-        - verdict
-
-::: langchain_sync_monitors.BlockedAttempt
-    options:
-      members:
-        - proposal
-        - feedback
-
-::: langchain_sync_monitors.StepDecision
-    options:
-      members:
-        - outcome
-        - response
-        - samples
-        - executed_sample
-        - flagged
-        - blocked_attempts
+## Records and events
 
 ::: langchain_sync_monitors.Outcome
     options:
@@ -293,8 +210,6 @@ under the same names, as in
         - DEFERRED_TO_TRUSTED
         - STEERED
         - HALTED
-
-## Records and events
 
 ::: langchain_sync_monitors.StepRecord
     options:
@@ -321,7 +236,6 @@ under the same names, as in
       members:
         - tool_call_id
         - delegating_agent
-        - blocks_before
         - runs
 
 ::: langchain_sync_monitors.DelegatedRun
@@ -362,18 +276,6 @@ under the same names, as in
       members: false
 
 ::: langchain_sync_monitors.MessageFormatError
-    options:
-      members: false
-
-::: langchain_sync_monitors.SynchronousRunError
-    options:
-      members: false
-
-::: langchain_sync_monitors.InvalidSuspicionError
-    options:
-      members: false
-
-::: langchain_sync_monitors.UncalibratedThresholdWarning
     options:
       members: false
 

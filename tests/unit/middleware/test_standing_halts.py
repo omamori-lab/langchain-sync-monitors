@@ -22,14 +22,11 @@ from langgraph.checkpoint.memory import InMemorySaver
 from langgraph.graph.state import CompiledStateGraph
 from langgraph.runtime import Runtime
 
+from langchain_sync_monitors import DeferToResample
 from langchain_sync_monitors.contracts import OutcomeName, StepRecord, SubagentHalt
-from langchain_sync_monitors.halts import (
-    STANDING_HALT_MESSAGE,
-    build_standing_halt_decision,
-    is_halt_standing,
-)
+from langchain_sync_monitors.feedback import build_halt_message
+from langchain_sync_monitors.halts import STANDING_HALT_MESSAGE, is_halt_standing
 from langchain_sync_monitors.middleware import MonitorMiddleware
-from langchain_sync_monitors.protocols import DeferToResample, HaltRun
 from tests.support.agents import (
     RunMode,
     Workspace,
@@ -40,7 +37,7 @@ from tests.support.agents import (
     run_agent,
 )
 from tests.support.chat_models import ScriptedChatModel
-from tests.support.protocols import AcceptFirst
+from tests.support.protocols import RUN_EVERY_STEP
 from tests.unit.middleware.test_middleware_state import build_delegation_step, delegate
 
 REVIEWER_SOURCE = "reviewer"
@@ -155,12 +152,8 @@ class StoppingOnceMiddleware(AgentMiddleware[Any, Any, Any]):
 
 
 def build_halting_monitor(**options: Any) -> MonitorMiddleware:
-    protocol = DeferToResample(
-        fallback=HaltRun(),
-        defer_threshold=0.5,
-        audit_threshold=None,
-        max_resamples=0,
-    )
+    """Build a monitor that audits, and so halts, a suspicious step, drawing no resample."""
+    protocol = DeferToResample(defer_threshold=0.5, audit_threshold=0.5, max_resamples=0)
     return MonitorMiddleware(monitor=build_keyword_monitor(), protocol=protocol, **options)
 
 
@@ -224,7 +217,7 @@ def test_a_hook_that_returns_to_the_model_after_a_halt_meets_a_halt_again(
 
 def test_the_standing_halt_message_is_marked_as_the_monitor_s() -> None:
     # Act
-    message = build_standing_halt_decision().response.result[0].text
+    message = build_halt_message(STANDING_HALT_MESSAGE).text
 
     # Assert
     assert message == (
@@ -423,7 +416,7 @@ def test_a_parent_that_stops_the_whole_run_stays_stopped(run_mode: RunMode) -> N
     model = ScriptedChatModel(responses=[build_delegation_step(), AIMessage("never drawn")])
     monitor = MonitorMiddleware(
         monitor=build_keyword_monitor(),
-        protocol=AcceptFirst(),
+        protocol=RUN_EVERY_STEP,
         when_subagent_halts=SubagentHalt.STOP_WHOLE_RUN,
     )
     stack: list[AgentMiddleware[Any, Any, Any]] = [ReturningToModelMiddleware(returns=1), monitor]
@@ -448,7 +441,7 @@ def test_an_inner_monitor_keeps_its_halt_under_an_outer_monitor(run_mode: RunMod
     workspace = Workspace()
     model = ScriptedChatModel(responses=[build_exfiltration_step(), build_read_step()])
     outer = MonitorMiddleware(
-        monitor=build_keyword_monitor(), protocol=AcceptFirst(), label="guard"
+        monitor=build_keyword_monitor(), protocol=RUN_EVERY_STEP, label="guard"
     )
     stack: list[AgentMiddleware[Any, Any, Any]] = [
         ReturningToModelMiddleware(returns=1),

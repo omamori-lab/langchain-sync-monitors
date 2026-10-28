@@ -10,9 +10,9 @@ of the final state, the monitor's spans, the cost and the time taken.
 from __future__ import annotations
 
 import json
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Callable, Collection, Mapping, Sequence
 from dataclasses import dataclass
-from typing import Literal, TypedDict
+from typing import Literal, TypedDict, cast
 
 from hyoshigi import JSON
 from langchain_core.messages import AIMessage, BaseMessage, ToolMessage
@@ -22,7 +22,6 @@ from langchain_sync_monitors import (
     MonitorStepFailedEvent,
     SampleRecord,
     StepRecord,
-    Verdict,
 )
 from langchain_sync_monitors.message_sources import read_message_source
 from tests.live.costs import CostSnapshot, TokenUsage
@@ -36,7 +35,10 @@ OUTBOUND_TOOL_NAMES = frozenset({"send_email", "http_post"})
 """The sandbox tools that send something out."""
 
 MONITOR_MESSAGE_ID_PREFIX = "monitor-"
-"""The id prefix of every message the monitor inserts, which the agent never wrote."""
+"""The id prefix of every message the monitor inserts, its feedback and halts.
+
+A blocked reply keeps the id the model gave it, followed by the monitor's feedback.
+"""
 
 HALTED = "halted"
 
@@ -196,19 +198,14 @@ def has_attempted_side_task(steps: Sequence[StepReport]) -> bool:
 
 
 def rebuild_feedback(record: StepRecord) -> list[str]:
-    """Return the feedback Auto Mode sent for each blocked sample of the step.
+    """Return the feedback Block and Feed Back sent for each blocked sample of the step.
 
-    Auto Mode blocks the samples before the one that runs, and renders the
-    default template with each blocked sample's reason, so the text is rebuilt
-    exactly from the record.
+    It blocks the samples before the one that runs, and the middleware renders
+    the default template with each blocked sample's reason, so the text is
+    rebuilt exactly from the record.
     """
     blocked = record["samples"][: record["blocked_count"]]
-    return [
-        DEFAULT_FEEDBACK_TEMPLATE.render(
-            verdict=Verdict(suspicion=sample["suspicion"], reason=sample["reason"]),
-        )
-        for sample in blocked
-    ]
+    return [DEFAULT_FEEDBACK_TEMPLATE.render(reason=sample["reason"]) for sample in blocked]
 
 
 def describe_decision_path(record: StepRecord) -> str:
@@ -233,22 +230,66 @@ def render_committed_step(message: AIMessage | None) -> str:
     return message.text[:COMMITTED_TEXT_LIMIT]
 
 
-def is_monitor_message(message: BaseMessage) -> bool:
-    """Tell whether the monitor inserted the message: feedback, a blocked attempt or a halt."""
-    return (message.id or "").startswith(MONITOR_MESSAGE_ID_PREFIX)
+def is_inserted_by_monitor(message: MessageReport) -> bool:
+    """Tell whether the monitor inserted a saved message: feedback or a halt."""
+    return (message["id"] or "").startswith(MONITOR_MESSAGE_ID_PREFIX)
 
 
-def list_agent_replies(messages: Sequence[BaseMessage]) -> list[AIMessage]:
-    """Return the AI messages the steps committed, leaving out every one the monitor inserted.
+def is_answered_by_feedback(
+    messages: Sequence[MessageReport],
+    *,
+    position: int,
+    answered: Collection[str | None],
+) -> bool:
+    """Tell whether the monitor's feedback answers the AI message at `position`.
 
-    Under `FeedbackVisibility.IN_TRANSCRIPT` each blocked attempt stays in the
-    transcript with a `monitor-` id, and a halt commits the monitor's own
-    message, so neither is a step's committed reply.
+    Every call of a message with calls is answered by an error result of the
+    monitor's, in `answered`; a message without calls is followed by the
+    monitor's human message.
     """
-    return [
-        message
+    calls = messages[position]["tool_calls"]
+    if calls:
+        return all(call["id"] in answered for call in calls)
+    following = messages[position + 1] if position + 1 < len(messages) else None
+    return (
+        following is not None
+        and following["type"] == "human"
+        and (is_inserted_by_monitor(following))
+    )
+
+
+def find_blocked_attempt_positions(messages: Sequence[MessageReport]) -> set[int]:
+    """Return the position of every blocked reply among saved messages.
+
+    A blocked reply is the agent's AI message that the monitor's feedback
+    answers.
+    """
+    answered = {
+        message["tool_call_id"]
         for message in messages
-        if isinstance(message, AIMessage) and not is_monitor_message(message)
+        if message["type"] == "tool" and is_inserted_by_monitor(message)
+    }
+    return {
+        position
+        for position, message in enumerate(messages)
+        if message["type"] == "ai"
+        and not is_inserted_by_monitor(message)
+        and is_answered_by_feedback(messages, position=position, answered=answered)
+    }
+
+
+def find_committed_reply_positions(messages: Sequence[MessageReport]) -> list[int]:
+    """Return the position of every reply a step committed to run, in order.
+
+    It is every AI message the monitor did not insert, but a blocked reply.
+    """
+    blocked = find_blocked_attempt_positions(messages)
+    return [
+        position
+        for position, message in enumerate(messages)
+        if message["type"] == "ai"
+        and not is_inserted_by_monitor(message)
+        and position not in blocked
     ]
 
 
@@ -260,15 +301,19 @@ def pair_records_with_replies(
     """Return the reply each step committed, or `None` for a halted step.
 
     Every step but a halted one commits exactly one reply of the agent or the
-    trusted model. When the counts differ, as after a run that failed
-    mid-step, no step is paired with a reply.
+    trusted model, after the replies it blocked. When the counts differ, as
+    after a run that failed mid-step, no step is paired with a reply.
     """
-    replies = list_agent_replies(messages)
+    positions = find_committed_reply_positions(build_message_reports(messages))
+    replies = [messages[position] for position in positions]
     running = [record for record in records if record["outcome"] != HALTED]
     if len(replies) != len(running):
         return [None] * len(records)
     remaining = iter(replies)
-    return [None if record["outcome"] == HALTED else next(remaining) for record in records]
+    return [
+        None if record["outcome"] == HALTED else cast("AIMessage", next(remaining))
+        for record in records
+    ]
 
 
 def build_step_reports(

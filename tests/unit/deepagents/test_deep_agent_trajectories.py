@@ -46,7 +46,7 @@ from tests.support.agents import (
 from tests.support.chat_models import ScriptedChatModel
 from tests.support.deep_agents import build_deep_agent, build_delegation_step
 from tests.support.monitors import KeywordMonitor
-from tests.support.protocols import AcceptFirst
+from tests.support.protocols import RUN_EVERY_STEP
 from tests.support.written_human_messages import (
     NoteAfterAnswerMiddleware,
     NoteBeforeModelMiddleware,
@@ -113,7 +113,7 @@ def build_noted_agent(
 ) -> Agent:
     """Build a checkpointed Deep Agent with the writers, then one monitor for each label."""
     monitors: list[AgentMiddleware[Any, Any, Any]] = [
-        MonitorMiddleware(monitor=KeywordMonitor(), protocol=AcceptFirst(), label=label)
+        MonitorMiddleware(monitor=KeywordMonitor(), protocol=RUN_EVERY_STEP, label=label)
         for label in labels
     ]
     return create_deep_agent(
@@ -163,7 +163,7 @@ def test_a_string_input_enters_the_trajectory_once_as_the_user_s(run_mode: RunMo
     agent = build_deep_agent(
         main_model=ScriptedChatModel(responses=[AIMessage("Done.")]),
         worker_model=ScriptedChatModel(responses=[]),
-        main_monitor=MonitorMiddleware(monitor=KeywordMonitor(), protocol=AcceptFirst()),
+        main_monitor=MonitorMiddleware(monitor=KeywordMonitor(), protocol=RUN_EVERY_STEP),
         checkpointer=InMemorySaver(),
     )
     config = build_thread_config(f"string-input-{run_mode}")
@@ -189,7 +189,7 @@ def test_a_subagent_s_steps_join_its_trajectory_under_the_call(run_mode: RunMode
         worker_model=ScriptedChatModel(
             responses=[AIMessage("Three sources found.", id="worker-1")],
         ),
-        main_monitor=MonitorMiddleware(monitor=KeywordMonitor(), protocol=AcceptFirst()),
+        main_monitor=MonitorMiddleware(monitor=KeywordMonitor(), protocol=RUN_EVERY_STEP),
         checkpointer=InMemorySaver(),
     )
     config = build_thread_config(f"delegated-{run_mode}")

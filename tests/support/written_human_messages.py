@@ -337,3 +337,45 @@ class ClosingNoteMiddleware(AgentMiddleware[Any, Any, Any]):
 
     def after_agent(self, state: Any, runtime: Runtime[Any]) -> dict[str, Any] | None:
         return self.build_closing_note(state["messages"]) if self.hook == "after_agent" else None
+
+
+class NoteBeforeModelMiddleware(AgentMiddleware[Any, Any, Any]):
+    """Writes `text` once as a raw string, which Deep Agents stores without an id.
+
+    It writes before the first model call, so the step that follows reads the
+    message while it still has no id.
+    """
+
+    def __init__(self, *, text: str) -> None:
+        super().__init__()
+        self.text = text
+
+    def before_model(self, state: Any, runtime: Runtime[Any]) -> dict[str, Any] | None:
+        if any(message.text == self.text for message in state["messages"]):
+            return None
+        return {"messages": [self.text]}
+
+
+class NoteAfterAnswerMiddleware(AgentMiddleware[Any, Any, Any]):
+    """Writes `text` after each final answer, no step reading it before the run ends.
+
+    It writes a raw string, which Deep Agents stores without an id, or with
+    `message_id` a message of that id, once.
+    """
+
+    def __init__(self, *, text: str, message_id: str | None = None) -> None:
+        super().__init__()
+        self.text = text
+        self.message_id = message_id
+
+    def build_note(self) -> BaseMessage | str:
+        return HumanMessage(self.text, id=self.message_id) if self.message_id else self.text
+
+    def after_model(self, state: Any, runtime: Runtime[Any]) -> dict[str, Any] | None:
+        messages = state["messages"]
+        last = messages[-1]
+        if not isinstance(last, AIMessage) or last.tool_calls:
+            return None
+        if self.message_id and any(message.id == self.message_id for message in messages):
+            return None
+        return {"messages": [self.build_note()]}

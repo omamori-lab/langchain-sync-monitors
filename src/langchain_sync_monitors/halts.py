@@ -170,6 +170,18 @@ def has_just_halted(state: Mapping[str, object], *, monitor: str, agent: str) ->
     )
 
 
+def build_halt_end_update(
+    state: Mapping[str, object],
+    *,
+    monitor: str,
+    agent: str,
+) -> AgentStateUpdate | None:
+    """Return the update that jumps to the agent's end after this monitor's halt, else None."""
+    if has_just_halted(state, monitor=monitor, agent=agent):
+        return build_jump_to_end_update()
+    return None
+
+
 def is_halt_standing(
     previous_records: Sequence[StepRecord],
     *,

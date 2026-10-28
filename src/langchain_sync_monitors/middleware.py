@@ -64,11 +64,11 @@ from langchain_sync_monitors.context_values import set_context_value
 from langchain_sync_monitors.contracts import StepRecord, SubagentHalt, TaskAuthor
 from langchain_sync_monitors.errors import ConfigurationError
 from langchain_sync_monitors.given_ids import (
-    build_run_end_trajectories_update,
+    build_marked_run_end_update,
     build_run_start_trajectories_update,
 )
-from langchain_sync_monitors.halts import build_jump_to_end_update, has_just_halted
-from langchain_sync_monitors.message_ids import build_run_end_update, build_run_start_update
+from langchain_sync_monitors.halts import build_halt_end_update
+from langchain_sync_monitors.message_ids import build_run_start_update
 from langchain_sync_monitors.model_calls import resolve_chat_model
 from langchain_sync_monitors.monitor_state import MonitorState
 from langchain_sync_monitors.monitors import (
@@ -457,7 +457,7 @@ class MonitorMiddleware(AgentMiddleware[MonitorState, AgentContext, StructuredOu
         """Pause for a person's answer to a held step, or end a halted run, under `invoke()`."""
         held = find_held_step(state, middleware=self)
         if held is None:
-            return self.build_halt_end_update(state)
+            return build_halt_end_update(state, monitor=self.label, agent=self.agent_name)
         answered = resolve_held_step(held, state=state, runtime=runtime, middleware=self)
         trace_answer_sync(held, answered=answered, middleware=self)
         return answered.update
@@ -472,7 +472,7 @@ class MonitorMiddleware(AgentMiddleware[MonitorState, AgentContext, StructuredOu
         """Pause for a person's answer to a held step, or end a halted run, under `ainvoke()`."""
         held = find_held_step(state, middleware=self)
         if held is None:
-            return self.build_halt_end_update(state)
+            return build_halt_end_update(state, monitor=self.label, agent=self.agent_name)
         answered = resolve_held_step(held, state=state, runtime=runtime, middleware=self)
         await trace_answer(held, answered=answered, middleware=self)
         return answered.update
@@ -483,7 +483,7 @@ class MonitorMiddleware(AgentMiddleware[MonitorState, AgentContext, StructuredOu
 
         The ids it gives messages are marked as read in the monitors' trajectories.
         """
-        return self.build_run_end_update(state)
+        return build_marked_run_end_update(state, task_author=self.task_author)
 
     @override
     async def aafter_agent(  # lanorme: ignore[NAMING-011]
@@ -495,7 +495,7 @@ class MonitorMiddleware(AgentMiddleware[MonitorState, AgentContext, StructuredOu
 
         The ids it gives messages are marked as read in the monitors' trajectories.
         """
-        return self.build_run_end_update(state)
+        return build_marked_run_end_update(state, task_author=self.task_author)
 
     def send_scores(self, traced_step: TracedRun, *, step: Step, record: StepRecord) -> None:
         """Send the step's scores to the tracing tools its run is traced to."""
@@ -507,20 +507,6 @@ class MonitorMiddleware(AgentMiddleware[MonitorState, AgentContext, StructuredOu
             flag_threshold=self.flag_threshold,
             tracers=self.export_scores,
         )
-
-    def build_run_end_update(self, state: MonitorState) -> AgentStateUpdate:
-        """Return the update a run ends with: the notes tagged, the run closed, ids marked read.
-
-        A message a trajectory read under its key, and the end gives an id,
-        would otherwise be read again under that id in the next run.
-        """
-        update = build_run_end_update(state)
-        trajectories = build_run_end_trajectories_update(
-            state,
-            update=update,
-            task_author=self.task_author,
-        )
-        return {**update, **trajectories}
 
     def build_run_start_update(self, state: MonitorState, *, runtime: object) -> AgentStateUpdate:
         """Return the update a run starts with, which adds the run's input to the trajectory.
@@ -543,9 +529,3 @@ class MonitorMiddleware(AgentMiddleware[MonitorState, AgentContext, StructuredOu
             task_author=self.task_author,
         )
         return {**update, **trajectories}
-
-    def build_halt_end_update(self, state: MonitorState) -> AgentStateUpdate | None:
-        """Return the update that jumps to the agent's end after this monitor's halt, else None."""
-        if has_just_halted(state, monitor=self.label, agent=self.agent_name):
-            return build_jump_to_end_update()
-        return None

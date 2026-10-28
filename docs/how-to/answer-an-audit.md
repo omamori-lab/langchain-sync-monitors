@@ -96,7 +96,7 @@ Each answer is sent with `Command(resume={interrupt_id: answer})`.
 |---|---|---|---|
 | `{"type": "approve"}` | The held reply runs as proposed | Its tools, or the run's end for a final answer | `approved` |
 | `{"type": "edit", "edited_tool_calls": [...]}` | The held reply runs with the edited calls, one `{"name", "args"}` per held call, in order, under the held reply's id and call ids | Its tools | `edited` |
-| `{"type": "reject", "message": ...}` | Nothing runs; the agent reads `feedback` with the message, or the monitor's reason when there is none, and proposes again | The model | `rejected` |
+| `{"type": "reject", "message": ...}` | Nothing runs; the agent reads `feedback` with the message, or the monitor's reason when there is none, which a `redaction` has redacted, and proposes again | The model | `rejected` |
 | `{"type": "stop", "message": ...}` | The held reply is removed, and `DEFAULT_HALT_MESSAGE` ends the run; the message, if any, is the halt's reason | The run's end | `halted` |
 
 Each answer is recorded in the monitor's trajectory at the audit's position.

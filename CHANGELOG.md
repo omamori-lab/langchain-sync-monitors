@@ -308,7 +308,8 @@ change raises the minor version.
   in the root's trajectory and in each subagent's joined under its call. An
   audit's `samples`, a person's answer to it and the new input that stops a
   held step are redacted too, and its request shows the held `tool_calls` as
-  the model made them. A judgement span's reason, and the reasons and error of
+  the model made them. A rejection without a message gives the agent the
+  redacted explanation. A judgement span's reason, and the reasons and error of
   a `monitor_step_failed` event, pass through the text function, since they
   are built before a record exists, and that event leaves the proposals out.
   The function must return its own output unchanged: a subagent's trajectory

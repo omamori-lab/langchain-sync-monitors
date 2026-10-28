@@ -144,6 +144,23 @@ def test_an_answer_to_an_audit_is_recorded_without_the_text_the_redaction_remove
     assert SECRET not in json.dumps(result["monitor_log"])
 
 
+def test_a_rejection_without_a_message_feeds_the_agent_the_redacted_explanation(
+    run_mode: RunMode,
+    paused_post: PausedRun,
+) -> None:
+    # Act
+    result = send_audit_answer(
+        paused_post.agent,
+        paused_post.result,
+        answer={"type": "reject"},
+        mode=run_mode,
+        config=THREAD,
+    )
+
+    # Assert
+    assert result["messages"][2].text == f"[Safety monitor] Blocked: mentions {MASK}"
+
+
 def test_the_new_input_that_stops_a_held_step_is_recorded_without_the_text_the_redaction_removes(
     run_mode: RunMode,
     paused_post: PausedRun,

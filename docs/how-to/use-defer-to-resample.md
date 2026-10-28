@@ -6,8 +6,9 @@ a suspicious step and runs the least suspicious acceptable one.
 [TOC]
 
 Use it when you want to keep most of the untrusted model's work and gather
-evidence from repeated samples. Only when every sample looks suspicious does
-the trusted model write the step, or, without one, a person audit it. The
+evidence from repeated samples. A step whose every sample looks suspicious
+is written by the trusted model or, when its lowest score reaches the audit
+threshold, audited. The
 protocol comes from Ctrl-Z (section 3.2) [@bhatt2025ctrlz], and hyoshigi
 decides it: its rules are on
 [hyoshigi's page on control protocols](https://omamori-lab.github.io/hyoshigi/explanation/control-protocols/#defer-to-resample-runs-the-least-suspicious-sample)
@@ -16,10 +17,10 @@ decides it: its rules are on
 ## How it works
 
 The middleware draws each sample from the agent's model, rates it with the
-monitor, and has hyoshigi's protocol decide the step. When no sample is
-acceptable, `trusted_model` writes the step; without one, the step is audited
-instead. An audited step pauses the run for a person's answer; see [Answer an
-audit](answer-an-audit.md). `Resampling.SEQUENTIAL`, the default, and
+monitor, and has hyoshigi's protocol decide the step. When the protocol asks
+for a trusted step, `trusted_model` writes it; without one, that step is
+audited instead. An audited step pauses the run for a person's answer; see
+[Answer an audit](answer-an-audit.md). `Resampling.SEQUENTIAL`, the default, and
 `Resampling.PARALLEL` differ in how the samples are drawn
 ([Sequential or parallel](#sequential-or-parallel)).
 

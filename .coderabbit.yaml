@@ -45,7 +45,7 @@ reviews:
 
   labeling_instructions:
     - label: monitors
-      instructions: Changes to monitor classes in src/langchain_sync_monitors/monitors.py or to the trajectory a monitor reads (trajectories.py, trajectory_channel.py).
+      instructions: Changes to monitor classes in src/langchain_sync_monitors/monitors.py, to the calls they make to a chat model or a decision model (chat_model_adapter.py, log_probabilities.py, openrouter_decisions.py), or to the trajectory a monitor reads (trajectories.py, trajectory_channel.py).
     - label: protocols
       instructions: Changes to control protocols or their thresholds in src/langchain_sync_monitors/protocols.py.
     - label: middleware
@@ -329,7 +329,8 @@ reviews:
           src/langchain_sync_monitors/ that MonitorMiddleware reaches while it
           runs a step, including protocols.py and a monitor's sync and async
           twins. Fail if the tests the PR adds or changes for that behaviour
-          run it only through invoke() or only through ainvoke(), with no
+          run it only through invoke() or only through ainvoke(), or only
+          through a monitor's sync twin or only through its async twin, with no
           parametrised or paired test for the other mode. Pass if both modes
           are covered, naming the tests, or if no such behaviour changes.
       - name: "Contracts change in a PR of their own"

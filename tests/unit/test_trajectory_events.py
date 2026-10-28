@@ -1271,41 +1271,9 @@ def test_a_malformed_message_raises_naming_where_and_quoting_nothing(
     assert str(raised.value) == error
 
 
+@pytest.mark.parametrize("read", READERS.values(), ids=READERS.keys())
 @pytest.mark.parametrize(
-    ("read", "reply", "error"),
-    [
-        pytest.param(
-            READERS["history"],
-            *MALFORMED_REPLIES["reasoning-detail-without-text"],
-            id="reasoning-detail-without-text-history",
-        ),
-        pytest.param(
-            READERS["proposal"],
-            *MALFORMED_REPLIES["reasoning-detail-without-text"],
-            id="reasoning-detail-without-text-proposal",
-        ),
-        pytest.param(
-            READERS["history"],
-            *MALFORMED_REPLIES["tool-call-without-an-id"],
-            id="tool-call-without-an-id-history",
-        ),
-        pytest.param(
-            READERS["proposal"],
-            *MALFORMED_REPLIES["tool-call-without-an-id"],
-            id="tool-call-without-an-id-proposal",
-        ),
-        pytest.param(
-            READERS["history"],
-            *MALFORMED_REPLIES["server-result-without-a-call-id"],
-            id="server-result-without-a-call-id-history",
-        ),
-        pytest.param(
-            READERS["proposal"],
-            *MALFORMED_REPLIES["server-result-without-a-call-id"],
-            id="server-result-without-a-call-id-proposal",
-            marks=pytest.mark.xfail(strict=True),
-        ),
-    ],
+    ("reply", "error"), MALFORMED_REPLIES.values(), ids=MALFORMED_REPLIES.keys()
 )
 def test_a_malformed_reply_raises_the_same_error_under_either_reader(
     read: Callable[[AIMessage], list[Event]],
@@ -1320,7 +1288,6 @@ def test_a_malformed_reply_raises_the_same_error_under_either_reader(
     assert str(raised.value) == error
 
 
-@pytest.mark.xfail(strict=True)
 @pytest.mark.parametrize("read", READERS.values(), ids=READERS.keys())
 @pytest.mark.parametrize(
     ("reply", "action"),
@@ -1339,7 +1306,6 @@ def test_a_call_block_whose_call_the_message_lacks_is_opaque_under_either_reader
     assert events == [action]
 
 
-@pytest.mark.xfail(strict=True)
 @pytest.mark.parametrize("read", READERS.values(), ids=READERS.keys())
 @pytest.mark.parametrize(
     ("reply", "action"),
@@ -1358,7 +1324,6 @@ def test_reasoning_without_readable_text_is_hidden_reasoning_under_either_reader
     assert events == [action]
 
 
-@pytest.mark.xfail(strict=True)
 @pytest.mark.parametrize(
     ("reply", "history"),
     GROUNDING_HISTORIES.values(),
@@ -1375,7 +1340,6 @@ def test_any_grounding_search_is_a_call_and_the_server_s_observation(
     assert events == history
 
 
-@pytest.mark.xfail(strict=True)
 @pytest.mark.parametrize(
     ("reply", "proposed"),
     GROUNDING_PROPOSALS.values(),

@@ -10,10 +10,11 @@ Both read LangChain's standard content blocks [@langchaincore2026], so every
 provider takes one path, and follow hyoshigi's mapping [@hyoshigi2026]. Tool
 calls come from a message's `tool_calls` and `invalid_tool_calls`, not from
 its blocks: given a reply with one valid and one malformed `tool_use`,
-langchain-core 1.7.0's Anthropic translator gives the valid call for both.
-OpenRouter's `reasoning_details` are read from `additional_kwargs`, because
-the blocks hold only its `reasoning` text [@langchainopenrouter2026], and an
-encrypted detail would be lost.
+langchain-core 1.7.0's Anthropic translator gives the valid call for both. A
+call block whose call the message lacks is an opaque part, so its step fails
+closed. OpenRouter's `reasoning_details` are read from `additional_kwargs`,
+because the blocks hold only its `reasoning` text [@langchainopenrouter2026],
+and an encrypted detail would be lost.
 """
 
 from __future__ import annotations
@@ -52,7 +53,6 @@ from langchain_sync_monitors.errors import MessageFormatError
 from langchain_sync_monitors.task_authorship import UNCONFIRMED_INPUT_SOURCE
 from langchain_sync_monitors.transcript import (
     GROUNDING_METADATA_KEY,
-    GROUNDING_QUERY_KEYS,
     MONITOR_FEEDBACK_SOURCE,
     REASONING_BLOCK_TYPES,
     is_monitor_feedback,
@@ -67,6 +67,9 @@ SERVER_SOURCE = "server"
 
 SERVER_RESULT_PLACEHOLDER = OpaquePart(kind="server_tool_result")
 """What a server tool's result is in a reply the monitor rates."""
+
+HIDDEN_REASONING = OpaquePart(kind="reasoning")
+"""What reasoning the provider hid, or that holds no readable text, is in a thought."""
 
 INVALID_CALL_PLACEHOLDER = OpaquePart(kind="invalid_tool_call")
 """What a malformed tool call without an id or a name is in an action's parts."""
@@ -86,10 +89,14 @@ REASONING_DETAILS_KEY = "reasoning_details"
 ENCRYPTED_CONTENT_KEY = "encrypted_content"
 """The key of a reasoning block that holds reasoning the provider encrypted."""
 
-READ_ELSEWHERE_TYPES = frozenset(
-    {"reasoning", "tool_call", "invalid_tool_call", "server_tool_call"}
-)
+READ_ELSEWHERE_TYPES = frozenset({"reasoning", "server_tool_call"})
 """The block types an AI message's parts leave out: its thought and tool calls hold them."""
+
+TOOL_BLOCK_TYPES = frozenset({"tool_call", "invalid_tool_call", "server_tool_result"})
+"""The block types of a call, which the message's own calls hold, and of a server result."""
+
+GROUNDING_QUERY_KEYS = ("web_search_queries", "image_search_queries", "retrieval_queries")
+"""The fields of Gemini's `grounding_metadata` that hold the queries its searches ran."""
 
 TASK_AUTHORS = {TaskAuthor.USER: Author.USER, TaskAuthor.PARENT_AGENT: Author.DELEGATOR}
 """The author of an untagged human message, by who wrote the task."""
@@ -257,19 +264,17 @@ def read_reasoning_block(block: ContentBlock, *, path: str) -> tuple[Part, ...]:
 def read_reasoning(block: ReasoningContentBlock, *, path: str) -> tuple[Part, ...]:
     """Read a reasoning block: its text, then an opaque part when it carries encrypted reasoning.
 
-    A block without text or encrypted reasoning adds nothing, as hyoshigi
-    reads a reasoning item [@hyoshigi2026].
+    A block with no readable text is hidden reasoning too, recorded as an
+    opaque part. hyoshigi's Open Responses reader drops an empty reasoning item
+    instead [@hyoshigi2026].
     """
     values: Mapping[str, object] = block
-    match values:
-        case {"reasoning": str(text)}:
-            shown: tuple[Part, ...] = (TextPart(text=text),)
-        case {"reasoning": _}:
-            raise MessageFormatError(path=path, expected="a reasoning block with its text")
-        case _:
-            shown = ()
-    hidden = (OpaquePart(kind="reasoning"),) if has_encrypted_reasoning(values) else ()
-    return (*shown, *hidden)
+    text = values.get("reasoning", "")
+    if not isinstance(text, str):
+        raise MessageFormatError(path=path, expected="a reasoning block with its text")
+    if not text:
+        return (HIDDEN_REASONING,)
+    return (TextPart(text=text), *((HIDDEN_REASONING,) if has_encrypted_reasoning(values) else ()))
 
 
 def has_encrypted_reasoning(block: Mapping[str, object]) -> bool:
@@ -287,11 +292,11 @@ def has_encrypted_reasoning(block: Mapping[str, object]) -> bool:
 def read_unmapped_reasoning(block: NonStandardContentBlock) -> tuple[Part, ...]:
     """Read reasoning LangChain could not map, as in an Anthropic reply without `model_provider`.
 
-    Anthropic's thinking is text; any other reasoning, such as
-    `redacted_thinking`, is opaque.
+    Anthropic's thinking is text; empty thinking and any other reasoning, such
+    as `redacted_thinking`, is opaque.
     """
     match read_unrecognised_block_value(block):
-        case {"type": "thinking", "thinking": str(text)}:
+        case {"type": "thinking", "thinking": str(text)} if text:
             return (TextPart(text=text),)
         case {"type": str(kind)} if kind in REASONING_BLOCK_TYPES:
             return (OpaquePart(kind=kind),)
@@ -353,11 +358,32 @@ def read_agent_block(
     """Read one block of an AI message into the parts it adds."""
     if block["type"] in READ_ELSEWHERE_TYPES:
         return ()
-    if block["type"] == "server_tool_result":
-        return server_result
+    if block["type"] in TOOL_BLOCK_TYPES:
+        return read_tool_block(block, call_ids=call_ids, server_result=server_result, path=path)
     if block["type"] == "non_standard":
         return read_unmapped_agent_block(block, call_ids=call_ids)
     return (read_content_part(block, path=path),)
+
+
+def read_tool_block(
+    block: ContentBlock,
+    *,
+    call_ids: set[str],
+    server_result: tuple[Part, ...],
+    path: str,
+) -> tuple[Part, ...]:
+    """Read a server tool's result, or a call block, which is opaque unless it repeats a call.
+
+    A server tool result is checked as the history checks it, then is what
+    `server_result` makes it. A call block whose id is not among the
+    message's tool calls and malformed calls is an opaque part, so it fails
+    closed.
+    """
+    if block["type"] == "server_tool_result":
+        read_server_call_id(block, path=path)
+        return server_result
+    values: Mapping[str, object] = block
+    return () if values.get("id") in call_ids else (OpaquePart(kind=block["type"]),)
 
 
 def read_unmapped_agent_block(
@@ -452,9 +478,7 @@ def read_server_observations(message: AIMessage) -> list[ToolObservation]:
 def read_server_result(block: ContentBlock, *, path: str) -> ToolObservation:
     """Read a server tool's result into the server's observation, an error when it failed."""
     values: Mapping[str, object] = block
-    call_id = values.get("tool_call_id")
-    if not isinstance(call_id, str):
-        raise MessageFormatError(path=path, expected="a server tool result with its call id")
+    call_id = read_server_call_id(block, path=path)
     output = values.get("output")
     if output is None:
         parts: tuple[Part, ...] = ()
@@ -468,11 +492,23 @@ def read_server_result(block: ContentBlock, *, path: str) -> ToolObservation:
     )
 
 
+def read_server_call_id(block: ContentBlock, *, path: str) -> str:
+    """Return the id of the call a server tool's result answers; a result without one raises."""
+    values: Mapping[str, object] = block
+    call_id = values.get("tool_call_id")
+    if not isinstance(call_id, str):
+        raise MessageFormatError(path=path, expected="a server tool result with its call id")
+    return call_id
+
+
 def read_grounding_metadata(message: AIMessage) -> Mapping[str, object]:
     """Return the `grounding_metadata` of a Gemini reply, or nothing.
 
     langchain-google-genai keeps the searches of Gemini's grounding tools
-    there, with no server tool call block [@langchaingooglegenai2026].
+    there, with no server tool call block, only for a grounded reply, and
+    dumps every field of google-genai's `GroundingMetadata`
+    [@langchaingooglegenai2026]. So metadata that holds anything is one
+    server tool use, whatever its keys.
     """
     metadata = message.response_metadata.get(GROUNDING_METADATA_KEY)
     return metadata if isinstance(metadata, Mapping) else {}
@@ -484,11 +520,14 @@ def build_grounding_call_id(message: AIMessage) -> str:
 
 
 def read_grounding_call(message: AIMessage) -> tuple[ToolCall, ...]:
-    """Read a Gemini reply's grounding searches as one server tool call, if it ran any."""
+    """Read a Gemini reply's grounding as one server tool call when its metadata holds anything.
+
+    The arguments hold each list of queries the metadata holds, by its field.
+    """
     metadata = read_grounding_metadata(message)
-    queries = {key: metadata[key] for key in GROUNDING_QUERY_KEYS if metadata.get(key)}
-    if not queries:
+    if not metadata:
         return ()
+    queries = {key: metadata[key] for key in GROUNDING_QUERY_KEYS if metadata.get(key)}
     call = ToolCall(
         id=build_grounding_call_id(message),
         name=GROUNDING_TOOL_NAME,
@@ -498,14 +537,15 @@ def read_grounding_call(message: AIMessage) -> tuple[ToolCall, ...]:
 
 
 def read_grounding_result(message: AIMessage) -> tuple[ToolObservation, ...]:
-    """Read what a Gemini reply's grounding searches found as the server's observation.
+    """Read what a Gemini reply's grounding found as the server's observation.
 
-    The searches ran when the metadata holds queries or sources, so the
-    observation is there, without parts, even when they found nothing.
+    The observation is there whenever the grounding call is, without parts
+    when the searches found nothing.
     """
-    sources = read_grounding_metadata(message).get(GROUNDING_SOURCES_KEY)
-    if not sources and not read_grounding_call(message):
+    metadata = read_grounding_metadata(message)
+    if not metadata:
         return ()
+    sources = metadata.get(GROUNDING_SOURCES_KEY)
     parts = (TextPart(text=render_arguments(sources)),) if sources else ()
     observation = ToolObservation(
         call_id=build_grounding_call_id(message),

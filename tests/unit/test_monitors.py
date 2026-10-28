@@ -182,7 +182,8 @@ def test_a_calibrated_score_ranks_the_twins_score_among_honest_scores_read_once(
 def test_a_typesafe_decision_monitor_builds_both_twins_on_its_model(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    # Arrange: TypeSafe's clients read their key from the environment
+    # Arrange: TypeSafe's clients, from the typesafe extra, read their key from the environment
+    pytest.importorskip("typesafe_sdk")
     monkeypatch.setenv("TYPESAFE_API_KEY", "test-key")
 
     # Act
@@ -228,7 +229,8 @@ def test_an_openrouter_decision_monitor_that_perceives_media_is_a_configuration_
 def test_a_typesafe_decision_monitor_without_a_key_is_a_configuration_error(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    # Arrange
+    # Arrange: the key is read by TypeSafe's clients, from the typesafe extra
+    pytest.importorskip("typesafe_sdk")
     monkeypatch.delenv("TYPESAFE_API_KEY", raising=False)
 
     # Act

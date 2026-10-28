@@ -160,7 +160,6 @@ def test_a_task_call_starts_a_subagent_s_trajectory_under_the_call(run_mode: Run
     )
 
 
-@pytest.mark.xfail(strict=True)
 def test_a_message_a_hook_writes_without_an_id_enters_the_trajectory_once_across_runs(
     run_mode: RunMode,
 ) -> None:
@@ -186,7 +185,6 @@ def test_a_message_a_hook_writes_without_an_id_enters_the_trajectory_once_across
     )
 
 
-@pytest.mark.xfail(strict=True)
 def test_every_stacked_monitor_reads_a_hook_written_message_once_across_runs(
     run_mode: RunMode,
 ) -> None:
@@ -244,7 +242,6 @@ def test_two_hook_written_messages_with_the_same_text_each_enter_the_trajectory_
     )
 
 
-@pytest.mark.xfail(strict=True)
 def test_a_message_with_an_id_all_along_enters_beside_a_hook_written_one_with_its_text(
     run_mode: RunMode,
 ) -> None:
@@ -274,7 +271,6 @@ def test_a_message_with_an_id_all_along_enters_beside_a_hook_written_one_with_it
     )
 
 
-@pytest.mark.xfail(strict=True)
 @pytest.mark.parametrize(
     "labels",
     [("monitor",), ("outer", "inner")],
@@ -320,7 +316,6 @@ def test_a_message_read_in_a_run_that_did_not_end_enters_the_trajectory_once(
     assert histories == dict.fromkeys(labels, expected)
 
 
-@pytest.mark.xfail(strict=True)
 def test_a_string_input_with_the_text_of_an_earlier_note_enters_as_the_user_s(
     run_mode: RunMode,
 ) -> None:

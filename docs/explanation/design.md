@@ -95,7 +95,7 @@ hooks. One run passes through them in this order: `before_agent` once,
 | `wrap_model_call` | Adds what reached the agent since its last step to the trajectory, then samples, judges, decides and commits the step, with the step's events. |
 | `after_model` | Ends the run after this monitor's halt ([halts](#halts)). |
 | `wrap_tool_call` | Hands each tool call a `Delegation` ([subagents](#subagents)), tags the human messages a tool writes, drops its writes to the monitor's own keys, and checks its writes to `monitor_log` ([task authorship](#task-authorship-and-notes)). |
-| `after_agent` | Tags the notes written since the last step, and marks the run closed. |
+| `after_agent` | Tags the notes written since the last step, marks the run closed, and marks the ids it gave as read in the monitors' trajectories ([the trajectory](#the-trajectory)). |
 
 The node hooks count towards `recursion_limit` ([graph steps](#graph-steps)).
 
@@ -892,6 +892,12 @@ type and content when it has none.
 - The answer to a Deep Agents `task` call starts the subagent's trajectory
   under the call, with the call's description as its instruction
   [@deepagents2026]. The subagent's own steps stay in its own state.
+- An id the monitor gives a message after a trajectory read it under its hash
+  ([a message without an id gets one](#task-authorship-and-notes)) is marked
+  read in that trajectory, in the update that gives it. The end of a run does
+  this for every monitor that read the message. The start of a run does it
+  after a run that stopped early, since only then can a message read under its
+  hash still lack an id. The message is not read again under its new id.
 
 The key is a LangGraph `DeltaChannel`: each hook writes a delta, the entries
 beyond the lengths it loaded, a checkpoint stores the deltas, and LangGraph
@@ -1348,6 +1354,13 @@ limit is linked from where it arises above.
   answers a malformed tool call that nothing answered with an error message,
   in the model request first, without an id, then in the state under a new
   id [@langchain2026]. The trajectory reads that answer twice.
+- **Messages without an id.** An id-less message whose type and text match
+  one already read enters the trajectory once, so its text is kept and its
+  repetition is not. A message that lacks an id when Deep Agents'
+  `PatchToolCallsMiddleware` writes the history back, at the start of a run
+  after one that stopped with a tool call unanswered, gets its id from
+  LangGraph there, not from the monitor, so the trajectory reads it again under
+  that id [@deepagents2026; @langgraph2026].
 - **Ids in a history passed in.** Each action and each tool call needs an id
   of its own: a message whose action reuses an id already in the trajectory
   raises `MessageFormatError`. Anthropic's Messages API describes a tool use

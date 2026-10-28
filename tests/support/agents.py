@@ -84,7 +84,7 @@ def build_keyword_monitor() -> KeywordMonitor:
 
 
 def build_halting_monitor() -> MonitorMiddleware:
-    """Build a monitor that audits, and so halts, the first suspicious step, drawing no resample."""
+    """Build a monitor that audits the first suspicious step, drawing no resample."""
     protocol = DeferToResample(defer_threshold=0.5, audit_threshold=0.5, max_resamples=0)
     return MonitorMiddleware(monitor=build_keyword_monitor(), protocol=protocol)
 
@@ -151,6 +151,33 @@ def send_audit_answers_by_agent(
     interrupts = paused.get("__interrupt__", ())
     resume = Command(resume={item.id: answers[item.value["agent"]] for item in interrupts})
     return run_payload(agent, resume, mode=mode, config=config)
+
+
+STOP_ANSWER = {"type": "stop"}
+"""The answer that stops a step held for a person."""
+
+MAX_AUDITS = 10
+"""How many audits `run_stopping_audits` answers before it takes the run for stuck."""
+
+
+def run_stopping_audits(
+    agent: Runnable[Any, Any],
+    payload: object,
+    *,
+    mode: RunMode,
+    config: RunnableConfig,
+) -> dict[str, Any]:
+    """Run the agent, answering each audit it pauses at with a stop, until it pauses no more.
+
+    The agent needs a checkpointer, and `config` a thread id.
+    """
+    result = run_payload(agent, payload, mode=mode, config=config)
+    for _ in range(MAX_AUDITS):
+        if not result.get("__interrupt__"):
+            return result
+        result = send_audit_answer(agent, result, answer=STOP_ANSWER, mode=mode, config=config)
+    message = f"the run still paused after {MAX_AUDITS} audits were stopped"
+    raise AssertionError(message)
 
 
 def run_agent(

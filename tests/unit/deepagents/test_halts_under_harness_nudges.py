@@ -17,13 +17,16 @@ from langchain.agents import create_agent
 from langchain.agents.middleware import AgentMiddleware
 from langchain_core.messages import AIMessage, HumanMessage
 from langchain_core.tools import BaseTool, tool
+from langgraph.checkpoint.memory import InMemorySaver
 
 from tests.support.agents import (
     RunMode,
     Workspace,
     build_exfiltration_step,
     build_halting_monitor,
-    run_agent,
+    build_task_input,
+    build_thread_config,
+    run_stopping_audits,
 )
 from tests.support.chat_models import ScriptedChatModel, build_tool_call_message
 
@@ -72,10 +75,16 @@ def test_the_final_answer_guard_s_nudge_never_lifts_a_halt(
         model,
         tools=[*workspace.build_tools(), build_ticket_tool(workspace)],
         middleware=stack,
+        checkpointer=InMemorySaver(),
     )
 
     # Act
-    result = run_agent(agent, mode=run_mode)
+    result = run_stopping_audits(
+        agent,
+        build_task_input(),
+        mode=run_mode,
+        config=build_thread_config("nudged"),
+    )
 
     # Assert: the guard nudged, yet the untrusted model stayed stopped
     nudges = [

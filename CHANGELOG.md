@@ -104,8 +104,7 @@ change raises the minor version.
 - **Breaking:** a reply that holds a server tool's result, a block LangChain
   could not map, or media the monitor's model cannot perceive is rated 1.0,
   before any request; the `ServerToolWarning` says so for server tools. Such
-  a step is audited, and so halts, except under trusted monitoring, which
-  runs it flagged.
+  a step is audited, except under trusted monitoring, which runs it flagged.
 - The reason of a rating that failed closed is hyoshigi's sentence for its
   cause, such as "The monitor's model was unavailable, so the action is
   treated as suspicious."; a guard's reason reads "The guard model labelled
@@ -146,12 +145,21 @@ change raises the minor version.
   Every threshold and `max_resamples` is required. An `audit_threshold`
   below the `defer_threshold`, `audit_threshold=None` and a `math.inf` limit
   raise `ConfigurationError`, when the middleware is built.
-- **Breaking:** an audit holds a step for a person, and no person can answer
-  one inside the model node, so an audited step halts with
-  `DEFAULT_HALT_MESSAGE`. A step at or above `audit_threshold` is audited
-  rather than deferred and flagged; a trusted step without a
-  `trusted_model`, a rating that failed closed, and the proposal after a
-  block limit are audited too.
+- **Breaking:** an audit pauses the run for a person. The model call
+  commits the held reply alone, and the monitor's `after_model` hook pauses
+  the run with LangGraph's `interrupt` before any tool runs, which needs a
+  checkpointer; without one the run stops with `__interrupt__` and the
+  step writes no record. A person answers with `Command(resume=...)`, by
+  interrupt id: approve runs the held reply, edit runs the person's calls
+  under the held ids, reject feeds the reason back and the agent proposes
+  again, and stop removes the held reply and halts with
+  `DEFAULT_HALT_MESSAGE`. A malformed answer raises pydantic's
+  `ValidationError`, and the audit can be answered again. New input sent in
+  place of an answer stops the held step, and the run goes on with the
+  input. The step's record is written with the answer. A step at or above
+  `audit_threshold` is audited rather than deferred and flagged; a trusted
+  step without a `trusted_model`, a rating that failed closed, and the
+  proposal after a block limit are audited too.
 - **Breaking:** at a block limit, the next proposal is drawn and rated, then
   audited, so a limit costs one more call of the agent's model and of the
   monitor. A block total counts the blocks of the run in the monitor's
@@ -231,6 +239,16 @@ change raises the minor version.
   A halt message never enters it. The monitors rate every sample against it,
   and the protocol records each decision in it.
 - `MessageFormatError` is exported.
+- `AuditRequest`, the value of the interrupt at an audit: the held reply's
+  tool calls as the model made them, the step's rated samples and the
+  answers it takes. `AuditAnswer`, the union of `ApproveAnswer`,
+  `EditAnswer`, `RejectAnswer` and `StopAnswer`, and `EditedToolCall`.
+- `Outcome.APPROVED`, `EDITED` and `REJECTED`, the outcomes of an answered
+  audit, and `Outcome.AUDITED`, which only a held step's spans carry. The
+  held step's `monitor decision` span is tagged `monitor:audited`, and the
+  answer opens a `monitor decision` span of its own under the monitor's
+  `after_model` run, with the step's names and no `monitor_step_id`. A
+  rejection's `blocked_count` counts only the protocol's blocks.
 - `GuardMonitor(top_log_probabilities=...)`, the number of alternatives to
   each token that the guard's chat model is asked for, 0 by default. Above 0
   the monitor asks once instead of sampling, and a reply with no
@@ -287,8 +305,13 @@ change raises the minor version.
   walking a `DeltaChannel`'s chain of writes rebuilds `monitor_trajectory` as
   empty. A thread whose monitor has decided steps then raises `MonitorError`;
   one whose trajectory is kept but shorter is not checked.
-- An audit halts the step, since no person can answer one inside the model
-  node.
+- New input sent while a subagent is paused at an audit drops the paused
+  tool call, so the held call never runs and the subagent's held step leaves
+  no record.
+- A held final answer under `response_format` is committed without its
+  structured response. Approved under a provider strategy, it ends the run
+  without `structured_response`; under a tool strategy, the agent goes back
+  to the model, which answers again.
 - Each subagent receives its run's whole trajectory in `monitor_delegation`,
   so the state and the checkpoints grow with the run.
 - `MonitorMiddleware` offers no entry redaction: the trajectory keeps each
@@ -297,7 +320,7 @@ change raises the minor version.
   that first read, such as `PIIMiddleware`'s, never reaches it. hyoshigi's
   `View(redaction=...)` redacts only what a monitor's model reads.
 - A step whose reply holds a server tool's result fails closed every time,
-  so it is audited and halts, except under trusted monitoring.
+  so it is audited, except under trusted monitoring.
 - An `openrouter:` decision model reads text only, so an action that holds
   media fails closed.
 

@@ -91,10 +91,10 @@ hooks. One run passes through them in this order: `before_agent` once,
 
 | Hook | What the monitor does there |
 |---|---|
-| `before_agent` | Records the run's input ([task authorship](#task-authorship-and-notes)), and adds it to the monitor's trajectory, which must hold the agent's decided steps ([the trajectory](#the-trajectory)). |
+| `before_agent` | Records the run's input ([task authorship](#task-authorship-and-notes)), and adds it to the monitor's trajectory, which must hold the agent's decided steps ([the trajectory](#the-trajectory)). Input sent in place of an answer to an audit first stops the held step ([asking a person](#asking-a-person)). |
 | `before_model` | Tags the notes written so far, and marks the run open. |
 | `wrap_model_call` | Adds what reached the agent since its last step to the trajectory, then draws and rates the step's proposals, records each decision in the trajectory, and commits the step. |
-| `after_model` | Ends the run after this monitor's halt ([halts](#halts)). |
+| `after_model` | Pauses the run for a person's answer to a step the protocol audited, and applies the answer ([asking a person](#asking-a-person)); otherwise ends the run after this monitor's halt ([halts](#halts)). |
 | `wrap_tool_call` | Hands each tool call a `Delegation` ([subagents](#subagents)), tags the human messages a tool writes, drops its writes to the monitor's own keys, and checks its writes to `monitor_log` and `monitor_trajectory` ([task authorship](#task-authorship-and-notes), [delegations](#delegations)). |
 | `after_agent` | Tags the notes written since the last step, marks the run closed, and marks the ids it gave as read in the monitors' trajectories ([the trajectory](#the-trajectory)). |
 
@@ -127,7 +127,7 @@ does no I/O:
 - after a `Block`, show the agent its blocked reply and the feedback, and
   draw again ([block and feed back](#block-and-feed-back));
 - record each decision in the trajectory, and end on the decision that runs
-  a reply, replaces it, or audits it, which halts the step
+  a reply, replaces it, or audits it, which holds the reply for a person
   ([protocols and outcomes](#protocols-and-outcomes)).
 
 `invoke()` and `ainvoke()` answer the plan with drivers of their own
@@ -260,10 +260,10 @@ the monitor scores it. The decisions are hyoshigi's protocols'
 [@hyoshigi2026], and
 [hyoshigi's page on control protocols](https://omamori-lab.github.io/hyoshigi/explanation/control-protocols/)
 gives their rules and sources. This section gives what the library adds:
-the outcome each step is recorded with, the flag, and what an audit does
-inside the model node.
+the outcome each step is recorded with, the flag, and what becomes of an
+audited step.
 
-Each step ends in one of five outcomes, named by the last decision the
+Each step ends in one of eight outcomes, named by the last decisions the
 trajectory recorded for it:
 
 | Outcome | What the agent's state receives | The step's last decision |
@@ -272,7 +272,14 @@ trajectory recorded for it:
 | `RESAMPLED` | The least suspicious resample below the defer threshold | `Replace` with one of the agent's proposals |
 | `DEFERRED_TO_TRUSTED` | The trusted model's step, which is not rated | `Replace` with the trusted model's step |
 | `STEERED` | A step that ran after blocked ones, each blocked reply and its feedback before it | `Run` or `Flag` after a `Block` |
-| `HALTED` | A final message, and the run ends | `Halt` after an `Audit`; or none, for a [standing halt](#a-halt-stands), a [subagent's halt](#subagent-halts) or a lost write, which draw no sample |
+| `APPROVED` | The audited step as proposed, which a person approved | `Run` after an `Audit` |
+| `EDITED` | The audited step with the calls a person edited, under its own ids | `Replace` after an `Audit`, whose action is the person's edit, a trusted proposal |
+| `REJECTED` | The audited reply and the feedback on it, with the person's reason; the agent proposes again | `Block` after an `Audit` |
+| `HALTED` | A final message, and the run ends | `Halt` after an `Audit`, for a person's stop or for new input sent in place of an answer; or none, for a [standing halt](#a-halt-stands), a [subagent's halt](#subagent-halts) or a lost write, which draw no sample |
+
+A step held for a person has no record until the answer. The spans of the
+model call that held it name its outcome `AUDITED`, which `monitor_log`
+never holds.
 
 A step is flagged for a person to review when one of its decisions is a
 `Flag`, under trusted monitoring with `on_audit=AuditResponse.FLAG`; when it
@@ -283,11 +290,12 @@ samples is at or above that threshold, the statistic Ctrl-Z audits on
 not flagged unless one of these holds. The flag marks the step's record and
 its decision span, and stops nothing.
 
-An audit holds the agent's proposal for a person. No person can answer
-inside the model node ([asking a person](#asking-a-person)), so an audited
-step halts: the trajectory records the `Audit`, then a `Halt` at the same
-position whose reason says that no person can answer, and the agent's state
-receives `DEFAULT_HALT_MESSAGE` ([halts](#halts)).
+An audit holds the agent's proposal for a person. The model node commits
+the held reply alone, and the trajectory records the `Audit`; the monitor's
+`after_model` hook then pauses the run before any tool runs
+([asking a person](#asking-a-person)). The answer is recorded at the
+audit's position, since an audit adds nothing to the history;
+[Answer an audit](../how-to/answer-an-audit.md) gives the answers.
 
 Thresholds have no defaults, as in hyoshigi: each should come from the scores
 of honest runs (appendix C) [@bhatt2025ctrlz]
@@ -298,8 +306,9 @@ reviews flagged code before it is used, and a backdoor found shuts the
 untrusted model out of every later problem (sections 1 and 2.2)
 [@greenblatt2023aicontrol]; in Ctrl-Z an audited attack ends the episode
 (section 2.2) [@bhatt2025ctrlz]. Their safety figures for an audit budget
-rest on that. Here an audit ends the run whether or not the step was an
-attack, and a flag stops nothing, so those figures do not carry over.
+rest on that. Here a person's answer decides the held step alone: a stop
+ends the run until new input lifts the halt, and a flag stops nothing, so
+those figures do not carry over.
 
 Three rules here are the library's own, and none of the sources it cites
 states them: a flag on every halted step; a halt that stands until new run
@@ -369,7 +378,7 @@ default is `DEFAULT_FEEDBACK_TEMPLATE`:
 The blocks in total are the run's: a subagent's trajectory joins its
 parent's run ([delegations](#delegations)), and the records of every agent
 in it count in the order they were recorded. At a limit, the next proposal is
-drawn and audited, so it halts. Crashed and parallel subagents escape the
+drawn and audited, for a person to answer. Crashed and parallel subagents escape the
 count ([subagents and the block total](#subagents-and-the-block-total)).
 Every feedback message gets a fresh id, `monitor-<uuid4>`, because LangGraph
 replaces messages that share an id. The default feedback and halt texts say
@@ -605,7 +614,11 @@ or the application answers an interrupt with new input rather than a resume.
 The agent can bring such a stop about itself, for example with a step too
 large for the monitor's context. Messages written after the monitor's last look
 may then sit in the state unseen, and the monitor cannot tell them from new
-input. A fork from a checkpoint inside a run is in the same position.
+input. A fork from a checkpoint inside a run is in the same position. A run
+paused at this monitor's own audit is not: the monitor saw every message
+before the pause, so new input sent in place of an answer stops the held
+step, and the paused run counts as ended at the audit
+([asking a person](#asking-a-person)).
 
 So a private flag, `monitor_run_open`, is set when a run and each of its
 steps start, and cleared when the run reaches the monitor's `after_agent`
@@ -626,7 +639,7 @@ monitor reads it only under a view that holds `Channel.CONTEXT`.
 ## Halts
 
 A halted step ends the run with a final message that has no tool calls. An
-audited step halts with `DEFAULT_HALT_MESSAGE`:
+audited step that a person stops halts with `DEFAULT_HALT_MESSAGE`:
 
 > [Safety monitor] This run was stopped because the agent's proposed steps
 > looked unsafe. The rejected steps are recorded in monitor_log for review.
@@ -703,13 +716,24 @@ tools end the run leaves the halt to the next run
 
 Nothing inside the model node may escalate to a person by calling LangGraph's
 `interrupt()`, a monitor included. On resume LangGraph runs the whole node
-again [@langgraph2026], so the step is drawn afresh, and the person's answer
-applies to steps they never saw. So an audit, which holds a step for a
-person, halts it ([protocols and outcomes](#protocols-and-outcomes)), and a
-person can be asked only outside the model node, as
-`HumanInTheLoopMiddleware` does for tool calls. The middleware lets
-LangGraph's control flow, such as the `GraphInterrupt` that `interrupt()`
-raises, pass without reporting a failed step.
+again [@langgraph2026], so the step would be drawn afresh, and the person's
+answer would apply to steps they never saw. So the model node commits an
+audited step's held reply alone, and the monitor's `after_model` hook pauses
+the run with `interrupt()` before any tool runs, as
+`HumanInTheLoopMiddleware` does for tool calls [@langchain2026]. On resume only that hook runs again, and it applies the
+person's answer to the reply they saw. Each answer is checked against a
+schema built for its audit inside `interrupt()`, so a malformed one is never
+kept and can be given again; [Answer an audit](../how-to/answer-an-audit.md)
+gives the request, the answers and what each one commits. The middleware
+lets LangGraph's control flow, such as the `GraphInterrupt` that
+`interrupt()` raises, pass without reporting a failed step.
+
+New input sent to a paused thread in place of an answer stops the held step,
+in the monitor's `before_agent` hook: the trajectory records a `Halt` at the
+audit's position, the held reply and every tool message answering its calls
+are removed, those Deep Agents' `PatchToolCallsMiddleware` adds included
+[@deepagents2026], and the new input is read as the run's own, so it lifts
+that halt ([a halt stands](#a-halt-stands)).
 
 ## Subagents
 
@@ -824,7 +848,8 @@ Records pass through checkpointers, so they hold plain values only: strings,
 numbers, booleans, `None`, lists and `TypedDict`s, with the outcome stored as
 a string. A `StepRecord` names the agent and the monitor's label, numbers the
 step, gives the outcome, whether the step was flagged and how many proposals
-were blocked, and lists a `SampleRecord` for every proposal of the agent's
+the protocol blocked, a person's rejection being the outcome rather than a
+block, and lists a `SampleRecord` for every proposal of the agent's
 model the decisions weighed, once each, in the order rated: its suspicion,
 the monitor's reason, the proposal, and whether it ran. The trusted model's
 step is not rated, so it has no sample. The proposal is the action
@@ -832,8 +857,8 @@ the monitor rated, as hyoshigi stores an action in a trajectory: its thought,
 its parts and its tool calls, whatever the monitor read, with each server
 tool result as a placeholder [@hyoshigi2026]. A subagent's records also carry
 `delegation_id`. Records reach `monitor_log` in the order they reach the
-state: an agent's own as each step is committed, and a subagent's together
-when its task returns. The suspicion is stored as a `float`, even when a
+state: an agent's own as each step is committed, an audited step's when the
+person answers, and a subagent's together when its task returns. The suspicion is stored as a `float`, even when a
 monitor gives a number of another type, such as numpy's.
 
 ### Private state keys
@@ -897,7 +922,8 @@ hold the text as first read
   each server tool result in it a placeholder; the results follow, then the
   messages after the reply in its draw, such as the tool message of
   tool-strategy structured output. An audit and a halt add the record only
-  ([hyoshigi's protocols](https://omamori-lab.github.io/hyoshigi/explanation/control-protocols/)).
+  ([hyoshigi's protocols](https://omamori-lab.github.io/hyoshigi/explanation/control-protocols/)),
+  and a person's answer to an audit is recorded at the audit's position.
 - A reply whose id, or a call's id, the run already holds, as a cached or
   scripted model's or a retry after a block can give, is read under fresh
   `uuid4` ids, and so is each call after the first that shares an id with
@@ -1003,7 +1029,11 @@ run id, and, inside a subagent that a monitored agent started,
 span carries them and the tag `monitor`. A span's tags are fixed when it
 starts, and the step span starts before its samples, so the outcome goes on
 the decision span, tagged `monitor:<outcome>`, and `monitor:flagged` when the
-step is flagged. The spans below the step span carry
+step is flagged. The decision span of a step held for a person is tagged
+`monitor:audited`; the person's answer opens a decision span of its own
+under the run of the monitor's `after_model` hook, tagged with the step's
+outcome, whose metadata names the step but holds no `monitor_step_id`, since
+the step span belongs to the model call that held the step. The spans below the step span carry
 `ls_agent_type: "middleware"`, and the monitors' own model calls carry
 `ls_message_view_exclude`, which keep them out of LangSmith's Trajectory view
 [@langsmith2026trajectory]. The spans add no tag or metadata to the LangChain
@@ -1286,9 +1316,16 @@ limit is linked from where it arises above.
   other it loses or duplicates records, and an outer monitor's trajectory
   leaves out the blocked replies of a monitor inside it
   ([two monitors in one agent](#two-monitors-in-one-agent)).
-- **An audit halts.** No person can answer an audit inside the model node,
-  so an audited step halts the run, the honest step a person would have
-  approved included ([protocols and outcomes](#protocols-and-outcomes)).
+- **An audit needs a checkpointer.** Without one, the run stops at the
+  pause with the `AuditRequest` as `__interrupt__`, cannot be resumed, and
+  the held step leaves no record ([asking a person](#asking-a-person)).
+- **New input while a subagent is paused.** LangGraph drops the paused
+  `task` call, so the subagent's held call never runs and its held step
+  leaves no `StepRecord`.
+- **A held final answer under `response_format`.** The held reply is
+  committed without its structured response. Approved under a provider
+  strategy, it ends the run without `structured_response`; under a tool
+  strategy, the agent goes back to the model, which answers again.
 - **Resampling as a best-of-n attack.** An injection aimed at the monitor
   gets another try with every sample, so defer to resample turns it into a
   best-of-n attack (sections 4.2 and 6) [@terekhov2025adaptive]. An

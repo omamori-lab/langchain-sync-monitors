@@ -16,6 +16,7 @@ from deepagents import CompiledSubAgent, SubAgent, create_deep_agent
 from langchain.agents import create_agent
 from langchain_core.messages import AIMessage, ToolMessage
 from langchain_core.tools import BaseTool, InjectedToolCallId, tool
+from langgraph.checkpoint.memory import InMemorySaver
 from langgraph.errors import ParentCommand
 from langgraph.graph.state import CompiledStateGraph
 from langgraph.types import Command, Overwrite
@@ -30,7 +31,9 @@ from tests.support.agents import (
     build_exfiltration_step,
     build_keyword_monitor,
     build_read_step,
-    run_agent,
+    build_task_input,
+    build_thread_config,
+    run_stopping_audits,
 )
 from tests.support.chat_models import ScriptedChatModel, build_tool_call_message
 from tests.support.deep_agents import build_delegation_step
@@ -92,13 +95,19 @@ def test_a_subagent_s_tool_cannot_erase_the_parent_s_log_through_the_parent_grap
         tools=workspace.build_tools(),
         middleware=[main_monitor],
         subagents=monitor_subagents(middleware=main_monitor, subagents=[worker]),
+        checkpointer=InMemorySaver(),
     )
 
     # Act
-    result = run_agent(agent, mode=run_mode)
+    result = run_stopping_audits(
+        agent,
+        build_task_input(),
+        mode=run_mode,
+        config=build_thread_config("erasing"),
+    )
 
     # Assert: the log keeps the first block's step, and after the second block the next
-    # proposal is audited, so the run halts
+    # proposal is audited, and stopped, so the run halts
     rows = [
         (record["agent"], record["outcome"], record["blocked_count"])
         for record in result["monitor_log"]
@@ -110,7 +119,8 @@ def test_a_subagent_s_tool_cannot_erase_the_parent_s_log_through_the_parent_grap
 def build_same_named_levels() -> CompiledStateGraph[Any, Any, Any, Any]:
     """Build root, middle and inner, each monitored at the default `agent_name="main"`.
 
-    inner halts; middle carries on; root stops the whole run.
+    inner's audit is stopped; middle carries on; root stops the whole run. Root
+    keeps a checkpointer, which the levels below share, so the audit can pause.
     """
     inner = create_agent(
         ScriptedChatModel(responses=[AIMessage("Inner step.")]),
@@ -153,6 +163,7 @@ def build_same_named_levels() -> CompiledStateGraph[Any, Any, Any, Any]:
             ),
         ],
         subagents=[CompiledSubAgent(name="middle", description="Delegates.", runnable=middle)],
+        checkpointer=InMemorySaver(),
     )
 
 
@@ -163,7 +174,12 @@ def test_a_same_named_halt_two_levels_down_is_named_by_its_own_delegation(
     agent = build_same_named_levels()
 
     # Act
-    result = run_agent(agent, mode=run_mode)
+    result = run_stopping_audits(
+        agent,
+        build_task_input(),
+        mode=run_mode,
+        config=build_thread_config("same-named-levels"),
+    )
 
     # Assert: middle did not halt, so the message does not name it
     assert result["messages"][-1].text == (

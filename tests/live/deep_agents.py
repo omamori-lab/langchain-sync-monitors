@@ -20,6 +20,7 @@ from typing import Any, Final, TypedDict
 from deepagents import SubAgent, create_deep_agent
 from langchain_core.messages import AIMessage, BaseMessage, ToolMessage
 from langchain_core.runnables import Runnable
+from langgraph.checkpoint.memory import InMemorySaver
 
 from langchain_sync_monitors import (
     BlockAndFeedBack,
@@ -197,6 +198,7 @@ def build_deep_live_agent(
             subagents=[operations],
             overrides=overrides,
         ),
+        checkpointer=InMemorySaver(),
     )
 
 

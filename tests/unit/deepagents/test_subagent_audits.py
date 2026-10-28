@@ -14,7 +14,6 @@ from __future__ import annotations
 from typing import Any
 from unittest.mock import ANY
 
-import pytest
 from deepagents import SubAgent, create_deep_agent
 from langchain_core.messages import AIMessage
 from langgraph.checkpoint.memory import InMemorySaver
@@ -80,7 +79,6 @@ def build_parallel_agent(
     )
 
 
-@pytest.mark.xfail(strict=True, reason="PR 6 pauses a subagent's audited step")
 def test_a_subagent_s_audit_names_the_subagent_and_its_call(run_mode: RunMode) -> None:
     # Arrange
     agent = build_parallel_agent(
@@ -123,7 +121,6 @@ def test_a_subagent_s_audit_names_the_subagent_and_its_call(run_mode: RunMode) -
     ]
 
 
-@pytest.mark.xfail(strict=True, reason="PR 6 resumes a subagent's audited step by interrupt id")
 def test_an_approved_subagent_step_runs_and_its_finished_sibling_is_not_run_again(
     run_mode: RunMode,
 ) -> None:
@@ -156,7 +153,6 @@ def test_an_approved_subagent_step_runs_and_its_finished_sibling_is_not_run_agai
     assert read_texts(result["messages"])[-1] == "Done."
 
 
-@pytest.mark.xfail(strict=True, reason="PR 6 answers parallel audits by interrupt id")
 def test_parallel_audits_are_answered_each_by_its_interrupt_id(run_mode: RunMode) -> None:
     # Arrange
     workspace = Workspace()
@@ -192,7 +188,6 @@ def test_parallel_audits_are_answered_each_by_its_interrupt_id(run_mode: RunMode
     ]
 
 
-@pytest.mark.xfail(strict=True, reason="PR 6 stops a held step on new input")
 def test_new_input_to_a_paused_deep_agent_removes_the_held_reply_and_its_patched_answer(
     run_mode: RunMode,
 ) -> None:

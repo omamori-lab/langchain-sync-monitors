@@ -34,6 +34,15 @@ from hyoshigi import (
 )
 
 from langchain_sync_monitors._langchain import MonitorStepEvent, MonitorStepFailedEvent
+from langchain_sync_monitors.audits import (
+    ApproveAnswer,
+    AuditAnswer,
+    AuditRequest,
+    EditAnswer,
+    EditedToolCall,
+    RejectAnswer,
+    StopAnswer,
+)
 from langchain_sync_monitors.contracts import (
     DelegatedRun,
     Delegation,
@@ -84,6 +93,9 @@ __all__ = [
     "GPT_OSS_SAFEGUARD",
     "QWEN3GUARD",
     "Aggregation",
+    "ApproveAnswer",
+    "AuditAnswer",
+    "AuditRequest",
     "AuditResponse",
     "BlockAndFeedBack",
     "CachedResampleWarning",
@@ -95,6 +107,8 @@ __all__ = [
     "DeferToResample",
     "DelegatedRun",
     "Delegation",
+    "EditAnswer",
+    "EditedToolCall",
     "FailureResponse",
     "FeedbackTemplate",
     "GuardLabels",
@@ -113,11 +127,13 @@ __all__ = [
     "MonitorStepFailedEvent",
     "MonitorTwins",
     "Outcome",
+    "RejectAnswer",
     "RepeatedMonitor",
     "Resampling",
     "SampleRecord",
     "ServerToolWarning",
     "StepRecord",
+    "StopAnswer",
     "SubagentHalt",
     "TaskAuthor",
     "Tracer",

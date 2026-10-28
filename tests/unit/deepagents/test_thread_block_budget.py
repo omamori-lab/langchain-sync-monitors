@@ -3,7 +3,8 @@
 Block and feed back counts the blocks of every trajectory in the run
 [@hyoshigi2026]: a subagent counts its delegators' blocks, and the parent
 counts each subagent's once its trajectory joins. At the total, the next
-proposal is audited, and so halted, and the audit resets the total.
+proposal is audited, and the audit resets the total; each audit here is
+stopped, so the step halts.
 """
 
 from __future__ import annotations
@@ -27,9 +28,11 @@ from tests.support.agents import (
     build_benign_post,
     build_exfiltration_step,
     build_keyword_monitor,
+    build_task_input,
     build_thread_config,
     read_texts,
     run_agent,
+    run_stopping_audits,
     stream_subgraph_custom_events,
 )
 from tests.support.chat_models import ScriptedChatModel
@@ -66,6 +69,7 @@ def build_two_subagent_agent(
         model=main_model,
         middleware=[main_monitor],
         subagents=monitor_subagents(middleware=main_monitor, subagents=subagents),
+        checkpointer=InMemorySaver(),
     )
 
 
@@ -98,13 +102,15 @@ def test_repeated_delegations_are_audited_at_exactly_the_run_s_total(run_mode: R
         main_model=main_model,
         worker_model=ScriptedChatModel(responses=worker_responses),
         main_monitor=build_blocking_monitor(),
+        checkpointer=InMemorySaver(),
     )
+    config = build_thread_config("repeated-delegations")
 
     # Act
-    result = run_agent(agent, mode=run_mode)
+    result = run_stopping_audits(agent, build_task_input(), mode=run_mode, config=config)
 
     # Assert: the tenth worker's second block is the twentieth, so its report is audited and
-    # halted; the audit resets the total, so the eleventh delegation blocks twice again
+    # stopped; the audit resets the total, so the eleventh delegation blocks twice again
     log = result["monitor_log"]
     assert sum(record["blocked_count"] for record in log) == 22
     worker_rows = [row for row in summarise(log) if row[0] == "worker"]
@@ -137,13 +143,15 @@ def test_blocks_made_before_a_delegation_count_inside_it(run_mode: RunMode) -> N
         main_model=main_model,
         worker_model=worker_model,
         main_monitor=build_blocking_monitor(blocks_in_total=3),
+        checkpointer=InMemorySaver(),
     )
+    config = build_thread_config("blocks-before")
 
     # Act
-    result = run_agent(agent, mode=run_mode)
+    result = run_stopping_audits(agent, build_task_input(), mode=run_mode, config=config)
 
     # Assert: the main agent's block and the worker's two reach the total of three, so the
-    # worker's report is audited and halted, which resets the total
+    # worker's report is audited, which resets the total, and stopped
     assert summarise(result["monitor_log"]) == [
         ("main", "steered", 1),
         ("worker", "halted", 2),
@@ -235,9 +243,10 @@ def test_parallel_subagents_count_each_block_once(run_mode: RunMode) -> None:
         reviewer_model=reviewer_model,
         main_monitor=build_blocking_monitor(blocks_in_total=5),
     )
+    config = build_thread_config("parallel-blocks")
 
     # Act
-    result = run_agent(agent, mode=run_mode)
+    result = run_stopping_audits(agent, build_task_input(), mode=run_mode, config=config)
 
     # Assert
     rows = summarise(result["monitor_log"])
@@ -279,10 +288,10 @@ def test_a_thread_s_second_turn_keeps_the_subagent_blocks_of_the_first(
         checkpointer=InMemorySaver(),
     )
     config = build_thread_config(f"budget-{run_mode}")
-    run_agent(agent, mode=run_mode, config=config)
+    run_stopping_audits(agent, build_task_input(), mode=run_mode, config=config)
 
     # Act
-    result = run_agent(agent, mode=run_mode, config=config)
+    result = run_stopping_audits(agent, build_task_input(), mode=run_mode, config=config)
 
     # Assert
     assert summarise(result["monitor_log"]) == [
@@ -309,10 +318,12 @@ def test_a_subagent_halt_under_the_total_leaves_the_parent_running(run_mode: Run
         main_model=main_model,
         worker_model=worker_model,
         main_monitor=build_blocking_monitor(),
+        checkpointer=InMemorySaver(),
     )
+    config = build_thread_config("halt-under-total")
 
     # Act
-    result = run_agent(agent, mode=run_mode)
+    result = run_stopping_audits(agent, build_task_input(), mode=run_mode, config=config)
 
     # Assert
     assert summarise(result["monitor_log"]) == [

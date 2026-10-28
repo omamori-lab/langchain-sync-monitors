@@ -44,7 +44,7 @@ Three of the four are settings of `DeferToResample`; the fourth is
 | Model calls, ordinary step | 2: agent and monitor | 2 | 2 | 2 |
 | Model calls, suspicious step | 2 | 3: adds the trusted model | Up to 2 per sample, `n + 1` samples, and one call of the trusted model | 2 per proposal, and at a limit 2 more for the audited proposal |
 | What the agent sees | Its own step | The trusted step, as if it were its own | The chosen sample, or the trusted step; never a rejected sample | Each blocked reply and the feedback on it, then the step that runs |
-| What stops the run | Nothing | An audit, at or above `audit_threshold` | An audit, at or above `audit_threshold`, or with no `trusted_model` | An audit, at a block limit |
+| What pauses the run for a person | Nothing | An audit, at or above `audit_threshold` | An audit, at or above `audit_threshold`, or with no `trusted_model` | An audit, at a block limit |
 | Use it when | You want to observe, calibrate or audit, and blocking honest work costs more than catching a bad step late | A capable trusted model exists and you want the simplest intervention | You want to keep most of the untrusted model's work and gather evidence from repeated samples | Most suspicious steps are an honest agent overreaching, and a person would otherwise approve each step |
 
 The call counts assume a monitor that makes one model call per rating, such
@@ -57,9 +57,12 @@ Each setting records its steps with these outcomes in `monitor_log`:
 | Setting | Outcomes |
 |---|---|
 | Trusted Monitoring | `allowed` |
-| Defer to Trusted | `allowed`, `deferred_to_trusted`, `halted` |
-| Defer to Resample | `allowed`, `resampled`, `deferred_to_trusted`, `halted` |
-| Block and Feed Back | `allowed`, `steered`, `halted` |
+| Defer to Trusted | `allowed`, `deferred_to_trusted` |
+| Defer to Resample | `allowed`, `resampled`, `deferred_to_trusted` |
+| Block and Feed Back | `allowed`, `steered` |
+
+Every setting but Trusted Monitoring also logs an audited step with the
+person's answer: `approved`, `edited`, `rejected` or `halted`.
 
 Any protocol can also log `halted` without a sample: a halt that stands, a
 lost write to the monitor's trajectory, or, with
@@ -83,7 +86,7 @@ lost write to the monitor's trajectory, or, with
 - **Block and Feed Back** follows Claude Code's auto mode
   [@hughes2026automode], which hands a session that reaches three denials in
   a row or twenty in all to a person (section "Deny-and-continue"). Here the
-  next proposal is audited, and the step halts.
+  next proposal is audited, and the run pauses for a person's answer.
 
 ## What every protocol shares
 
@@ -148,9 +151,11 @@ or halted, by the time anyone reads the log. The decision span carries
 
 ### Audits and halts
 
-An audit holds a step for a person. No person can answer one inside the model
-node, which LangGraph runs again on resume, so an audited step halts: the
-trajectory records the audit and then a halt, and the step commits
+An audit holds a step for a person, as
+[hyoshigi's page on control protocols](https://omamori-lab.github.io/hyoshigi/explanation/control-protocols/)
+sets out. The run pauses before any tool runs, and the person's answer
+approves, edits, rejects or stops the step;
+[Answer an audit](answer-an-audit.md) gives the answers. A stop commits
 `DEFAULT_HALT_MESSAGE`:
 
 > [Safety monitor] This run was stopped because the agent's proposed steps
@@ -202,7 +207,7 @@ server tool's result fails closed, since the monitor cannot read what the tool
 did ([Know what fails closed before any
 request](choose-what-the-monitor-reads.md#know-what-fails-closed-before-any-request)),
 and a rating that failed closed is audited: Trusted Monitoring runs and flags
-it, and every other setting halts the step. Give the agent tools of its own
+it, and every other setting holds the step for a person. Give the agent tools of its own
 for any action that must be judged before it runs.
 
 The middleware emits a `ServerToolWarning`, once per middleware instance,

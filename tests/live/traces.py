@@ -7,10 +7,14 @@ and sends nothing anywhere. After the run, `build_trace_report` checks what
 
 - the monitor's spans carry only the three fixed names, and its model calls
   the name `monitor call`;
-- every judgement and decision sits in a step, and every decision request
-  and monitor call in a judgement; no other model call sits in a judgement;
+- every judgement and decision sits in a step, but the decision of a person's
+  answer to an audit, which sits in the monitor's `after_model` hook, and
+  every decision request and monitor call in a judgement; no other model call
+  sits in a judgement;
 - each record has its step span, with one judgement per judged sample and one
-  decision, tagged with the outcome and, when flagged, `monitor:flagged`;
+  decision, tagged with the outcome and, when flagged, `monitor:flagged`; the
+  decision of a step held for a person is tagged `monitor:audited`, and the
+  answer's decision, named by the step's metadata, carries the record's tags;
 - every monitor span ended, under a parent the tracer heard of.
 
 A decision request is the harness's own run around each request its decision
@@ -43,6 +47,11 @@ DECISION_REQUEST_NAME = "decision request"
 MONITOR_SPAN_NAMES = frozenset({STEP_SPAN_NAME, JUDGEMENT_SPAN_NAME, DECISION_SPAN_NAME})
 MODEL_RUN_TYPES = frozenset({"chat_model", "llm"})
 SPANS_INSIDE_A_STEP = frozenset({JUDGEMENT_SPAN_NAME, DECISION_SPAN_NAME})
+AUDITED_TAG = f"{MONITOR_TAG}:audited"
+"""The tag on the decision span of a step held for a person."""
+
+ANSWER_HOOK_SUFFIX = ".after_model"
+"""The end of the name of the hook whose run holds the decision span of a person's answer."""
 RUNS_INSIDE_A_JUDGEMENT = frozenset({DECISION_REQUEST_NAME, MONITOR_CALL_NAME})
 
 type StepKey = tuple[str, str | None, int]
@@ -97,17 +106,33 @@ def find_unknown_names(tracer: RecordingTracer) -> list[str]:
 def find_misplaced_run(tracer: RecordingTracer, run: RecordedRun) -> str | None:
     """Describe where the run sits if that is not where the monitor's spans promise."""
     in_judgement = find_nearest_ancestor(tracer, run, name=JUDGEMENT_SPAN_NAME) is not None
-    if run.name in SPANS_INSIDE_A_STEP and not find_nearest_ancestor(
-        tracer,
-        run,
-        name=STEP_SPAN_NAME,
-    ):
+    in_step = find_nearest_ancestor(tracer, run, name=STEP_SPAN_NAME) is not None
+    if run.name in SPANS_INSIDE_A_STEP and not in_step and not is_answer_span(tracer, run):
         return f"{run.name!r} outside a step"
     if run.name in RUNS_INSIDE_A_JUDGEMENT and not in_judgement:
         return f"{run.name!r} outside a judgement"
     if run.run_type in MODEL_RUN_TYPES and run.name != MONITOR_CALL_NAME and in_judgement:
         return f"model call {run.name!r} in a judgement, not named {MONITOR_CALL_NAME!r}"
     return None
+
+
+def is_answer_span(tracer: RecordingTracer, run: RecordedRun) -> bool:
+    """Tell whether a run is the decision span of a person's answer, in an `after_model` hook."""
+    parent = tracer.runs.get(run.parent_run_id) if run.parent_run_id is not None else None
+    return (
+        run.name == DECISION_SPAN_NAME
+        and parent is not None
+        and parent.name.endswith(ANSWER_HOOK_SUFFIX)
+    )
+
+
+def find_answer_spans(tracer: RecordingTracer, *, key: StepKey) -> list[RecordedRun]:
+    """Return the decision spans of the answers to the step this key names."""
+    return [
+        run
+        for run in tracer.find_runs(DECISION_SPAN_NAME)
+        if is_answer_span(tracer, run) and read_step_key(run) == key
+    ]
 
 
 def find_misplaced_runs(tracer: RecordingTracer) -> list[str]:
@@ -173,7 +198,13 @@ def check_step_span(tracer: RecordingTracer, step: RecordedRun, *, record: StepR
         )
     if len(decisions) != 1:
         return [*problems, f"step {key}: {len(decisions)} decision spans"]
-    return [*problems, *check_decision_tags(decisions[0], record=record)]
+    decision = decisions[0]
+    if AUDITED_TAG in decision.tags:
+        answers = find_answer_spans(tracer, key=key)
+        if len(answers) != 1:
+            return [*problems, f"step {key}: {len(answers)} answer decision spans"]
+        decision = answers[0]
+    return [*problems, *check_decision_tags(decision, record=record)]
 
 
 def check_step_spans(tracer: RecordingTracer, *, records: Sequence[StepRecord]) -> list[str]:

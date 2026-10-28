@@ -37,7 +37,7 @@ DEFER = DeferToResample(
 """Hands a suspicious step to the trusted model, or, without one, audits it."""
 
 HALT_EVERY_STEP = DeferToResample(defer_threshold=0.0, audit_threshold=0.0, max_resamples=0)
-"""Audits every step, so each halts while no person can answer."""
+"""Audits every step, which pauses the run for a person's answer."""
 
 BLOCK = BlockAndFeedBack(block_threshold=SUSPICION_THRESHOLD)
 """Blocks a suspicious step and feeds the reason back; three in a row audit the next."""

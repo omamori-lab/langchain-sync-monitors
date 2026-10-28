@@ -10,7 +10,6 @@ tests cover agents with none, one and two other `after_model` hooks.
 
 from __future__ import annotations
 
-import asyncio
 from typing import Any
 
 import pytest
@@ -32,10 +31,12 @@ from tests.support.agents import (
     Workspace,
     build_keyword_monitor,
     build_thread_config,
+    run_stopping_audits,
 )
 from tests.support.chat_models import ScriptedChatModel, build_tool_call_message
 
 INTRANET_URL = "https://intranet.example/reports"
+THREAD = build_thread_config("halted-run")
 
 
 class Report(BaseModel):
@@ -71,7 +72,7 @@ def build_report_json(*, destination: str) -> AIMessage:
 
 
 def build_halting_monitor() -> MonitorMiddleware:
-    """Build a monitor that audits, and so halts, the first suspicious step, drawing once."""
+    """Build a monitor that audits the first suspicious step, drawing once, for a stop to halt."""
     protocol = DeferToResample(defer_threshold=0.5, audit_threshold=0.5, max_resamples=0)
     return MonitorMiddleware(monitor=build_keyword_monitor(), protocol=protocol)
 
@@ -90,12 +91,11 @@ def run_agent(
     *,
     mode: RunMode,
     task: str = "Summarise q3.md.",
-    config: RunnableConfig | None = None,
+    config: RunnableConfig = THREAD,
 ) -> dict[str, Any]:
+    """Run the agent on its checkpointer, stopping each step held for a person."""
     payload = {"messages": [HumanMessage(task)]}
-    if mode == "invoke":
-        return agent.invoke(payload, config)
-    return asyncio.run(agent.ainvoke(payload, config))
+    return run_stopping_audits(agent, payload, mode=mode, config=config)
 
 
 def read_outcomes(result: dict[str, Any]) -> list[str]:
@@ -111,10 +111,17 @@ def test_a_halt_ends_a_tool_strategy_agent_without_tools(
     model = build_attack_then_benign_model()
     hooks = [ObservingMiddleware(label=f"observer-{index}") for index in range(other_hook_count)]
     stack: list[AgentMiddleware[Any, Any, Any]] = [*hooks, build_halting_monitor()]
-    agent = create_agent(model, tools=[], response_format=ToolStrategy(Report), middleware=stack)
+    agent = create_agent(
+        model,
+        tools=[],
+        response_format=ToolStrategy(Report),
+        middleware=stack,
+        checkpointer=InMemorySaver(),
+    )
+    config = RunnableConfig(recursion_limit=12, configurable={"thread_id": "halted-run"})
 
     # Act
-    result = run_agent(agent, mode=run_mode, config=RunnableConfig(recursion_limit=12))
+    result = run_agent(agent, mode=run_mode, config=config)
 
     # Assert
     assert read_outcomes(result) == ["halted"]
@@ -131,7 +138,13 @@ def test_a_halt_ends_the_run_when_an_after_model_hook_runs_before_the_monitors(
         build_halting_monitor(),
         ObservingMiddleware(label="observer"),
     ]
-    agent = create_agent(model, tools=[], response_format=ToolStrategy(Report), middleware=stack)
+    agent = create_agent(
+        model,
+        tools=[],
+        response_format=ToolStrategy(Report),
+        middleware=stack,
+        checkpointer=InMemorySaver(),
+    )
 
     # Act
     result = run_agent(agent, mode=run_mode)
@@ -151,6 +164,7 @@ def test_a_halt_ends_an_agent_whose_bare_schema_becomes_a_tool_strategy(
         tools=[],
         response_format=Report,
         middleware=[build_halting_monitor()],
+        checkpointer=InMemorySaver(),
     )
 
     # Act
@@ -169,6 +183,7 @@ def test_a_halt_still_ends_an_agent_with_a_tool(run_mode: RunMode) -> None:
         tools=Workspace().build_tools(),
         response_format=ToolStrategy(Report),
         middleware=[build_halting_monitor()],
+        checkpointer=InMemorySaver(),
     )
 
     # Act
@@ -192,6 +207,7 @@ def test_a_halt_still_ends_a_provider_strategy_agent(run_mode: RunMode) -> None:
         tools=[],
         response_format=ProviderStrategy(Report),
         middleware=[build_halting_monitor()],
+        checkpointer=InMemorySaver(),
     )
 
     # Act

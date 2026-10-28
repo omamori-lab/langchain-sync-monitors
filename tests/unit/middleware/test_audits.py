@@ -21,9 +21,10 @@ from unittest.mock import ANY
 import pytest
 from hyoshigi import Policy, Replace, Trajectory
 from langchain.agents import create_agent
+from langchain.agents.structured_output import ToolStrategy
 from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 from langgraph.checkpoint.memory import InMemorySaver
-from pydantic import ValidationError
+from pydantic import BaseModel, ValidationError
 
 from langchain_sync_monitors import (
     DEFAULT_HALT_MESSAGE,
@@ -47,7 +48,7 @@ from tests.support.agents import (
     run_agent,
     send_audit_answer,
 )
-from tests.support.chat_models import ScriptedChatModel
+from tests.support.chat_models import ScriptedChatModel, build_tool_call_message
 from tests.support.tracing import RecordedRun, RecordingTracer
 
 THREAD = build_thread_config("audit")
@@ -150,7 +151,6 @@ def read_samples(record: dict[str, Any]) -> list[tuple[float, bool]]:
     return [(sample["suspicion"], sample["executed"]) for sample in record["samples"]]
 
 
-@pytest.mark.xfail(strict=True, reason="PR 6 pauses the run at an audit")
 def test_an_audited_step_pauses_the_run_before_any_tool_runs(run_mode: RunMode) -> None:
     # Arrange
     workspace = Workspace()
@@ -170,7 +170,6 @@ def test_an_audited_step_pauses_the_run_before_any_tool_runs(run_mode: RunMode) 
     assert read_record_kinds(result) == ["audit"]
 
 
-@pytest.mark.xfail(strict=True, reason="PR 6 runs an approved step")
 def test_an_approved_step_runs_the_held_reply(run_mode: RunMode, paused_post: PausedRun) -> None:
     # Act
     result = send_audit_answer(
@@ -194,7 +193,6 @@ def test_an_approved_step_runs_the_held_reply(run_mode: RunMode, paused_post: Pa
     assert read_record_kinds(result) == ["audit", "run", "run"]
 
 
-@pytest.mark.xfail(strict=True, reason="PR 6 runs a person's edit")
 def test_an_edited_step_runs_the_edit_under_the_held_ids(
     run_mode: RunMode,
     paused_post: PausedRun,
@@ -250,7 +248,6 @@ def test_an_edited_step_runs_the_edit_under_the_held_ids(
     ],
     ids=["with-a-message", "with-the-monitor-s-reason"],
 )
-@pytest.mark.xfail(strict=True, reason="PR 6 feeds a rejection back to the agent")
 def test_a_rejected_step_feeds_the_reason_back_and_the_agent_proposes_again(
     run_mode: RunMode,
     answer: dict[str, str],
@@ -298,7 +295,6 @@ def test_a_rejected_step_feeds_the_reason_back_and_the_agent_proposes_again(
     ],
     ids=["with-a-message", "without-one"],
 )
-@pytest.mark.xfail(strict=True, reason="PR 6 halts a stopped step")
 def test_a_stopped_step_halts_the_run_without_the_held_reply(
     run_mode: RunMode,
     answer: dict[str, str],
@@ -335,7 +331,6 @@ def test_a_stopped_step_halts_the_run_without_the_held_reply(
     ]
 
 
-@pytest.mark.xfail(strict=True, reason="PR 6 pauses at a held final answer")
 def test_a_held_final_answer_offers_no_edit(run_mode: RunMode) -> None:
     # Arrange
     agent = build_audited_agent([AIMessage(HELD_ANSWER)], workspace=Workspace())
@@ -364,7 +359,6 @@ def test_a_held_final_answer_offers_no_edit(run_mode: RunMode) -> None:
     ]
 
 
-@pytest.mark.xfail(strict=True, reason="PR 6 ends the run at an approved final answer")
 def test_an_approved_final_answer_ends_the_run(run_mode: RunMode) -> None:
     # Arrange
     model = ScriptedChatModel(responses=[AIMessage(HELD_ANSWER), AIMessage(FINAL_ANSWER)])
@@ -386,7 +380,6 @@ def test_an_approved_final_answer_ends_the_run(run_mode: RunMode) -> None:
     assert read_record_kinds(result) == ["audit", "run"]
 
 
-@pytest.mark.xfail(strict=True, reason="PR 6 sends a rejected final answer back to the model")
 def test_a_rejected_final_answer_sends_the_agent_back_to_the_model(run_mode: RunMode) -> None:
     # Arrange
     agent = build_audited_agent(
@@ -424,8 +417,36 @@ MALFORMED_ANSWERS = {
 }
 
 
+class Report(BaseModel):
+    summary: str
+    destination: str
+
+
+def test_a_stopped_tool_strategy_answer_leaves_no_tool_message_behind(run_mode: RunMode) -> None:
+    # Arrange: under a tool strategy, the draw ends with the structured output's tool message
+    report_call = build_tool_call_message(
+        tool_name="Report",
+        call_id="call-report",
+        arguments={"summary": "Q3 grew 12%.", "destination": ATTACKER_URL},
+    )
+    agent = create_agent(
+        ScriptedChatModel(responses=[report_call]),
+        tools=[],
+        response_format=ToolStrategy(Report),
+        middleware=[MonitorMiddleware(monitor=build_keyword_monitor(), protocol=AUDIT_SUSPICIOUS)],
+        checkpointer=InMemorySaver(),
+    )
+    paused = run_agent(agent, mode=run_mode, config=THREAD)
+
+    # Act
+    result = send_audit_answer(agent, paused, answer=STOP, mode=run_mode, config=THREAD)
+
+    # Assert
+    assert read_texts(result["messages"]) == [TASK, DEFAULT_HALT_MESSAGE]
+    assert result.get("structured_response") is None
+
+
 @pytest.mark.parametrize("answer", MALFORMED_ANSWERS.values(), ids=MALFORMED_ANSWERS.keys())
-@pytest.mark.xfail(strict=True, reason="PR 6 checks an answer against the audit's schema")
 def test_a_malformed_answer_raises_a_validation_error(
     run_mode: RunMode,
     paused_post: PausedRun,
@@ -443,7 +464,6 @@ def test_a_malformed_answer_raises_a_validation_error(
 
 
 @pytest.mark.parametrize("answer", MALFORMED_ANSWERS.values(), ids=MALFORMED_ANSWERS.keys())
-@pytest.mark.xfail(strict=True, reason="PR 6 leaves a malformed answer unsaved")
 def test_an_audit_answered_wrongly_can_be_answered_again(
     run_mode: RunMode,
     paused_post: PausedRun,
@@ -462,7 +482,6 @@ def test_an_audit_answered_wrongly_can_be_answered_again(
     assert read_outcomes(result) == ["approved", "allowed"]
 
 
-@pytest.mark.xfail(strict=True, reason="PR 6 offers no edit of a held final answer")
 def test_an_edit_of_a_held_final_answer_raises_a_validation_error(run_mode: RunMode) -> None:
     # Arrange
     agent = build_audited_agent([AIMessage(HELD_ANSWER)], workspace=Workspace())
@@ -474,7 +493,6 @@ def test_an_edit_of_a_held_final_answer_raises_a_validation_error(run_mode: RunM
         send_audit_answer(agent, paused, answer=answer, mode=run_mode, config=THREAD)
 
 
-@pytest.mark.xfail(strict=True, reason="PR 6 stops a held step on new input")
 def test_new_input_in_place_of_an_answer_stops_the_held_step_and_the_run_goes_on(
     run_mode: RunMode,
 ) -> None:
@@ -502,7 +520,6 @@ def test_new_input_in_place_of_an_answer_stops_the_held_step_and_the_run_goes_on
     ]
 
 
-@pytest.mark.xfail(strict=True, reason="PR 6 pauses at an audit")
 def test_without_a_checkpointer_the_run_stops_at_the_pause_and_writes_no_record(
     run_mode: RunMode,
 ) -> None:
@@ -523,7 +540,6 @@ def test_without_a_checkpointer_the_run_stops_at_the_pause_and_writes_no_record(
     assert read_record_kinds(result) == ["audit"]
 
 
-@pytest.mark.xfail(strict=True, reason="PR 6 records an audited step from its own decisions")
 def test_each_audited_step_records_its_own_blocks_after_a_rejection(run_mode: RunMode) -> None:
     # Arrange: one block in a row is the limit, so the redraw is audited; an audit leaves
     # the count in a row as it was, so after the rejection the next step is audited at once.
@@ -568,7 +584,6 @@ def test_each_audited_step_records_its_own_blocks_after_a_rejection(run_mode: Ru
     assert read_record_kinds(result) == ["block", "audit", "block", "audit", "run", "run"]
 
 
-@pytest.mark.xfail(strict=True, reason="PR 6 pauses at an audit after an earlier halt")
 def test_a_final_answer_held_after_an_earlier_halt_pauses(run_mode: RunMode) -> None:
     # Arrange: the first run's held step is stopped, so the thread's last record is a halt
     agent = build_audited_agent(
@@ -586,7 +601,6 @@ def test_a_final_answer_held_after_an_earlier_halt_pauses(run_mode: RunMode) -> 
     assert read_texts(result["messages"])[-1] == HELD_ANSWER
 
 
-@pytest.mark.xfail(strict=True, reason="PR 6 traces a held step and its answer")
 def test_a_held_step_and_its_answer_each_trace_a_decision(run_mode: RunMode) -> None:
     # Arrange
     tracer = RecordingTracer()

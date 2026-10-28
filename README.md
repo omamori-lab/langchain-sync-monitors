@@ -59,7 +59,8 @@ monitor = MonitorMiddleware(
     # sample stays suspicious, have the trusted model write the step instead.
     protocol=DeferToResample(
         # Resample a step that scores 0.6 or more, and hold it for a person,
-        # which halts the run, when even its least suspicious sample scores 0.9.
+        # who answers before any tool runs, when even its least suspicious
+        # sample scores 0.9.
         defer_threshold=0.6,
         audit_threshold=0.9,
         max_resamples=2,
@@ -72,7 +73,7 @@ agent = create_agent(
 )
 result = agent.invoke({"messages": [{"role": "user", "content": "Summarise q3.md."}]})
 # One record per step: what the protocol did, and whether to review it.
-for record in result["monitor_log"]:
+for record in result.get("monitor_log", []):
     print(record["step_number"], record["outcome"], record["flagged"])
 ```
 

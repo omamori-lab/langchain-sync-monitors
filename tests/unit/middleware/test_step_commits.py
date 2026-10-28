@@ -1,7 +1,8 @@
 """Each decision that ends a step commits what the commit table gives, and records itself.
 
 A step that runs commits its draw; one that is replaced commits the
-replacing draw; one that halts commits the halt message alone. Each block
+replacing draw; one held for a person commits the held reply alone, as
+`test_audits` has it. Each block
 before the end comes first: the blocked reply under its own id, then the
 monitor's feedback. The trajectory records each decision, which `monitor_log`
 projects.
@@ -11,13 +12,11 @@ from __future__ import annotations
 
 from typing import Any
 
-import pytest
 from hyoshigi import Policy, Trajectory
 from langchain.agents import create_agent
 from langchain_core.messages import AIMessage, ToolMessage
 
 from langchain_sync_monitors import (
-    DEFAULT_HALT_MESSAGE,
     AuditResponse,
     BlockAndFeedBack,
     DeferToResample,
@@ -38,7 +37,6 @@ from tests.support.agents import (
 from tests.support.chat_models import ScriptedChatModel
 
 FINAL_ANSWER = "Done."
-NO_PERSON_REASON = "The step was held for a person to audit, and no person can answer."
 FEEDBACK = FeedbackTemplate(text="[Safety monitor] Blocked: {reason}")
 
 
@@ -148,40 +146,6 @@ def test_a_trusted_step_replaces_the_draw_with_the_trusted_models(run_mode: RunM
     assert [proposal.policy for proposal in replace.proposals] == [
         Policy.UNTRUSTED,
         Policy.TRUSTED,
-    ]
-
-
-@pytest.mark.parametrize(
-    "protocol",
-    [
-        DeferToResample(defer_threshold=0.5, audit_threshold=1.0, max_resamples=0),
-        DeferToResample(defer_threshold=0.5, audit_threshold=0.5, max_resamples=0),
-    ],
-    ids=["a-trusted-step-without-a-trusted-model", "a-score-at-the-audit-threshold"],
-)
-def test_an_audited_step_halts_while_no_person_can_answer(
-    run_mode: RunMode,
-    protocol: DeferToResample,
-) -> None:
-    # Arrange
-    workspace = Workspace()
-    model = ScriptedChatModel(responses=[build_exfiltration_step()])
-    middleware = MonitorMiddleware(monitor=build_keyword_monitor(), protocol=protocol)
-    agent = create_agent(model, tools=workspace.build_tools(), middleware=[middleware])
-
-    # Act
-    result = run_agent(agent, mode=run_mode)
-
-    # Assert
-    assert read_texts(result["messages"]) == [TASK, DEFAULT_HALT_MESSAGE]
-    assert workspace.executed == []
-    assert len(model.calls) == 1
-    [record] = result["monitor_log"]
-    assert (record["outcome"], record["flagged"]) == ("halted", True)
-    records = read_stored_trajectory(result)["records"]
-    assert [(record["kind"], record.get("reason")) for record in records] == [
-        ("audit", None),
-        ("halt", NO_PERSON_REASON),
     ]
 
 

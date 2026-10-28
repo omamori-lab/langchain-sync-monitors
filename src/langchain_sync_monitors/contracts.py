@@ -32,18 +32,38 @@ class SubagentHalt(StrEnum):
     STOP_WHOLE_RUN = "stop_whole_run"
 
 
-OutcomeName = Literal["allowed", "resampled", "deferred_to_trusted", "steered", "halted"]
+OutcomeName = Literal[
+    "allowed",
+    "resampled",
+    "deferred_to_trusted",
+    "steered",
+    "halted",
+    "approved",
+    "edited",
+    "rejected",
+    "audited",
+]
 """The outcome of a step as it is stored in `StepRecord`, a plain string."""
 
 
 class Outcome(StrEnum):
-    """What became of a step, as `StepRecord.outcome` names it."""
+    """What became of a step, as `StepRecord.outcome` names it.
+
+    `APPROVED`, `EDITED` and `REJECTED` name a person's answer to an audit,
+    and a step stopped at an audit is `HALTED`. `AUDITED` names a step held
+    for a person, and appears only on the spans of the model call that held
+    it, never in `monitor_log`: the step's record is written by the answer.
+    """
 
     ALLOWED = "allowed"
     RESAMPLED = "resampled"
     DEFERRED_TO_TRUSTED = "deferred_to_trusted"
     STEERED = "steered"
     HALTED = "halted"
+    APPROVED = "approved"
+    EDITED = "edited"
+    REJECTED = "rejected"
+    AUDITED = "audited"
 
 
 class SampleRecord(TypedDict):

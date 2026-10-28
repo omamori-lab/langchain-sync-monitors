@@ -80,13 +80,16 @@ class StepIdentity:
     step_id: UUID = field(default_factory=uuid7)
 
     def build_step_metadata(self) -> dict[str, TraceValue]:
-        """Return the metadata every span of the step carries."""
+        """Return the metadata every span of the step carries: its names and its span's id."""
+        return {**self.build_name_metadata(), "monitor_step_id": str(self.step_id)}
+
+    def build_name_metadata(self) -> dict[str, TraceValue]:
+        """Return the metadata that names the step: monitor, agent, step number, protocol."""
         metadata: dict[str, TraceValue] = {
             "monitor_label": self.monitor,
             "monitor_agent": self.agent,
             "monitor_step_number": self.step_number,
             "monitor_protocol": self.protocol,
-            "monitor_step_id": str(self.step_id),
         }
         if self.delegation_id is not None:
             metadata["monitor_delegation_id"] = self.delegation_id
@@ -319,3 +322,24 @@ async def trace_decision(traced_step: TracedRun, *, record: StepRecord) -> None:
     async with open_traced_run(build_decision_span(record)) as traced_decision:
         traced_decision.outputs = build_decision_span_outputs(record)
     report_step_to_span(traced_step, record=record)
+
+
+def trace_answer_sync(identity: StepIdentity, *, record: StepRecord) -> None:
+    """Trace a person's answer to an audit for `invoke()`, as a decision span of its own.
+
+    The span opens and closes at once, under the hook that applied the
+    answer. It carries the step's names but not its step span's id, which
+    belongs to the model call that held the step.
+    """
+    with (
+        add_step_metadata_to_spans(identity.build_name_metadata()),
+        open_traced_run_sync(build_decision_span(record)) as traced_decision,
+    ):
+        traced_decision.outputs = build_decision_span_outputs(record)
+
+
+async def trace_answer(identity: StepIdentity, *, record: StepRecord) -> None:
+    """Trace a person's answer to an audit for `ainvoke()`, as `trace_answer_sync` does."""
+    with add_step_metadata_to_spans(identity.build_name_metadata()):
+        async with open_traced_run(build_decision_span(record)) as traced_decision:
+            traced_decision.outputs = build_decision_span_outputs(record)

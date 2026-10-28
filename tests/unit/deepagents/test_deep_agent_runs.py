@@ -10,7 +10,14 @@ from langgraph.checkpoint.memory import InMemorySaver
 from langchain_sync_monitors import DEFAULT_HALT_MESSAGE
 from langchain_sync_monitors.contracts import SubagentHalt
 from langchain_sync_monitors.middleware import MonitorMiddleware
-from tests.support.agents import RunMode, build_thread_config, read_texts, run_agent
+from tests.support.agents import (
+    RunMode,
+    build_task_input,
+    build_thread_config,
+    read_texts,
+    run_agent,
+    run_stopping_audits,
+)
 from tests.support.chat_models import ScriptedChatModel
 from tests.support.deep_agents import build_deep_agent, build_delegation_step
 from tests.support.monitors import KeywordMonitor
@@ -76,10 +83,16 @@ def test_a_subagent_halt_stops_the_whole_run_when_asked(
         worker_model=ScriptedChatModel(responses=[AIMessage(WORKER_REPORT)]),
         main_monitor=main_monitor,
         worker_monitor=halting_worker_monitor,
+        checkpointer=InMemorySaver(),
     )
 
     # Act
-    result = run_agent(agent, mode=run_mode)
+    result = run_stopping_audits(
+        agent,
+        build_task_input(),
+        mode=run_mode,
+        config=build_thread_config("whole-run"),
+    )
 
     # Assert
     assert len(main_model.calls) == 1
@@ -100,10 +113,16 @@ def test_a_subagent_halt_only_ends_the_subagent_by_default(
         worker_model=ScriptedChatModel(responses=[AIMessage(WORKER_REPORT)]),
         main_monitor=MonitorMiddleware(monitor=monitor, protocol=RUN_EVERY_STEP),
         worker_monitor=halting_worker_monitor,
+        checkpointer=InMemorySaver(),
     )
 
     # Act
-    result = run_agent(agent, mode=run_mode)
+    result = run_stopping_audits(
+        agent,
+        build_task_input(),
+        mode=run_mode,
+        config=build_thread_config("subagent-only"),
+    )
 
     # Assert
     assert read_texts(result["messages"])[-1] == MAIN_ANSWER

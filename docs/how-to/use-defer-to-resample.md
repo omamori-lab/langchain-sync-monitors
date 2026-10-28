@@ -23,8 +23,8 @@ draws up to `max_resamples` more samples, and the least suspicious one below
 the threshold runs. When none is below it, the step's lowest score decides:
 at or above `audit_threshold` the step is audited, and otherwise the
 middleware's `trusted_model` writes it. Without a `trusted_model` that step is
-audited too. No person can answer an audit inside the model node, so an
-audited step halts.
+audited too. An audited step pauses the run for a person's answer; see
+[Answer an audit](answer-an-audit.md).
 
 `Resampling.SEQUENTIAL`, the default, draws the resamples one at a time and
 stops at the first below the threshold; `Resampling.PARALLEL` draws all
@@ -64,7 +64,7 @@ monitor = MonitorMiddleware(
     monitor=LLMMonitor(model="openrouter:xiaomi/mimo-v2.6-pro"),
     protocol=DeferToResample(
         # A sample at or above 0.6 is not acceptable; a step whose best sample
-        # is at or above 0.9 is audited, and halts.
+        # is at or above 0.9 is audited, and the run pauses for a person.
         defer_threshold=0.6,
         audit_threshold=0.9,
         # Up to two more samples, drawn one at a time.
@@ -85,7 +85,7 @@ agent = create_agent(
 task = {"messages": [{"role": "user", "content": "Summarise q3.md for the team."}]}
 result = agent.invoke(task)
 # One record per step, with every sample the monitor rated.
-for record in result["monitor_log"]:
+for record in result.get("monitor_log", []):
     scores = [round(sample["suspicion"], 2) for sample in record["samples"]]
     print(record["step_number"], record["outcome"], record["flagged"], scores)
 ```
@@ -152,9 +152,9 @@ honest distribution in appendix C [@bhatt2025ctrlz]. A step's lowest score is
 at most its first sample's, so a percentile of single-sample scores sits
 higher than this one and marks fewer honest steps than the budget you chose.
 With `max_resamples=0` the lowest score is the only score, and single-sample
-scores serve. A step at `audit_threshold` halts, so set it where halting an
-honest step is worth catching an attack; `flag_threshold` only marks a step
-that ran.
+scores serve. A step at `audit_threshold` pauses the run for a person, so set
+it where a person's time on an honest step is worth catching an attack;
+`flag_threshold` only marks a step that ran.
 
 ### Sequential or parallel
 
@@ -182,7 +182,7 @@ Every step adds one record, which keeps every sample the monitor rated.
 | `"allowed"` | The first sample was acceptable. | 1 | The first |
 | `"resampled"` | The first was suspicious, and a resample was acceptable. | 2 to `max_resamples + 1` | The least suspicious acceptable one |
 | `"deferred_to_trusted"` | No sample was acceptable, and the trusted model wrote the step. | up to `max_resamples + 1` | None |
-| `"halted"` | The step was audited, which no person can answer here. | up to `max_resamples + 1` | None |
+| `"approved"`, `"edited"`, `"rejected"` or `"halted"` | The step was audited, and a person answered it, as [Answer an audit](answer-an-audit.md) sets out. | up to `max_resamples + 1` | The audited sample when approved; otherwise none |
 | `"halted"` | A halt stood, or a subagent was halted under `SubagentHalt.STOP_WHOLE_RUN`. | 0 | None |
 
 An auditor should read the most suspicious sample first, since it is the

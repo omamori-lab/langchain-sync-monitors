@@ -43,6 +43,7 @@ from tests.support.agents import (
     build_thread_config,
     read_texts,
     run_agent,
+    run_stopping_audits,
 )
 from tests.support.chat_models import ScriptedChatModel
 from tests.support.monitors import KeywordMonitor, read_action_text
@@ -333,10 +334,16 @@ def test_an_inner_record_marks_its_sample_executed_when_the_outer_monitor_halts(
     )
     inner = build_monitor(TRUSTED_MONITORING, label="inner", monitor=KeywordMonitor())
     model = ScriptedChatModel(responses=[build_exfiltration_step()])
-    agent = create_agent(model, tools=workspace.build_tools(), middleware=[outer, inner])
+    agent = create_agent(
+        model,
+        tools=workspace.build_tools(),
+        middleware=[outer, inner],
+        checkpointer=InMemorySaver(),
+    )
+    config = build_thread_config("outer-stop")
 
-    # Act
-    result = run_agent(agent, mode=run_mode)
+    # Act: the outer monitor holds the step, and a person stops it
+    result = run_stopping_audits(agent, build_task_input(), mode=run_mode, config=config)
 
     # Assert: the inner record keeps its own decision; only the outer one says nothing ran
     records = [

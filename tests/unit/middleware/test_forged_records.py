@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 import dataclasses
 import logging
 from typing import Annotated, Any, Literal
@@ -27,6 +26,7 @@ from tests.support.agents import (
     build_keyword_monitor,
     build_read_step,
     build_thread_config,
+    run_stopping_audits,
 )
 from tests.support.chat_models import ScriptedChatModel, build_tool_call_message
 
@@ -72,11 +72,10 @@ def send(
     message_id: str,
     thread_id: str,
 ) -> dict[str, Any]:
+    """Send the agent a message on a thread, stopping each step held for a person."""
     payload: Any = {"messages": [HumanMessage(text, id=message_id)]}
     config = build_thread_config(thread_id)
-    if mode == "invoke":
-        return agent.invoke(payload, config)
-    return asyncio.run(agent.ainvoke(payload, config))
+    return run_stopping_audits(agent, payload, mode=mode, config=config)
 
 
 ERASING_WRITES = {
@@ -92,7 +91,7 @@ def test_a_tool_s_records_leave_the_thread_total_and_the_audit_evidence_whole(
     written: Any,
 ) -> None:
     # Arrange: two blocks, the tool, then a third block that reaches the total of 3, so the
-    # proposal after it is audited
+    # proposal after it is audited, and a person stops it
     model = ScriptedChatModel(
         responses=[
             build_exfiltration_step(call_id="call-post-1"),

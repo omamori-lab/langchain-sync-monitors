@@ -17,6 +17,7 @@ from langchain.agents import create_agent
 from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import AIMessage, ToolMessage
 from langchain_core.runnables import Runnable
+from langgraph.checkpoint.memory import InMemorySaver
 
 from langchain_sync_monitors import (
     DEFAULT_HALT_MESSAGE,
@@ -32,8 +33,10 @@ from tests.support.agents import (
     build_exfiltration_step,
     build_keyword_monitor,
     build_read_step,
+    build_task_input,
+    build_thread_config,
     find_unanswered_tool_calls,
-    run_agent,
+    run_stopping_audits,
 )
 from tests.support.chat_models import OverlapCountingChatModel, ScriptedChatModel
 from tests.support.monitors import KeywordMonitor, read_action_text
@@ -67,7 +70,10 @@ def run_monitored_agent(
     run_mode: RunMode,
     trusted_model: BaseChatModel | None = None,
 ) -> MonitoredRun:
-    """Run a scripted agent under a keyword monitor and the given protocol."""
+    """Run a scripted agent under a keyword monitor and the given protocol.
+
+    A person stops every step the protocol audits.
+    """
     workspace = Workspace()
     untrusted_model = OverlapCountingChatModel(responses=list(untrusted_steps), delay=MODEL_DELAY)
     monitor = build_keyword_monitor()
@@ -76,9 +82,11 @@ def run_monitored_agent(
         model=untrusted_model,
         tools=workspace.build_tools(),
         middleware=[middleware],
+        checkpointer=InMemorySaver(),
     )
+    config = build_thread_config("protocols-in-agents")
     return MonitoredRun(
-        state=run_agent(agent, mode=run_mode),
+        state=run_stopping_audits(agent, build_task_input(), mode=run_mode, config=config),
         workspace=workspace,
         untrusted_model=untrusted_model,
         monitor=monitor,

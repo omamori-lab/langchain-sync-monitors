@@ -142,8 +142,9 @@ Three pieces work together here:
   with the score. A step whose suspicion is at or above `block_threshold` is
   blocked, and the agent is told why, so it can take a safer route. After
   three blocks in a row, or twenty in the run, the agent's next step is held
-  for a person, which halts the run while no person can answer. This follows
-  Claude Code's auto mode [@hughes2026automode].
+  for a person: the run pauses until they answer, as
+  [Answer an audit](../how-to/answer-an-audit.md) shows. This follows Claude
+  Code's auto mode [@hughes2026automode].
 - `MonitorMiddleware` joins the two and wraps every model call of the agent.
   It goes last in the `middleware` list. With more middleware,
   `check_monitor_placement(middleware=[...])` warns about placements known to
@@ -409,8 +410,7 @@ and Block and Feed Back blocks the leak and sends the feedback.
   agent's own tools run.
 - The control protocol decides what a score means. Block and Feed Back blocks
   a step at or above its threshold and lets the agent try another route, and
-  after too many blocks has a person audit the next step, which halts the run
-  while no person can answer.
+  after too many blocks pauses the run for a person to audit the next step.
 - `monitor_log` keeps one record per step, with every attempt the monitor
   judged, including those that never ran.
 

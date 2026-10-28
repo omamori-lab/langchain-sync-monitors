@@ -15,6 +15,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 
+from hyoshigi import Halt
 from langchain_core.messages import BaseMessage
 from langgraph.types import Overwrite
 
@@ -109,8 +110,12 @@ def build_run_start_trajectories_update(
     update: AgentStateUpdate,
     label: str,
     task_author: TaskAuthor,
+    stop: Halt | None = None,
 ) -> AgentStateUpdate:
-    """Return the update that adds a run's input to the trajectories, with the given ids marked."""
+    """Return the update that adds a run's input to the trajectories, with the given ids marked.
+
+    `stop` is the halt of a held step the input stopped, recorded first.
+    """
     # Only a run that did not end leaves a message read under its key without an id.
     given = find_given_ids(state, update=update) if is_run_open(state) else []
     own = load_run_start_trajectory(
@@ -119,6 +124,7 @@ def build_run_start_trajectories_update(
         given=given,
         label=label,
         task_author=task_author,
+        stop=stop,
     )
     return build_trajectories_update(state, given=given, task_author=task_author, own=own)
 

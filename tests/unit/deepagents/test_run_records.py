@@ -35,9 +35,11 @@ from tests.support.agents import (
     build_exfiltration_step,
     build_keyword_monitor,
     build_read_step,
+    build_task_input,
     build_thread_config,
     read_texts,
     run_agent,
+    run_stopping_audits,
     summarise_records,
 )
 from tests.support.chat_models import ScriptedChatModel
@@ -204,12 +206,19 @@ def test_a_subagent_s_block_counts_towards_its_parent_s_total(run_mode: RunMode)
             responses=[build_exfiltration_step(), AIMessage("Three sources.")],
         ),
         main_monitor=main_monitor,
+        checkpointer=InMemorySaver(),
     )
 
     # Act
-    result = run_agent(agent, mode=run_mode)
+    result = run_stopping_audits(
+        agent,
+        build_task_input(),
+        mode=run_mode,
+        config=build_thread_config("subagent-block"),
+    )
 
-    # Assert: counting its own block alone, the main agent would run "Done."
+    # Assert: counting its own block alone, the main agent would run "Done."; at the total
+    # its proposal is audited, and stopped
     assert read_texts(result["messages"])[-1] == DEFAULT_HALT_MESSAGE
     assert summarise_records(result["monitor_log"]) == [
         ("main", "allowed", 0, None),

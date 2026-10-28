@@ -36,10 +36,12 @@ from tests.support.agents import (
     Workspace,
     build_exfiltration_step,
     build_read_step,
+    build_task_input,
     build_thread_config,
     find_unanswered_tool_calls,
     run_agent,
     run_payload,
+    run_stopping_audits,
 )
 from tests.support.chat_models import (
     ScriptedChatModel,
@@ -474,13 +476,15 @@ def test_a_reply_holding_a_server_tool_s_result_fails_closed_and_is_recorded(
                 trusted_model=trusted_model,
             ),
         ],
+        checkpointer=InMemorySaver(),
     )
+    config = build_thread_config("server-tool-result")
 
     # Act
-    state = run_agent(agent, mode=run_mode, task=TASK)
+    state = run_stopping_audits(agent, build_task_input(TASK), mode=run_mode, config=config)
 
     # Assert: the result is content the monitor's model cannot perceive, so it is never
-    # asked, and a score that failed closed with an answer is audited, which halts the step
+    # asked, and a score that failed closed with an answer is audited, and a person stops it
     assert monitor.readings == []
     record = state["monitor_log"][0]
     assert (record["outcome"], record["flagged"]) == ("halted", True)

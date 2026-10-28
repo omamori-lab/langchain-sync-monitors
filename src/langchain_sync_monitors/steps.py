@@ -5,8 +5,9 @@ once, as a plan that does no I/O: it asks for a reply of the agent's model and
 the protocol's decision on it, then for the replies each of the protocol's
 requests asks for and the decision on them, and records each decision in the
 monitor's trajectory [@hyoshigi2026]. After a block, the agent reads its
-blocked reply and the feedback on it, and replies again. An audit, which no
-person can answer inside the model node, halts the step. `run_step_sync`
+blocked reply and the feedback on it, and replies again. An audit holds the
+reply for a person, whose answer `audits` applies after the model node.
+`run_step_sync`
 answers the plan under `invoke()`, one call after another, and `run_step`
 under `ainvoke()`, drawing the replies of one request at once.
 
@@ -64,7 +65,7 @@ from langchain_sync_monitors.errors import MonitorError
 from langchain_sync_monitors.feedback import build_feedback_messages
 from langchain_sync_monitors.model_calls import CachedResampleWarning, is_response_cache_active
 from langchain_sync_monitors.options import LIBRARY_DIRECTORY
-from langchain_sync_monitors.protocols import NO_PERSON_REASON, FeedbackTemplate
+from langchain_sync_monitors.protocols import FeedbackTemplate
 from langchain_sync_monitors.trajectories import LoadedTrajectory
 from langchain_sync_monitors.trajectory_events import read_proposed_action
 
@@ -140,7 +141,7 @@ class StepResult:
     """How a step ended: each block's reply and the feedback on it, then the last decision."""
 
     blocked: tuple[BaseMessage, ...]
-    final: Run | Flag | Replace | Halt
+    final: Run | Flag | Replace | Audit | Halt
 
 
 type StepPlan = Generator[Decide | Resume, ProtocolOutcome, StepResult]
@@ -158,7 +159,8 @@ def plan_step(step: Step) -> StepPlan:
                 blocked = (*blocked, *record_block(outcome, step=step))
                 outcome = yield Decide(conversation=(*step.request.messages, *blocked))
             case Run() | Flag() | Replace() | Audit() | Halt():
-                return StepResult(blocked=blocked, final=finish_step(outcome, step=step))
+                step.trajectory.trajectory.record(outcome)
+                return StepResult(blocked=blocked, final=outcome)
             case unreachable:
                 assert_never(unreachable)
 
@@ -190,33 +192,6 @@ def record_block(block: Block, *, step: Step) -> tuple[BaseMessage, ...]:
     step.trajectory.trajectory.record(rendered)
     reply = find_reply(step.drawn[block.action.id].response)
     return (reply, *build_feedback_messages(reply, feedback=rendered.reason))
-
-
-def finish_step(
-    final: Run | Flag | Replace | Audit | Halt,
-    *,
-    step: Step,
-) -> Run | Flag | Replace | Halt:
-    """Record the decision that ends the step; an audit is followed by a halt.
-
-    No person can answer an audit inside the model node, so the halt
-    follows it, at its position, with the proposals it held.
-    """
-    trajectory = step.trajectory.trajectory
-    match final:
-        case Audit(proposals=proposals, position=position):
-            trajectory.record(final)
-            ended: Run | Flag | Replace | Halt = Halt(
-                reason=NO_PERSON_REASON,
-                proposals=proposals,
-                position=position,
-            )
-        case Run() | Flag() | Replace() | Halt():
-            ended = final
-        case unreachable:
-            assert_never(unreachable)
-    trajectory.record(ended)
-    return ended
 
 
 def find_reply_position(response: AgentModelResponse) -> int:

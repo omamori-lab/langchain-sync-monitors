@@ -14,7 +14,7 @@ from collections.abc import Generator, Sequence
 from contextlib import contextmanager
 from typing import assert_never
 
-from hyoshigi import Flag, Halt, Replace, Run
+from hyoshigi import Audit, Flag, Halt, Replace, Run
 from langchain.agents.middleware.types import ExtendedModelResponse, ModelResponse
 from langgraph.errors import GraphBubbleUp
 from langgraph.types import Command
@@ -35,7 +35,7 @@ from langchain_sync_monitors.halts import build_halt_inputs_update
 from langchain_sync_monitors.protocols import DEFAULT_HALT_MESSAGE
 from langchain_sync_monitors.records import build_sample_records
 from langchain_sync_monitors.spans import StepIdentity, build_step_span_inputs
-from langchain_sync_monitors.steps import Step, StepResult, find_reply_position
+from langchain_sync_monitors.steps import Step, StepResult, find_reply, find_reply_position
 from langchain_sync_monitors.subagent_returns import build_answered_update
 from langchain_sync_monitors.task_authorship import build_note_update
 from langchain_sync_monitors.trajectories import (
@@ -93,7 +93,7 @@ def report_failed_step(
         )
         if identity.delegation_id is not None:
             event["delegation_id"] = identity.delegation_id
-        write_stream_event(step.request, event=event)
+        write_stream_event(step.request.runtime, event=event)
         if samples:
             logger.warning(
                 "%s: step %d failed with %s before it was committed, so the %d sample(s) the "
@@ -114,7 +114,8 @@ def build_step_response(result: StepResult, *, step: Step) -> AgentModelResponse
     Each block's reply and the feedback on it come first. A run, a flag or a
     replace commits the draw of the action it runs, whole, with its
     structured response, and adds what follows the reply in the draw to the
-    trajectory. A halt commits `DEFAULT_HALT_MESSAGE`.
+    trajectory. An audit commits the held reply alone, for a person to
+    answer before any tool runs. A halt commits `DEFAULT_HALT_MESSAGE`.
     """
     match result.final:
         case Run(action=action) | Flag(action=action) | Replace(action=action):
@@ -123,6 +124,10 @@ def build_step_response(result: StepResult, *, step: Step) -> AgentModelResponse
             return ModelResponse(
                 result=[*result.blocked, *drawn.result],
                 structured_response=drawn.structured_response,
+            )
+        case Audit(action=action):
+            return ModelResponse(
+                result=[*result.blocked, find_reply(step.drawn[action.id].response)]
             )
         case Halt():
             return ModelResponse(result=[*result.blocked, build_halt_message(DEFAULT_HALT_MESSAGE)])
@@ -141,7 +146,8 @@ def commit_step(
     """Commit the step's messages and append the step's record to `monitor_log`.
 
     The record is also written to `stream_mode="custom"`, once the response
-    and the update are built, so a commit that fails streams no record. The
+    and the update are built, so a commit that fails streams no record. A
+    step held for a person writes neither: the answer writes its record. The
     untagged human messages in the state that the monitor had not seen are
     recorded as seen, so the next run does not take them for its input, and
     the subagent halts the step answered are removed. The monitor's
@@ -150,8 +156,9 @@ def commit_step(
     for which it halted.
     """
     mark_committed(trajectory, committed=response.result)
+    is_held = record["outcome"] == "audited"
     update = {
-        MONITOR_LOG_KEY: [record],
+        **({} if is_held else {MONITOR_LOG_KEY: [record]}),
         # A middleware listed after the monitor runs its `before_model` hook after the
         # monitor's own, so a human message it wrote is first recorded here.
         **build_note_update(request.state),
@@ -159,7 +166,9 @@ def commit_step(
         **build_answered_update(request.state),
         **build_trajectory_update(trajectory, answered_lost_writes=trajectory.lost_writes),
     }
-    write_stream_event(request, event=MonitorStepEvent(type="monitor_step", record=record))
+    if not is_held:
+        event = MonitorStepEvent(type="monitor_step", record=record)
+        write_stream_event(request.runtime, event=event)
     logger.debug(
         "%s committed step %d: %s", middleware_name, record["step_number"], record["outcome"]
     )

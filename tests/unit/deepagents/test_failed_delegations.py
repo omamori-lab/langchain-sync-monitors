@@ -31,6 +31,7 @@ from tests.support.agents import (
     build_thread_config,
     run_agent,
     run_payload,
+    run_stopping_audits,
     stream_subgraph_custom_events,
     summarise_records,
 )
@@ -261,10 +262,10 @@ def test_blocks_inside_a_crashed_delegation_count_when_the_run_is_resumed(
         run_payload(agent, build_task_input(), mode=run_mode, config=config)
 
     # Act
-    result = run_payload(agent, None, mode=run_mode, config=config)
+    result = run_stopping_audits(agent, None, mode=run_mode, config=config)
 
     # Assert: the resumed worker counts its first two blocks, so after the third its next
-    # proposal is audited and halted; the audit resets the total for the main agent.
+    # proposal is audited, and stopped; the audit resets the total for the main agent.
     assert summarise_records(result["monitor_log"]) == [
         ("main", "allowed", 0, None),
         ("worker", "steered", 1, "call-task-1"),

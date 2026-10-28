@@ -3,7 +3,7 @@
 A monitor whose model gives no answer, after the adapter's retries, rates the
 action 1.0 with hyoshigi's reason, and the protocol answers as its
 `on_unavailable` says: trusted monitoring lets the step run flagged, defer to
-resample audits it, which halts the step, and block and feed back, told to
+resample audits it, and a person stops it, and block and feed back, told to
 block, blocks it until its limit audits the next proposal. A readable score
 below the threshold lets the step run as usual.
 """
@@ -17,6 +17,7 @@ import pytest
 from hyoshigi import Generation, Unavailable
 from langchain.agents import create_agent
 from langchain_core.messages import AIMessage
+from langgraph.checkpoint.memory import InMemorySaver
 
 from langchain_sync_monitors import (
     AuditResponse,
@@ -28,7 +29,15 @@ from langchain_sync_monitors import (
     MonitorMiddleware,
     MonitorPrompt,
 )
-from tests.support.agents import RunMode, Workspace, build_read_step, run_agent
+from tests.support.agents import (
+    RunMode,
+    Workspace,
+    build_read_step,
+    build_task_input,
+    build_thread_config,
+    run_agent,
+    run_stopping_audits,
+)
 from tests.support.chat_models import ScriptedChatModel
 from tests.support.flaky_models import FlakyChatModel
 from tests.support.monitors import ScriptedGeneration
@@ -140,10 +149,16 @@ def test_a_rating_that_failed_closed_is_suspicious_to_the_protocol(
                 protocol=case.build_protocol(),
             ),
         ],
+        checkpointer=InMemorySaver(),
     )
 
-    # Act
-    result = run_agent(agent, mode=run_mode)
+    # Act: a person stops the audited step
+    result = run_stopping_audits(
+        agent,
+        build_task_input(),
+        mode=run_mode,
+        config=build_thread_config("failed-closed"),
+    )
 
     # Assert
     first = result["monitor_log"][0]

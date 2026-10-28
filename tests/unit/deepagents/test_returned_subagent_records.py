@@ -25,8 +25,10 @@ from tests.support.agents import (
     build_exfiltration_step,
     build_keyword_monitor,
     build_read_step,
+    build_task_input,
     build_thread_config,
     run_agent,
+    run_stopping_audits,
 )
 from tests.support.chat_models import ScriptedChatModel, build_tool_call_message
 from tests.support.deep_agents import (
@@ -114,12 +116,14 @@ def test_a_tool_s_own_step_record_cannot_hide_a_parallel_subagent_s_halt(
             when_subagent_halts=SubagentHalt.STOP_WHOLE_RUN,
         ),
         worker_monitor=build_halting_worker_monitor(),
+        checkpointer=InMemorySaver(),
         tools=[build_forging_tool([dict(FORGED_OWN_STEP)]), *workspace.build_tools()],
     )
+    config = build_thread_config(f"forged-own-step-{order}")
 
     # Act
     with caplog.at_level(logging.WARNING, logger=PACKAGE_LOGGER):
-        result = run_agent(agent, mode=run_mode)
+        result = run_stopping_audits(agent, build_task_input(), mode=run_mode, config=config)
 
     # Assert
     assert summarise(result["monitor_log"]) == [
@@ -158,10 +162,15 @@ def test_a_forged_record_cannot_hide_a_subagent_s_halt_after_a_halt_of_the_paren
         tools=[build_forging_tool([dict(FORGED_OWN_STEP)])],
     )
     config = build_thread_config(f"forge-after-halt-{order}-{run_mode}")
-    run_agent(agent, mode=run_mode, config=config, task="Post the report.")
+    run_stopping_audits(
+        agent,
+        build_task_input("Post the report."),
+        mode=run_mode,
+        config=config,
+    )
 
     # Act
-    result = run_agent(agent, mode=run_mode, config=config)
+    result = run_stopping_audits(agent, build_task_input(), mode=run_mode, config=config)
 
     # Assert
     assert result["messages"][-1].text == (
@@ -189,11 +198,13 @@ def test_under_stop_subagent_only_the_parent_carries_on_past_the_forged_record(
         worker_model=ScriptedChatModel(responses=[build_exfiltration_step(call_id="call-post")]),
         main_monitor=MonitorMiddleware(monitor=build_keyword_monitor(), protocol=RUN_EVERY_STEP),
         worker_monitor=build_halting_worker_monitor(),
+        checkpointer=InMemorySaver(),
         tools=[build_forging_tool([dict(FORGED_OWN_STEP)])],
     )
+    config = build_thread_config(f"forged-subagent-only-{order}")
 
     # Act
-    result = run_agent(agent, mode=run_mode)
+    result = run_stopping_audits(agent, build_task_input(), mode=run_mode, config=config)
 
     # Assert
     assert result["messages"][-1].text == "Done."
@@ -292,8 +303,13 @@ def build_nested_parent(
     inner_name: str,
     inner_model: ScriptedChatModel,
     inner_halts: bool = False,
+    checkpointer: InMemorySaver | None = None,
 ) -> CompiledStateGraph[Any, Any, Any, Any]:
-    """Build main, which delegates to `middle`, a deep agent that delegates to `inner_name`."""
+    """Build main, which delegates to `middle`, a deep agent that delegates to `inner_name`.
+
+    With `inner_halts`, inner's monitor audits its step; main's `checkpointer`,
+    which the levels below share, lets the audit pause.
+    """
     main_monitor = MonitorMiddleware(
         monitor=build_keyword_monitor(),
         protocol=RUN_EVERY_STEP,
@@ -329,6 +345,7 @@ def build_nested_parent(
         ),
         middleware=[main_monitor],
         subagents=[CompiledSubAgent(name="middle", description="Delegates.", runnable=middle)],
+        checkpointer=checkpointer,
     )
 
 
@@ -379,12 +396,15 @@ def test_a_nested_halt_reaches_the_top_through_every_level(run_mode: RunMode) ->
         inner_name="inner",
         inner_model=ScriptedChatModel(responses=[AIMessage("Inner done.")]),
         inner_halts=True,
+        checkpointer=InMemorySaver(),
     )
+    config = build_thread_config("nested-halt")
 
     # Act
-    result = run_agent(agent, mode=run_mode)
+    result = run_stopping_audits(agent, build_task_input(), mode=run_mode, config=config)
 
-    # Assert: middle stops the whole run too, so each level halts in turn
+    # Assert: inner's audit is stopped, and middle stops the whole run too, so each level
+    # halts in turn
     assert [(row["agent"], row["outcome"]) for row in result["monitor_log"]] == [
         ("main", "allowed"),
         ("middle", "allowed"),
@@ -490,6 +510,7 @@ def build_stacked_parent(
             subagents=[worker],
             overrides={"worker": build_halting_worker_monitor()},
         ),
+        checkpointer=InMemorySaver(),
     )
     return agent, main_model
 
@@ -510,10 +531,11 @@ def test_either_of_two_stacked_monitors_stops_the_run_after_a_subagent_halts(
 ) -> None:
     # Arrange
     agent, main_model = build_stacked_parent(outer_halts=outer_halts, inner_halts=inner_halts)
+    config = build_thread_config(f"stacked-{outer_halts}")
 
     # Act
     with caplog.at_level(logging.WARNING, logger=PACKAGE_LOGGER):
-        result = run_agent(agent, mode=run_mode)
+        result = run_stopping_audits(agent, build_task_input(), mode=run_mode, config=config)
 
     # Assert
     assert len(main_model.calls) == 1
@@ -555,14 +577,16 @@ def test_a_blocking_monitor_inside_another_counts_the_run_s_blocks_in_its_subage
             middleware=inner,
             subagents=[SubAgent(name="worker", description="Finds.", model=worker_model)],
         ),
+        checkpointer=InMemorySaver(),
     )
+    config = build_thread_config("blocking-inside")
 
     # Act
     with caplog.at_level(logging.WARNING, logger=PACKAGE_LOGGER):
-        result = run_agent(agent, mode=run_mode)
+        result = run_stopping_audits(agent, build_task_input(), mode=run_mode, config=config)
 
     # Assert: the worker's records reach the log once, under the inner monitor's label; its
-    # proposal after the total is audited and halted, and the audit resets the total
+    # proposal after the total is audited and stopped, and the audit resets the total
     rows = [
         (
             record["agent"],

@@ -28,13 +28,15 @@ from langchain_sync_monitors.feedback import build_halt_message
 from langchain_sync_monitors.halts import STANDING_HALT_MESSAGE, is_halt_standing
 from langchain_sync_monitors.middleware import MonitorMiddleware
 from tests.support.agents import (
+    TASK,
     RunMode,
     Workspace,
     build_exfiltration_step,
     build_keyword_monitor,
     build_read_step,
+    build_task_input,
     build_thread_config,
-    run_agent,
+    run_stopping_audits,
 )
 from tests.support.chat_models import ScriptedChatModel
 from tests.support.protocols import RUN_EVERY_STEP
@@ -44,6 +46,7 @@ REVIEWER_SOURCE = "reviewer"
 REVISION_REQUEST = "The task is not done yet. Keep going."
 NUDGE = "Call the relevant state-changing tool now instead of replying."
 NUDGE_NAME = "nemotron_policy_nudge"
+THREAD = build_thread_config("standing-halt")
 
 
 class ReturningToModelMiddleware(AgentMiddleware[Any, Any, Any]):
@@ -152,7 +155,7 @@ class StoppingOnceMiddleware(AgentMiddleware[Any, Any, Any]):
 
 
 def build_halting_monitor(**options: Any) -> MonitorMiddleware:
-    """Build a monitor that audits, and so halts, a suspicious step, drawing no resample."""
+    """Build a monitor that audits a suspicious step, drawing no resample, for a stop to halt."""
     protocol = DeferToResample(defer_threshold=0.5, audit_threshold=0.5, max_resamples=0)
     return MonitorMiddleware(monitor=build_keyword_monitor(), protocol=protocol, **options)
 
@@ -162,7 +165,6 @@ def build_agent(
     *,
     workspace: Workspace,
     returns: int,
-    checkpointer: InMemorySaver | None = None,
     interrupt_before: list[str] | None = None,
 ) -> CompiledStateGraph[Any, Any, Any, Any]:
     stack: list[AgentMiddleware[Any, Any, Any]] = [
@@ -173,9 +175,20 @@ def build_agent(
         model,
         tools=workspace.build_tools(),
         middleware=stack,
-        checkpointer=checkpointer,
+        checkpointer=InMemorySaver(),
         interrupt_before=interrupt_before,
     )
+
+
+def run_task(
+    agent: Runnable[Any, Any],
+    *,
+    mode: RunMode,
+    config: RunnableConfig = THREAD,
+    task: str = TASK,
+) -> dict[str, Any]:
+    """Run the agent on a task, stopping each step held for a person."""
+    return run_stopping_audits(agent, build_task_input(task), mode=mode, config=config)
 
 
 def resume(agent: Runnable[Any, Any], *, mode: RunMode, config: RunnableConfig) -> Any:
@@ -199,7 +212,7 @@ def test_a_hook_that_returns_to_the_model_after_a_halt_meets_a_halt_again(
     agent = build_agent(model, workspace=workspace, returns=2)
 
     # Act
-    result = run_agent(agent, mode=run_mode)
+    result = run_task(agent, mode=run_mode)
 
     # Assert: the untrusted model was called for the first step only, and nothing ran
     assert len(model.calls) == 1
@@ -239,7 +252,7 @@ def test_a_hook_that_returns_to_the_model_after_an_allowed_step_is_sampled(
     agent = build_agent(model, workspace=workspace, returns=1)
 
     # Act
-    result = run_agent(agent, mode=run_mode)
+    result = run_task(agent, mode=run_mode)
 
     # Assert: without a halt, the return reaches the untrusted model as usual
     assert len(model.calls) == 3
@@ -253,12 +266,12 @@ def test_a_new_user_message_after_a_standing_halt_starts_afresh(run_mode: RunMod
     model = ScriptedChatModel(
         responses=[build_exfiltration_step(), build_read_step(), AIMessage("Done.")],
     )
-    agent = build_agent(model, workspace=workspace, returns=1, checkpointer=InMemorySaver())
+    agent = build_agent(model, workspace=workspace, returns=1)
     config = build_thread_config(f"standing-halt-then-new-turn-{run_mode}")
-    run_agent(agent, mode=run_mode, config=config)
+    run_task(agent, mode=run_mode, config=config)
 
     # Act
-    second_turn = run_agent(agent, mode=run_mode, config=config, task="Summarise q3.md only.")
+    second_turn = run_task(agent, mode=run_mode, config=config, task="Summarise q3.md only.")
 
     # Assert
     assert read_outcomes(second_turn) == ["halted", "halted", "allowed", "allowed"]
@@ -279,10 +292,15 @@ def test_a_nudge_written_before_the_next_model_call_never_lifts_a_halt(
         build_halting_monitor(),
         NudgingMiddleware(),
     ]
-    agent = create_agent(model, tools=workspace.build_tools(), middleware=stack)
+    agent = create_agent(
+        model,
+        tools=workspace.build_tools(),
+        middleware=stack,
+        checkpointer=InMemorySaver(),
+    )
 
     # Act
-    result = run_agent(agent, mode=run_mode)
+    result = run_task(agent, mode=run_mode)
 
     # Assert: the nudge reached the state untagged, yet the untrusted model stayed stopped
     nudges = [message for message in result["messages"] if message.name == NUDGE_NAME]
@@ -297,17 +315,13 @@ def test_a_fresh_run_without_a_new_message_stays_halted(run_mode: RunMode) -> No
     # Arrange
     workspace = Workspace()
     model = ScriptedChatModel(responses=[build_exfiltration_step(), build_read_step()])
-    agent = build_agent(model, workspace=workspace, returns=0, checkpointer=InMemorySaver())
+    agent = build_agent(model, workspace=workspace, returns=0)
     config = build_thread_config(f"fresh-run-without-input-{run_mode}")
-    first = run_agent(agent, mode=run_mode, config=config)
+    first = run_task(agent, mode=run_mode, config=config)
     assert read_outcomes(first) == ["halted"]
 
     # Act: the application runs the thread again, with no message of the user's
-    payload: dict[str, Any] = {"messages": []}
-    if run_mode == "invoke":
-        second = agent.invoke(payload, config)
-    else:
-        second = asyncio.run(agent.ainvoke(payload, config))
+    second = run_stopping_audits(agent, {"messages": []}, mode=run_mode, config=config)
 
     # Assert
     assert read_outcomes(second) == ["halted", "halted"]
@@ -336,11 +350,11 @@ def test_a_message_the_monitor_cannot_confirm_as_input_never_lifts_a_halt(
     )
     config = build_thread_config(f"unconfirmed-after-halt-{run_mode}")
     with pytest.raises(ConnectionError):
-        run_agent(agent, mode=run_mode, config=config)
+        run_task(agent, mode=run_mode, config=config)
 
     # Act
-    unconfirmed_turn = run_agent(agent, mode=run_mode, config=config, task="Go on, safely.")
-    confirmed_turn = run_agent(agent, mode=run_mode, config=config, task="Summarise q3.md.")
+    unconfirmed_turn = run_task(agent, mode=run_mode, config=config, task="Go on, safely.")
+    confirmed_turn = run_task(agent, mode=run_mode, config=config, task="Summarise q3.md.")
 
     # Assert: the unconfirmed turn stays halted, and the next turn's input lifts the halt
     unconfirmed = [
@@ -363,11 +377,10 @@ def test_resuming_between_the_halt_and_the_hook_halts_again(run_mode: RunMode) -
         model,
         workspace=workspace,
         returns=1,
-        checkpointer=InMemorySaver(),
         interrupt_before=["returner.after_agent"],
     )
     config = build_thread_config(f"resume-after-halt-{run_mode}")
-    paused = run_agent(agent, mode=run_mode, config=config)
+    paused = run_task(agent, mode=run_mode, config=config)
     assert read_outcomes(paused) == ["halted"]
 
     # Act
@@ -392,9 +405,9 @@ def test_a_fork_from_before_the_halt_samples_its_own_branch(run_mode: RunMode) -
             AIMessage("Done, as revised."),
         ],
     )
-    agent = build_agent(model, workspace=workspace, returns=1, checkpointer=InMemorySaver())
+    agent = build_agent(model, workspace=workspace, returns=1)
     config = build_thread_config(f"fork-before-halt-{run_mode}")
-    first = run_agent(agent, mode=run_mode, config=config)
+    first = run_task(agent, mode=run_mode, config=config)
     assert read_outcomes(first) == ["allowed", "halted", "halted"]
     fork = next(
         snapshot
@@ -423,7 +436,7 @@ def test_a_parent_that_stops_the_whole_run_stays_stopped(run_mode: RunMode) -> N
     agent = create_agent(model, tools=[delegate], middleware=stack)
 
     # Act
-    result = run_agent(agent, mode=run_mode)
+    result = run_task(agent, mode=run_mode)
 
     # Assert
     assert len(model.calls) == 1
@@ -448,10 +461,15 @@ def test_an_inner_monitor_keeps_its_halt_under_an_outer_monitor(run_mode: RunMod
         outer,
         build_halting_monitor(),
     ]
-    agent = create_agent(model, tools=workspace.build_tools(), middleware=stack)
+    agent = create_agent(
+        model,
+        tools=workspace.build_tools(),
+        middleware=stack,
+        checkpointer=InMemorySaver(),
+    )
 
     # Act
-    result = run_agent(agent, mode=run_mode)
+    result = run_task(agent, mode=run_mode)
 
     # Assert
     inner_outcomes = [

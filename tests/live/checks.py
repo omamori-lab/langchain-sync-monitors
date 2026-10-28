@@ -70,7 +70,7 @@ INTERVENTIONS: Final[Mapping[ProtocolName, frozenset[str]]] = {
 
 Trusted Monitoring lets every step run and only flags it; every other
 protocol keeps such a sample from running. A step the protocol audits halts,
-since no person can answer inside the run.
+since the harness, standing in for the person, stops every audit.
 """
 
 

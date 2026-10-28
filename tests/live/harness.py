@@ -14,7 +14,9 @@ calibrated on honest runs, as a real deployment's should be.
 
 Every run streams with `subgraphs=True`, so a Deep Agent's subagents report
 their steps too, and keeps the state of the root graph only. Every run also
-passes an in-process `RecordingTracer`, whose spans the report checks.
+passes an in-process `RecordingTracer`, whose spans the report checks. Each
+run keeps a checkpointer, so a step a protocol audits pauses the run; the
+harness stands in for the person and stops every audit, by interrupt id.
 """
 
 from __future__ import annotations
@@ -24,7 +26,7 @@ import time
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field, replace
 from enum import StrEnum
-from typing import Any, Final, Literal
+from typing import Any, Final, Literal, cast
 
 import httpx
 import hyoshigi
@@ -34,6 +36,9 @@ from langchain.chat_models import init_chat_model
 from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import HumanMessage
 from langchain_core.runnables import Runnable, RunnableConfig, RunnableLambda
+from langgraph.checkpoint.memory import InMemorySaver
+from langgraph.pregel import Pregel
+from langgraph.types import Command, StateSnapshot
 
 from langchain_sync_monitors import (
     AuditResponse,
@@ -136,6 +141,15 @@ and two per run, to the model node and the tools node that each step takes witho
 
 type RunMode = Literal["invoke", "ainvoke"]
 type AgentInput = dict[str, list[HumanMessage]]
+
+LIVE_THREAD_ID: Final = "live-run"
+"""The thread a run's checkpointer keeps; each run builds its agent and checkpointer afresh."""
+
+STOP_ANSWER: Final = {"type": "stop"}
+"""The answer the harness gives every audit, standing in for a person."""
+
+MAX_AUDITS: Final = 10
+"""How many audits the harness stops in one turn before it takes the run for stuck."""
 
 
 class MonitorFamily(StrEnum):
@@ -510,6 +524,7 @@ def build_live_agent(
         tools=resources.sandbox.build_tools(),
         system_prompt=AGENT_SYSTEM_PROMPT,
         middleware=[middleware],
+        checkpointer=InMemorySaver(),
     )
 
 
@@ -522,13 +537,44 @@ def build_run_config(
     *,
     tracer: RecordingTracer,
     recursion_limit: int = RECURSION_LIMIT,
-    thread_id: str | None = None,
+    thread_id: str = LIVE_THREAD_ID,
 ) -> RunnableConfig:
-    """Return the run's config: the step bound, the tracer and, for a checkpointer, the thread."""
-    config = RunnableConfig(recursion_limit=recursion_limit, callbacks=[tracer])
-    if thread_id is not None:
-        config["configurable"] = {"thread_id": thread_id}
-    return config
+    """Return the run's config: the step bound, the tracer and the checkpointer's thread."""
+    return RunnableConfig(
+        recursion_limit=recursion_limit,
+        callbacks=[tracer],
+        configurable={"thread_id": thread_id},
+    )
+
+
+def build_stop_answers(snapshot: StateSnapshot) -> Command[Any] | None:
+    """Return the resume that stops every audit the run is paused at, by interrupt id, or None."""
+    if not snapshot.interrupts:
+        return None
+    return Command(resume={item.id: STOP_ANSWER for item in snapshot.interrupts})
+
+
+def stream_turn(
+    agent: Runnable[Any, Any],
+    turn: AgentInput,
+    *,
+    config: RunnableConfig,
+    outcome: StreamOutcome,
+) -> None:
+    """Stream one turn under `invoke()`'s path, stopping each audit it pauses at, and on."""
+    payload: AgentInput | Command[Any] | None = turn
+    for _ in range(MAX_AUDITS + 1):
+        if payload is None:
+            return
+        for namespace, stream_mode, chunk in agent.stream(
+            payload,
+            config,
+            stream_mode=["values", "custom"],
+            subgraphs=True,
+        ):
+            outcome.receive(stream_mode, chunk=chunk, namespace=namespace)
+        graph = cast("Pregel[Any, Any, Any, Any]", agent)
+        payload = build_stop_answers(graph.get_state(config))
 
 
 def stream_turns(
@@ -542,18 +588,35 @@ def stream_turns(
     outcome = StreamOutcome(ledger=ledger)
     try:
         for turn in turns:
-            for namespace, stream_mode, chunk in agent.stream(
-                turn,
-                config,
-                stream_mode=["values", "custom"],
-                subgraphs=True,
-            ):
-                outcome.receive(stream_mode, chunk=chunk, namespace=namespace)
+            stream_turn(agent, turn, config=config, outcome=outcome)
     except Exception as error:  # a failed run is recorded in its report, not raised
         outcome.finish(error)
     else:
         outcome.finish()
     return outcome
+
+
+async def astream_turn(
+    agent: Runnable[Any, Any],
+    turn: AgentInput,
+    *,
+    config: RunnableConfig,
+    outcome: StreamOutcome,
+) -> None:
+    """Stream one turn under `ainvoke()`'s path, stopping each audit it pauses at, and on."""
+    payload: AgentInput | Command[Any] | None = turn
+    for _ in range(MAX_AUDITS + 1):
+        if payload is None:
+            return
+        async for namespace, stream_mode, chunk in agent.astream(
+            payload,
+            config,
+            stream_mode=["values", "custom"],
+            subgraphs=True,
+        ):
+            outcome.receive(stream_mode, chunk=chunk, namespace=namespace)
+        graph = cast("Pregel[Any, Any, Any, Any]", agent)
+        payload = build_stop_answers(await graph.aget_state(config))
 
 
 async def astream_turns(
@@ -567,13 +630,7 @@ async def astream_turns(
     outcome = StreamOutcome(ledger=ledger)
     try:
         for turn in turns:
-            async for namespace, stream_mode, chunk in agent.astream(
-                turn,
-                config,
-                stream_mode=["values", "custom"],
-                subgraphs=True,
-            ):
-                outcome.receive(stream_mode, chunk=chunk, namespace=namespace)
+            await astream_turn(agent, turn, config=config, outcome=outcome)
     except Exception as error:  # a failed run is recorded in its report, not raised
         outcome.finish(error)
     else:

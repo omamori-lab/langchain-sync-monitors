@@ -2,8 +2,9 @@
 
 Where the inputs come from:
 
-- The `anthropic` and `openai-responses` replies, the Anthropic server tool reply,
-  and the `openai-input` and `anthropic-input` messages follow langchain-core
+- The `anthropic`, `openai-responses` and `openai-reasoning-without-a-summary`
+  replies, the Anthropic server tool reply, and the `openai-input` and
+  `anthropic-input` messages follow langchain-core
   1.7.0's block translator tests, at the tag `langchain-core==1.7.0`
   (`libs/core/tests/unit_tests/messages/block_translators/test_anthropic.py` and
   `test_openai.py`). They are shortened, with ids added and real base64 in place
@@ -16,12 +17,15 @@ Where the inputs come from:
   `_convert_dict_to_message` builds.
 - The OpenAI web search, remote MCP and Gemini grounding replies come from
   `tests/support/server_tools.py`.
+- The other Gemini replies hold a `grounding_metadata` built by hand from fields
+  of google-genai 2.25.0's `GroundingMetadata`, which langchain-google-genai
+  4.4.2 dumps whole; one holds a key that `GroundingMetadata` lacks.
 - Every other input is built by hand from LangChain's message classes and
   content block types, or with lsm's own builders: the Anthropic replies with an
-  invalid call or without `model_provider`, the invalid calls, the refusals, the
-  streamed blocks, the Anthropic web search error, the Gemini reply without
-  sources, the standard media blocks, the human, system and tool messages, and
-  the malformed messages.
+  invalid call or without `model_provider`, the invalid calls, the call blocks
+  without their call, the refusals, the streamed blocks, the other replies whose
+  reasoning has no text, the Anthropic web search error, the standard media
+  blocks, the human, system and tool messages, and the malformed messages.
 """
 
 from __future__ import annotations
@@ -183,7 +187,6 @@ REPLIES: dict[str, tuple[AIMessage, Action]] = {
         AIMessage(
             id="resp_01",
             content=[
-                {"type": "reasoning", "id": "abc123", "summary": []},
                 {
                     "type": "reasoning",
                     "id": "rs_02",
@@ -830,6 +833,14 @@ MALFORMED_MESSAGES: dict[str, tuple[BaseMessage, str]] = {
         ),
         "ToolMessage.content_blocks[0]: expected an IANA media type",
     ),
+    "another-message-type": (
+        ChatMessage(content="Ship it.", role="critic"),
+        "ChatMessage: expected an AI, human, system or tool message",
+    ),
+}
+"""Messages other than replies that the reader cannot read, and the error each one raises."""
+
+MALFORMED_REPLIES: dict[str, tuple[AIMessage, str]] = {
     "reasoning-detail-without-text": (
         AIMessage(
             id="msg_09",
@@ -857,12 +868,272 @@ MALFORMED_MESSAGES: dict[str, tuple[BaseMessage, str]] = {
         ),
         "AIMessage.content_blocks[0]: expected a server tool result with its call id",
     ),
-    "another-message-type": (
-        ChatMessage(content="Ship it.", role="critic"),
-        "ChatMessage: expected an AI, human, system or tool message",
+}
+"""Replies the reader cannot read, and the error each one raises under either reader."""
+
+UNMATCHED_CALL_REPLIES: dict[str, tuple[AIMessage, Action]] = {
+    # The shape convert_to_messages gives an assistant message holding a standard block.
+    "tool-call-block": (
+        AIMessage(
+            id="msg_20",
+            content=[
+                {
+                    "type": "tool_call",
+                    "id": "call_danger",
+                    "name": "bash",
+                    "args": {"command": "rm -rf /"},
+                },
+            ],
+        ),
+        Action(id="msg_20", parts=(OpaquePart(kind="tool_call"),)),
+    ),
+    "invalid-tool-call-block": (
+        AIMessage(
+            id="msg_21",
+            content=[
+                {
+                    "type": "invalid_tool_call",
+                    "id": "call_bad",
+                    "name": "bash",
+                    "args": '{"command": "rm -rf',
+                    "error": None,
+                },
+            ],
+            response_metadata={"output_version": "v1"},
+        ),
+        Action(id="msg_21", parts=(OpaquePart(kind="invalid_tool_call"),)),
     ),
 }
-"""Messages the reader cannot read, and the error each one raises."""
+"""Replies holding a call block whose call is in neither tool_calls nor invalid_tool_calls."""
+
+HIDDEN_REASONING_REPLIES: dict[str, tuple[AIMessage, Action]] = {
+    "openai-reasoning-without-a-summary": (
+        AIMessage(
+            id="resp_05",
+            content=[
+                {"type": "reasoning", "id": "abc123", "summary": []},
+                {"type": "text", "text": "Hello"},
+            ],
+            response_metadata={"model_provider": "openai"},
+        ),
+        Action(
+            id="resp_05",
+            thought=(OpaquePart(kind="reasoning"),),
+            parts=(TextPart(text="Hello"),),
+        ),
+    ),
+    "summary-without-model-provider": (
+        AIMessage(
+            id="msg_22",
+            content=[
+                {
+                    "type": "reasoning",
+                    "id": "rs_01",
+                    "summary": [{"type": "summary_text", "text": "Deliberating."}],
+                },
+                {"type": "text", "text": "Done."},
+            ],
+        ),
+        Action(
+            id="msg_22",
+            thought=(OpaquePart(kind="reasoning"),),
+            parts=(TextPart(text="Done."),),
+        ),
+    ),
+    "anthropic-empty-thinking": (
+        AIMessage(
+            id="msg_23",
+            content=[
+                {"type": "thinking", "thinking": "", "signature": "sig"},
+                {"type": "text", "text": "Done."},
+            ],
+            response_metadata={"model_provider": "anthropic"},
+        ),
+        Action(
+            id="msg_23",
+            thought=(OpaquePart(kind="reasoning"),),
+            parts=(TextPart(text="Done."),),
+        ),
+    ),
+    "empty-thinking-without-model-provider": (
+        AIMessage(
+            id="msg_24",
+            content=[
+                {"type": "thinking", "thinking": "", "signature": "sig"},
+                {"type": "text", "text": "Done."},
+            ],
+        ),
+        Action(
+            id="msg_24",
+            thought=(OpaquePart(kind="thinking"),),
+            parts=(TextPart(text="Done."),),
+        ),
+    ),
+}
+"""Replies whose reasoning has no readable text, and no encrypted content, and their actions."""
+
+DUMPED_GROUNDING_METADATA: dict[str, object] = {
+    "image_search_queries": [],
+    "grounding_chunks": [],
+    "grounding_supports": [],
+    "retrieval_metadata": None,
+    "search_entry_point": None,
+    "web_search_queries": [],
+    "google_maps_widget_context_token": None,
+    "retrieval_queries": None,
+    "source_flagging_uris": None,
+}
+"""Every field of google-genai 2.25.0's GroundingMetadata, as langchain-google-genai 4.4.2 dumps
+one that holds no search."""
+
+RETRIEVAL_REPLY = AIMessage(
+    "Q3 revenue grew 4%.",
+    id="gem_03",
+    response_metadata={
+        "model_provider": "google_genai",
+        "grounding_metadata": {
+            **DUMPED_GROUNDING_METADATA,
+            "retrieval_queries": ["q3 revenue report"],
+            "grounding_chunks": [
+                {"retrieved_context": {"uri": "gs://reports/q3.pdf", "title": "Q3"}}
+            ],
+        },
+    },
+)
+UNSOURCED_RETRIEVAL_REPLY = AIMessage(
+    "Nothing was found.",
+    id="gem_04",
+    response_metadata={
+        "model_provider": "google_genai",
+        "grounding_metadata": {
+            **DUMPED_GROUNDING_METADATA,
+            "retrieval_queries": ["q3 revenue report"],
+        },
+    },
+)
+QUERYLESS_GROUNDING_REPLY = AIMessage(
+    "Q3 revenue grew 4%.",
+    id="gem_05",
+    response_metadata={
+        "model_provider": "google_genai",
+        "grounding_metadata": DUMPED_GROUNDING_METADATA,
+    },
+)
+UNKNOWN_GROUNDING_REPLY = AIMessage(
+    "Two cafes are open.",
+    id="gem_06",
+    response_metadata={
+        "model_provider": "google_genai",
+        "grounding_metadata": {"maps_queries": ["cafes near the office"]},
+    },
+)
+RETRIEVAL_CALL = ToolCall(
+    id="gem_03.grounding_metadata",
+    name="grounding",
+    arguments='{"retrieval_queries": ["q3 revenue report"]}',
+)
+UNSOURCED_RETRIEVAL_CALL = ToolCall(
+    id="gem_04.grounding_metadata",
+    name="grounding",
+    arguments='{"retrieval_queries": ["q3 revenue report"]}',
+)
+QUERYLESS_GROUNDING_CALL = ToolCall(
+    id="gem_05.grounding_metadata", name="grounding", arguments="{}"
+)
+UNKNOWN_GROUNDING_CALL = ToolCall(id="gem_06.grounding_metadata", name="grounding", arguments="{}")
+
+GROUNDING_HISTORIES: dict[str, tuple[AIMessage, list[Event]]] = {
+    "vertex-retrieval": (
+        RETRIEVAL_REPLY,
+        [
+            Action(
+                id="gem_03",
+                parts=(TextPart(text="Q3 revenue grew 4%."),),
+                tool_calls=(RETRIEVAL_CALL,),
+            ),
+            ToolObservation(
+                call_id="gem_03.grounding_metadata",
+                source="server",
+                parts=(
+                    TextPart(
+                        text='[{"retrieved_context": '
+                        '{"uri": "gs://reports/q3.pdf", "title": "Q3"}}]',
+                    ),
+                ),
+            ),
+        ],
+    ),
+    "vertex-retrieval-without-sources": (
+        UNSOURCED_RETRIEVAL_REPLY,
+        [
+            Action(
+                id="gem_04",
+                parts=(TextPart(text="Nothing was found."),),
+                tool_calls=(UNSOURCED_RETRIEVAL_CALL,),
+            ),
+            ToolObservation(call_id="gem_04.grounding_metadata", source="server", parts=()),
+        ],
+    ),
+    "metadata-without-queries": (
+        QUERYLESS_GROUNDING_REPLY,
+        [
+            Action(
+                id="gem_05",
+                parts=(TextPart(text="Q3 revenue grew 4%."),),
+                tool_calls=(QUERYLESS_GROUNDING_CALL,),
+            ),
+            ToolObservation(call_id="gem_05.grounding_metadata", source="server", parts=()),
+        ],
+    ),
+    "an-unknown-key": (
+        UNKNOWN_GROUNDING_REPLY,
+        [
+            Action(
+                id="gem_06",
+                parts=(TextPart(text="Two cafes are open."),),
+                tool_calls=(UNKNOWN_GROUNDING_CALL,),
+            ),
+            ToolObservation(call_id="gem_06.grounding_metadata", source="server", parts=()),
+        ],
+    ),
+}
+"""Gemini replies whose grounding metadata holds anything, and the events they add."""
+
+GROUNDING_PROPOSALS: dict[str, tuple[AIMessage, Action]] = {
+    "vertex-retrieval": (
+        RETRIEVAL_REPLY,
+        Action(
+            id="gem_03",
+            parts=(TextPart(text="Q3 revenue grew 4%."), PLACEHOLDER),
+            tool_calls=(RETRIEVAL_CALL,),
+        ),
+    ),
+    "vertex-retrieval-without-sources": (
+        UNSOURCED_RETRIEVAL_REPLY,
+        Action(
+            id="gem_04",
+            parts=(TextPart(text="Nothing was found."), PLACEHOLDER),
+            tool_calls=(UNSOURCED_RETRIEVAL_CALL,),
+        ),
+    ),
+    "metadata-without-queries": (
+        QUERYLESS_GROUNDING_REPLY,
+        Action(
+            id="gem_05",
+            parts=(TextPart(text="Q3 revenue grew 4%."), PLACEHOLDER),
+            tool_calls=(QUERYLESS_GROUNDING_CALL,),
+        ),
+    ),
+    "an-unknown-key": (
+        UNKNOWN_GROUNDING_REPLY,
+        Action(
+            id="gem_06",
+            parts=(TextPart(text="Two cafes are open."), PLACEHOLDER),
+            tool_calls=(UNKNOWN_GROUNDING_CALL,),
+        ),
+    ),
+}
+"""The same replies, and the action a monitor rates when each one is proposed."""
 
 
 @pytest.mark.parametrize("read", READERS.values(), ids=READERS.keys())
@@ -998,6 +1269,127 @@ def test_a_malformed_message_raises_naming_where_and_quoting_nothing(
 
     # Assert
     assert str(raised.value) == error
+
+
+@pytest.mark.parametrize(
+    ("read", "reply", "error"),
+    [
+        pytest.param(
+            READERS["history"],
+            *MALFORMED_REPLIES["reasoning-detail-without-text"],
+            id="reasoning-detail-without-text-history",
+        ),
+        pytest.param(
+            READERS["proposal"],
+            *MALFORMED_REPLIES["reasoning-detail-without-text"],
+            id="reasoning-detail-without-text-proposal",
+        ),
+        pytest.param(
+            READERS["history"],
+            *MALFORMED_REPLIES["tool-call-without-an-id"],
+            id="tool-call-without-an-id-history",
+        ),
+        pytest.param(
+            READERS["proposal"],
+            *MALFORMED_REPLIES["tool-call-without-an-id"],
+            id="tool-call-without-an-id-proposal",
+        ),
+        pytest.param(
+            READERS["history"],
+            *MALFORMED_REPLIES["server-result-without-a-call-id"],
+            id="server-result-without-a-call-id-history",
+        ),
+        pytest.param(
+            READERS["proposal"],
+            *MALFORMED_REPLIES["server-result-without-a-call-id"],
+            id="server-result-without-a-call-id-proposal",
+            marks=pytest.mark.xfail(strict=True),
+        ),
+    ],
+)
+def test_a_malformed_reply_raises_the_same_error_under_either_reader(
+    read: Callable[[AIMessage], list[Event]],
+    reply: AIMessage,
+    error: str,
+) -> None:
+    # Act
+    with pytest.raises(MessageFormatError) as raised:
+        read(reply)
+
+    # Assert
+    assert str(raised.value) == error
+
+
+@pytest.mark.xfail(strict=True)
+@pytest.mark.parametrize("read", READERS.values(), ids=READERS.keys())
+@pytest.mark.parametrize(
+    ("reply", "action"),
+    UNMATCHED_CALL_REPLIES.values(),
+    ids=UNMATCHED_CALL_REPLIES.keys(),
+)
+def test_a_call_block_whose_call_the_message_lacks_is_opaque_under_either_reader(
+    read: Callable[[AIMessage], list[Event]],
+    reply: AIMessage,
+    action: Action,
+) -> None:
+    # Act
+    events = read(reply)
+
+    # Assert
+    assert events == [action]
+
+
+@pytest.mark.xfail(strict=True)
+@pytest.mark.parametrize("read", READERS.values(), ids=READERS.keys())
+@pytest.mark.parametrize(
+    ("reply", "action"),
+    HIDDEN_REASONING_REPLIES.values(),
+    ids=HIDDEN_REASONING_REPLIES.keys(),
+)
+def test_reasoning_without_readable_text_is_hidden_reasoning_under_either_reader(
+    read: Callable[[AIMessage], list[Event]],
+    reply: AIMessage,
+    action: Action,
+) -> None:
+    # Act
+    events = read(reply)
+
+    # Assert
+    assert events == [action]
+
+
+@pytest.mark.xfail(strict=True)
+@pytest.mark.parametrize(
+    ("reply", "history"),
+    GROUNDING_HISTORIES.values(),
+    ids=GROUNDING_HISTORIES.keys(),
+)
+def test_any_grounding_search_is_a_call_and_the_server_s_observation(
+    reply: AIMessage,
+    history: list[Event],
+) -> None:
+    # Act
+    events = read_events(reply, task_author=TaskAuthor.USER)
+
+    # Assert
+    assert events == history
+
+
+@pytest.mark.xfail(strict=True)
+@pytest.mark.parametrize(
+    ("reply", "proposed"),
+    GROUNDING_PROPOSALS.values(),
+    ids=GROUNDING_PROPOSALS.keys(),
+)
+def test_a_rated_reply_after_any_grounding_search_fails_closed(
+    reply: AIMessage,
+    proposed: Action,
+) -> None:
+    # Act
+    action = read_proposed_action(reply)
+
+    # Assert
+    assert action == proposed
 
 
 @pytest.mark.parametrize("read", READERS.values(), ids=READERS.keys())

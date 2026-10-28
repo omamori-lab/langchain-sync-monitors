@@ -172,25 +172,44 @@ def build_google_server_error(status_code: int) -> Exception:
     return error
 
 
+def invoke_gemini(response: object) -> AIMessage:
+    """Return the reply langchain-google-genai builds from a response of Google's client.
+
+    Only the call to Google's client is replaced, by one that answers with the response.
+    """
+    integration = pytest.importorskip("langchain_google_genai")
+    chat = integration.ChatGoogleGenerativeAI(model="gemini-2.5-flash", api_key="offline")
+    chat.client = SimpleNamespace(models=SimpleNamespace(generate_content=lambda **_: response))
+    reply: AIMessage = chat.invoke("Step: perform the action.")
+    return reply
+
+
 def build_gemini_block_reply(*, block_reason: str | None, message: str | None) -> AIMessage:
     """Build the reply langchain-google-genai gives when Gemini returns no candidate.
 
-    The integration returns an empty message and keeps the prompt feedback in its
-    metadata. Only the call to Google's client is replaced, by one that answers with a
-    response of no candidates and the given feedback.
+    The integration returns an empty message and keeps the prompt feedback in its metadata.
     """
     types = pytest.importorskip("google.genai.types")
-    integration = pytest.importorskip("langchain_google_genai")
     reason = None if block_reason is None else types.BlockedReason(block_reason)
     feedback = types.GenerateContentResponsePromptFeedback(
         block_reason=reason,
         block_reason_message=message,
     )
-    response = types.GenerateContentResponse(candidates=[], prompt_feedback=feedback)
-    chat = integration.ChatGoogleGenerativeAI(model="gemini-2.5-flash", api_key="offline")
-    chat.client = SimpleNamespace(models=SimpleNamespace(generate_content=lambda **_: response))
-    reply: AIMessage = chat.invoke("Step: perform the action.")
-    return reply
+    return invoke_gemini(types.GenerateContentResponse(candidates=[], prompt_feedback=feedback))
+
+
+def build_gemini_candidate_reply(*, finish_reason: str, text: str | None) -> AIMessage:
+    """Build the reply langchain-google-genai gives for a candidate that stopped for a reason.
+
+    A candidate without text has no part, as Gemini returns one it flagged.
+    """
+    types = pytest.importorskip("google.genai.types")
+    parts = [] if text is None else [types.Part(text=text)]
+    candidate = types.Candidate(
+        finish_reason=types.FinishReason(finish_reason),
+        content=types.Content(role="model", parts=parts),
+    )
+    return invoke_gemini(types.GenerateContentResponse(candidates=[candidate]))
 
 
 def build_http_status_error(status_code: int) -> httpx.HTTPStatusError:
@@ -411,6 +430,37 @@ async def test_a_reply_that_stopped_on_its_own_is_a_generation_of_its_text(
     assert outcome == Generation(text="Fine.")
 
 
+OTHER_STOP_REASONS = [
+    pytest.param({"finish_reason": "tool_calls"}, id="openai-tool-calls"),
+    pytest.param({"finish_reason": "function_call"}, id="openai-function-call"),
+    pytest.param({"finish_reason": "FINISH_REASON_UNSPECIFIED"}, id="gemini-unspecified"),
+    pytest.param({"finish_reason": "OTHER"}, id="gemini-other"),
+    pytest.param({"stop_reason": "stop_sequence"}, id="anthropic-stop-sequence"),
+    pytest.param({"stop_reason": "tool_use"}, id="anthropic-tool-use"),
+    pytest.param({"stop_reason": "pause_turn"}, id="anthropic-pause-turn"),
+    pytest.param({"stopReason": "tool_use"}, id="bedrock-tool-use"),
+    pytest.param({"stopReason": "stop_sequence"}, id="bedrock-stop-sequence"),
+    pytest.param({"stopReason": "malformed_model_output"}, id="bedrock-malformed-output"),
+    pytest.param({"done_reason": "load"}, id="ollama-load"),
+    pytest.param({"done_reason": "unload"}, id="ollama-unload"),
+]
+
+
+@pytest.mark.parametrize("metadata", OTHER_STOP_REASONS)
+async def test_a_stop_reason_that_is_no_refusal_failure_or_cut_off_is_a_generation(
+    call_path: CallPath,
+    metadata: dict[str, Any],
+) -> None:
+    # Arrange: none of these contains a word that names a refusal, a failure or a length limit
+    model = ScriptedChatModel(responses=[AIMessage("Fine.", response_metadata=metadata)])
+
+    # Act
+    outcome = await generate_on_path(model, PROMPT, call_path=call_path)
+
+    # Assert
+    assert outcome == Generation(text="Fine.")
+
+
 async def test_a_generation_holds_the_text_blocks_of_the_reply_and_no_other_block(
     call_path: CallPath,
 ) -> None:
@@ -605,6 +655,52 @@ async def test_an_empty_gemini_reply_is_refused_with_its_message_only_when_a_rea
 ) -> None:
     # Arrange
     reply = build_gemini_block_reply(block_reason=block_reason, message=message)
+    model = ScriptedChatModel(responses=[reply])
+
+    # Act
+    outcome = await generate_on_path(model, PROMPT, call_path=call_path)
+
+    # Assert
+    assert outcome == expected
+
+
+GEMINI_CANDIDATES = [
+    pytest.param(
+        "RECITATION",
+        None,
+        Refused(),
+        marks=pytest.mark.xfail(strict=True, reason="recitation is not a refusal yet"),
+        id="recitation",
+    ),
+    pytest.param(
+        "IMAGE_RECITATION",
+        None,
+        Refused(),
+        marks=pytest.mark.xfail(strict=True, reason="recitation is not a refusal yet"),
+        id="image-recitation",
+    ),
+    pytest.param(
+        "LANGUAGE",
+        None,
+        Refused(),
+        marks=pytest.mark.xfail(strict=True, reason="language is not a refusal yet"),
+        id="unsupported-language",
+    ),
+    pytest.param("SAFETY", None, Refused(), id="safety"),
+    pytest.param("STOP", "Fine.", Generation(text="Fine."), id="stop"),
+    pytest.param("MAX_TOKENS", "The step", Truncated(text="The step"), id="max-tokens"),
+]
+
+
+@pytest.mark.parametrize(("finish_reason", "text", "expected"), GEMINI_CANDIDATES)
+async def test_a_gemini_candidate_is_read_by_the_reason_it_stopped(
+    call_path: CallPath,
+    finish_reason: str,
+    text: str | None,
+    expected: Refused | Generation | Truncated,
+) -> None:
+    # Arrange
+    reply = build_gemini_candidate_reply(finish_reason=finish_reason, text=text)
     model = ScriptedChatModel(responses=[reply])
 
     # Act

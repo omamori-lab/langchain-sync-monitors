@@ -16,7 +16,7 @@ import threading
 import uuid
 from collections.abc import Generator, Iterator
 from contextlib import contextmanager
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any, cast
 
@@ -146,15 +146,6 @@ class LangSmithServer(ThreadingHTTPServer):
                 if request.method == "POST" and request.path == "/feedback"
             ]
 
-    def wait_for_feedback(self, count: int) -> list[dict[str, Any]]:
-        """Return the feedback received once there are `count` of it, or after the wait."""
-        with self.arrived:
-            self.arrived.wait_for(
-                lambda: len(self.read_requests("POST", "/feedback")) >= count,
-                timeout=ARRIVAL_SECONDS,
-            )
-        return self.read_feedback()
-
     def read_requests(self, method: str, path: str) -> list[LangSmithRequest]:
         return [
             request
@@ -253,7 +244,6 @@ class LangfuseStandIn:
     client: Any
     wire: LangfuseWire
     exporter: Any
-    spans: list[Any] = field(default_factory=list)
 
     def build_handler(self) -> Any:
         """Return Langfuse's own LangChain handler, tracing through this client."""
@@ -384,9 +374,6 @@ class LangSmithBackend:
             if item["key"] != FLAG_NAME
         ]
 
-    def read_projects(self) -> set[str]:
-        return {item["session_id"] for item in self.server.read_feedback()}
-
 
 @dataclass(slots=True, kw_only=True)
 class LangfuseBackend:
@@ -416,9 +403,6 @@ class LangfuseBackend:
         return [
             score["metadata"] for score in self.stand_in.read_scores() if score["name"] != FLAG_NAME
         ]
-
-    def read_projects(self) -> set[str]:
-        return {PROJECT_ID}
 
 
 type Backend = LangSmithBackend | LangfuseBackend

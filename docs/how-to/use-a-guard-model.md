@@ -104,16 +104,11 @@ known guards: `GPT_OSS_SAFEGUARD` and `QWEN3GUARD`. The policy above asks for
 
 ## Know how the samples become a score
 
-At `top_log_probabilities=0`, the default, `GuardMonitor` samples its chat
-model: suspicion is the share of the sampled replies labelled suspicious, five
-by default, so it moves in steps of 0.2. Under `invoke()` the samples are drawn one after another, and under
-`ainvoke()` at once. A reply that cannot be read, is cut off, is refused or is
-rejected fails the whole rating closed at 1.0, and a sample left unanswered is
-set aside while more than half answered.
 [A guard monitor scores the share of its samples labelled suspicious](https://omamori-lab.github.io/hyoshigi/how-to/choosing-a-monitor/#a-guard-monitor-scores-the-share-of-its-samples-labelled-suspicious)
 gives the scoring and the evidence for five samples, and
 [hyoshigi's page on failing closed](https://omamori-lab.github.io/hyoshigi/explanation/failing-closed/)
-the rules for a sample without a label. Guard models are
+the rules for a sample without a label. The middleware draws the samples one
+after another under `invoke()` and at once under `ainvoke()`. Guard models are
 overconfident, so honest steps tend to tie at 0: set thresholds with
 `CalibratedMonitor`, as [Combine and calibrate
 monitors](combine-and-calibrate-monitors.md) shows.

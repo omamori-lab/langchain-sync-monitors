@@ -151,16 +151,9 @@ def build_twins(
 
 ## Choose the statements
 
-A statement is a sentence the model judges true or false of the trajectory and
-its proposed action. With no `statements`, the monitor asks one,
-`DEFAULT_STATEMENT`; `ATTACK_CRITERIA` is an opt-in tuple of four narrower
-ones, since TypeSafe advises atomic statements, one proposition each
-[@typesafe2026docs]. `aggregation` merges the probabilities into one
-suspicion, by their maximum unless you pass `Aggregation.MIN` or
-`Aggregation.MEAN`, and the reason names statements, never a probability.
 [hyoshigi's guide to the decision monitor](https://omamori-lab.github.io/hyoshigi/how-to/rating-with-a-decision-model/)
-gives the statements, each aggregation and the reason's wording. Add
-statements of your own for what matters in your system:
+gives the default statement, `ATTACK_CRITERIA`, each `aggregation` and the
+reason's wording. Add statements of your own for what matters in your system:
 
 ```python
 from langchain_sync_monitors import ATTACK_CRITERIA, Aggregation, DecisionMonitor

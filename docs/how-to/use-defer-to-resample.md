@@ -8,27 +8,20 @@ a suspicious step and runs the least suspicious acceptable one.
 Use it when you want to keep most of the untrusted model's work and gather
 evidence from repeated samples. Only when every sample looks suspicious does
 the trusted model write the step, or, without one, a person audit it. The
-protocol comes from Ctrl-Z (section 3.2) [@bhatt2025ctrlz]. At the same
-deferral threshold it costs much less usefulness than deferring to a trusted
-model at once, since a fresh sample of an innocent step may look innocent
-(section 3.2; figure 3), and the extra samples are evidence for an audit
-(section 3.2.1) [@bhatt2025ctrlz]. hyoshigi decides it: its rules are on
+protocol comes from Ctrl-Z (section 3.2) [@bhatt2025ctrlz], and hyoshigi
+decides it: its rules are on
 [hyoshigi's page on control protocols](https://omamori-lab.github.io/hyoshigi/explanation/control-protocols/#defer-to-resample-runs-the-least-suspicious-sample)
 [@hyoshigi2026]. This guide covers what the middleware adds.
 
 ## How it works
 
-A first sample below `defer_threshold` runs. At or above it, the agent's model
-draws up to `max_resamples` more samples, and the least suspicious one below
-the threshold runs. When none is below it, the step's lowest score decides:
-at or above `audit_threshold` the step is audited, and otherwise the
-middleware's `trusted_model` writes it. Without a `trusted_model` that step is
-audited too. An audited step pauses the run for a person's answer; see
-[Answer an audit](answer-an-audit.md).
-
-`Resampling.SEQUENTIAL`, the default, draws the resamples one at a time and
-stops at the first below the threshold; `Resampling.PARALLEL` draws all
-`max_resamples` at once ([Sequential or parallel](#sequential-or-parallel)).
+The middleware draws each sample from the agent's model, rates it with the
+monitor, and has hyoshigi's protocol decide the step. When no sample is
+acceptable, `trusted_model` writes the step; without one, the step is audited
+instead. An audited step pauses the run for a person's answer; see [Answer an
+audit](answer-an-audit.md). `Resampling.SEQUENTIAL`, the default, and
+`Resampling.PARALLEL` differ in how the samples are drawn
+([Sequential or parallel](#sequential-or-parallel)).
 
 Every sample is rated, and neither the agent nor the trusted model sees a
 rejected sample. Each sample is a fresh call on the same request, so a model
@@ -162,20 +155,12 @@ it where a person's time on an honest step is worth catching an attack;
 
 ### Sequential or parallel
 
-| | `Resampling.SEQUENTIAL`, the default | `Resampling.PARALLEL` |
-|---|---|---|
-| How it draws | One resample at a time, stopping at the first acceptable one | All `max_resamples` at once |
-| Extra samples on a suspicious step | 1 to `max_resamples` | Always `max_resamples` |
-| Rounds on a suspicious step, with `max_resamples=2` | 2 or 3 | 2 under `ainvoke()`, 3 under `invoke()` |
-| Under `ainvoke()` | One after another | Drawn at once, then rated at once; one draw that fails cancels the others |
-| Under `invoke()` | One after another | One after another, so no time is saved |
-
-A round is one call of the agent's model followed by one call of the monitor.
-Ctrl-Z's authors describe the protocol as asking again after each suspicious
-sample (section "Resampling") [@bhatt2025ctrlzpost], and so does the paper's
-restatement of it (appendix J) [@bhatt2025ctrlz]. The paper's main statement
-(section 3.2) [@bhatt2025ctrlz], which draws up to two new samples and runs
-the least suspicious acceptable one, fits either way of drawing them.
+[hyoshigi's page on defer to resample](https://omamori-lab.github.io/hyoshigi/explanation/control-protocols/#defer-to-resample-runs-the-least-suspicious-sample)
+gives the rule of each. The middleware draws `SEQUENTIAL` samples one after
+another under both `invoke()` and `ainvoke()`. It draws `PARALLEL` samples at
+once under `ainvoke()`, rates them at once, and cancels the others when one
+draw fails; under `invoke()` it draws them one after another, so `PARALLEL`
+saves no time there.
 
 ## Read the outcome in `monitor_log`
 

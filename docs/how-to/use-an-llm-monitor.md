@@ -84,23 +84,18 @@ its name and meaning. An option hyoshigi refuses raises the library's
 
 ## Know how a reply becomes a score
 
-The model reasons inside `<reasoning>`, then gives one integer from
-`lowest_score` to `highest_score`, 0 to 10 by default, inside `<score>`, and
-the score maps linearly onto a suspicion from 0 to 1. A reply in any other
-shape, or one cut off at its length limit, is asked for again up to
-`max_parse_retries` more times, 2 by default, and then the rating fails
-closed at 1.0.
 [hyoshigi's guide to the LLM monitor](https://omamori-lab.github.io/hyoshigi/how-to/rating-with-an-llm-monitor/)
-gives the scale, the reply's shape and the retries.
+gives the scale, the reply's shape and the retries on a reply it cannot read.
+What the middleware adds is the chat model's calls and their failures, drawn
+below and set out in [Know what a failed call does](#know-what-a-failed-call-does).
 
 [![LLMMonitor calls its model with the filled prompt, the same prompt on every attempt. A call the provider answers with HTTP 429 is made again, up to four attempts in all. A rate limit, a server error, a timeout or a failed connection that outlasts the retries leaves the model unavailable, and a refusal, or a prompt the provider rejects, ends the rating at once: either way the monitor fails closed, suspicion 1.0. A call that fails for any other reason, such as a bad key, raises its error: the step fails, and none of the agent's own tools run. A reply the provider reports as cut off at a length limit is asked for again. So is a reply without a reasoning block that holds some text, then exactly one score tag, with nothing but whitespace between them or after the score, and a reply whose score is not an integer from lowest_score to highest_score. A readable reply gives the score mapped onto a suspicion from 0 to 1, with the reasoning as the explanation. Attempts run while any are left, 1 plus max_parse_retries in all, 3 by default. When none are left, the monitor fails closed: suspicion 1.0, with an explanation that names the cause.](../assets/diagrams/monitors-llm-monitor-light.svg#only-light)](../assets/diagrams/monitors-llm-monitor-light.svg "Open the diagram at full size")
 [![LLMMonitor calls its model with the filled prompt, the same prompt on every attempt. A call the provider answers with HTTP 429 is made again, up to four attempts in all. A rate limit, a server error, a timeout or a failed connection that outlasts the retries leaves the model unavailable, and a refusal, or a prompt the provider rejects, ends the rating at once: either way the monitor fails closed, suspicion 1.0. A call that fails for any other reason, such as a bad key, raises its error: the step fails, and none of the agent's own tools run. A reply the provider reports as cut off at a length limit is asked for again. So is a reply without a reasoning block that holds some text, then exactly one score tag, with nothing but whitespace between them or after the score, and a reply whose score is not an integer from lowest_score to highest_score. A readable reply gives the score mapped onto a suspicion from 0 to 1, with the reasoning as the explanation. Attempts run while any are left, 1 plus max_parse_retries in all, 3 by default. When none are left, the monitor fails closed: suspicion 1.0, with an explanation that names the cause.](../assets/diagrams/monitors-llm-monitor-dark.svg#only-dark)](../assets/diagrams/monitors-llm-monitor-dark.svg "Open the diagram at full size")
 
-The reasoning becomes the verdict's reason, which `monitor_log` keeps and
-Block and Feed Back shows the agent. A rating that failed closed has a reason that names
-its cause instead;
+The verdict's reason, which `monitor_log` keeps and Block and Feed Back shows
+the agent, is the reasoning, or for a rating that failed closed the cause;
 [hyoshigi's page on failing closed](https://omamori-lab.github.io/hyoshigi/explanation/failing-closed/)
-lists the causes, and how the wrappers keep the 1.0.
+lists the causes.
 
 Each retry sends the same prompt again, so a LangChain response cache, global
 or on the monitor's model, would answer it with the same reply. With

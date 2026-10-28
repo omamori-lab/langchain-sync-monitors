@@ -71,22 +71,12 @@ lost write to the monitor's trajectory, or, with
 
 ## Where each protocol comes from
 
-- **Trusted Monitoring** and **Defer to Trusted** come from the AI control
-  paper (sections 3.2 and 3.3) [@greenblatt2023aicontrol], where the most
-  suspicious 2% of the untrusted model's code is shown to a person before it
-  is used. Trusted Monitoring here runs the step and flags it instead.
-- **Defer to Resample** comes from Ctrl-Z [@bhatt2025ctrlz]. At the same
-  deferral threshold it costs much less usefulness than deferring at once,
-  because a fresh sample of an innocent step may look innocent (section 3.2;
-  figure 3) [@bhatt2025ctrlz]. With stronger models, and attacks the
-  untrusted model designs itself, Terekhov et al. found that it did about as
-  well as Defer to Trusted on BashBench (section 4.3)
-  [@terekhov2025adaptive]; their result on APPS is among
-  [Defer to Resample's limits](use-defer-to-resample.md#limits).
-- **Block and Feed Back** follows Claude Code's auto mode
-  [@hughes2026automode], which hands a session that reaches three denials in
-  a row or twenty in all to a person (section "Deny-and-continue"). Here the
-  next proposal is audited, and the run pauses for a person's answer.
+[hyoshigi's page on control protocols](https://omamori-lab.github.io/hyoshigi/explanation/control-protocols/)
+credits each protocol to its source. With stronger models, and attacks the
+untrusted model designs itself, Terekhov et al. found that Defer to Resample
+did about as well as Defer to Trusted on BashBench (section 4.3)
+[@terekhov2025adaptive]; their result on APPS is among
+[Defer to Resample's limits](use-defer-to-resample.md#limits).
 
 ## What every protocol shares
 

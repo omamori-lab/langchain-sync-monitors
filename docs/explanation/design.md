@@ -346,10 +346,9 @@ would defer. A `trusted_model` the protocol never asks for raises
 with equal thresholds and an `on_unavailable` other than
 `FailureResponse.TRUSTED_STEP`.
 
-`Resampling.SEQUENTIAL` draws one resample at a time and stops at the first
-below the defer threshold, and `Resampling.PARALLEL` draws them all at once,
-under `ainvoke()` concurrently, for lower latency and more calls
-([hyoshigi's defer to resample](https://omamori-lab.github.io/hyoshigi/explanation/control-protocols/#defer-to-resample-runs-the-least-suspicious-sample)).
+`Resampling` chooses how the middleware draws the resamples
+([hyoshigi's defer to resample](https://omamori-lab.github.io/hyoshigi/explanation/control-protocols/#defer-to-resample-runs-the-least-suspicious-sample);
+[sequential or parallel](../how-to/use-defer-to-resample.md#sequential-or-parallel)).
 Resampling needs fresh draws, and it gives an injection aimed at the monitor
 more tries ([protocols and configuration](#protocols-and-configuration)).
 
@@ -393,13 +392,10 @@ it, each with its author [@hyoshigi2026]. The middleware reads each message
 into the trajectory once, as it first sees the message
 ([the trajectory](#the-trajectory)), and decides each entry's author
 ([task authorship and notes](#task-authorship-and-notes)). The monitor reads
-the trajectory through a `View`, hyoshigi's, whose default,
-`Channel.DEFAULT`, reads the task, the tool calls with their errors and the
-subagent reports. It leaves out the agent's reasoning, its earlier text and
-raw tool output, as Claude Code's auto mode classifier does
-[@hughes2026automode], and every context note: summaries, system messages,
-notes from `unconfirmed_input`, and the monitor's feedback written as a
-message. The action being rated always shows its tool calls and its text,
+the trajectory through a `View`, hyoshigi's, whose default is
+`Channel.DEFAULT`. The context notes it leaves out include summaries, system
+messages, notes from `unconfirmed_input`, and the monitor's feedback written
+as a message. The action being rated always shows its tool calls and its text,
 which the step commits to the conversation, where a chat interface shows it.
 [hyoshigi's guide to choosing what a monitor reads](https://omamori-lab.github.io/hyoshigi/how-to/choosing-what-a-monitor-reads/)
 gives the channels, the tags and the rules of a view, and
@@ -472,9 +468,8 @@ or a label there for the monitor's model to quote [@terekhov2025adaptive]:
 each family reads its answer only where its format puts it, and a reply that
 cannot be read fails closed.
 
-A rating that cannot be made fails closed: its suspicion is 1.0, its reason
-names the cause, and the protocol's rules apply as to any other score
-([hyoshigi's page on failing closed](https://omamori-lab.github.io/hyoshigi/explanation/failing-closed/)).
+A rating that cannot be made [fails
+closed](https://omamori-lab.github.io/hyoshigi/explanation/failing-closed/).
 The library decides which failures of a LangChain chat model count: one that
 answers HTTP 429 after the monitor's retries, a server error, a timeout or a
 failed connection leaves the model unavailable, and a call that fails on a
@@ -486,14 +481,12 @@ LangChain could not map, so a step that carries either is rated 1.0 every
 time.
 
 No family adds a score, probability or count to its `reason`, which block and
-feed back shows the agent: a number would tell the agent how close its step came to
-passing. The numbers stay in `suspicion`, which the records keep.
+feed back shows the agent; the numbers stay in `suspicion`, which the records
+keep ([hyoshigi's guide to choosing a monitor](https://omamori-lab.github.io/hyoshigi/how-to/choosing-a-monitor/)
+gives the reason).
 
-Scores have to be fine-grained. Control evaluations set thresholds as
-percentiles of honest-run scores, and a score with few distinct values cannot
-hit a small audit budget. Three wrappers, each built as hyoshigi's wrapper
-over the twins of the monitors it holds, address this and stack around any
-family:
+Three wrappers, each built as hyoshigi's wrapper over the twins of the
+monitors it holds, stack around any family:
 
 - `RepeatedMonitor` averages several calls of one monitor, which spreads its
   scores out;

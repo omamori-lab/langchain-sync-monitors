@@ -16,13 +16,11 @@ agent reads, what it commits, and how a limit ends the run.
 
 ## How it works
 
-A step whose score is at or above `block_threshold` is blocked. Its tool calls
-never run, the agent reads the feedback, and it proposes again, within the
-same step. The first proposal below the threshold runs. Once the agent's
-blocks reach `blocks_in_a_row` in a row, or its run's reach `blocks_in_total`
-in all, the next proposal is still drawn and rated, then audited: the run
-pauses for a person's answer, as [Answer an audit](answer-an-audit.md) sets
-out.
+The middleware has hyoshigi's protocol decide each proposal. The tool calls of
+a blocked one never run, the agent reads the feedback, and it proposes again
+within the same step. At a limit, the next proposal is still drawn and rated,
+then audited: the run pauses for a person's answer, as [Answer an
+audit](answer-an-audit.md) sets out.
 
 Server-side tools in a blocked proposal, such as a web fetch, already ran
 inside the model call that drew it, once per proposal.

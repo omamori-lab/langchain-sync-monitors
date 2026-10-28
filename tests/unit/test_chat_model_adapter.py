@@ -8,6 +8,7 @@ from __future__ import annotations
 import logging
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass
+from types import SimpleNamespace
 from typing import Any, Literal
 
 import httpx
@@ -69,6 +70,7 @@ PROMPT_WITH_IMAGE = Prompt(
     ),
 )
 FINE = AIMessage("The step reads the file the user named.")
+UNFIXED = pytest.mark.xfail(strict=True, reason="a finding of the review is not fixed yet")
 
 
 @pytest.fixture(params=["async", "sync"])
@@ -135,6 +137,61 @@ class ReplyHoldingRateLimit(ModelRateLimitError):
     """A typed rate limit without a status, whose repr holds the provider's reply."""
 
     body: str
+
+
+class ResponseStatusError(Exception):
+    """An error in the shape Google's SDK gives one: the HTTP status only on its response."""
+
+    def __init__(self, status_code: int) -> None:
+        super().__init__(f"Error code: {status_code}")
+        request = httpx.Request("POST", "https://provider.test/v1/chat/completions")
+        self.response = httpx.Response(status_code, request=request)
+
+
+class ProviderResponseFailure(ResponseStatusError, ModelAPIError):
+    """A provider's server failure that holds its status only on its response."""
+
+
+def build_no_response_error() -> Exception:
+    """Build the error the OpenRouter SDK raises when no HTTP response arrives."""
+    errors = pytest.importorskip("openrouter.errors")
+    error: Exception = errors.NoResponseError("No response received")
+    return error
+
+
+def build_google_server_error(status_code: int) -> Exception:
+    """Build the error langchain-google-genai raises for a server failure, as it builds it."""
+    chat_models = pytest.importorskip("langchain_google_genai.chat_models")
+    request = httpx.Request("POST", "https://generativelanguage.googleapis.com/v1beta")
+    response = httpx.Response(status_code, request=request)
+    details = {"error": {"code": status_code, "message": "The service is unavailable."}}
+    error: Exception = chat_models.GoogleAPIError(
+        code=status_code,
+        response_json=details,
+        response=response,
+    )
+    return error
+
+
+def build_gemini_block_reply(*, block_reason: str | None, message: str | None) -> AIMessage:
+    """Build the reply langchain-google-genai gives when Gemini returns no candidate.
+
+    The integration returns an empty message and keeps the prompt feedback in its
+    metadata. Only the call to Google's client is replaced, by one that answers with a
+    response of no candidates and the given feedback.
+    """
+    types = pytest.importorskip("google.genai.types")
+    integration = pytest.importorskip("langchain_google_genai")
+    reason = None if block_reason is None else types.BlockedReason(block_reason)
+    feedback = types.GenerateContentResponsePromptFeedback(
+        block_reason=reason,
+        block_reason_message=message,
+    )
+    response = types.GenerateContentResponse(candidates=[], prompt_feedback=feedback)
+    chat = integration.ChatGoogleGenerativeAI(model="gemini-2.5-flash", api_key="offline")
+    chat.client = SimpleNamespace(models=SimpleNamespace(generate_content=lambda **_: response))
+    reply: AIMessage = chat.invoke("Step: perform the action.")
+    return reply
 
 
 def build_http_status_error(status_code: int) -> httpx.HTTPStatusError:
@@ -472,6 +529,18 @@ REFUSED_REPLIES = [
         Refused(explanation="I can't help with that."),
         id="openai-responses-refusal-block",
     ),
+    pytest.param(
+        AIMessage(content=[{"type": "refusal"}]),
+        Refused(),
+        marks=UNFIXED,
+        id="refusal-block-without-text",
+    ),
+    pytest.param(
+        AIMessage(content=[{"type": "refusal", "refusal": ""}]),
+        Refused(),
+        marks=UNFIXED,
+        id="refusal-block-with-empty-text",
+    ),
 ]
 
 
@@ -507,6 +576,102 @@ async def test_a_reply_both_refused_and_cut_off_is_refused(call_path: CallPath) 
     assert outcome == Refused(explanation="No.")
 
 
+GEMINI_BLOCKS = [
+    pytest.param(
+        "SAFETY",
+        "Blocked by safety filters",
+        Refused(explanation="Blocked by safety filters"),
+        id="safety-with-message",
+    ),
+    pytest.param("SAFETY", None, Refused(), id="safety-without-message"),
+    pytest.param("SAFETY", "", Refused(), id="safety-with-empty-message"),
+    pytest.param("OTHER", None, Refused(), id="other"),
+    pytest.param("BLOCKLIST", None, Refused(), id="blocklist"),
+    pytest.param("PROHIBITED_CONTENT", None, Refused(), id="prohibited-content"),
+]
+
+
+@UNFIXED
+@pytest.mark.parametrize(("block_reason", "message", "expected"), GEMINI_BLOCKS)
+async def test_a_prompt_that_gemini_blocks_is_refused_with_its_message_if_given(
+    call_path: CallPath,
+    block_reason: str,
+    message: str | None,
+    expected: Refused,
+) -> None:
+    # Arrange
+    reply = build_gemini_block_reply(block_reason=block_reason, message=message)
+    model = ScriptedChatModel(responses=[reply])
+
+    # Act
+    outcome = await generate_on_path(model, PROMPT, call_path=call_path)
+
+    # Assert
+    assert outcome == expected
+
+
+@pytest.mark.parametrize("block_reason", [None, "BLOCKED_REASON_UNSPECIFIED"])
+async def test_an_empty_gemini_reply_with_no_block_reason_is_an_empty_generation(
+    call_path: CallPath,
+    block_reason: str | None,
+) -> None:
+    # Arrange
+    reply = build_gemini_block_reply(block_reason=block_reason, message=None)
+    model = ScriptedChatModel(responses=[reply])
+
+    # Act
+    outcome = await generate_on_path(model, PROMPT, call_path=call_path)
+
+    # Assert
+    assert outcome == Generation(text="")
+
+
+PROVIDER_ERROR_REPLIES = [
+    pytest.param(
+        AIMessage(
+            "Provider encountered an error during generation.",
+            response_metadata={"finish_reason": "error"},
+        ),
+        id="openrouter-error",
+    ),
+    pytest.param(
+        AIMessage("", response_metadata={"finish_reason": "errorerror"}),
+        id="openrouter-error-merged-chunks",
+    ),
+    pytest.param(
+        AIMessage(
+            "partial",
+            response_metadata={"finish_reason": "error", "native_finish_reason": "length"},
+        ),
+        id="error-before-cut-off",
+    ),
+    pytest.param(
+        AIMessage(
+            "",
+            additional_kwargs={"refusal": "No."},
+            response_metadata={"finish_reason": "error"},
+        ),
+        id="error-before-refusal",
+    ),
+]
+
+
+@UNFIXED
+@pytest.mark.parametrize("reply", PROVIDER_ERROR_REPLIES)
+async def test_a_reply_that_stopped_on_a_provider_error_is_unavailable(
+    call_path: CallPath,
+    reply: AIMessage,
+) -> None:
+    # Arrange
+    model = ScriptedChatModel(responses=[reply])
+
+    # Act
+    outcome = await generate_on_path(model, PROMPT, call_path=call_path)
+
+    # Assert
+    assert outcome == Unavailable()
+
+
 FAILURE_OUTCOMES = [
     pytest.param(lambda: StatusError(500), Unavailable(status=500), id="status-500"),
     pytest.param(lambda: StatusError(503), Unavailable(status=503), id="status-503"),
@@ -525,6 +690,30 @@ FAILURE_OUTCOMES = [
     pytest.param(lambda: httpx.ConnectError("refused"), Unavailable(), id="httpx-connect-error"),
     pytest.param(lambda: TimeoutError(), Unavailable(), id="builtin-timeout"),
     pytest.param(lambda: ConnectionResetError(), Unavailable(), id="builtin-connection-error"),
+    pytest.param(
+        build_no_response_error,
+        Unavailable(),
+        marks=UNFIXED,
+        id="openrouter-no-response",
+    ),
+    pytest.param(
+        lambda: ProviderResponseFailure(503),
+        Unavailable(status=503),
+        marks=UNFIXED,
+        id="typed-server-failure-with-status-on-response",
+    ),
+    pytest.param(
+        lambda: build_google_server_error(503),
+        Unavailable(status=503),
+        marks=UNFIXED,
+        id="google-server-error",
+    ),
+    pytest.param(
+        lambda: ResponseStatusError(413),
+        Rejected(status=413),
+        marks=UNFIXED,
+        id="status-413-on-response",
+    ),
     pytest.param(lambda: ProviderContextOverflow(400), Rejected(status=400), id="context-overflow"),
     pytest.param(lambda: ContextOverflowError(), Rejected(), id="context-overflow-without-status"),
     pytest.param(lambda: StatusError(413), Rejected(status=413), id="status-413"),
@@ -553,6 +742,7 @@ RATE_LIMITS = [
     pytest.param(lambda: build_http_status_error(429), id="httpx-429"),
     pytest.param(lambda: ProviderRateLimit(429), id="typed-rate-limit"),
     pytest.param(lambda: ModelRateLimitError(), id="typed-rate-limit-without-status"),
+    pytest.param(lambda: ResponseStatusError(429), marks=UNFIXED, id="status-429-on-response"),
 ]
 
 

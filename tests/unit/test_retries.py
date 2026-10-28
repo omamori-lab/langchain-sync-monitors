@@ -188,12 +188,7 @@ def build_status_error(status_code: int) -> httpx.HTTPStatusError:
         pytest.param(StatusError("429"), None, id="status-code-as-text"),
         pytest.param(StatusError(True), None, id="status-code-as-bool"),
         pytest.param(httpx.ConnectError("connection reset"), None, id="no-status"),
-        pytest.param(
-            build_response_error(503),
-            503,
-            marks=pytest.mark.xfail(strict=True, reason="the response's status is not read yet"),
-            id="status-on-response",
-        ),
+        pytest.param(build_response_error(503), 503, id="status-on-response"),
         pytest.param(
             build_response_error("503"),
             None,

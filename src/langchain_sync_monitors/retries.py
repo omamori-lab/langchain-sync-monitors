@@ -30,7 +30,6 @@ import contextlib
 from collections.abc import Awaitable, Callable
 from typing import NoReturn, TypedDict, Unpack
 
-import httpx
 import stamina
 
 from langchain_sync_monitors.errors import RetriedCallError
@@ -78,18 +77,27 @@ class RetryOptions(TypedDict, total=False):
     wait_initial: float
 
 
-def read_http_status(error: Exception) -> int | None:
-    """Return the error's HTTP status, or None when it carries none as an integer.
-
-    httpx puts the status on the error's response [@httpx2024]; provider SDKs
-    put it on the error as `status_code` [@openrouterpythonsdk2026].
-    """
-    if isinstance(error, httpx.HTTPStatusError):
-        return error.response.status_code
-    status = getattr(error, "status_code", None)
+def read_status_code(holder: object) -> int | None:
+    """Return the holder's `status_code` when it is an integer, else None."""
+    status = getattr(holder, "status_code", None)
     if isinstance(status, int) and not isinstance(status, bool):
         return status
     return None
+
+
+def read_http_status(error: Exception) -> int | None:
+    """Return the error's HTTP status, or None when it carries none as an integer.
+
+    Provider SDKs put the status on the error as `status_code`
+    [@openrouterpythonsdk2026]. An error without one may hold the HTTP response
+    that carries it: httpx puts the status on its status error's response
+    [@httpx2024], and Google's SDK on its errors' response, where its
+    `code` is the status again [@langchaingooglegenai2026].
+    """
+    status = read_status_code(error)
+    if status is None:
+        status = read_status_code(getattr(error, "response", None))
+    return status
 
 
 def build_stand_in(error: Exception) -> RetriedCallError:

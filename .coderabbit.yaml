@@ -45,11 +45,11 @@ reviews:
 
   labeling_instructions:
     - label: monitors
-      instructions: Changes to monitor classes under src/langchain_sync_monitors/monitors/ or to transcript rendering in transcript.py.
+      instructions: Changes to monitor classes in src/langchain_sync_monitors/monitors.py or to the trajectory a monitor reads (trajectories.py, trajectory_channel.py).
     - label: protocols
-      instructions: Changes to control protocols, fallbacks or thresholds under protocols/ or in thresholds.py.
+      instructions: Changes to control protocols or their thresholds in src/langchain_sync_monitors/protocols.py.
     - label: middleware
-      instructions: Changes to MonitorMiddleware or any module it calls to run a step, such as pending steps, commits, halts, records, tool calls, model calls, feedback, spans, options or the LangChain boundary (_langchain.py), and not covered by a more specific label.
+      instructions: Changes to MonitorMiddleware or any module it calls to run a step, such as steps, commits, halts, records, tool calls, model calls, feedback, spans, options or the LangChain boundary (_langchain.py), and not covered by a more specific label.
     - label: deepagents
       instructions: Changes to the Deep Agents integration or to subagents and the records they return (deepagents.py, delegation.py, subagent_returns.py, returned_records.py, task_authorship.py).
     - label: contracts
@@ -100,9 +100,9 @@ reviews:
         Safety, the library fails closed:
         - Flag a path where a step, a tool's write, a subagent's record, a
           forged or malformed record, a resumed or forked run, or a shared
-          agent name bypasses the monitor, a halt or Auto Mode's block counts.
-          Input the code cannot read raises ConfigurationError or MonitorError
-          or halts; it is never skipped.
+          agent name bypasses the monitor, a halt or Block and Feed Back's
+          block counts. Input the code cannot read raises ConfigurationError
+          or MonitorError or halts; it is never skipped.
         - A record is an agent's own only when its name and its delegation id
           both match. A tool's Command is handled in every update shape: dict,
           pairs, Overwrite, list results, ParentCommand and parent-bound.
@@ -279,7 +279,7 @@ reviews:
           tool's Command update shape is unhandled (dict, pairs, Overwrite,
           list results, ParentCommand, parent-bound); a resumed or forked
           run, or a subagent sharing an agent's name, bypasses the monitor, a
-          halt or Auto Mode's block counts; a broad except returns a
+          halt or Block and Feed Back's block counts; a broad except returns a
           permissive value. Pass if every such path raises or halts. Report
           each failure as path:line.
       - name: "Shipped names stay stable"
@@ -327,27 +327,28 @@ reviews:
         instructions: >-
           Applies when the PR changes behaviour in any module under
           src/langchain_sync_monitors/ that MonitorMiddleware reaches while it
-          runs a step, including protocols/ and a monitor's evaluate and
-          evaluate_sync. Fail if the tests the PR adds or changes for that
-          behaviour run it only through invoke() or only through ainvoke(),
-          or only through evaluate_sync or only through evaluate, with no
+          runs a step, including protocols.py and a monitor's sync and async
+          twins. Fail if the tests the PR adds or changes for that behaviour
+          run it only through invoke() or only through ainvoke(), with no
           parametrised or paired test for the other mode. Pass if both modes
           are covered, naming the tests, or if no such behaviour changes.
       - name: "Contracts change in a PR of their own"
         mode: "warning"
         instructions: >-
-          Fail if src/langchain_sync_monitors/contracts.py changes (a class,
-          method, signature, type or documented contract is added, removed or
-          changed) in a PR that also changes behaviour elsewhere. Changes
-          that only adapt call sites, tests, docs and CHANGELOG.md to the
-          contract change are allowed. Pass if contracts.py is untouched, or
-          if its change is the PR's only change in behaviour.
+          Fail if src/langchain_sync_monitors/contracts.py changes (a member
+          of TaskAuthor, SubagentHalt, Outcome or OutcomeName, a field of
+          StepRecord, SampleRecord, Delegation or DelegatedRun, or a
+          documented contract of one, is added, removed or changed) in a PR
+          that also changes behaviour elsewhere. Changes that only adapt call
+          sites, tests, docs and CHANGELOG.md to the contract change are
+          allowed. Pass if contracts.py is untouched, or if its change is the
+          PR's only change in behaviour.
       - name: "Protocols rest on the literature"
         mode: "warning"
         instructions: >-
-          Applies when the PR adds a control protocol or fallback, or changes
-          how one decides, defers, resamples, audits, halts or blocks, under
-          src/langchain_sync_monitors/protocols/, halts.py or thresholds.py.
+          Applies when the PR adds a control protocol, or changes how one
+          decides, defers, resamples, audits, halts or blocks, under
+          src/langchain_sync_monitors/protocols.py or halts.py.
           Fail if the changed behaviour has no citation, [@key] with its entry
           in docs/references.bib, to AI control or technical AI safety
           research or to a published control evaluation or benchmark, in the
@@ -435,9 +436,9 @@ issue_enrichment:
       - label: monitors
         instructions: Monitor classes or transcript rendering.
       - label: protocols
-        instructions: Control protocols, fallbacks or thresholds.
+        instructions: Control protocols or thresholds.
       - label: middleware
-        instructions: MonitorMiddleware, pending steps, halts or records.
+        instructions: MonitorMiddleware, steps, halts or records.
       - label: deepagents
         instructions: The Deep Agents integration or subagents.
       - label: docs

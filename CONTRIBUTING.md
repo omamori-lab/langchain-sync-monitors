@@ -23,9 +23,9 @@ change must pass, how to send a pull request and how to cut a release.
 
 - **Simple to use, open to configure.** A monitored agent takes one line;
   every behaviour is an option, with a default where one is safe; anything
-  beyond the options is your own implementation of a contract in
-  `contracts.py`. `AGENTS.md` ("How the code is designed") lists the design
-  patterns the code keeps to.
+  beyond the options is your own implementation of hyoshigi's `Monitor` and
+  `AsyncMonitor`, held in a `MonitorTwins`. `AGENTS.md` ("How the code is
+  designed") lists the design patterns the code keeps to.
 - **Every model is a parameter.** The library never picks a model for you.
 - **Core dependencies stay small.** Providers sit behind extras.
 - **Types say what the data is.** No `Any` where the shape is known.

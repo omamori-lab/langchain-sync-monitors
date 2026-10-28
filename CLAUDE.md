@@ -50,32 +50,38 @@ Keep to these patterns; reviewers check them.
 - **Simple for the user, configurable for the expert.** A monitored agent is
   one line, `MonitorMiddleware(monitor=..., protocol=...)`. Every behaviour
   is an option, checked when the object is built. An option has a default
-  where one is safe, and a threshold's default warns until you calibrate it.
-  Anything beyond the options is an implementation of a contract.
-- **Program to the contracts.** `contracts.py` defines the interfaces:
-  `Monitor`, `ControlProtocol`, `Fallback` and `PendingStep`, with
-  `DecisionModel` in `monitors/decision.py`. The middleware and the protocols
-  depend on these, not on concrete classes, so any monitor works with any
-  protocol; only `placement.py` recognises the library's own protocols by
-  class, to give advice. Change a contract only in a dedicated pull request.
+  where one is safe; a threshold has none, as in hyoshigi, so each is set from
+  the scores of honest runs. Anything beyond the options is an implementation
+  of a contract.
+- **Program to the contracts.** `contracts.py` holds what the middleware and
+  its users exchange: the options `TaskAuthor` and `SubagentHalt`, the
+  `Outcome` of a step, and the records `StepRecord`, `SampleRecord`,
+  `Delegation` and `DelegatedRun`. The interfaces between a monitor, a
+  protocol and a model are hyoshigi's: `Monitor`, `AsyncMonitor`, its
+  protocols and its models. The middleware drives the twins that a monitor
+  class and a protocol class build, `MonitorTwins` and `ProtocolTwins`, and
+  not the classes themselves, so any monitor works with any protocol; only
+  `placement.py` recognises the library's own protocols by class, to give
+  advice. Change a contract only in a dedicated pull request.
 - **A strategy for every choice.** Behaviour that varies is an object or an
   enum passed to the constructor, or to the method whose behaviour it
-  chooses, never a bool or a plain string: a protocol, a fallback, a
-  monitor, a decision model, `GuardScoring`, `Aggregation`, `MonitorView`,
-  `FeedbackVisibility`, `SubagentHalt`, `Resampling`, `SampleDrawing`.
+  chooses, never a bool or a plain string: a protocol (`DeferToResample`,
+  `BlockAndFeedBack`), a monitor, a model, and the enums `Aggregation`,
+  `Channel`, `FailureResponse`, `AuditResponse`, `Resampling`, `SubagentHalt`,
+  `TaskAuthor` and `Tracer`.
 - **Composition for parts, inheritance for kinds.** A part that varies on its
   own is held and passed in: monitors that wrap monitors (`RepeatedMonitor`,
-  `CalibratedMonitor`, `CascadeMonitor`), a protocol's fallback, a monitor's
-  model. A subclass is a kind of its parent that can stand anywhere the
-  parent does: a template with named hooks, such as `ChatModelMonitor`, or a
-  special case, such as `DeferToTrusted`, which is `DeferToResample` with no
-  resamples. A subclass that refuses part of its parent (Refused Bequest)
+  `CalibratedMonitor`, `CascadeMonitor`), a monitor's model, the middleware's
+  `trusted_model`. A subclass is a kind of its parent that can stand anywhere
+  the parent does: `TracedMonitor` is a `hyoshigi.Monitor` that rates through
+  the twin it holds, and `ConfigurationError` is both a `MonitorError` and
+  hyoshigi's. A subclass that refuses part of its parent (Refused Bequest)
   holds it instead; a holder that only forwards (Middle Man) inherits. Keep
   hierarchies shallow, with at most one class between a contract and the
   class you build.
 - **A small core of functions, a thin shell.** The middleware wires
   LangChain's hooks; the decisions live in small functions over typed records
-  (`halts.py`, `records.py`, `transcript.py`, `task_authorship.py`), each
+  (`halts.py`, `records.py`, `trajectories.py`, `task_authorship.py`), each
   testable on its own, and shared by the sync and async paths.
 - **One layer names LangChain's untyped surfaces.** `_langchain.py` names
   the LangChain and LangGraph values typed as `Any`, and is the only module
@@ -100,8 +106,8 @@ Keep to these patterns; reviewers check them.
 ## Rules that the gates do not fully catch
 
 - **Every model is a parameter.** No monitor, protocol or example picks a model
-  by default. Accept `str | BaseChatModel` and resolve strings with
-  `init_chat_model`.
+  by default. Accept `str | BaseChatModel` for a chat model and resolve
+  strings with `init_chat_model`.
 - **Names.** Functions and methods are verbs, named for what they do, verb
   first (`build_`, `render_`, `read_`, `is_`); classes, modules and packages
   are nouns, named for what they are. Use full words: no shorthands or
@@ -124,7 +130,7 @@ Keep to these patterns; reviewers check them.
   the standard library `statistics` and `bisect` for numbers. Chat models
   retry network and server errors on their own (`max_retries`), so do not wrap
   them in stamina. HTTP 429 is the exception: `ChatOpenRouter` does not retry
-  it, so a chat monitor retries its own calls on one (`monitors/chat.py`).
+  it, so a chat monitor retries its own calls on one (`chat_model_adapter.py`).
 - **Protocols rest on the literature.** A new protocol, or a change to how one
   decides, defers, resamples, halts or blocks, follows AI control or technical
   AI safety research, or a published control evaluation or benchmark such as

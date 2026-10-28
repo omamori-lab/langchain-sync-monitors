@@ -85,16 +85,18 @@ REFUSAL_STOP_REASONS = (
     "blocklist",
     "prohibited_content",
     "spii",
+    "recitation",
+    "language",
     "guardrail_intervened",
 )
 """Stop reasons that mean the provider declined to answer, or filtered what it wrote.
 
 OpenAI's chat completions report `content_filter` [@openaipythonsdk2026],
 Anthropic `refusal` [@anthropic2026stopreasons], Gemini `SAFETY`, `BLOCKLIST`,
-`PROHIBITED_CONTENT` and `SPII` [@google2026generatecontent], and Bedrock
-Converse `content_filtered` and `guardrail_intervened` [@aws2026converse].
-A stop reason counts when it contains a reason, so `content_filter` covers
-`content_filtered`.
+`PROHIBITED_CONTENT`, `SPII`, `RECITATION` and `LANGUAGE`
+[@google2026generatecontent], and Bedrock Converse `content_filtered` and
+`guardrail_intervened` [@aws2026converse]. A stop reason counts when it
+contains a reason, so `recitation` covers `IMAGE_RECITATION`.
 """
 
 FAILED_STOP_REASONS = ("error",)

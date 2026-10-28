@@ -166,7 +166,6 @@ def test_a_step_sends_its_highest_and_lowest_suspicion_on_its_step_run(
         (2, "monitor_lowest_suspicion"): [(0.1, BENIGN_REASON)],
     }
     assert backend.read_metadata() == [NUMERIC_METADATA] * 4
-    assert backend.read_projects() == {PROJECT_ID}
 
 
 @pytest.mark.parametrize(
@@ -587,8 +586,8 @@ def test_a_project_is_looked_up_once_for_all_the_steps_of_a_tracer(
     # Act
     run_traced(agent, mode=run_mode, handlers=backend.build_handlers())
 
-    # Assert: two steps sent four scores, and the project was asked for once
-    assert len(langsmith.read_feedback()) == 4
+    # Assert: two steps sent four scores, all on the project looked up, which was asked for once
+    assert [item["session_id"] for item in langsmith.read_feedback()] == [PROJECT_ID] * 4
     assert len(langsmith.read_requests("GET", "/sessions")) == 1
 
 

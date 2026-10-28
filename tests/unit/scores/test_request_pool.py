@@ -215,7 +215,6 @@ def test_a_process_finishes_the_calls_it_submitted_before_it_exits(tmp_path: Pat
     assert written.read_text() == "written"
 
 
-@pytest.mark.xfail(strict=True, reason="PR 7 review: submit and close share no lock")
 def test_a_call_submitted_while_the_pool_closes_still_completes() -> None:
     # Arrange: another thread closes the pool just as submit is about to queue the call. If the
     # close can finish before the call is queued, the call comes after the pool's stop signals.

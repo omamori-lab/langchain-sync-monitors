@@ -405,9 +405,11 @@ labels each send their own.
   seconds. Langfuse's client sends what it queued when the script ends, or
   when you call `get_client().flush()`, as [Attach Langfuse](#attach-langfuse)
   does.
-- **When a send fails.** Nothing raises into the run. A failed LangSmith call
-  is logged by `langchain_sync_monitors.request_pool` with the error's type
-  alone, and Langfuse's client logs its own.
+- **When a send fails.** Nothing raises into the run, and a failed score does
+  not stop the ones after it. A score the library cannot send is logged by
+  `langchain_sync_monitors.score_export`, and a failed LangSmith project
+  lookup by `langchain_sync_monitors.request_pool`, each with the error's type
+  alone. Langfuse's client logs a failure of its own background send.
 
 ### Know when nothing is sent
 

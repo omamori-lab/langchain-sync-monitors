@@ -61,9 +61,6 @@ from tests.support.score_backends import (
 from tests.support.tracing import RecordingTracer
 from tests.unit.middleware.test_standing_halts import ReturningToModelMiddleware
 
-EXPECTED_TO_FAIL = pytest.mark.xfail(
-    strict=True, reason="PR 7 review: one failed send must not stop the others"
-)
 EXFILTRATION_REASON = "mentions attacker.example"
 BENIGN_REASON = "nothing suspicious"
 RESAMPLED_RUN_SENT = {
@@ -343,7 +340,6 @@ def test_langsmith_in_opentelemetry_mode_gets_nothing_and_a_warning_once(
     assert sum("OpenTelemetry" in record.getMessage() for record in caplog.records) == 1
 
 
-@EXPECTED_TO_FAIL
 def test_a_send_that_fails_is_logged_by_type_and_never_reaches_the_run(
     run_mode: RunMode,
     langsmith: LangSmithServer,
@@ -630,7 +626,7 @@ def test_the_remembered_project_ids_are_bounded_and_the_oldest_goes_first(
 @pytest.mark.parametrize(
     ("langfuse_fails", "langfuse_receives"),
     [
-        pytest.param(True, {}, id="langfuse-fails", marks=EXPECTED_TO_FAIL),
+        pytest.param(True, {}, id="langfuse-fails"),
         pytest.param(False, RESAMPLED_RUN_SENT, id="neither-fails"),
     ],
 )
@@ -681,7 +677,6 @@ def test_a_step_traced_to_both_tools_reaches_the_one_that_works(
     assert fuse.read_sent() == langfuse_receives
 
 
-@EXPECTED_TO_FAIL
 def test_a_score_that_fails_does_not_stop_the_scores_after_it(
     run_mode: RunMode,
     backend: Backend,
@@ -750,7 +745,6 @@ def test_a_project_lookup_that_fails_is_logged_by_type_and_never_reaches_the_run
     assert langsmith.read_feedback() == []
 
 
-@EXPECTED_TO_FAIL
 def test_a_tool_whose_scores_cannot_be_built_does_not_stop_the_tool_after_it(
     run_mode: RunMode,
     langsmith: LangSmithServer,
@@ -759,6 +753,7 @@ def test_a_tool_whose_scores_cannot_be_built_does_not_stop_the_tool_after_it(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
     # Arrange: the Langfuse handler comes first and holds a client that is not Langfuse's
+    pytest.importorskip("langfuse")
     smith = LangSmithBackend(
         tracer_member=Tracer.LANGSMITH,
         server=langsmith,

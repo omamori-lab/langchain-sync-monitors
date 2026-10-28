@@ -586,7 +586,6 @@ REFUSAL_CASES = [
         {parameter: value},
         f"{parameter} must {message}",
         id=f"{name_builder(build)}-{parameter}-{describe_option_value(value)}",
-        marks=pytest.mark.xfail(strict=True) if build is build_openrouter_decision_monitor else (),
     )
     for build, parameter, values, message in REFUSAL_RULES
     for value in values

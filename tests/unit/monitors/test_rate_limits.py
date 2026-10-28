@@ -11,6 +11,7 @@ from dataclasses import dataclass
 import httpx
 import pytest
 import stamina
+from langchain_core.exceptions import ModelRateLimitError
 from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import AIMessage
 from langchain_core.prompts import ChatPromptTemplate
@@ -136,6 +137,11 @@ def build_guard(model: BaseChatModel) -> Monitor:
 RATE_LIMITS = [
     pytest.param(lambda: ProviderStatusError(429), id="provider-error-429"),
     pytest.param(lambda: build_http_status_error(429), id="httpx-429"),
+    pytest.param(
+        lambda: ModelRateLimitError(),
+        marks=pytest.mark.xfail(strict=True, reason="a typed rate limit has no status_code yet"),
+        id="typed-rate-limit-without-status",
+    ),
 ]
 OTHER_FAILURES = [
     pytest.param(lambda: ProviderStatusError(500), id="provider-error-500"),

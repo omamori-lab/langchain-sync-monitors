@@ -7,6 +7,8 @@ import subprocess
 import sys
 import threading
 import time
+from collections.abc import Callable
+from concurrent import futures
 from pathlib import Path
 
 import pytest
@@ -211,3 +213,34 @@ def test_a_process_finishes_the_calls_it_submitted_before_it_exits(tmp_path: Pat
     # Assert
     assert finished.returncode == 0, finished.stderr
     assert written.read_text() == "written"
+
+
+@pytest.mark.xfail(strict=True, reason="PR 7 review: submit and close share no lock")
+def test_a_call_submitted_while_the_pool_closes_still_completes() -> None:
+    # Arrange: another thread closes the pool just as submit is about to queue the call. If the
+    # close can finish before the call is queued, the call comes after the pool's stop signals.
+    pool = RequestPool(size=2)
+    real_tasks = pool.tasks
+    interleaved: list[bool] = []
+
+    class ClosingBeforeTheCallIsQueued:
+        def put(self, task: Callable[[], None] | None) -> None:
+            if task is not None and not interleaved:
+                interleaved.append(True)
+                closer = threading.Thread(target=pool.close)
+                closer.start()
+                closer.join(timeout=0.5)
+            real_tasks.put(task)
+
+        def get(self) -> Callable[[], None] | None:
+            return real_tasks.get()
+
+    pool.tasks = ClosingBeforeTheCallIsQueued()  # ty: ignore[invalid-assignment]
+
+    # Act
+    future = pool.submit(lambda: 21)
+    _, not_done = futures.wait([future], timeout=5.0)
+    pool.drain(timeout=5.0)
+
+    # Assert
+    assert not_done == set()

@@ -18,7 +18,9 @@ from collections.abc import Generator, Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from typing import Any, cast
+from types import SimpleNamespace
+from typing import Any, ClassVar, cast
+from uuid import UUID
 
 import httpx
 import pytest
@@ -76,6 +78,7 @@ class LangSmithHandler(BaseHTTPRequestHandler):
         status = 200
         reply: object = {}
         if path == "/sessions":
+            server.release.wait(ANSWER_HOLD_SECONDS)
             reply = [
                 {
                     "id": PROJECT_ID,
@@ -85,9 +88,11 @@ class LangSmithHandler(BaseHTTPRequestHandler):
                 }
             ]
             status = server.sessions_status
+            server.record_sessions_answer(status)
         elif path == "/feedback":
             server.release.wait(ANSWER_HOLD_SECONDS)
-            status = server.feedback_status
+            refused = json.loads(request.body)["key"] in server.fail_keys
+            status = 400 if refused else server.feedback_status
             server.record_answer(status)
         body = json.dumps(reply).encode()
         self.send_response(status)
@@ -103,8 +108,10 @@ class LangSmithHandler(BaseHTTPRequestHandler):
 class LangSmithServer(ThreadingHTTPServer):
     """LangSmith's end of the wire: the project and feedback endpoints, and a 200 for the rest.
 
-    A feedback answer waits until `release` is set. `feedback_status` and
-    `sessions_status` are the statuses it answers those two endpoints with.
+    A feedback or project answer waits until `release` is set. `feedback_status`
+    and `sessions_status` are the statuses it answers those two endpoints with,
+    and a feedback whose key is in `fail_keys` is answered 400, which the SDK
+    does not send again.
     """
 
     def __init__(self) -> None:
@@ -113,7 +120,9 @@ class LangSmithServer(ThreadingHTTPServer):
         self.feedback_status = 200
         self.sessions_status = 200
         self.release = threading.Event()
+        self.fail_keys: set[str] = set()
         self.answered: list[int] = []
+        self.sessions_answered: list[int] = []
         self.arrived = threading.Condition()
 
     @property
@@ -129,6 +138,12 @@ class LangSmithServer(ThreadingHTTPServer):
         """Note that a feedback request was answered, with its status."""
         with self.arrived:
             self.answered.append(status)
+            self.arrived.notify_all()
+
+    def record_sessions_answer(self, status: int) -> None:
+        """Note that a project request was answered, with its status."""
+        with self.arrived:
+            self.sessions_answered.append(status)
             self.arrived.notify_all()
 
     def wait_for_answers(self, count: int) -> list[int]:
@@ -170,6 +185,8 @@ def langsmith(langsmith_server: LangSmithServer) -> LangSmithServer:
     with langsmith_server.arrived:
         langsmith_server.requests.clear()
         langsmith_server.answered.clear()
+        langsmith_server.sessions_answered.clear()
+    langsmith_server.fail_keys.clear()
     langsmith_server.feedback_status = 200
     langsmith_server.sessions_status = 200
     langsmith_server.release.set()
@@ -222,6 +239,31 @@ class FakeLangfuseHandler(RecordingTracer):
 
 
 FakeLangfuseHandler.__module__ = "langfuse.langchain.CallbackHandler"
+
+
+class MisbuiltLangfuseHandler(FakeLangfuseHandler):
+    """A handler from a `langfuse` module that keeps an observation for each run, as Langfuse's
+    does, but a client that is not Langfuse's.
+    """
+
+    def __init__(self) -> None:
+        super().__init__()
+        self._langfuse_client = object()
+        self._runs: dict[UUID, SimpleNamespace] = {}
+
+    def on_chain_start(
+        self,
+        serialized: dict[str, Any] | None,
+        inputs: Any,
+        *,
+        run_id: UUID,
+        parent_run_id: UUID | None = None,
+        **kwargs: Any,
+    ) -> None:
+        self._runs[run_id] = SimpleNamespace(trace_id="1" * 32, id="2" * 16)
+        super().on_chain_start(
+            serialized, inputs, run_id=run_id, parent_run_id=parent_run_id, **kwargs
+        )
 
 
 class LangfuseWire:
@@ -337,6 +379,9 @@ NUMERIC_METADATA = {"failed_closed": False, "cause": None, "model": "keyword"}
 class LangSmithBackend:
     """LangSmith as a run reaches it: its tracer on the stand-in server, and a recorder of runs."""
 
+    failure_type: ClassVar[str] = "LangSmithError"
+    """The class of the error the SDK raises for a feedback the server refuses."""
+
     tracer_member: Tracer
     server: LangSmithServer
     tracer: LangChainTracer
@@ -345,32 +390,41 @@ class LangSmithBackend:
     def build_handlers(self) -> list[BaseCallbackHandler]:
         return [self.tracer, self.recorder]
 
+    def fail_score(self, name: str) -> None:
+        """Make the server refuse every feedback named `name`."""
+        self.server.fail_keys.add(name)
+
     def read_sent(self) -> Sent:
-        """Return the feedback received, by the number of the step run it names."""
+        """Return the feedback accepted, by the number of the step run it names."""
         steps = {str(run.run_id): number for number, run in enumerate(self.read_step_runs(), 1)}
         sent: Sent = {}
-        for item in self.server.read_feedback():
+        for item in self.read_accepted():
             key = (steps.get(item["run_id"], NOT_A_STEP), item["key"])
             sent.setdefault(key, []).append((item["score"], item.get("comment")))
         return sent
+
+    def read_accepted(self) -> list[dict[str, Any]]:
+        return [
+            item for item in self.server.read_feedback() if item["key"] not in self.server.fail_keys
+        ]
 
     def read_step_runs(self) -> list[RecordedRun]:
         return self.recorder.find_runs(STEP_SPAN_NAME)
 
     def read_flag_places(self) -> list[tuple[str, str]]:
-        """Return the name of the run of each flag received, and of that run's parent."""
+        """Return the name of the run of each flag accepted, and of that run's parent."""
         runs = [
             self.recorder.runs[uuid.UUID(item["run_id"])]
-            for item in self.server.read_feedback()
+            for item in self.read_accepted()
             if item["key"] == FLAG_NAME
         ]
         return [(run.name, self.recorder.find_parent(run).name) for run in runs]
 
     def read_metadata(self) -> list[dict[str, Any]]:
-        """Return the metadata of each score received that is not a flag."""
+        """Return the metadata of each score accepted that is not a flag."""
         return [
             item["feedback_source"]["metadata"]
-            for item in self.server.read_feedback()
+            for item in self.read_accepted()
             if item["key"] != FLAG_NAME
         ]
 
@@ -379,12 +433,30 @@ class LangSmithBackend:
 class LangfuseBackend:
     """Langfuse as a run reaches it: the SDK's handler on a client with a stand-in wire."""
 
+    failure_type: ClassVar[str] = "RuntimeError"
+    """The class of the error the failing client raises."""
+
     tracer_member: Tracer
     stand_in: LangfuseStandIn
     handler: Any
+    monkeypatch: pytest.MonkeyPatch
 
     def build_handlers(self) -> list[BaseCallbackHandler]:
         return [self.handler]
+
+    def fail_score(self, name: str) -> None:
+        """Make the Langfuse client raise for every score named `name`."""
+        from langfuse import Langfuse
+
+        create_score = Langfuse.create_score
+
+        def refuse(client: Langfuse, **keywords: Any) -> Any:
+            if keywords.get("name") == name:
+                message = f"the client refused {name}"
+                raise RuntimeError(message)
+            return create_score(client, **keywords)
+
+        self.monkeypatch.setattr(Langfuse, "create_score", refuse)
 
     def read_sent(self) -> Sent:
         """Return the scores received, by the number of the step span they name."""
@@ -414,6 +486,7 @@ def backend(
     langsmith: LangSmithServer,
     inline_pool: RequestPool,
     fresh_notices: None,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> Backend:
     """Each tool in turn, as a run reaches it, with every send finished when its step is."""
     if request.param == "langsmith":
@@ -425,5 +498,8 @@ def backend(
         )
     stand_in = request.getfixturevalue("langfuse")
     return LangfuseBackend(
-        tracer_member=Tracer.LANGFUSE, stand_in=stand_in, handler=stand_in.build_handler()
+        tracer_member=Tracer.LANGFUSE,
+        stand_in=stand_in,
+        handler=stand_in.build_handler(),
+        monkeypatch=monkeypatch,
     )

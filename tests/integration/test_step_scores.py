@@ -48,9 +48,11 @@ from tests.support.score_backends import (
     STEP_SPAN_NAME,
     Backend,
     FakeLangfuseHandler,
+    LangfuseBackend,
     LangfuseStandIn,
     LangSmithBackend,
     LangSmithServer,
+    MisbuiltLangfuseHandler,
     OtelModeClient,
     Sent,
     build_langfuse,
@@ -59,8 +61,18 @@ from tests.support.score_backends import (
 from tests.support.tracing import RecordingTracer
 from tests.unit.middleware.test_standing_halts import ReturningToModelMiddleware
 
+EXPECTED_TO_FAIL = pytest.mark.xfail(
+    strict=True, reason="PR 7 review: one failed send must not stop the others"
+)
 EXFILTRATION_REASON = "mentions attacker.example"
 BENIGN_REASON = "nothing suspicious"
+RESAMPLED_RUN_SENT = {
+    (1, "monitor_suspicion"): [(0.9, EXFILTRATION_REASON)],
+    (1, "monitor_lowest_suspicion"): [(0.1, BENIGN_REASON)],
+    (2, "monitor_suspicion"): [(0.1, BENIGN_REASON)],
+    (2, "monitor_lowest_suspicion"): [(0.1, BENIGN_REASON)],
+}
+"""What a run of two steps, the first drawn twice, sends to one tool."""
 RESAMPLING = DeferToResample(defer_threshold=0.6, audit_threshold=0.95, max_resamples=2)
 """A step at 0.6 or more is drawn again, so the exfiltration is followed by the read."""
 FLAGGING = DeferToResample(
@@ -331,6 +343,7 @@ def test_langsmith_in_opentelemetry_mode_gets_nothing_and_a_warning_once(
     assert sum("OpenTelemetry" in record.getMessage() for record in caplog.records) == 1
 
 
+@EXPECTED_TO_FAIL
 def test_a_send_that_fails_is_logged_by_type_and_never_reaches_the_run(
     run_mode: RunMode,
     langsmith: LangSmithServer,
@@ -355,14 +368,15 @@ def test_a_send_that_fails_is_logged_by_type_and_never_reaches_the_run(
     with caplog.at_level(logging.WARNING):
         result = run_traced(agent, mode=run_mode, handlers=backend.build_handlers())
 
-    # Assert: one failed send per step, named by its type, and no text of the transcript
+    # Assert: the highest and the lowest score of each step failed, each named by its type, and
+    # no text of the transcript
     assert result["messages"][-1].text == "Done."
     failures = [
         record.getMessage()
         for record in caplog.records
-        if record.name == "langchain_sync_monitors.request_pool"
+        if record.name == "langchain_sync_monitors.score_export"
     ]
-    assert failures == ["score export: a request failed with LangSmithError"] * 2
+    assert failures == ["score export: a score could not be sent: LangSmithError"] * 4
     assert EXFILTRATION_REASON not in caplog.text
 
 
@@ -371,7 +385,7 @@ def test_the_step_does_not_wait_for_langsmith_to_answer(
     langsmith: LangSmithServer,
     fresh_notices: None,
 ) -> None:
-    # Arrange: LangSmith holds every feedback answer until released
+    # Arrange: LangSmith holds every project and feedback answer until released
     langsmith.release.clear()
     backend = LangSmithBackend(
         tracer_member=Tracer.LANGSMITH,
@@ -386,12 +400,13 @@ def test_the_step_does_not_wait_for_langsmith_to_answer(
 
     # Act
     run_traced(agent, mode=run_mode, handlers=backend.build_handlers())
-    answered_when_the_run_returned = list(langsmith.answered)
+    answered_when_the_run_returned = (list(langsmith.sessions_answered), list(langsmith.answered))
     langsmith.release.set()
     answered = langsmith.wait_for_answers(4)
 
-    # Assert: the run returned before any answer, and all four scores were written after it
-    assert answered_when_the_run_returned == []
+    # Assert: the run returned before the project or any feedback was answered, and all four
+    # scores were written after it
+    assert answered_when_the_run_returned == ([], [])
     assert answered == [200] * 4
 
 
@@ -610,3 +625,170 @@ def test_the_remembered_project_ids_are_bounded_and_the_oldest_goes_first(
 
     # Assert: the newest was remembered, and the oldest had gone
     assert (asked, asked_after_the_newest, asked_after_the_oldest) == (65, 65, 66)
+
+
+@pytest.mark.parametrize(
+    ("langfuse_fails", "langfuse_receives"),
+    [
+        pytest.param(True, {}, id="langfuse-fails", marks=EXPECTED_TO_FAIL),
+        pytest.param(False, RESAMPLED_RUN_SENT, id="neither-fails"),
+    ],
+)
+def test_a_step_traced_to_both_tools_reaches_the_one_that_works(
+    run_mode: RunMode,
+    langsmith: LangSmithServer,
+    langfuse: LangfuseStandIn,
+    inline_pool: object,
+    fresh_notices: None,
+    monkeypatch: pytest.MonkeyPatch,
+    langfuse_fails: bool,
+    langfuse_receives: dict[tuple[int, str], list[tuple[float | bool, str | None]]],
+) -> None:
+    # Arrange: Langfuse's handler comes first, so its destination is sent to first
+    smith = LangSmithBackend(
+        tracer_member=Tracer.LANGSMITH,
+        server=langsmith,
+        tracer=build_langsmith_tracer(langsmith),
+        recorder=RecordingTracer(),
+    )
+    fuse = LangfuseBackend(
+        tracer_member=Tracer.LANGFUSE,
+        stand_in=langfuse,
+        handler=langfuse.build_handler(),
+        monkeypatch=monkeypatch,
+    )
+    if langfuse_fails:
+        fuse.fail_score("monitor_suspicion")
+        fuse.fail_score("monitor_lowest_suspicion")
+    monitor = MonitorMiddleware(
+        monitor=build_keyword_monitor(),
+        protocol=RESAMPLING,
+        export_scores=frozenset({Tracer.LANGFUSE, Tracer.LANGSMITH}),
+    )
+    agent = build_agent(
+        monitor,
+        steps=[build_exfiltration_step(), build_read_step(), AIMessage("Done.")],
+    )
+
+    # Act
+    result = run_traced(
+        agent, mode=run_mode, handlers=[*fuse.build_handlers(), *smith.build_handlers()]
+    )
+
+    # Assert
+    assert result["messages"][-1].text == "Done."
+    assert smith.read_sent() == RESAMPLED_RUN_SENT
+    assert fuse.read_sent() == langfuse_receives
+
+
+@EXPECTED_TO_FAIL
+def test_a_score_that_fails_does_not_stop_the_scores_after_it(
+    run_mode: RunMode,
+    backend: Backend,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    # Arrange: the tool refuses every highest score, and the flag has to be called, since the
+    # lowest score is under the threshold
+    backend.fail_score("monitor_suspicion")
+    agent = build_agent(
+        build_monitor(backend, protocol=FLAGGING, flag_threshold=0.95),
+        steps=[build_exfiltration_step(), AIMessage("Done.")],
+    )
+
+    # Act
+    with caplog.at_level(logging.WARNING):
+        result = run_traced(agent, mode=run_mode, handlers=backend.build_handlers())
+
+    # Assert: the lowest score and the flag still went, and each failure is logged by its type
+    assert result["messages"][-1].text == "Done."
+    assert backend.read_sent() == {
+        (1, "monitor_lowest_suspicion"): [(0.9, EXFILTRATION_REASON)],
+        (1, "flagged"): [(True, None)],
+        (2, "monitor_lowest_suspicion"): [(0.1, BENIGN_REASON)],
+    }
+    failures = [
+        record.getMessage()
+        for record in caplog.records
+        if record.name == "langchain_sync_monitors.score_export"
+    ]
+    assert failures == [f"score export: a score could not be sent: {backend.failure_type}"] * 2
+
+
+def test_a_project_lookup_that_fails_is_logged_by_type_and_never_reaches_the_run(
+    run_mode: RunMode,
+    langsmith: LangSmithServer,
+    inline_pool: object,
+    fresh_notices: None,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    # Arrange: LangSmith knows no such project
+    langsmith.sessions_status = 404
+    backend = LangSmithBackend(
+        tracer_member=Tracer.LANGSMITH,
+        server=langsmith,
+        tracer=build_langsmith_tracer(langsmith),
+        recorder=RecordingTracer(),
+    )
+    agent = build_agent(
+        build_monitor(backend, protocol=RESAMPLING),
+        steps=[build_exfiltration_step(), build_read_step(), AIMessage("Done.")],
+    )
+
+    # Act
+    with caplog.at_level(logging.WARNING):
+        result = run_traced(agent, mode=run_mode, handlers=backend.build_handlers())
+
+    # Assert: each step's lookup failed and was not remembered, so the next step asked again
+    assert result["messages"][-1].text == "Done."
+    failures = [
+        record.getMessage()
+        for record in caplog.records
+        if record.name == "langchain_sync_monitors.request_pool"
+    ]
+    assert failures == ["score export: a request failed with LangSmithNotFoundError"] * 2
+    assert len(langsmith.read_requests("GET", "/sessions")) == 2
+    assert langsmith.read_feedback() == []
+
+
+@EXPECTED_TO_FAIL
+def test_a_tool_whose_scores_cannot_be_built_does_not_stop_the_tool_after_it(
+    run_mode: RunMode,
+    langsmith: LangSmithServer,
+    inline_pool: object,
+    fresh_notices: None,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    # Arrange: the Langfuse handler comes first and holds a client that is not Langfuse's
+    smith = LangSmithBackend(
+        tracer_member=Tracer.LANGSMITH,
+        server=langsmith,
+        tracer=build_langsmith_tracer(langsmith),
+        recorder=RecordingTracer(),
+    )
+    monitor = MonitorMiddleware(
+        monitor=build_keyword_monitor(),
+        protocol=RESAMPLING,
+        export_scores=frozenset({Tracer.LANGFUSE, Tracer.LANGSMITH}),
+    )
+    agent = build_agent(
+        monitor,
+        steps=[build_exfiltration_step(), build_read_step(), AIMessage("Done.")],
+    )
+
+    # Act
+    with caplog.at_level(logging.WARNING):
+        run_traced(
+            agent,
+            mode=run_mode,
+            handlers=[MisbuiltLangfuseHandler(), *smith.build_handlers()],
+        )
+
+    # Assert: each step's Langfuse scores failed to build, named by the error's type, and its
+    # LangSmith scores were sent
+    assert smith.read_sent() == RESAMPLED_RUN_SENT
+    failures = [
+        record.getMessage()
+        for record in caplog.records
+        if record.name == "langchain_sync_monitors.score_export"
+    ]
+    assert failures == ["score export: the step's scores could not be sent: ConfigurationError"] * 2

@@ -45,14 +45,18 @@ from langchain_sync_monitors.chat_model_adapter import ChatModelAdapter
 from langchain_sync_monitors.errors import ConfigurationError
 from tests.support.chat_models import ScriptedChatModel
 from tests.support.fixtures import every_log_record as every_log_record
+from tests.support.fixtures import retry_frame_locals as retry_frame_locals
+from tests.support.fixtures import retry_hook_calls as retry_hook_calls
 from tests.support.flaky_models import FlakyChatModel
-from tests.support.log_records import find_logged_leaks
+from tests.support.log_records import find_frame_leaks, find_logged_leaks
 from tests.support.tracing import RecordingTracer
 
 type CallPath = Literal["async", "sync"]
 
 ADAPTER_LOGGER = "langchain_sync_monitors.chat_model_adapter"
 SOURCE = "llm_monitor"
+PLANTED_SECRET = "planted-secret-9f3c1e"
+"""A credential the prompt quotes, which no retry hook may be able to read."""
 PLANTED_REPLY = "planted-reply-5e02d4"
 """A value the provider's error reply holds, which no log line may repeat."""
 
@@ -123,6 +127,13 @@ class ReplyHoldingError(Exception):
     """An error in the shape OpenRouter's SDK gives one: a dataclass whose repr holds the reply."""
 
     status_code: int
+    body: str
+
+
+@dataclass(eq=False)
+class ReplyHoldingRateLimit(ModelRateLimitError):
+    """A typed rate limit without a status, whose repr holds the provider's reply."""
+
     body: str
 
 
@@ -641,6 +652,42 @@ async def test_any_other_failure_is_raised_as_it_is_and_not_retried(
     # Assert
     assert raised.value is error
     assert model.started_calls == 1
+
+
+REPLY_HOLDING_RATE_LIMITS = [
+    pytest.param(
+        lambda: ReplyHoldingError(status_code=429, body=f"Reply quoting {PLANTED_REPLY}."),
+        id="status-429",
+    ),
+    pytest.param(
+        lambda: ReplyHoldingRateLimit(body=f"Reply quoting {PLANTED_REPLY}."),
+        id="typed-rate-limit-without-status",
+    ),
+]
+
+
+@pytest.mark.parametrize("build_error", REPLY_HOLDING_RATE_LIMITS)
+async def test_no_frame_a_retry_hook_can_read_shows_the_prompt_or_the_providers_reply(
+    call_path: CallPath,
+    build_error: Callable[[], Exception],
+    retry_frame_locals: list[dict[str, str]],
+) -> None:
+    # Arrange: the prompt quotes the secret, and the provider's error holds its whole reply
+    content = (TextPart(text=f"Deploy with the token {PLANTED_SECRET}."),)
+    prompt = Prompt(system="Rate the step.", content=content)
+    model = FlakyChatModel(replies=[build_error(), FINE])
+
+    # Act
+    await generate_on_path(model, prompt, call_path=call_path)
+
+    # Assert: the hook read the frames that hold the call and the kept error
+    (frame_locals,) = retry_frame_locals
+    suffix = "" if call_path == "async" else "_sync"
+    assert {f"run_attempt{suffix}.block", f"run_attempt{suffix}.failures"} <= frame_locals.keys()
+
+    # Assert: and no local in them quotes the prompt or any part of the reply
+    secrets = [PLANTED_SECRET, PLANTED_REPLY]
+    assert find_frame_leaks(retry_frame_locals, secrets=secrets) == []
 
 
 LOGGED_FAILURES = [

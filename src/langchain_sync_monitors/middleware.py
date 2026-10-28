@@ -28,6 +28,7 @@ from collections.abc import Set as AbstractSet
 from dataclasses import dataclass, field, replace
 from typing import Self, override
 
+from hyoshigi import Redaction
 from langchain.agents.middleware.internal_call_transformer import InternalCallTransformer
 from langchain.agents.middleware.types import (
     AgentMiddleware,
@@ -240,6 +241,7 @@ class MonitorMiddleware(AgentMiddleware[MonitorState, AgentContext, StructuredOu
     trusted_model: str | BaseChatModel | None = None
     feedback: FeedbackTemplate = DEFAULT_FEEDBACK_TEMPLATE
     flag_threshold: float | None = None
+    redaction: Redaction | None = None
     label: str = "monitor"
     agent_name: str = "main"
     task_author: TaskAuthor = TaskAuthor.USER

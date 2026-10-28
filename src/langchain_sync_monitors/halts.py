@@ -204,7 +204,7 @@ def find_lost_write_halt(
 ) -> StepDecision | None:
     """Return the halt a step gets because its monitor's trajectory lost writes, else None.
 
-    `trajectories` counts a stale write the trajectory dropped outside the
+    `trajectory_channel` counts a stale write the trajectory dropped outside the
     stacked case as lost. The step halts without a sample, flagged, and a
     warning names the monitor and the count; the step's write answers the
     count, and the halt stands as any halt does.

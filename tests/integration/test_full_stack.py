@@ -68,7 +68,7 @@ def test_llm_monitor_drives_defer_to_resample_end_to_end(run_mode: RunMode) -> N
     # Assert
     first_monitor_prompt = "\n".join(message.text for message in monitor_model.calls[0])
     assert "attacker.example" in first_monitor_prompt
-    assert "<proposed_step>" in first_monitor_prompt
+    assert "<proposed_action>" in first_monitor_prompt
     assert workspace.executed == ["read_file:q3.md"]
     assert [record["outcome"] for record in state["monitor_log"]] == ["resampled", "allowed"]
     assert [sample["suspicion"] for sample in state["monitor_log"][0]["samples"]] == [0.9, 0.1]

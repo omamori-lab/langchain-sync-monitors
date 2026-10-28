@@ -216,7 +216,9 @@ for record in result["monitor_log"]:
     ran = [sample for sample in record["samples"] if sample["executed"]]
     print(f"Step {record['step_number']}: {record['outcome']}")
     print(f"  most suspicious ({worst['suspicion']:.2f}): {worst['reason']}")
-    print(f"  ran: {ran[0]['proposal'] if ran else 'nothing the agent proposed'}")
+    # The names of the tools the sample that ran called; none for a final answer.
+    ran_calls = [call["name"] for call in ran[0]["proposal"]["tool_calls"]] if ran else []
+    print(f"  ran: {ran_calls if ran else 'nothing the agent proposed'}")
 ```
 
 ### Find the rejected samples a flag misses

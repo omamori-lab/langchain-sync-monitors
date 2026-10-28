@@ -19,8 +19,7 @@ model
 └── monitor step
     ├── sample 1: the agent's model
     ├── monitor judgement of it
-    │   └── monitor call,
-    │       or monitor classifier
+    │   └── monitor call
     ├── sample 2, if drawn
     ├── monitor judgement of it
     ├── the trusted model's call,
@@ -32,19 +31,28 @@ model
   start. The step span opens before the first sample and ends when the step is
   committed; the decision span, tagged with the outcome, opens and ends at
   once, when the protocol has decided.
-- **Judgements.** The LLM monitors, the guards and `TypeSafeDecisionModel` make
-  model calls, each named `monitor call`, which nest in the judgement. The
+- **Judgements.** Each rating of a sample is one judgement, whatever the
+  monitor: a `RepeatedMonitor` of three calls, or a guard of five samples,
+  rates once. The LLM monitors and the guards make model calls through
+  LangChain, each named `monitor call`, which nest in the judgement. The
   model still shows as the call's model and in `ls_model_name`. A call the
   monitor makes again after HTTP 429 adds one more `monitor call`, and the
-  one before it ends with the rate-limit error, inside a judgement that
-  succeeds.
-  `OpenRouterDecisionModel` sends its request without LangChain, so its
-  judgement holds a `monitor classifier` span instead.
+  one before it ends with the rate-limit error. A decision monitor calls its
+  provider's API without LangChain, so its requests show only as the
+  judgement around them.
 - **Errors.** A halt is a decision like any other, so it never marks a span as
-  failed. A span ends with an error only when the step fails: a model or
-  monitor call raises, a sample is cancelled because another one failed, or
+  failed, and nor does a rating that failed closed: its judgement ends with
+  `failed_closed` set. A span ends with an error only when the step fails: a
+  model call of the agent raises, a monitor's call raises on a misuse such as
+  a bad key, a sample is cancelled because another one failed, or
   `SynchronousRunError` is raised; or with the `GraphInterrupt` when a
   middleware inside the monitor calls `interrupt()`.
+- **OpenTelemetry.** With `opentelemetry-api` installed, hyoshigi also opens
+  an OpenTelemetry span for each rating, named `rate` and the twin's class,
+  from the global tracer provider, which decides whether it is recorded and
+  where it goes; [hyoshigi's page on
+  observability](https://omamori-lab.github.io/hyoshigi/explanation/observability/)
+  describes it.
 - **No handler, no span.** With no callback handler attached, the monitor
   opens no span.
 
@@ -73,16 +81,18 @@ middleware hook [@langchain2026]:
 
 | Span | Inputs | Outputs | Tags |
 |---|---|---|---|
-| `monitor step` | `step_number`, and `proposed_step`, the step first proposed, added when the span ends | `outcome`, `flagged`, `blocked_count`, `max_suspicion`, and each sample's `suspicion`, `reason` and `executed` | `monitor` |
-| `monitor judgement` | `sample_number`, and `monitor_class`, the monitor's class name | `suspicion` and `reason` | `monitor` |
-| `monitor classifier` | `model`, and `questions`, each question's text by its key | `answers`, the probability of yes to each question; one span covers a request and all its retries | `monitor` |
+| `monitor step` | `step_number`, and `proposed_step`, the first sample's proposal as `monitor_log` keeps it, added when the span ends | `outcome`, `flagged`, `blocked_count`, `max_suspicion`, and each sample's `suspicion`, `reason` and `executed` | `monitor` |
+| `monitor judgement` | `sample_number`, and `monitor_class`, the class of the twin that rated, such as `LLMMonitor` under `invoke()` and `AsyncLLMMonitor` under `ainvoke()` for an LLM monitor | `suspicion`, `reason`, and `failed_closed`, whether the rating failed closed | `monitor` |
 | `monitor decision` | Empty | `outcome`, `flagged` and `max_suspicion` | `monitor`, `monitor:<outcome>`, and `monitor:flagged` when the step is flagged |
 
-- **Proposal text.** Only the step span carries any: its `proposed_step`.
-  Each sample's text stays on the model call that drew it.
-- **Sample numbers.** A judgement's `sample_number` counts the step's samples
-  in the order their draws started, so judgement n describes the n-th entry
-  of the step span's `samples`, under parallel resampling too.
+- **Proposal text.** Only the step span carries any: its `proposed_step`,
+  the action as [Read a record](read-the-monitor-log.md#read-a-record) shows
+  it. Each sample's text stays on the model call that drew it.
+- **Sample numbers.** A judgement's `sample_number` counts the step's ratings
+  in the order they start. Under `ainvoke()` with parallel resampling, a
+  resample whose draw ends first is rated first, so judgement n need not
+  describe the n-th entry of the step span's `samples`; match them by their
+  `suspicion` and `reason`.
 - **Steps without samples.** A step decided before any sample, such as a
   standing halt, a subagent's halt or Auto Mode's thread total, has `None` as
   its `proposed_step` and `max_suspicion`.
@@ -101,7 +111,7 @@ Every monitor span of a step carries flat metadata keys that name the step:
 | `monitor_delegation_id` | The id of the `task` call that started the subagent | Every monitor span inside a subagent that a monitored agent started |
 | `monitor_outcome`, `monitor_flagged` | The decision | `monitor decision` |
 | `monitor_max_suspicion` | The highest suspicion among the step's samples | `monitor decision`, when the step judged a sample |
-| `ls_agent_type`, set to `middleware` | Keeps the span out of LangSmith's Trajectory view, except inside a Deep Agents subagent; see [Limits](#limits) | `monitor judgement`, `monitor classifier` and `monitor decision` |
+| `ls_agent_type`, set to `middleware` | Keeps the span out of LangSmith's Trajectory view, except inside a Deep Agents subagent; see [Limits](#limits) | `monitor judgement` and `monitor decision` |
 
 `monitor_label`, `monitor_agent`, `monitor_step_number` and, inside a subagent,
 `monitor_delegation_id` match a span to its `StepRecord` in `monitor_log`,
@@ -222,8 +232,8 @@ flagged step:
 |---|---|---|
 | Every halted step | `and(eq(name, "monitor decision"), has(tags, "monitor:halted"))` on runs | Name `monitor decision`, and metadata `monitor_outcome` equal to `halted` |
 | Traces with a flagged step | `has(tags, "monitor:flagged")` as a tree filter, on root runs | Name `monitor decision`, and metadata `monitor_flagged` equal to `true` |
-| Everything but the monitor's spans | `and(neq(name, "monitor step"), neq(name, "monitor judgement"), neq(name, "monitor classifier"), neq(name, "monitor decision"))` | Name none of `monitor step`, `monitor judgement`, `monitor classifier` and `monitor decision` |
-| Everything but the monitor's spans and model calls | `and(neq(name, "monitor step"), neq(name, "monitor judgement"), neq(name, "monitor classifier"), neq(name, "monitor decision"), neq(name, "monitor call"), neq(metadata_key, "ls_message_view_exclude"))` | Name none of `monitor step`, `monitor judgement`, `monitor classifier`, `monitor decision` and `monitor call`, which misses the attempts inside a classifier wrapped in `with_retry()` |
+| Everything but the monitor's spans | `and(neq(name, "monitor step"), neq(name, "monitor judgement"), neq(name, "monitor decision"))` | Name none of `monitor step`, `monitor judgement` and `monitor decision` |
+| Everything but the monitor's spans and model calls | `and(neq(name, "monitor step"), neq(name, "monitor judgement"), neq(name, "monitor decision"), neq(name, "monitor call"), neq(metadata_key, "ls_message_view_exclude"))` | Name none of `monitor step`, `monitor judgement`, `monitor decision` and `monitor call` |
 | Steps above a suspicion | `and(eq(name, "monitor decision"), eq(metadata_key, "monitor_max_suspicion"), gte(metadata_value, 0.5))`, with the threshold as a number; with `export_scores`, also `and(eq(feedback_key, "monitor_suspicion"), gte(feedback_score, 0.5))` | Only with `export_scores`: scores named `monitor_suspicion` with a minimum value, as [Find steps by suspicion](#find-steps-by-suspicion) shows; metadata filters compare strings only |
 
 Replace `halted` with `allowed`, `resampled`, `steered` or
@@ -234,21 +244,17 @@ span's tags only in its metadata, so filter on `monitor_outcome` and
 
 The monitor's own model calls carry no `monitor` tag, but each one it makes
 through LangChain is named `monitor call`, whatever its model: the calls of
-the LLM monitors and the guards, and the classifier call of
-`TypeSafeDecisionModel`. The fixed name
-replaces any name you gave the model, so a model built with
-`name="security monitor"` shows as `monitor call` too. The model still shows as
-the call's model and in its `ls_model_name` metadata, and the judgement span
-around the call names the monitor. A classifier wrapped in `with_retry()`
-gives the name to the wrapper's run, and the attempts inside it keep the
-classifier's own name, so the five names miss them. The trusted model's step,
-which a fallback writes for the agent, keeps its model's name. A custom
-monitor's calls are named `monitor call` only if it builds their config with
-`model_calls.build_internal_call_config`.
+the LLM monitors and the guards. The fixed name replaces any name you gave
+the model, so a model built with `name="security monitor"` shows as
+`monitor call` too. The model still shows as the call's model and in its
+`ls_model_name` metadata, and the judgement span around the call names the
+monitor's class. The trusted model's step, which a fallback writes for the
+agent, keeps its model's name. The calls of a monitor of your own, built as a
+`MonitorTwins`, are named as their own code names them.
 
-Every call the library's monitors make also carries the metadata key
-`ls_message_view_exclude`, the wrapped classifier's attempts included, and
-LangChain's and Deep Agents' own middleware do not set it. So in LangSmith,
+Every call the library's monitors make through LangChain also carries the
+metadata key `ls_message_view_exclude`, and LangChain's and Deep Agents' own
+middleware do not set it. So in LangSmith,
 `neq(metadata_key, "ls_message_view_exclude")` leaves out every one of the
 monitor's calls. Langfuse's metadata filter matches only the observations
 that have a key, so it can find these calls but not leave them out. Their
@@ -554,16 +560,16 @@ explains.
   Langfuse Cloud show the trees, fields and filters on this page as described,
   with langsmith 0.14.1 and langfuse 4.15.6, under `invoke()` and `ainvoke()`.
   That covers allowed, steered, resampled, deferred and halted steps, a step
-  whose monitor call raised, a Deep Agents subagent, the Decisions API monitor
-  against a fake server, and real chat, guard and subagent model calls. The
-  Langfuse handler, the two query examples and the `astream_events` example run
-  as written. The `monitor call` name, the model each tool shows for such a
-  call, and the four- and five-name filters were confirmed live in both tools
-  too, with langsmith 0.14.2, langfuse 4.16.0 and a real OpenRouter model. A
-  cancelled sample, `SynchronousRunError`, stacked monitors, parallel
-  resampling, a monitor's own `traceable` code, `TypeSafeDecisionModel`, the
-  attempts of a classifier wrapped in `with_retry()` and what each tool's UI
-  shows, its Trajectory view included, rest on the tests and the tools' source
+  whose monitor call raised, a Deep Agents subagent, and real chat, guard and
+  subagent model calls. The Langfuse handler, the two query examples and the
+  `astream_events` example run as written. The `monitor call` name, the model
+  each tool shows for such a call, and the filters that leave them out by
+  name were confirmed live in both tools too, with langsmith 0.14.2, langfuse
+  4.16.0 and a real OpenRouter model. A cancelled sample,
+  `SynchronousRunError`, stacked monitors, parallel resampling, a monitor's
+  own `traceable` code, a decision monitor's judgement, the judgement's
+  `failed_closed` output and its twin's class, and what each tool's UI shows,
+  its Trajectory view included, rest on the tests and the tools' source
   alone. The score export was confirmed live with langsmith 0.14.1 and
   langfuse 4.16.0, under `invoke()` and `ainvoke()`, with a scripted agent and
   with real OpenRouter models: each step got one score, with its highest

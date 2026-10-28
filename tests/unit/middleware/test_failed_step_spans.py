@@ -9,25 +9,21 @@ first proposed. The `MonitorStepFailedEvent` is written as before.
 from __future__ import annotations
 
 import asyncio
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
+import hyoshigi
 import pytest
+from hyoshigi import Action, SuspicionScore, Trajectory
 from langchain.agents import create_agent
 from langchain_core.language_models import BaseChatModel
 from langchain_core.runnables import Runnable, RunnableConfig
 
-from langchain_sync_monitors.contracts import (
-    ControlProtocol,
-    Monitor,
-    MonitorInput,
-    Resampling,
-    Verdict,
-)
+from langchain_sync_monitors import MonitorTwins
+from langchain_sync_monitors.contracts import ControlProtocol, Resampling
 from langchain_sync_monitors.errors import SynchronousRunError
 from langchain_sync_monitors.middleware import MonitorMiddleware
 from langchain_sync_monitors.protocols import DeferToResample, HaltRun
-from langchain_sync_monitors.transcript import render_proposal_for_audit
 from tests.support.agents import (
     RunMode,
     Workspace,
@@ -37,33 +33,49 @@ from tests.support.agents import (
 )
 from tests.support.chat_models import ScriptedChatModel
 from tests.support.flaky_models import FlakyChatModel, TriggeredFailureMonitor
-from tests.support.monitors import KeywordMonitor
+from tests.support.monitors import KeywordMonitor, read_action_text
 from tests.support.protocols import AwaitsEventLoop
 from tests.support.tracing import RecordingTracer
 
 EXFILTRATION_MARK = "attacker.example"
 
 
-@dataclass(kw_only=True)
-class SlowToJudgeReads(Monitor):
-    """Delegates to `inner`, but under `ainvoke()` waits `delay` seconds before judging a read."""
+@dataclass(frozen=True, kw_only=True)
+class SlowToRateReadsRater(hyoshigi.AsyncMonitor):
+    """Rates with `inner`, after waiting `delay` seconds when the action reads a file."""
 
-    inner: Monitor
+    inner: hyoshigi.AsyncMonitor
     delay: float
 
-    async def evaluate(self, monitor_input: MonitorInput) -> Verdict:
-        if "read_file" in render_proposal_for_audit(monitor_input.proposal):
+    async def rate(self, action: Action, *, trajectory: Trajectory) -> SuspicionScore:
+        if "read_file" in read_action_text(action):
             await asyncio.sleep(self.delay)
-        return await self.inner.evaluate(monitor_input)
+        return await self.inner.rate(action, trajectory=trajectory)
 
-    def evaluate_sync(self, monitor_input: MonitorInput) -> Verdict:
-        return self.inner.evaluate_sync(monitor_input)
+
+@dataclass(frozen=True, kw_only=True)
+class SlowToJudgeReads(MonitorTwins):
+    """The twins of `inner`, whose async twin waits `delay` seconds before rating a read."""
+
+    inner: MonitorTwins
+    delay: float
+    monitor: hyoshigi.Monitor = field(init=False)
+    async_monitor: hyoshigi.AsyncMonitor = field(init=False)
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "monitor", self.inner.monitor)
+        object.__setattr__(
+            self,
+            "async_monitor",
+            SlowToRateReadsRater(inner=self.inner.async_monitor, delay=self.delay),
+        )
+        super().__post_init__()
 
 
 def build_agent(
     model: BaseChatModel,
     *,
-    monitor: Monitor,
+    monitor: MonitorTwins,
     protocol: ControlProtocol | None = None,
 ) -> Runnable[Any, Any]:
     protocol = protocol or DeferToResample(
@@ -126,7 +138,8 @@ def test_a_monitor_that_raises_ends_its_judgement_and_the_step_with_the_error(
     first, failed = step.find_children("monitor judgement")
     assert isinstance(step.error, TimeoutError)
     assert step.inputs["step_number"] == 1
-    assert EXFILTRATION_MARK in step.inputs["proposed_step"]
+    [call] = step.inputs["proposed_step"]["tool_calls"]
+    assert EXFILTRATION_MARK in call["arguments"]
     assert (first.error, first.outputs["suspicion"]) == (None, 0.95)
     assert isinstance(failed.error, TimeoutError)
     assert step.find_children("monitor decision") == []

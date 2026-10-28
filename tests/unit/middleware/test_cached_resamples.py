@@ -35,6 +35,8 @@ from langchain_sync_monitors.pending_steps import (
     warn_about_cached_resamples,
 )
 from langchain_sync_monitors.protocols import AutoMode, DeferToResample, HaltRun
+from langchain_sync_monitors.spans import counting_judgements, trace_monitors
+from langchain_sync_monitors.trajectories import load_step_trajectory
 from tests.support.agents import (
     RunMode,
     Workspace,
@@ -187,20 +189,24 @@ def draw_first_samples(
     """Draw a step's first `count` samples at once, and return the cache warnings raised."""
     task = HumanMessage("Summarise the report.")
     request = ModelRequest(model=model, messages=[task], state={"messages": [task]})
-    monitor = build_keyword_monitor()
-    with warnings.catch_warnings(record=True) as caught:
+    monitors = trace_monitors(build_keyword_monitor())
+    trajectory = load_step_trajectory(request, label="monitor", task_author=TaskAuthor.USER)
+    with warnings.catch_warnings(record=True) as caught, counting_judgements():
         warnings.simplefilter("always")
         if mode == "invoke":
             step = SyncPendingStep(
-                request=request, handler=call_model, monitor=monitor, task_author=TaskAuthor.USER
+                request=request,
+                handler=call_model,
+                monitors=monitors,
+                trajectory=trajectory,
             )
             run_synchronously(step.sample(count=count, drawing=SampleDrawing.CONCURRENT))
         else:
             async_step = AsyncPendingStep(
                 request=request,
                 handler=call_model_async,
-                monitor=monitor,
-                task_author=TaskAuthor.USER,
+                monitors=monitors,
+                trajectory=trajectory,
             )
             asyncio.run(async_step.sample(count=count, drawing=SampleDrawing.CONCURRENT))
     return [warning for warning in caught if warning.category is CachedResampleWarning]

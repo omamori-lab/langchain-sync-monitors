@@ -123,25 +123,6 @@
   url           = {https://arxiv.org/abs/2607.07368}
 }
 
-@book{vovk2005algorithmic,
-  title     = {Algorithmic Learning in a Random World},
-  author    = {Vovk, Vladimir and Gammerman, Alexander and Shafer, Glenn},
-  year      = {2005},
-  publisher = {Springer},
-  address   = {New York},
-  note      = {Smoothed conformal predictors and their exact validity under exchangeability, as summarised by the authors' On-line Prediction Wiki},
-  url       = {https://www.onlineprediction.net/?n=Main.ConformalPredictor}
-}
-
-@misc{angelopoulos2021gentle,
-  title         = {A Gentle Introduction to Conformal Prediction and Distribution-Free Uncertainty Quantification},
-  author        = {Angelopoulos, Anastasios N. and Bates, Stephen},
-  year          = {2021},
-  eprint        = {2107.07511},
-  archiveprefix = {arXiv},
-  url           = {https://arxiv.org/abs/2107.07511}
-}
-
 @misc{vovk2016criteria,
   title         = {Criteria of efficiency for conformal prediction},
   author        = {Vovk, Vladimir and Nouretdinov, Ilia and Fedorova, Valentina and Petej, Ivan and Gammerman, Alex},
@@ -667,15 +648,6 @@
   url          = {https://docs.aws.amazon.com/bedrock/latest/APIReference/API_runtime_Converse.html}
 }
 
-@online{groq2026openaicompatibility,
-  title        = {{OpenAI} Compatibility},
-  author       = {{Groq}},
-  year         = {2026},
-  organization = {GroqCloud documentation},
-  note         = {Lists logprobs and top\_logprobs among the fields that give a 400 error},
-  url          = {https://console.groq.com/docs/openai}
-}
-
 @software{anthropicpythonsdk2026,
   title   = {{anthropic}: the {Anthropic} {Python} {API} library},
   author  = {{Anthropic}},
@@ -708,13 +680,21 @@
   url     = {https://pypi.org/project/langchain-typesafe/}
 }
 
+@software{typesafe2026sdk,
+  title   = {{typesafe-sdk}: {Python} {SDK} for {TypeSafe AI} {API}},
+  author  = {{TypeSafe AI}},
+  year    = {2026},
+  version = {0.7.5},
+  url     = {https://github.com/typesafe-ai/typesafe-sdk-python}
+}
+
 @software{hyoshigi2026,
   title   = {hyoshigi: {AI}-control monitors without a framework},
   author  = {Badilla-Olivas, Antonio},
   year    = {2026},
   version = {0.4.0},
   url     = {https://github.com/omamori-lab/hyoshigi},
-  note    = {Its GenerativeModel and AsyncGenerativeModel, the outcomes they return, and the rules its provider models apply to a failure: https://omamori-lab.github.io/hyoshigi/reference/providers/; and its trajectory format readers (hyoshigi.trajectory.formats), whose mapping of reasoning, server tools and opaque content the LangChain reader follows}
+  note    = {Its monitors, their sync and async twins, views, prompts, guard labels, decision statements, wrappers and the rules for failing closed: https://omamori-lab.github.io/hyoshigi/; its GenerativeModel and AsyncGenerativeModel, the outcomes they return, and the rules its provider models apply to a failure: https://omamori-lab.github.io/hyoshigi/reference/providers/; and its trajectory format readers (hyoshigi.trajectory.formats), whose mapping of reasoning, server tools and opaque content the LangChain reader follows}
 }
 
 @software{pydantic2026,

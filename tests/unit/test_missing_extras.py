@@ -11,12 +11,12 @@ from langchain_core.language_models.fake_chat_models import FakeListChatModel
 
 from langchain_sync_monitors import (
     ConfigurationError,
+    DecisionMonitor,
     DeferToTrustedModel,
     LLMMonitor,
     MissingExtraError,
     MonitorMiddleware,
     TrustedMonitoring,
-    TypeSafeDecisionModel,
     monitor_subagents,
 )
 from langchain_sync_monitors.deepagents import INSTALL_HINT
@@ -73,9 +73,9 @@ def test_an_openrouter_model_string_without_its_extra_names_the_extra(
             '(or pip install "langchain-sync-monitors[openrouter]")',
         ),
         (
-            ("langchain_typesafe",),
-            lambda _middleware: TypeSafeDecisionModel(classifier=object()),  # ty: ignore[invalid-argument-type]
-            "TypeSafeDecisionModel needs the typesafe extra. Install it with: "
+            ("typesafe_sdk",),
+            lambda _middleware: DecisionMonitor(model="typesafe:jev-1.14"),
+            "A 'typesafe:' decision model needs the typesafe extra. Install it with: "
             'uv add "langchain-sync-monitors[typesafe]" '
             '(or pip install "langchain-sync-monitors[typesafe]")',
         ),

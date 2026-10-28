@@ -4,22 +4,40 @@ Every error derives from `MonitorError`, so a caller can catch the library's
 failures in one place without catching unrelated exceptions.
 """
 
+from collections.abc import Generator
+from contextlib import contextmanager
+
+import hyoshigi
+
 
 class MonitorError(Exception):
     """Base class for every error this library raises."""
 
 
-class ConfigurationError(MonitorError):
+class ConfigurationError(MonitorError, hyoshigi.ConfigurationError):
     """A monitor, protocol or middleware was built with settings that cannot work.
 
-    Most are raised when the object is built. A few settings can only be
-    checked during a run, so the same error is raised then: a
-    `monitor_delegation` in an agent's input that is not a valid
-    `Delegation`, and a guard model that returns no log-probabilities with
-    alternatives under `GuardScoring.LOG_PROBABILITIES`, or whose adapter
-    does not take the `logprobs` keyword under `GuardScoring.AUTO` or
-    `GuardScoring.LOG_PROBABILITIES`.
+    Most are raised when the object is built. One setting can only be checked
+    during a run, so the same error is raised then: a `monitor_delegation` in
+    an agent's input that is not a valid `Delegation`. It is also hyoshigi's
+    `ConfigurationError`, and so a `ValueError`, so code that catches any of
+    the three sees it.
     """
+
+
+@contextmanager
+def raise_as_configuration_error() -> Generator[None]:
+    """Raise a hyoshigi `ConfigurationError` from the block again as this library's.
+
+    The library's error is raised from hyoshigi's, with the same message, so
+    the cause stays in the traceback. Any other exception passes unchanged.
+    """
+    try:
+        yield
+    except ConfigurationError:
+        raise
+    except hyoshigi.ConfigurationError as error:
+        raise ConfigurationError(str(error)) from error
 
 
 class MissingExtraError(ConfigurationError, ImportError):
@@ -75,7 +93,7 @@ class SynchronousRunError(MonitorError):
     """A control protocol or a monitor needed an event loop during a synchronous `invoke()`.
 
     The message names which one: a protocol that awaited real asynchronous
-    work or started asyncio work, or a monitor whose `evaluate_sync` started
+    work or started asyncio work, or a monitor whose sync twin started
     asyncio work. It is also raised when a pending step is used after its
     `invoke()` step ended.
     """

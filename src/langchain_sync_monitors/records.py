@@ -1,7 +1,9 @@
 """Build the step records that go into the agent state's `monitor_log`, and read them back.
 
 Records pass through checkpointers, so they hold plain values only: outcomes
-are strings, sequences are lists, and each sample's proposal is rendered text.
+are strings, sequences are lists, and each sample's proposal is the action
+the monitor rated, as hyoshigi stores an action in a trajectory
+[@hyoshigi2026].
 
 A record is this agent's own when it names this agent and this agent's
 delegation, the tool call that started it, or no delegation in an agent no
@@ -21,6 +23,7 @@ from __future__ import annotations
 from collections import Counter
 from collections.abc import Iterable, Mapping, Sized
 
+from hyoshigi import JSON, Action, Trajectory
 from pydantic import TypeAdapter, ValidationError
 
 from langchain_sync_monitors._langchain import MONITOR_LOG_KEY
@@ -34,7 +37,7 @@ from langchain_sync_monitors.contracts import (
 )
 from langchain_sync_monitors.errors import MonitorError
 from langchain_sync_monitors.options import name_type
-from langchain_sync_monitors.transcript import render_proposal_for_audit
+from langchain_sync_monitors.trajectory_events import read_proposed_action
 
 STEP_RECORD_ADAPTER = TypeAdapter(StepRecord)
 """Checks the shape of a record read from the state or returned by a tool."""
@@ -58,19 +61,34 @@ OUTCOME_NAMES: dict[Outcome, OutcomeName] = {
 """Each outcome as the plain string a record stores."""
 
 
-def build_sample_record(sample: Sample, *, executed: bool) -> SampleRecord:
-    """Record one judged sample, with its proposal rendered for human auditors.
+def dump_action(action: Action) -> dict[str, JSON]:
+    """Return an action as `Trajectory.dump` stores it in a trajectory's history.
 
-    The rendering holds every channel, malformed tool calls included, so a
-    call that could not run still leaves evidence of what the agent tried.
-    The suspicion is stored as a plain `float`, since a monitor may score
-    with a number of another type, such as numpy's `float32`, which a
+    The action holds all of the proposal, its thought, malformed tool calls
+    and the server tools it ran included, so a call that could not run still
+    leaves evidence of what the agent tried.
+    """
+    trajectory = Trajectory()
+    trajectory.act(action)
+    match trajectory.dump():
+        case {"history": [dict() as stored]}:
+            return stored
+        case _:
+            message = "a trajectory of one action dumped a history of another shape"
+            raise MonitorError(message)
+
+
+def build_sample_record(sample: Sample, *, executed: bool) -> SampleRecord:
+    """Record one judged sample, with its proposal as the action the monitor rated.
+
+    The suspicion is stored as a plain `float`, since a protocol may compare
+    and keep a number of another type, such as numpy's `float32`, which a
     checkpointer may not store and a strict read refuses.
     """
     return SampleRecord(
         suspicion=float(sample.verdict.suspicion),
         reason=sample.verdict.reason,
-        proposal=render_proposal_for_audit(sample.proposal),
+        proposal=dump_action(read_proposed_action(sample.proposal)),
         executed=executed,
     )
 

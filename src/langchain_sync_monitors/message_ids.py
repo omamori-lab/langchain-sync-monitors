@@ -7,9 +7,9 @@ tuple [@deepagents2026; @langgraph2026]. The monitor records human messages
 by id, so a run's input given that way would never be recorded: the monitor
 would read the user's task as a note, and a halt would stand. So the
 monitor gives each untagged human message without an id a fresh one at the
-start of a run, before recording the input (`run_inputs`), and at the end
-of a run, where one still without an id was written during the run, tagged
-as a note, so the next run cannot take it for input.
+start of a run, before recording the input, and at the end of a run, where
+one still without an id was written during the run, tagged as a note, so the
+next run cannot take it for input.
 """
 
 from __future__ import annotations
@@ -25,6 +25,7 @@ from langchain_sync_monitors._langchain import AgentStateUpdate
 from langchain_sync_monitors.state_keys import RUN_OPEN_KEY
 from langchain_sync_monitors.task_authorship import (
     build_note_update,
+    build_run_input_update,
     is_untagged_human_message,
     read_state_messages,
     tag_as_context_note_from_name,
@@ -84,6 +85,20 @@ def build_assigned_ids_update(
         written.get(message.id, message) if message.id else message for message in messages_with_ids
     ]
     return {**update, "messages": Overwrite(messages)}
+
+
+def build_run_start_update(state: object) -> AgentStateUpdate:
+    """Return the update a run starts with: its input recorded, and the run marked open.
+
+    Input that reached the state without an id, as a string or a
+    `(role, text)` tuple does in a Deep Agent, is first given one, and the
+    history is written back with it, as `assign_human_message_ids` says.
+    """
+    messages_with_ids = assign_human_message_ids(state, as_notes=False)
+    if messages_with_ids is None:
+        return build_run_input_update(state)
+    update = build_run_input_update(replace_state_messages(state, messages=messages_with_ids))
+    return build_assigned_ids_update(messages_with_ids, update=update)
 
 
 def build_run_end_update(state: object) -> AgentStateUpdate:

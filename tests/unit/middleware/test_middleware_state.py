@@ -274,14 +274,13 @@ def test_two_monitors_on_one_agent_record_each_message_id_once(run_mode: RunMode
     )
     assert state["monitor_task_messages"] == [first_task, second_task]
     assert state["monitor_seen_human_messages"] == [first_task, nudge, second_task]
-    assert [entry["id"] for entry in state["monitor_run_inputs"]] == [first_task, second_task]
 
 
 def test_two_monitors_on_one_agent_check_a_tool_s_writes_once(
     run_mode: RunMode,
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    # Arrange: the tool writes the history back, so the outer monitor records a rewritten input
+    # Arrange: the tool writes the history back, which each monitor's tool-call check reads
     guard = MonitorMiddleware(
         monitor=build_keyword_monitor(), protocol=AcceptFirst(), label="guard"
     )
@@ -304,9 +303,7 @@ def test_two_monitors_on_one_agent_check_a_tool_s_writes_once(
     with caplog.at_level(logging.WARNING, logger="langchain_sync_monitors"):
         run_agent(agent, mode=run_mode, config=config)
 
-    # Assert: the inner monitor's own record is not taken for the tool's write
-    state = agent.get_state(config).values
-    assert state["monitor_rewritten_inputs"] == state["monitor_task_messages"]
+    # Assert: neither monitor takes the other's check for a tool's write to its keys
     assert caplog.records == []
 
 

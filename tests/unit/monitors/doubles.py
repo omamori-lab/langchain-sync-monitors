@@ -1,17 +1,18 @@
-"""Test doubles for the monitor tests: a scripted chat model, a scripted monitor, a log reader."""
+"""Doubles for the monitor tests: a scripted chat model, a rating on either side, a log reader."""
 
 from __future__ import annotations
 
 from typing import Literal
 
 import pytest
+from hyoshigi import Step, SuspicionScore
 from langchain_core.callbacks import AsyncCallbackManagerForLLMRun, CallbackManagerForLLMRun
 from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import AIMessage, BaseMessage
 from langchain_core.outputs import ChatGeneration, ChatResult
 from pydantic import Field
 
-from langchain_sync_monitors.contracts import Monitor, MonitorInput, Verdict
+from langchain_sync_monitors.monitors import MonitorConfiguration
 
 type CallPath = Literal["async", "sync"]
 
@@ -59,59 +60,17 @@ class ScriptedChatModel(BaseChatModel):
         return self._generate(messages, stop=stop, run_manager=sync_manager, **kwargs)
 
 
-class KeywordRejectingChatModel(ScriptedChatModel):
-    """Raises `TypeError(rejection)` on a call that passes `logprobs`, or on every call.
-
-    langchain-anthropic passes bound keywords on to the Anthropic SDK, whose
-    `Messages.create()` takes no `logprobs`, so Python raises before any
-    request is sent.
-    """
-
-    rejection: str = "Messages.create() got an unexpected keyword argument 'logprobs'"
-    rejects_every_call: bool = False
-
-    def _generate(
-        self,
-        messages: list[BaseMessage],
-        stop: list[str] | None = None,
-        run_manager: CallbackManagerForLLMRun | None = None,
-        **kwargs: object,
-    ) -> ChatResult:
-        if self.rejects_every_call or "logprobs" in kwargs:
-            raise TypeError(self.rejection)
-        return super()._generate(messages, stop=stop, run_manager=run_manager, **kwargs)
-
-
-class ScriptedMonitor(Monitor):
-    """Returns the given suspicions in turn, one per call, on both paths."""
-
-    def __init__(self, *, suspicions: list[float]) -> None:
-        self.suspicions = suspicions
-        self.calls = 0
-
-    def build_next_verdict(self) -> Verdict:
-        """Return the next scripted verdict and count the call."""
-        suspicion = self.suspicions[self.calls % len(self.suspicions)]
-        self.calls += 1
-        return Verdict(suspicion=suspicion, reason=f"call {self.calls} scored {suspicion}")
-
-    async def evaluate(self, monitor_input: MonitorInput) -> Verdict:
-        return self.build_next_verdict()
-
-    def evaluate_sync(self, monitor_input: MonitorInput) -> Verdict:
-        return self.build_next_verdict()
-
-
-async def evaluate_on_path(
-    monitor: Monitor,
-    monitor_input: MonitorInput,
+async def rate_on_path(
+    monitor: MonitorConfiguration,
+    step: Step,
     *,
     call_path: CallPath,
-) -> Verdict:
-    """Score the step through `evaluate` or `evaluate_sync`, as the test asks."""
+) -> SuspicionScore:
+    """Rate the step's action with the monitor's async or sync twin, as the test asks."""
+    twins = monitor.twins
     if call_path == "async":
-        return await monitor.evaluate(monitor_input)
-    return monitor.evaluate_sync(monitor_input)
+        return await twins.async_monitor.rate(step.action, trajectory=step.trajectory)
+    return twins.monitor.rate(step.action, trajectory=step.trajectory)
 
 
 def read_logged_lines(caplog: pytest.LogCaptureFixture, *, logger: str) -> list[tuple[str, str]]:

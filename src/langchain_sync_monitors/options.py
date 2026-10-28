@@ -16,8 +16,6 @@ from __future__ import annotations
 import math
 import numbers
 import operator
-from collections.abc import Set as AbstractSet
-from decimal import Decimal
 from enum import Enum
 from typing import Final, TypeGuard
 
@@ -90,41 +88,6 @@ def check_instance_option(
     raise ConfigurationError(f"{message}. {hint}" if hint else message)
 
 
-def check_optional_instance_option(
-    value: object,
-    *,
-    option_type: type,
-    parameter_name: str,
-    hint: str = "",
-) -> None:
-    """Raise `ConfigurationError` unless `value` is `None` or an instance of `option_type`."""
-    if value is not None:
-        check_instance_option(
-            value,
-            option_type=option_type,
-            parameter_name=parameter_name,
-            hint=hint,
-        )
-
-
-def check_string_set_option(value: object, *, parameter_name: str, example: str) -> None:
-    """Raise `ConfigurationError` unless `value` is a set that holds only strings.
-
-    A plain string is refused, although it is a collection of strings: its
-    membership test would match any part of it. `example` shows the shape.
-    """
-    if not isinstance(value, AbstractSet):
-        message = (
-            f"{parameter_name} must be a set of strings, such as {example}, "
-            f"got {describe_option_value(value)}"
-        )
-        raise ConfigurationError(message)
-    for item in value:
-        if not isinstance(item, str):
-            message = f"{parameter_name} must hold only strings, got {describe_option_value(item)}"
-            raise ConfigurationError(message)
-
-
 RESERVED_NODE_NAME_CHARACTERS: Final = (":", "|")
 """The characters LangGraph refuses in a graph node's name [@langgraph2026]."""
 
@@ -158,18 +121,6 @@ def is_whole_number(value: object) -> TypeGuard[numbers.Integral]:
     first counts with it.
     """
     return isinstance(value, numbers.Integral) and not isinstance(value, bool)
-
-
-def read_integer_option(value: object, *, parameter_name: str) -> int:
-    """Return an integer option, such as the end of a score scale, as an `int`.
-
-    Any whole number counts, negative ones and numpy's integers included; a
-    `bool`, a float such as `2.0` or a string raises `ConfigurationError`.
-    """
-    if not is_whole_number(value):
-        message = f"{parameter_name} must be an integer, got {describe_option_value(value)}"
-        raise ConfigurationError(message)
-    return operator.index(value)
 
 
 def read_count_option(value: object, *, parameter_name: str, minimum: int) -> int:
@@ -206,67 +157,16 @@ def read_limit_option(value: object, *, parameter_name: str, minimum: int) -> in
     raise ConfigurationError(message)
 
 
-def read_optional_count_option(
-    value: object,
-    *,
-    parameter_name: str,
-    minimum: int,
-    none_means: str,
-) -> int | None:
-    """Return a count option that may be `None`: a whole number of at least `minimum`, or `None`.
+def check_key_characters(key: str, *, source: str) -> None:
+    """Refuse a key that no HTTP header may carry, naming no part of it.
 
-    `none_means` says what `None` does, for the message. Anything else raises
-    `ConfigurationError`.
+    httpx refuses a header that holds a control character with an error that
+    quotes the whole header, key included [@httpx2024], and that error would
+    reach the raised error and the logs.
     """
-    if value is None:
-        return None
-    if not is_whole_number(value):
+    if not (key.isascii() and key.isprintable()):
         message = (
-            f"{parameter_name} must be a whole number of at least {minimum}, or None "
-            f"{none_means}, got {describe_option_value(value)}"
+            f"{source} holds a control or non-ASCII character, which no HTTP header "
+            "may carry; pass the key alone"
         )
         raise ConfigurationError(message)
-    count = operator.index(value)
-    if count < minimum:
-        message = (
-            f"{parameter_name} must be at least {minimum}, or None {none_means}, "
-            f"got {describe_option_value(count)}"
-        )
-        raise ConfigurationError(message)
-    return count
-
-
-def read_positive_number_option(value: object, *, parameter_name: str) -> float:
-    """Return a positive, finite number, such as a timeout in seconds, as a float.
-
-    Any real number counts, and so does a `Decimal`, as for a threshold. A
-    `bool`, a string, zero, a negative number, NaN, infinity and a number that
-    a float would round to zero or infinity raise `ConfigurationError`.
-    """
-    if isinstance(value, bool) or not isinstance(value, numbers.Real | Decimal):
-        message = f"{parameter_name} must be a positive number, got {describe_option_value(value)}"
-        raise ConfigurationError(message)
-    try:
-        number = float(value)
-    except (ArithmeticError, ValueError):
-        # A huge int raises `OverflowError`, and a signalling Decimal NaN `ValueError`.
-        number = math.nan
-    if not 0.0 < number < math.inf:
-        described = describe_option_value(value)
-        message = f"{parameter_name} must be a positive, finite number, got {described}"
-        raise ConfigurationError(message)
-    return number
-
-
-def write_integer_option(value: int, *, parameter_name: str) -> str:
-    """Write an integer option out, as a prompt shows it, or raise `ConfigurationError`.
-
-    Python refuses to write an integer of more than 4,300 digits by default,
-    so such an option is refused when it is given, not at the first step.
-    """
-    try:
-        return str(value)
-    except ValueError as error:
-        described = describe_option_value(value)
-        message = f"{parameter_name} must be an integer Python can write out, got {described}"
-        raise ConfigurationError(message) from error

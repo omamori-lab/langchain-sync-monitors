@@ -5,7 +5,11 @@ heading_numbers: false
 # API
 
 This reference is generated from the docstrings of the public package, every
-name `langchain_sync_monitors` exports, grouped by what it is for.
+name `langchain_sync_monitors` exports, grouped by what it is for. The value
+types the monitors take, such as `View` and `MonitorPrompt`, and
+`HardLabelWarning`, are hyoshigi's own objects, which the package re-exports
+under the same names, as in
+[hyoshigi's API reference](https://omamori-lab.github.io/hyoshigi/reference/api/).
 
 ## Middleware
 
@@ -28,8 +32,6 @@ name `langchain_sync_monitors` exports, grouped by what it is for.
         - monitor_delegation
         - monitor_task_messages
         - monitor_seen_human_messages
-        - monitor_run_inputs
-        - monitor_rewritten_inputs
         - monitor_run_open
         - monitor_inputs_at_halt
         - monitor_subagent_returns
@@ -133,18 +135,11 @@ name `langchain_sync_monitors` exports, grouped by what it is for.
 
 ## Monitors
 
-::: langchain_sync_monitors.Monitor
+::: langchain_sync_monitors.MonitorTwins
     options:
       members:
-        - evaluate
-        - evaluate_sync
-
-::: langchain_sync_monitors.MonitorInput
-    options:
-      members:
-        - history
-        - proposal
-        - task_author
+        - monitor
+        - async_monitor
 
 ::: langchain_sync_monitors.Verdict
     options:
@@ -152,56 +147,50 @@ name `langchain_sync_monitors` exports, grouped by what it is for.
         - suspicion
         - reason
 
-::: langchain_sync_monitors.ChatModelMonitor
-    options:
-      members:
-        - build_verdict_plan
-
 ::: langchain_sync_monitors.LLMMonitor
     options:
       members: false
 
-::: langchain_sync_monitors.DEFAULT_MONITOR_PROMPT
-    options:
-      members: false
-
-::: langchain_sync_monitors.GuardModelMonitor
-    options:
-      members: false
-
-::: langchain_sync_monitors.GuardScoring
+::: langchain_sync_monitors.MonitorPrompt
     options:
       members:
-        - AUTO
-        - LOG_PROBABILITIES
-        - SAMPLE_FRACTION
-        - HARD_LABEL
+        - system
+        - request
 
-::: langchain_sync_monitors.DecisionModelMonitor
+::: langchain_sync_monitors.DEFAULT_PROMPT
     options:
       members: false
 
-::: langchain_sync_monitors.DecisionModel
+::: langchain_sync_monitors.GuardMonitor
+    options:
+      members: false
+
+::: langchain_sync_monitors.GuardLabels
     options:
       members:
-        - estimate_probabilities
-        - estimate_probabilities_sync
-
-::: langchain_sync_monitors.OpenRouterDecisionModel
-    options:
-      members: false
-
-::: langchain_sync_monitors.TypeSafeDecisionModel
-    options:
-      members: false
-
-::: langchain_sync_monitors.YesNoQuestion
-    options:
-      members:
+        - suspicious
+        - safe
         - key
-        - text
-        - yes_means
-        - no_means
+
+::: langchain_sync_monitors.GPT_OSS_SAFEGUARD
+    options:
+      members: false
+
+::: langchain_sync_monitors.QWEN3GUARD
+    options:
+      members: false
+
+::: langchain_sync_monitors.DecisionMonitor
+    options:
+      members: false
+
+::: langchain_sync_monitors.DEFAULT_STATEMENT
+    options:
+      members: false
+
+::: langchain_sync_monitors.ATTACK_CRITERIA
+    options:
+      members: false
 
 ::: langchain_sync_monitors.Aggregation
     options:
@@ -210,13 +199,10 @@ name `langchain_sync_monitors` exports, grouped by what it is for.
         - MIN
         - MEAN
 
-::: langchain_sync_monitors.IS_THE_STEP_SUSPICIOUS
+::: langchain_sync_monitors.MediaTypes
     options:
-      members: false
-
-::: langchain_sync_monitors.ATTACK_CRITERIA
-    options:
-      members: false
+      members:
+        - patterns
 
 ## Wrappers
 
@@ -234,22 +220,24 @@ name `langchain_sync_monitors` exports, grouped by what it is for.
 
 ## Views
 
-::: langchain_sync_monitors.MonitorView
+::: langchain_sync_monitors.View
     options:
       members:
         - channels
-        - most_recent_entries
+        - most_recent
         - delegation_tools
 
 ::: langchain_sync_monitors.Channel
     options:
       members:
-        - USER
-        - REASONING
-        - AGENT_TEXT
+        - TASK
+        - CONTEXT
+        - THOUGHTS
+        - AGENT_PARTS
         - TOOL_CALLS
-        - TOOL_RESULTS
+        - TOOL_OBSERVATIONS
         - SUBAGENT_REPORTS
+        - DEFAULT
 
 ::: langchain_sync_monitors.TaskAuthor
     options:

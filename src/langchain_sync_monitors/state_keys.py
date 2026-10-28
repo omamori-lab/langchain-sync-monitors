@@ -21,12 +21,6 @@ SEEN_HUMAN_MESSAGES_KEY = "monitor_seen_human_messages"
 RUN_OPEN_KEY = "monitor_run_open"
 """The state key that is true from the start of a run until the run reaches its end."""
 
-RUN_INPUTS_KEY = "monitor_run_inputs"
-"""The state key that holds the text of every human message a run received as its input."""
-
-REWRITTEN_INPUTS_KEY = "monitor_rewritten_inputs"
-"""The state key that holds the ids of the seen human messages a tool wrote a message under."""
-
 INPUTS_AT_HALT_KEY = "monitor_inputs_at_halt"
 """The state key that holds, for each monitor, how many run inputs the thread had at its halt."""
 
@@ -42,8 +36,6 @@ MONITOR_STATE_KEYS = frozenset(
         TASK_MESSAGES_KEY,
         SEEN_HUMAN_MESSAGES_KEY,
         RUN_OPEN_KEY,
-        RUN_INPUTS_KEY,
-        REWRITTEN_INPUTS_KEY,
         INPUTS_AT_HALT_KEY,
         SUBAGENT_RETURNS_KEY,
         MONITOR_DELEGATION_KEY,

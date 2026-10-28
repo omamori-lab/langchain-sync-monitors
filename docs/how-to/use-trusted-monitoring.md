@@ -128,7 +128,7 @@ Every step adds one record:
 | `outcome` | `"allowed"`: the step always runs |
 | `flagged` | `True` when the step's suspicion reached `audit_threshold` |
 | `blocked_count` | 0 |
-| `samples` | One sample, with `executed` set to `True`, its `suspicion`, the monitor's `reason`, and the `proposal` as rendered text |
+| `samples` | One sample, with `executed` set to `True`, its `suspicion`, the monitor's `reason`, and the `proposal`, the action the monitor rated, as a dict of its thought, parts and tool calls |
 
 In a Deep Agent whose monitor has
 `when_subagent_halts=SubagentHalt.STOP_WHOLE_RUN`, a record can also be
@@ -148,7 +148,9 @@ for record in result["monitor_log"]:
     # A halt caused by a subagent is flagged but holds no samples.
     for sample in record["samples"]:
         print(f"  suspicion {sample['suspicion']:.2f}, reason: {sample['reason']}")
-        print(sample["proposal"])
+        # The step's tool calls, each with its argument text.
+        for call in sample["proposal"]["tool_calls"]:
+            print(f"    {call['name']} {call['arguments']}")
 ```
 
 ## Limits

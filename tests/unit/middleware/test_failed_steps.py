@@ -14,7 +14,9 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Any, cast
 
+import hyoshigi
 import pytest
+from hyoshigi import Action, Rationale, SuspicionScore, Trajectory
 from langchain.agents import create_agent
 from langchain.agents.middleware import ModelRetryMiddleware
 from langchain.agents.middleware.types import AgentMiddleware, ModelResponse
@@ -24,16 +26,13 @@ from langgraph.checkpoint.memory import InMemorySaver
 from langgraph.graph.state import CompiledStateGraph
 from langgraph.types import interrupt
 
-from langchain_sync_monitors import commits
+from langchain_sync_monitors import MonitorTwins, commits
 from langchain_sync_monitors.contracts import (
     ControlProtocol,
-    Monitor,
-    MonitorInput,
     Outcome,
     PendingStep,
     Resampling,
     StepDecision,
-    Verdict,
 )
 from langchain_sync_monitors.errors import MonitorError
 from langchain_sync_monitors.middleware import MonitorMiddleware
@@ -69,7 +68,7 @@ def build_agent(
     model: FlakyChatModel,
     *,
     protocol: ControlProtocol,
-    monitor: Monitor | None = None,
+    monitor: MonitorTwins | None = None,
     outer_middleware: Sequence[AgentMiddleware[Any, Any, Any]] = (),
 ) -> Runnable[Any, Any]:
     middleware = MonitorMiddleware(monitor=monitor or build_monitor(), protocol=protocol)
@@ -145,7 +144,8 @@ def test_a_resample_that_raises_keeps_the_suspicious_sample_as_evidence(
     assert event["error"] == "RuntimeError: 429 rate limited"
     first_sample = event["samples"][0]
     assert first_sample["suspicion"] == EXFILTRATION_SUSPICION
-    assert "attacker.example" in first_sample["proposal"]
+    [call] = first_sample["proposal"]["tool_calls"]
+    assert "attacker.example" in call["arguments"]
     assert not any(sample["executed"] for sample in event["samples"])
     [warning] = read_warnings(caplog)
     assert "failed with RuntimeError before it was committed" in warning
@@ -468,18 +468,34 @@ def test_a_retry_outside_the_monitor_commits_a_clean_step_but_the_evidence_strea
     assert len(read_warnings(caplog)) == 1
 
 
-class AskingMonitor(Monitor):
-    """Asks a person about every step through `interrupt()`, which the docstrings forbid."""
+def request_score_from_person() -> SuspicionScore:
+    """Ask a person about the step through `interrupt()`, which the docstrings forbid."""
+    answer = interrupt("Does this step look safe?")
+    return SuspicionScore(
+        value=0.0 if answer == "yes" else 1.0,
+        explanation=str(answer),
+        evidence=Rationale(model="person"),
+    )
 
-    def request_verdict_from_person(self) -> Verdict:
-        answer = interrupt("Does this step look safe?")
-        return Verdict(suspicion=0.0 if answer == "yes" else 1.0, reason=str(answer))
 
-    async def evaluate(self, monitor_input: MonitorInput) -> Verdict:
-        return self.request_verdict_from_person()
+@dataclass(frozen=True, kw_only=True)
+class AskingRater(hyoshigi.Monitor):
+    """Asks a person about every step."""
 
-    def evaluate_sync(self, monitor_input: MonitorInput) -> Verdict:
-        return self.request_verdict_from_person()
+    def rate(self, action: Action, *, trajectory: Trajectory) -> SuspicionScore:
+        return request_score_from_person()
+
+
+@dataclass(frozen=True, kw_only=True)
+class AsyncAskingRater(hyoshigi.AsyncMonitor):
+    """Asks a person about every step."""
+
+    async def rate(self, action: Action, *, trajectory: Trajectory) -> SuspicionScore:
+        return request_score_from_person()
+
+
+def build_asking_monitor() -> MonitorTwins:
+    return MonitorTwins(monitor=AskingRater(), async_monitor=AsyncAskingRater())
 
 
 class AskingProtocol(ControlProtocol):
@@ -507,7 +523,7 @@ def test_an_interrupt_inside_the_step_is_a_pause_and_not_a_failed_step(
     caplog.set_level(logging.WARNING, logger=MIDDLEWARE_LOGGER)
     model = FlakyChatModel(replies=[build_read_step()])
     if asker == "monitor":
-        middleware = MonitorMiddleware(monitor=AskingMonitor(), protocol=AcceptFirst())
+        middleware = MonitorMiddleware(monitor=build_asking_monitor(), protocol=AcceptFirst())
     else:
         middleware = MonitorMiddleware(monitor=build_monitor(), protocol=AskingProtocol())
     agent = create_agent(

@@ -10,24 +10,19 @@ from __future__ import annotations
 
 import itertools
 from collections.abc import Sequence
-from dataclasses import dataclass
 
 import pytest
 from langchain.agents import create_agent
 from langchain_core.language_models.fake_chat_models import GenericFakeChatModel
 from langchain_core.messages import AIMessage, BaseMessage, ToolMessage
-from langchain_core.runnables import RunnableConfig
 
 from langchain_sync_monitors.contracts import (
     ControlProtocol,
     FeedbackVisibility,
-    MonitorInput,
     Resampling,
-    Verdict,
 )
 from langchain_sync_monitors.feedback import WITHHELD_TEXT_MESSAGE
 from langchain_sync_monitors.middleware import MonitorMiddleware
-from langchain_sync_monitors.model_calls import build_internal_call_config
 from langchain_sync_monitors.protocols import (
     AutoMode,
     DeferToResample,
@@ -59,40 +54,23 @@ def build_monitor_model() -> GenericFakeChatModel:
     return GenericFakeChatModel(messages=itertools.repeat(AIMessage(MONITOR_REPLY)))
 
 
-@dataclass(kw_only=True)
-class OwnTagsMonitor(KeywordMonitor):
-    """A keyword monitor whose monitor call sets tags of its own, as a user's monitor may.
-
-    The call's own tags replace the `nostream` tag it would inherit, so only
-    its internal-call metadata can keep the model's reply out of the v3 event
-    stream.
-    """
-
-    def build_monitor_call_config(self) -> RunnableConfig:
-        return RunnableConfig(
-            **build_internal_call_config(source="own_tags_monitor"),
-            tags=["security-monitor"],
-        )
-
-    async def evaluate(self, monitor_input: MonitorInput) -> Verdict:
-        if self.model is not None:
-            await self.model.ainvoke("Judge this step.", config=self.build_monitor_call_config())
-        return self.score(monitor_input)
-
-    def evaluate_sync(self, monitor_input: MonitorInput) -> Verdict:
-        if self.model is not None:
-            self.model.invoke("Judge this step.", config=self.build_monitor_call_config())
-        return self.score(monitor_input)
-
-
 def build_monitor_middleware(
     *,
     protocol: ControlProtocol,
     feedback_visibility: FeedbackVisibility = FeedbackVisibility.HIDDEN,
-    monitor_type: type[KeywordMonitor] = KeywordMonitor,
+    call_tags: tuple[str, ...] = (),
 ) -> MonitorMiddleware:
-    """Build a keyword monitor whose every verdict also streams a model reply, like a real one."""
-    monitor = monitor_type(suspicion_by_keyword=SUSPICION_BY_KEYWORD, model=build_monitor_model())
+    """Build a keyword monitor whose every rating also streams a model reply, like a real one.
+
+    With `call_tags`, the monitor's call sets tags of its own, as a user's
+    monitor may: they replace the `nostream` tag it would inherit, so only its
+    internal-call metadata can keep the model's reply out of the v3 event stream.
+    """
+    monitor = KeywordMonitor(
+        suspicion_by_keyword=SUSPICION_BY_KEYWORD,
+        model=build_monitor_model(),
+        call_tags=call_tags,
+    )
     return MonitorMiddleware(
         monitor=monitor,
         protocol=protocol,
@@ -292,13 +270,13 @@ def test_a_rejected_subagent_step_never_streams(run_mode: RunMode) -> None:
 
 @pytest.mark.filterwarnings("ignore::langchain_core._api.beta_decorator.LangChainBetaWarning")
 @pytest.mark.parametrize(
-    "monitor_type",
-    [KeywordMonitor, OwnTagsMonitor],
+    "call_tags",
+    [(), ("security-monitor",)],
     ids=["monitor-call-inherits-tags", "monitor-call-sets-its-own-tags"],
 )
 def test_the_v3_event_stream_carries_only_committed_steps(
     run_mode: RunMode,
-    monitor_type: type[KeywordMonitor],
+    call_tags: tuple[str, ...],
 ) -> None:
     # Arrange
     agent = create_agent(
@@ -307,9 +285,7 @@ def test_the_v3_event_stream_carries_only_committed_steps(
         ),
         tools=Workspace().build_tools(),
         middleware=[
-            build_monitor_middleware(
-                protocol=AutoMode(block_threshold=0.6), monitor_type=monitor_type
-            )
+            build_monitor_middleware(protocol=AutoMode(block_threshold=0.6), call_tags=call_tags)
         ],
     )
 

@@ -5,14 +5,16 @@ callbacks LangSmith's tracer and Langfuse's handler build their trees from,
 and sends nothing anywhere. After the run, `build_trace_report` checks what
 `langchain_sync_monitors.spans` promises against the run's `monitor_log`:
 
-- the monitor's spans carry only the four fixed names, and its model calls
+- the monitor's spans carry only the three fixed names, and its model calls
   the name `monitor call`;
-- every judgement and decision sits in a step, and every classifier request
+- every judgement and decision sits in a step, and every decision request
   and monitor call in a judgement; no other model call sits in a judgement;
 - each record has its step span, with one judgement per judged sample and one
   decision, tagged with the outcome and, when flagged, `monitor:flagged`;
 - every monitor span ended, under a parent the tracer heard of.
 
+A decision request is the harness's own run around each request its decision
+model sends, named `decision request`, whose output is the request's outcome.
 The checks cost nothing: they read the callbacks the run makes anyway.
 """
 
@@ -22,10 +24,11 @@ from collections import Counter
 from collections.abc import Iterable, Sequence
 from typing import TypedDict
 
+from hyoshigi import Decision
+
 from langchain_sync_monitors import StepRecord
 from langchain_sync_monitors.model_calls import MONITOR_CALL_NAME
 from langchain_sync_monitors.spans import (
-    CLASSIFIER_SPAN_NAME,
     DECISION_SPAN_NAME,
     FLAGGED_TAG,
     JUDGEMENT_SPAN_NAME,
@@ -34,19 +37,20 @@ from langchain_sync_monitors.spans import (
 )
 from tests.support.tracing import MONITOR_SPAN_PREFIX, RecordedRun, RecordingTracer
 
-MONITOR_SPAN_NAMES = frozenset(
-    {STEP_SPAN_NAME, JUDGEMENT_SPAN_NAME, CLASSIFIER_SPAN_NAME, DECISION_SPAN_NAME},
-)
+DECISION_REQUEST_NAME = "decision request"
+"""The name of the run around each request the harness's decision model sends."""
+
+MONITOR_SPAN_NAMES = frozenset({STEP_SPAN_NAME, JUDGEMENT_SPAN_NAME, DECISION_SPAN_NAME})
 MODEL_RUN_TYPES = frozenset({"chat_model", "llm"})
 SPANS_INSIDE_A_STEP = frozenset({JUDGEMENT_SPAN_NAME, DECISION_SPAN_NAME})
-RUNS_INSIDE_A_JUDGEMENT = frozenset({CLASSIFIER_SPAN_NAME, MONITOR_CALL_NAME})
+RUNS_INSIDE_A_JUDGEMENT = frozenset({DECISION_REQUEST_NAME, MONITOR_CALL_NAME})
 
 type StepKey = tuple[str, str | None, int]
 """What names one step across a run: its agent, its delegation id, if any, and its number."""
 
 
 class JudgementReport(TypedDict):
-    """One judgement span: the step it belongs to, its classifier answers and its model calls."""
+    """One judgement span: its step, its decision model's answers and its model calls."""
 
     agent: str
     step_number: int
@@ -82,7 +86,7 @@ def is_monitor_run(run: RecordedRun) -> bool:
 
 
 def find_unknown_names(tracer: RecordingTracer) -> list[str]:
-    """Return the monitor span names other than the four fixed ones."""
+    """Return the monitor span names other than the three fixed ones."""
     return [
         f"unknown monitor span name {run.name!r}"
         for run in tracer.find_monitor_spans()
@@ -187,18 +191,15 @@ def check_step_spans(tracer: RecordingTracer, *, records: Sequence[StepRecord]) 
     return problems
 
 
-def read_classifier_scores(classifiers: Iterable[RecordedRun]) -> list[float]:
-    """Return every probability of yes the classifier requests answered, in order."""
-    scores: list[float] = []
-    for classifier in classifiers:
-        outputs = classifier.outputs if isinstance(classifier.outputs, dict) else {}
-        answers = outputs.get("answers", {})
-        scores.extend(float(value) for value in answers.values())
-    return scores
+def read_classifier_scores(requests: Iterable[RecordedRun]) -> list[float]:
+    """Return the probability each decision request answered, in order, skipping failed ones."""
+    return [
+        request.outputs.probability for request in requests if isinstance(request.outputs, Decision)
+    ]
 
 
 def build_judgement_report(tracer: RecordingTracer, judgement: RecordedRun) -> JudgementReport:
-    """Report one judgement: its step, its classifier answers and how many model calls it made."""
+    """Report one judgement: its step, its decision model's answers and its model calls."""
     inner = [
         run
         for run in tracer.read_runs()
@@ -210,7 +211,7 @@ def build_judgement_report(tracer: RecordingTracer, judgement: RecordedRun) -> J
         "agent": agent,
         "step_number": step_number,
         "classifier_scores": read_classifier_scores(
-            run for run in inner if run.name == CLASSIFIER_SPAN_NAME
+            run for run in inner if run.name == DECISION_REQUEST_NAME
         ),
         "monitor_calls": sum(run.name == MONITOR_CALL_NAME for run in inner),
     }

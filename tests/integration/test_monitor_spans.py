@@ -229,7 +229,8 @@ def test_each_protocol_s_step_is_a_span_tree_with_its_outcome(
         case.outcome,
         case.blocked_count,
     )
-    assert EXFILTRATION_MARK in step.inputs["proposed_step"]
+    [call] = step.inputs["proposed_step"]["tool_calls"]
+    assert EXFILTRATION_MARK in call["arguments"]
     assert step.metadata["monitor_protocol"] == type(protocol).__name__
     assert (decision.error, decision.tags) == (None, case.decision_tags)
     assert decision.outputs["outcome"] == decision.metadata["monitor_outcome"] == case.outcome
@@ -253,7 +254,8 @@ def test_the_step_span_carries_the_proposed_step_and_the_decision(run_mode: RunM
     # Assert
     first, second = tracer.find_runs(STEP)
     assert first.inputs["step_number"] == 1
-    assert EXFILTRATION_MARK in first.inputs["proposed_step"]
+    [call] = first.inputs["proposed_step"]["tool_calls"]
+    assert EXFILTRATION_MARK in call["arguments"]
     assert first.outputs == {
         "outcome": "resampled",
         "flagged": False,
@@ -264,10 +266,8 @@ def test_the_step_span_carries_the_proposed_step_and_the_decision(run_mode: RunM
             {"suspicion": 0.1, "reason": "nothing suspicious", "executed": True},
         ],
     }
-    assert second.inputs == {
-        "step_number": 2,
-        "proposed_step": f"<proposed_step>\n<agent>{FINAL_ANSWER}</agent>\n</proposed_step>",
-    }
+    assert second.inputs["step_number"] == 2
+    assert second.inputs["proposed_step"]["parts"] == [{"kind": "text", "text": FINAL_ANSWER}]
 
 
 def test_the_decision_span_repeats_the_outcome_in_its_metadata(run_mode: RunMode) -> None:
@@ -285,15 +285,22 @@ def test_the_decision_span_repeats_the_outcome_in_its_metadata(run_mode: RunMode
     assert decision.metadata["monitor_max_suspicion"] == 0.9
 
 
-def test_judgement_spans_hold_the_verdict_and_no_proposal_text(run_mode: RunMode) -> None:
+@pytest.mark.parametrize(
+    ("run_mode", "monitor_class"),
+    [("invoke", "KeywordRater"), ("ainvoke", "AsyncKeywordRater")],
+)
+def test_judgement_spans_hold_the_score_and_no_proposal_text(
+    run_mode: RunMode,
+    monitor_class: str,
+) -> None:
     # Act
     _, tracer = run_traced_agent(build_defer_to_resample_agent(), mode=run_mode)
 
     # Assert
     first, second, _ = tracer.find_runs(JUDGEMENT)
-    assert first.inputs == {"sample_number": 1, "monitor_class": "KeywordMonitor"}
-    assert first.outputs == {"suspicion": 0.9, "reason": f"mentions {EXFILTRATION_MARK}"}
-    assert second.inputs == {"sample_number": 2, "monitor_class": "KeywordMonitor"}
+    assert first.inputs == {"sample_number": 1, "monitor_class": monitor_class}
+    assert first.outputs == SUSPICIOUS_JUDGEMENT
+    assert second.inputs == {"sample_number": 2, "monitor_class": monitor_class}
     assert [child.name for child in first.children] == [MONITOR_CALL]
     below_the_step = [*tracer.find_runs(JUDGEMENT), *tracer.find_runs(DECISION)]
     assert all(EXFILTRATION_MARK not in json.dumps(run.inputs) for run in below_the_step)
@@ -307,7 +314,6 @@ SUSPICIOUS_JUDGEMENT = {
 }
 
 
-@pytest.mark.xfail(strict=True, reason="the monitors are not built on hyoshigi yet")
 def test_each_rating_is_one_judgement_span_with_its_score_and_whether_it_failed_closed(
     run_mode: RunMode,
 ) -> None:
@@ -335,7 +341,6 @@ def test_each_rating_is_one_judgement_span_with_its_score_and_whether_it_failed_
     ]
 
 
-@pytest.mark.xfail(strict=True, reason="the monitors are not built on hyoshigi yet")
 def test_a_repeated_monitor_s_rating_is_one_judgement_span(run_mode: RunMode) -> None:
     # Arrange: three calls of the keyword monitor make one rating of each step
     monitor = RepeatedMonitor(
@@ -360,7 +365,6 @@ def test_a_repeated_monitor_s_rating_is_one_judgement_span(run_mode: RunMode) ->
     ]
 
 
-@pytest.mark.xfail(strict=True, reason="the monitors are not built on hyoshigi yet")
 def test_a_rating_that_failed_closed_says_so_in_its_judgement_span(run_mode: RunMode) -> None:
     # Arrange
     monitor = ScriptedGeneration(outcome=Unavailable(status=503)).build_twins()
@@ -461,9 +465,19 @@ def build_read_file_step(path: str) -> AIMessage:
     )
 
 
-def test_judgement_numbers_follow_the_order_parallel_draws_started(run_mode: RunMode) -> None:
+@pytest.mark.parametrize(
+    ("run_mode", "rated_in_order"),
+    [
+        ("invoke", [EXFILTRATION_MARK, "one.md", "two.md", "three.md"]),
+        ("ainvoke", [EXFILTRATION_MARK, "two.md", "three.md", "one.md"]),
+    ],
+)
+def test_judgement_numbers_follow_the_order_ratings_start(
+    run_mode: RunMode,
+    rated_in_order: list[str],
+) -> None:
     # Arrange: under ainvoke the n-th model call waits the n-th delay, so the
-    # first resample started finishes last and the judgements start out of order.
+    # first resample started finishes last and is rated last.
     monitor = KeywordMonitor(
         suspicion_by_keyword={
             EXFILTRATION_MARK: 0.9,
@@ -501,18 +515,27 @@ def test_judgement_numbers_follow_the_order_parallel_draws_started(run_mode: Run
     # Assert
     step = tracer.find_runs(STEP)[0]
     judgements = step.find_children(JUDGEMENT)
-    reasons_by_number = {
-        judgement.inputs["sample_number"]: judgement.outputs["reason"] for judgement in judgements
-    }
-    assert sorted(reasons_by_number) == [1, 2, 3, 4]
-    assert [reasons_by_number[number] for number in sorted(reasons_by_number)] == [
-        sample["reason"] for sample in step.outputs["samples"]
+    assert [judgement.inputs["sample_number"] for judgement in judgements] == [1, 2, 3, 4]
+    assert [judgement.outputs["reason"] for judgement in judgements] == [
+        f"mentions {keyword}" for keyword in rated_in_order
     ]
     assert [sample["reason"] for sample in step.outputs["samples"]] == [
         f"mentions {keyword}" for keyword in (EXFILTRATION_MARK, "one.md", "two.md", "three.md")
     ]
-    finish_order = [judgement.inputs["sample_number"] for judgement in judgements]
-    assert finish_order == ([1, 3, 4, 2] if run_mode == "ainvoke" else [1, 2, 3, 4])
+
+
+def read_records_without_run_ids(result: dict[str, Any]) -> list[dict[str, Any]]:
+    """Return the run's records with each proposal's id left out, since run ids differ."""
+    return [
+        {
+            **record,
+            "samples": [
+                {**sample, "proposal": {**sample["proposal"], "id": None}}
+                for sample in record["samples"]
+            ],
+        }
+        for record in result["monitor_log"]
+    ]
 
 
 @pytest.fixture
@@ -533,7 +556,7 @@ def test_without_a_tracer_no_span_is_started_and_the_run_is_the_same(
     # Assert
     assert "model" in untraced_names
     assert not any(name.startswith("monitor ") for name in untraced_names)
-    assert untraced["monitor_log"] == traced["monitor_log"]
+    assert read_records_without_run_ids(untraced) == read_records_without_run_ids(traced)
     assert [message.text for message in untraced["messages"]] == [
         message.text for message in traced["messages"]
     ]

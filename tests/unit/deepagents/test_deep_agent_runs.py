@@ -3,10 +3,11 @@
 from __future__ import annotations
 
 import pytest
+from hyoshigi import Author
 from langchain_core.messages import AIMessage, ToolMessage
 from langgraph.checkpoint.memory import InMemorySaver
 
-from langchain_sync_monitors.contracts import SubagentHalt, TaskAuthor
+from langchain_sync_monitors.contracts import SubagentHalt
 from langchain_sync_monitors.middleware import MonitorMiddleware
 from tests.support.agents import RunMode, build_thread_config, read_texts, run_agent
 from tests.support.chat_models import ScriptedChatModel
@@ -53,8 +54,8 @@ def test_the_main_agent_and_its_subagent_both_record_their_steps(
         ("worker", 1),
         ("main", 2),
     ]
-    authors = [monitor_input.task_author for monitor_input in monitor.inputs]
-    assert authors == [TaskAuthor.USER, TaskAuthor.PARENT_AGENT, TaskAuthor.USER]
+    authors = [rating.task_author for rating in monitor.ratings]
+    assert authors == [Author.USER, Author.DELEGATOR, Author.USER]
 
 
 def test_a_subagent_halt_stops_the_whole_run_when_asked(

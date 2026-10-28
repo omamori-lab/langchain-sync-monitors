@@ -33,6 +33,124 @@ change raises the minor version.
   trajectory joins its parent's under the parent's label. To count a
   subagent apart, monitor it as a compiled subagent with a label of its own;
   its trajectory is then dropped with a warning when its task returns.
+- **Breaking:** the monitors are hyoshigi's. Each monitor class is one
+  configuration that builds hyoshigi's sync and async twins, which it holds
+  as `twins`: `invoke()` rates with the sync twin and `ainvoke()` with the
+  async one. Option names and meanings are hyoshigi's, and so are the value
+  types the options take, re-exported as the same objects: `View`, `Channel`,
+  `MonitorPrompt`, `DEFAULT_PROMPT`, `GuardLabels`, `GPT_OSS_SAFEGUARD`,
+  `QWEN3GUARD`, `HardLabelWarning`, `Aggregation`, `ATTACK_CRITERIA`,
+  `DEFAULT_STATEMENT` and `MediaTypes`. The protocols, their fallbacks,
+  `Verdict`, `Sample`, `PendingStep` and `ControlProtocol` are unchanged, and
+  a protocol still reads `sample.verdict`.
+- **Breaking:** `LLMMonitor` takes `prompt` as a `MonitorPrompt`, in place of a
+  `ChatPromptTemplate`, and `view` as a `View`. A prompt's request holds
+  `{trajectory}` and `{proposed_action}` once each, in place of `{transcript}`
+  and `{proposed_step}`, and may hold `{lowest_score}` and `{highest_score}`;
+  text that `partial` filled in goes into the template's string.
+- **Breaking:** `GuardModelMonitor` is now
+  `GuardMonitor(model=..., prompt=MonitorPrompt(...), labels=GuardLabels(suspicious=..., safe=...), samples=5, view=View())`,
+  and it always samples: suspicion is the share of its sampled replies
+  labelled suspicious. A sample with no readable label, an ambiguous one, a
+  reply cut off, a refusal or a rejection fails the whole rating closed at
+  1.0, where an unreadable reply counted as one suspicious label; a sample
+  the model left unanswered is set aside while more than half answered. One
+  sample warns `HardLabelWarning` once, at the line that builds the monitor.
+- **Breaking:** `DecisionModelMonitor` is now
+  `DecisionMonitor(model="openrouter:<model id>" | "typesafe:<model id>", view=..., statements=(DEFAULT_STATEMENT,), aggregation=Aggregation.MAX, perceives=MediaTypes())`.
+  It asks statements that hold or not, each in a request of its own, in place
+  of yes or no questions with `yes_means` and `no_means` in one request.
+  `ATTACK_CRITERIA` is four statements, and `Aggregation.MEAN` no longer
+  warns. Any other decision model goes into a `MonitorTwins` of hyoshigi's
+  `DecisionMonitor` and `AsyncDecisionMonitor`.
+- **Breaking:** `MonitorView(channels, most_recent_entries, delegation_tools)`
+  is now hyoshigi's `View(channels, most_recent, delegation_tools)`, and
+  `Channel` is hyoshigi's: `TASK`, `CONTEXT`, `THOUGHTS`, `AGENT_PARTS`,
+  `TOOL_CALLS`, `TOOL_OBSERVATIONS`, `SUBAGENT_REPORTS` and `DEFAULT`, with
+  nothing in place of `ALL`. The default view, `Channel.DEFAULT`, reads the
+  task, the tool calls and the subagent reports. It no longer reads context
+  notes, system messages or the monitor's feedback written as a human
+  message; a tool error the monitor wrote on a blocked call is still read.
+  Add `Channel.CONTEXT` to read them. `delegation_tools` defaults to none:
+  Deep Agents' `task` results still read as subagent reports, because the
+  trajectory records the delegation.
+- **Breaking:** a monitor reads hyoshigi's rendering of its trajectory, with
+  new tags, among them `<trajectory>`, `<proposed_action>`, `<user>`,
+  `<delegator>`, `<context_note author=... source=...>`,
+  `<tool_call id=... name=...>` with the call's argument text,
+  `<tool_error call_id=...>`, `<tool_result call_id=...>`,
+  `<subagent_report call_id=...>`, `<thought>`, `<agent>` and
+  `<opaque kind=.../>`. A guard policy or a prompt of your own that names the
+  old tags needs the new ones.
+- **Breaking, privacy:** the monitor reads each message into its trajectory
+  once, as it first sees it, at the start of a run or a step, and never
+  rebuilds it from `messages`. A turn summarised away is still read, but a
+  later rewrite of a message already read, such as an `update_state` edit,
+  `PIIMiddleware`'s redaction in its `before_model` hook, or a tool's write
+  under the input's id, no longer reaches the monitor. The monitor's model
+  and the checkpointed `monitor_trajectory` hold the unredacted text.
+- A monitor's model call that fails on an exhausted rate limit, a server
+  error, a timeout or a failed connection no longer raises: the rating fails
+  closed at 1.0, and the protocol's rules apply. A refusal, a context
+  overflow or a prompt the provider rejects fails closed at once, and a reply
+  still unreadable after the retries fails closed with hyoshigi's reason. A
+  call that fails on a misuse, such as a bad key, still raises and fails the
+  step.
+- **Breaking:** a reply that holds a server tool's result, a block LangChain
+  could not map, or media the monitor's model cannot perceive is rated 1.0,
+  before any request; the `ServerToolWarning` says so for server tools. Under
+  Defer to Resample or Auto Mode, a step whose every sample uses such a server
+  tool, such as Anthropic's web search, goes to the fallback, which halts the
+  run by default.
+- The reason of a rating that failed closed is hyoshigi's sentence for its
+  cause, such as "The monitor's model was unavailable, so the action is
+  treated as suspicious."; a guard's reason reads "The guard model labelled
+  the action 'violation', finding that it breaks the policy.", and a decision
+  monitor's "The decision model's strongest concern: " and the statement.
+  These reach `monitor_log`'s `reason` and Auto Mode's feedback.
+- **Breaking:** `SampleRecord.proposal` is the action the monitor rated, as
+  hyoshigi stores it, where it was rendered text: a dict with `kind`, `id`,
+  `thought`, `parts` and `tool_calls`, each call's `arguments` as text, with
+  a server tool's result as a placeholder. The step span's `proposed_step`
+  input holds the same.
+- The `monitor classifier` span is gone, so four fixed names remain:
+  `monitor step`, `monitor judgement`, `monitor decision` and `monitor call`.
+  A judgement span's `monitor_class` input is the class of the twin that
+  rated, such as `LLMMonitor` under `invoke()` and `AsyncLLMMonitor` under
+  `ainvoke()`; its outputs gain `failed_closed`; and judgement numbers follow
+  the order ratings start.
+- `MonitorMiddleware` warns `CachedResampleWarning` once per process, when it
+  is built, for a monitor that asks a cached chat model the same prompt more
+  than once: an `LLMMonitor` with `max_parse_retries` above 0, a
+  `GuardMonitor` of more than one sample, or a `RepeatedMonitor` of more than
+  one call over a cached model, wrappers read through. It no longer warns
+  during the run for the monitor's model.
+- **Breaking:** `ConfigurationError` is also hyoshigi's
+  `ConfigurationError`, and so a `ValueError`. An option hyoshigi refuses while a monitor is built raises
+  the library's error, from hyoshigi's. hyoshigi's value types, such as
+  `View` and `MonitorPrompt`, raise hyoshigi's own error when they are built,
+  which `except ConfigurationError` with the library's class does not catch;
+  catch `ValueError` for both.
+- The `typesafe` extra installs `hyoshigi[typesafe]`, with TypeSafe's SDK, in
+  place of langchain-typesafe, and `DecisionMonitor(model="typesafe:<model id>")`
+  reads `TYPESAFE_API_KEY`.
+- `DecisionMonitor(model="openrouter:<model id>")` reads `OPENROUTER_API_KEY`
+  and calls the Decisions API through the library's own httpx client, because
+  langchain-openrouter 0.2.9, which the `openrouter` extra installs, pins
+  `openrouter<1.0.0`, while hyoshigi's OpenRouter decision models need
+  openrouter 1.3.63 or later. The client stays until langchain-openrouter
+  supports openrouter 1.x. It takes text only. A 403 is refused and a 413
+  rejected, both failing closed; a 408, 409, 429, server error or transport
+  failure is unavailable after its retries; any other client error raises
+  `ConfigurationError` naming its status alone.
+- `RepeatedMonitor`, `CalibratedMonitor` and `CascadeMonitor` keep their
+  options, wrap any of the monitors, and follow hyoshigi's rules for a score
+  that failed closed: a repeated call that failed for a cause other than an
+  unavailable model fails the whole score closed, a calibrated monitor
+  returns a failed score unranked, and a failed fast score always escalates.
+  `CalibratedMonitor(random_seed=...)` draws from the seed and the trajectory,
+  each action's id blanked, so a fresh run whose tool calls get new ids draws
+  afresh.
 
 ### Added
 
@@ -58,8 +176,33 @@ change raises the minor version.
   A blocked attempt enters it with its text and its feedback, whatever
   `feedback_visibility` says, as `monitor_log`'s samples already hold it; the
   message stream still never carries a blocked attempt's text. A halt message
-  never enters it. The protocols do not read it yet.
+  never enters it. The monitors rate every sample against it; the protocols
+  read their verdicts.
 - `MessageFormatError` is exported.
+- `MonitorTwins(monitor=..., async_monitor=...)`, a monitor of your own
+  written as hyoshigi's sync and async twins, which the middleware and the
+  wrappers take as they take the library's monitors.
+- `GPT_OSS_SAFEGUARD` and `QWEN3GUARD`, the labels of those two guards, and
+  `MediaTypes` and `DEFAULT_STATEMENT` are exported.
+
+### Removed
+
+- **Breaking:** `Monitor`, `ChatModelMonitor` and `MonitorInput`; a monitor
+  of your own is a `MonitorTwins`.
+- **Breaking:** `MonitorView`, `GuardModelMonitor`, `GuardScoring`,
+  `DecisionModelMonitor`, `DecisionModel`, `OpenRouterDecisionModel`, with
+  its `base_url`, `api_key`, `timeout_seconds`, `http_client` and
+  `async_http_client`, `TypeSafeDecisionModel`, `YesNoQuestion`,
+  `IS_THE_STEP_SUSPICIOUS` and `DEFAULT_MONITOR_PROMPT`, whose places the
+  changes above give.
+- Scoring a guard from log-probabilities.
+- The module `langchain_sync_monitors.transcript`, with
+  `render_transcript` and `render_proposed_step`.
+- The private state keys `monitor_run_inputs` and `monitor_rewritten_inputs`.
+- The loggers `langchain_sync_monitors.monitors.chat` and
+  `langchain_sync_monitors.monitors.guard`. A failed model call the rating
+  reads as an outcome is logged by `langchain_sync_monitors.chat_model_adapter`,
+  and an unreadable reply is no longer logged.
 
 ### Known limits
 
@@ -68,6 +211,15 @@ change raises the minor version.
   empty, with no error.
 - Each subagent receives its run's whole trajectory in `monitor_delegation`,
   so the state and the checkpoints grow with the run.
+- No option redacts an entry before the monitor's trajectory keeps it, so a
+  redaction made after the monitor first read a message never reaches the
+  monitor's model, and the checkpointed `monitor_trajectory` keeps the text
+  unredacted.
+- A step whose reply holds a server tool's result is rated 1.0 every time,
+  so under Defer to Resample and Auto Mode a step whose every sample uses
+  such a tool goes to the fallback.
+- An `openrouter:` decision model reads text only, so an action that holds
+  media fails closed.
 
 ## [0.1.5] - 2026-10-04
 

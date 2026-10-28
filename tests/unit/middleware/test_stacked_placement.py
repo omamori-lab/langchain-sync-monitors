@@ -243,8 +243,8 @@ def test_the_warning_for_a_monitor_inside_one_that_can_call_again_reads_in_full(
         "the model at most once per step, such as TrustedMonitoring, "
         "DeferToResample(max_resamples=0, fallback=HaltRun()), or AutoMode with "
         "max_consecutive_blocks=1 or max_total_blocks=1 and when_limit_reached=HaltRun(). Or "
-        "judge with both monitors in one MonitorMiddleware, through a Monitor of your own "
-        "that runs both and keeps the higher suspicion."
+        "judge with both monitors in one MonitorMiddleware, through MonitorTwins of your own "
+        "whose twins run both and keep the higher suspicion."
     )
 
 

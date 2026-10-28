@@ -50,8 +50,7 @@ from langchain_core.messages import ToolCall as LangChainToolCall
 from langchain_sync_monitors.content_parts import read_content_part, read_unmapped_kind
 from langchain_sync_monitors.contracts import TaskAuthor
 from langchain_sync_monitors.errors import MessageFormatError
-from langchain_sync_monitors.task_authorship import UNCONFIRMED_INPUT_SOURCE
-from langchain_sync_monitors.transcript import (
+from langchain_sync_monitors.message_sources import (
     GROUNDING_METADATA_KEY,
     MONITOR_FEEDBACK_SOURCE,
     REASONING_BLOCK_TYPES,
@@ -61,6 +60,7 @@ from langchain_sync_monitors.transcript import (
     read_message_source,
     read_unrecognised_block_value,
 )
+from langchain_sync_monitors.task_authorship import UNCONFIRMED_INPUT_SOURCE
 
 SERVER_SOURCE = "server"
 """The source of the observation of a server tool's result."""

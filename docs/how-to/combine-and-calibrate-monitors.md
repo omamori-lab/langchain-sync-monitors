@@ -47,17 +47,21 @@ The rest of this guide takes the second way.
 
 ## The three wrappers
 
-Each wrapper is a monitor itself, so it stacks around any monitor family and
-around the other wrappers, and every protocol accepts it.
+Each wrapper takes any of the library's monitors, another wrapper or a
+`MonitorTwins`, and builds hyoshigi's wrapper of the same name over their
+twins, with its options [@hyoshigi2026]. So the wrappers stack around any
+monitor family and around each other, and every protocol accepts them.
 
-| Wrapper | What it reports | Calls per judged sample | Reason |
-|---|---|---|---|
-| `RepeatedMonitor(monitor=..., ensemble_size=...)` | The mean suspicion of `ensemble_size` calls | `ensemble_size` times the wrapped monitor's | The most suspicious call's |
-| `CalibratedMonitor(monitor=..., honest_scores=..., random_seed=...)` | The smoothed conformal p-value of the score against honest scores | The wrapped monitor's, and no more | The wrapped monitor's |
-| `CascadeMonitor(fast=..., careful=..., escalation_threshold=...)` | The fast verdict, or the careful one when the fast suspicion reaches `escalation_threshold` | The fast monitor's, plus the careful monitor's for escalated samples | The verdict's own |
+| Wrapper | What it reports | Calls per judged sample |
+|---|---|---|
+| `RepeatedMonitor(monitor=..., ensemble_size=...)` | The mean suspicion of `ensemble_size` calls | `ensemble_size` times the wrapped monitor's |
+| `CalibratedMonitor(monitor=..., honest_scores=..., random_seed=...)` | The smoothed conformal p-value of the score against honest scores | The wrapped monitor's, and no more |
+| `CascadeMonitor(fast=..., careful=..., escalation_threshold=...)` | The fast score, or the careful one when the fast suspicion reaches `escalation_threshold` | The fast monitor's, plus the careful monitor's for escalated samples |
 
-The wrappers never add a score to a reason. Auto Mode shows the reason to the
-agent, and a number would tell the agent how close its step came to passing.
+A wrapper passes a wrapped reason on word for word and keeps a rating that
+failed closed at 1.0, with the exceptions
+[hyoshigi's page on failing closed](https://omamori-lab.github.io/hyoshigi/explanation/failing-closed/#wrappers-keep-a-failed-score-at-10-except-an-unanswered-call-and-a-cascades-fast-score)
+gives.
 
 Protocols multiply these costs, because they judge every sample they draw.
 Trusted Monitoring and Defer to Trusted judge one sample per step; Defer to
@@ -69,22 +73,8 @@ up to `max_parse_retries` more times.
 
 ## Average repeated calls
 
-`RepeatedMonitor` is a homogeneous ensemble: the mean of independent calls of
-one monitor [@koran2026ensemble]. Its `ensemble_size` is the number of calls,
-which LinuxArena calls the ensemble size (appendix C) [@tracy2026linuxarena].
-
-An LLM monitor gives an integer score, and integer scores tie so often that a
-small audit budget falls inside a group of tied scores, as BashArena (section
-4.3) and Koran et al. (section 5.1) found
-[@kaufman2025basharena; @koran2026ensemble]. Averaging several calls adds
-resolution, as BashArena shows (section 4.3) [@kaufman2025basharena].
-BashArena averages three calls (section 4.2) and LinuxArena two (section
-5.1), and Ctrl-Z samples its monitor several times at temperature 1.1
-(appendix D) [@kaufman2025basharena; @tracy2026linuxarena; @bhatt2025ctrlz].
-For ensembles of different monitors, Koran et al. found the arithmetic mean
-as good as the other aggregators they tried (section 3.2), and found that
-three calls of one monitor gain less than three different monitors (section
-5.2) [@koran2026ensemble].
+`RepeatedMonitor` reports the mean of `ensemble_size` calls of one monitor,
+which spreads integer scores that would otherwise tie:
 
 ```python
 from langchain.chat_models import init_chat_model
@@ -96,20 +86,22 @@ monitor_model = init_chat_model("openrouter:xiaomi/mimo-v2.6-pro", temperature=1
 monitor = RepeatedMonitor(monitor=LLMMonitor(model=monitor_model), ensemble_size=3)
 ```
 
-Give the model no LangChain response cache, which would answer every call
-after the first with a copy of it. The mean is rounded to 12 decimal places,
-so that equal means tie exactly instead of differing in their last bits.
-Under `ainvoke()` the calls run concurrently, and one that fails cancels the
-others; under `invoke()` they run one after another. `ensemble_size` must be
-a whole number of at least 1, or `ConfigurationError` is raised.
+The calls differ only when the model samples, so its temperature must be above
+zero, and a LangChain response cache would answer every call after the first
+with a copy of it: `MonitorMiddleware` warns once per process with a
+`CachedResampleWarning` when it is built with such a monitor. Under `ainvoke()`
+the calls run at once, and under `invoke()` one after another.
+[hyoshigi's guide to choosing a monitor](https://omamori-lab.github.io/hyoshigi/how-to/choosing-a-monitor/#an-llm-monitors-integer-scores-tie)
+gives the evidence for averaging, and `RepeatedMonitor` in hyoshigi's
+[API reference](https://omamori-lab.github.io/hyoshigi/reference/api/) its
+rules.
 
 ## Stack the wrappers in order
 
 Average first, then calibrate: `CalibratedMonitor` goes outside
-`RepeatedMonitor`. The calibrated monitor ranks exactly the score its honest
-scores measured, here the mean of three calls, and the mean adds the
-resolution that ranking needs. The other way round would average percentiles,
-and a mean of percentiles is not itself a percentile.
+`RepeatedMonitor`, so it ranks exactly the mean its honest scores measured, as
+[A RepeatedMonitor goes inside the calibration](https://omamori-lab.github.io/hyoshigi/explanation/calibration/#a-repeatedmonitor-goes-inside-the-calibration)
+explains.
 
 [![CalibratedMonitor wraps RepeatedMonitor, which wraps LLMMonitor. The proposed step goes to the LLM monitor three times, and RepeatedMonitor takes the mean of the three scores, rounded to 12 decimal places, with the reason of the most suspicious call. CalibratedMonitor then ranks that mean among the honest scores, which were collected with RepeatedMonitor(LLMMonitor), so the verdict's suspicion is the mean's smoothed conformal p-value against the honest scores, and its reason is still the most suspicious call's.](../assets/diagrams/monitors-average-then-calibrate-light.svg#only-light)](../assets/diagrams/monitors-average-then-calibrate-light.svg "Open the diagram at full size")
 [![CalibratedMonitor wraps RepeatedMonitor, which wraps LLMMonitor. The proposed step goes to the LLM monitor three times, and RepeatedMonitor takes the mean of the three scores, rounded to 12 decimal places, with the reason of the most suspicious call. CalibratedMonitor then ranks that mean among the honest scores, which were collected with RepeatedMonitor(LLMMonitor), so the verdict's suspicion is the mean's smoothed conformal p-value against the honest scores, and its reason is still the most suspicious call's.](../assets/diagrams/monitors-average-then-calibrate-dark.svg#only-dark)](../assets/diagrams/monitors-average-then-calibrate-dark.svg "Open the diagram at full size")
@@ -188,20 +180,19 @@ Each run here has no checkpointer, so its log holds only its own steps. On a
 checkpointed thread, `monitor_log` holds every turn of the thread, so collect
 it once per thread.
 
-Read the highest honest scores before you calibrate. An LLM monitor whose reply
-could not be read gives 1.0, with the reason "The monitor gave no readable
-score, so the step is treated as suspicious." That score measures nothing
-about the step, and a 1.0 in the honest set ties with every later 1.0: a step
-that fails closed, and a step the monitor genuinely scores at the top of its
-scale. Either then lands at a random place among the ties instead of above
-every honest score. Fix the cause, such as too small a `max_tokens`, and
-collect again.
+Read the highest honest scores before you calibrate. A rating that failed
+closed gives 1.0 with a reason that names its cause, such as "The monitor's
+model was unavailable, so the action is treated as suspicious."; a record
+keeps no other mark of it, so find such samples by those reasons, which
+[hyoshigi's page on failing closed](https://omamori-lab.github.io/hyoshigi/explanation/failing-closed/)
+lists. That score measures nothing about the step, and ties with every step
+the monitor genuinely scores at the top of its scale. Fix the cause, such as
+too small a `max_tokens` or an exhausted rate limit, and collect again.
 
-Collect more scores than you think you need. With `n` honest scores, a step
-that scores above all of them is sure to pass a threshold `t` only when
-`n / (n + 1)` is at or above `t`, which for 0.99 takes at least 99 scores. A
-thousand make the flagged share stable, as [What a calibrated threshold
-means](#what-a-calibrated-threshold-means) explains.
+Collect more scores than you think you need: with `n` honest scores, a step
+that scores above all of them lands at `n / (n + 1)` or above, so a threshold
+of 0.99 needs at least 99 of them, and a thousand make the flagged share
+stable ([hyoshigi's page on calibration](https://omamori-lab.github.io/hyoshigi/explanation/calibration/)).
 
 ## Calibrate the monitor
 
@@ -246,86 +237,24 @@ usually fewer;
 [Calibrate the audit threshold](use-defer-to-resample.md#calibrate-the-audit-threshold)
 sets it on that statistic.
 
-`honest_scores` can be a list or any other iterable, such as a generator,
-which the constructor reads once. It must hold at least one score,
-and each is checked as a threshold is: a number from 0 to 1, not a `bool` and
-not NaN, or the constructor raises `ConfigurationError`. Each is kept as a
-float, so pass Python floats or numpy `float64`s: a `float32` 0.1 becomes
-0.10000000149011612, which no longer ties with a monitor's 0.1.
-
-## What a calibrated threshold means
-
-`CalibratedMonitor` replaces the wrapped monitor's score with its smoothed
-conformal p-value, with the `n` honest scores as the calibration set:
-
-```text
-calibrated suspicion = (below + U * (tied + 1)) / (n + 1)
-```
-
-The step takes one of `n + 1` places in the sorted list of honest scores.
-`below` counts the honest scores lower than the step's score, and `tied`
-counts those equal to it. `U` is a random number from 0 up to 1, which spreads
-the step evenly over its own place and the places of the honest scores it ties
-with. Makins et al. (appendix G.4.1) and LinuxArena (section 5.1) also break
-ties at random in their control evaluations
-[@makins2026multiagent; @tracy2026linuxarena].
-
-This is the smoothed conformal p-value of Vovk et al., with the step's raw
-score in the place of their conformity score and `U` as their uniform random
-number; their count of ties includes the step itself, which gives `tied + 1`
-(section 2, equation 2) [@vovk2016criteria]. In the same section they credit
-the uniform distribution of such p-values to proposition 2.8 of Vovk,
-Gammerman and Shafer's book [@vovk2016criteria; @vovk2005algorithmic].
-
-The guarantee holds when the step's raw score is exchangeable with the honest
-scores: the step comes from the same kind of honest run, scored by the same
-monitor with the same settings. A smoothed conformal p-value is then exactly
-uniform, so the calibrated suspicion is spread evenly from 0 to 1, and a
-threshold `t` flags a share `1 - t` of such steps: 0.99 flags 1% of honest
-steps, and 0.95 flags 5%.
-
-That share is exact on average over the honest scores you might have
-collected. For the one set you did collect, it varies around `1 - t`. When
-the honest scores you collected and those of new honest steps are independent
-draws from one distribution, with no ties, and `(n + 1) * t` is a whole number
-from 1 to `n`, the share of honest steps left unflagged follows
-Beta(n + 1 - l, l), where `l = (n + 1) * (1 - t)`. This is the coverage of
-split conformal prediction for a fixed calibration set, which Angelopoulos and
-Bates give after Vovk (section 3.2) [@angelopoulos2021gentle]. Its standard
-deviation is `sqrt(t * (1 - t) / (n + 2))`, close to that of a share
-estimated from `n` draws. At `t = 0.99` it is about 0.3 percentage points for
-a thousand honest scores, and about 1 point for a hundred. When
-`(n + 1) * t` is not a whole number the spread is close to this; with ties it
-can differ.
-
-| Consequence | What it means |
-|---|---|
-| Scores above every honest score | Such a step lands between `n / (n + 1)` and 1, never at 1. With 49 honest scores it passes a threshold of 0.99 only half the time; with 99 or more, always. |
-| Ties | A step that ties with many honest scores lands anywhere across their places. If 400 of 500 honest scores are 0, a step that scores 0 lands anywhere from 0 to about 0.8. |
-| What calibration cannot do | It does not make the monitor better at telling attacks from honest work. An attack scores high only if its raw score is above most honest scores. |
-
-## Fix the tie-breaking with a seed
-
-Without `random_seed`, `U` is drawn afresh on every call, so a step whose
-score ties with honest scores can land on either side of a threshold from one
-run to the next.
-
-With `random_seed`, `U` comes from the seed and the step's content: the task
-author, the type and text of each earlier message, and the proposal with all
-its parts. The earlier messages' tool calls and ids are left out, since the
-monitor's own messages get fresh random ids on every run; two steps whose
-histories differ only in tool calls get the same draw. The same step always
-gets the same draw, in every process, so the same raw score always gives the
-same calibrated suspicion, and an evaluation can be replayed exactly.
+`CalibratedMonitor` reports the smoothed conformal p-value of the wrapped
+monitor's score among the honest scores, so a threshold `t` flags a share of
+about `1 - t` of honest steps when the step and the honest runs are alike: the
+same kind of run, scored by the same monitor with the same settings. A tie is
+broken by a uniform draw, which `random_seed` makes replayable for the same
+trajectory, and a score that failed closed stays 1.0, unranked.
+[hyoshigi's page on calibration](https://omamori-lab.github.io/hyoshigi/explanation/calibration/)
+gives the p-value, the draw, how `honest_scores` is read, and how far the
+flagged share varies around `1 - t`.
 
 ## Put a fast monitor in front of a careful one
 
-`CascadeMonitor` runs a fast monitor on every step and sends a step to a
-careful one only when the fast suspicion reaches `escalation_threshold`.
-Below it, the fast verdict stands; at or above it, the careful verdict,
-reason included, replaces it. This follows the two stages of Claude Code's
-auto mode, a fast filter in front of a reasoning classifier
-[@hughes2026automode];
+`CascadeMonitor` runs a fast monitor on every step and the careful one only
+when the fast suspicion reaches `escalation_threshold`; the careful score then
+replaces the fast one. This follows the two stages of Claude Code's auto mode
+[@hughes2026automode]. `CascadeMonitor` in hyoshigi's
+[API reference](https://omamori-lab.github.io/hyoshigi/reference/api/) gives
+its rules, and
 [where the ideas come from](../explanation/background.md#thresholds-and-scores)
 compares this rule of one threshold with other cascades.
 
@@ -345,9 +274,8 @@ from langchain.chat_models import init_chat_model
 from langchain_sync_monitors import (
     CalibratedMonitor,
     CascadeMonitor,
-    DecisionModelMonitor,
+    DecisionMonitor,
     LLMMonitor,
-    OpenRouterDecisionModel,
     RepeatedMonitor,
 )
 
@@ -356,11 +284,9 @@ careful_scores = json.loads(Path("careful_honest_scores.json").read_text(encodin
 monitor_model = init_chat_model("openrouter:xiaomi/mimo-v2.6-pro", temperature=1.0)
 
 monitor = CascadeMonitor(
-    # Fast: one decision model request per step.
+    # Fast: one decision model request per step, for the default statement.
     fast=CalibratedMonitor(
-        monitor=DecisionModelMonitor(
-            decision_model=OpenRouterDecisionModel(model="typesafe/jev-1.13"),
-        ),
+        monitor=DecisionMonitor(model="openrouter:typesafe/jev-1.14"),
         honest_scores=fast_scores,
     ),
     # Careful: three LLM monitor calls, only for escalated steps.
@@ -381,9 +307,7 @@ honest steps, since only the escalated ones can reach it.
 Keep `escalation_threshold` at or below the protocol's lowest threshold. A
 step the fast stage keeps has a suspicion below `escalation_threshold`, so a
 threshold below `escalation_threshold` could trigger the protocol on a step
-the careful stage never read. `escalation_threshold` is checked as a protocol
-threshold is: a number from 0 to 1, kept as a float, and anything else, NaN
-included, raises `ConfigurationError`.
+the careful stage never read.
 
 ## Related guides
 

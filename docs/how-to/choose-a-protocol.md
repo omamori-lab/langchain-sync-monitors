@@ -182,8 +182,14 @@ providers also run server-side tools, such as web search or code execution,
 on their own servers inside the model call; LangChain gives their calls as
 `ServerToolCall` blocks [@langchaincore2026]. A server tool has already run by
 the time the monitor sees the step, and runs again for every sample or
-attempt the protocol draws, so no protocol can stop it. Give the agent tools
-of its own for any action that must be judged before it runs.
+attempt the protocol draws, so no protocol can stop it. A step that carries a
+server tool's result is rated 1.0, since the monitor cannot read what the tool
+did ([Know what fails closed before any
+request](choose-what-the-monitor-reads.md#know-what-fails-closed-before-any-request)):
+Trusted Monitoring runs and flags it, Defer to Trusted has the trusted model
+write it, and a step whose every sample carries one never passes Defer to
+Resample or Auto Mode, which hand it to their fallback. Give the agent tools of its own for any action that must be
+judged before it runs.
 
 The middleware emits a `ServerToolWarning`, once per middleware instance,
 when a model call receives one of the server tools it knows:
@@ -242,7 +248,7 @@ gives, and each enum option a member of its enum; anything else raises
 |---|---|
 | Graph steps | The middleware's hooks add two graph steps per agent step, however many model calls the step makes, and two per run; [Allow for the graph steps](read-the-monitor-log.md#allow-for-the-graph-steps) gives the `recursion_limit` a run needs. |
 | Streams | `stream_mode="messages"` shows only committed steps, each whole once the protocol has decided. Rejected samples and the built-in monitors' calls never stream, though a custom monitor's call made with its own `tags` does; Auto Mode with `FeedbackVisibility.IN_TRANSCRIPT` commits its blocked attempts with the step, their text withheld, so those do. [Read the monitor log](read-the-monitor-log.md) covers the other stream modes. |
-| A failed step | If a sample, a monitor call or the fallback raises, nothing is committed and the error propagates. The step is written to `stream_mode="custom"` as a `monitor_step_failed` event with the samples judged so far, and logged as a warning that gives their suspicions when there were any. A middleware outside the monitor that retries failed model calls, such as `ModelRetryMiddleware`, runs the whole step again with fresh samples. |
+| A failed step | If a sample, a monitor call or the fallback raises, nothing is committed and the error propagates. A monitor call raises only on a misuse, such as a bad key; one the provider fails, such as an exhausted rate limit, fails the rating closed at 1.0 instead. The step is written to `stream_mode="custom"` as a `monitor_step_failed` event with the samples judged so far, and logged as a warning that gives their suspicions when there were any. A middleware outside the monitor that retries failed model calls, such as `ModelRetryMiddleware`, runs the whole step again with fresh samples. |
 | Placement | The monitor goes last in the `create_agent` middleware list. `check_monitor_placement(middleware=[...])` warns about middleware placed where it undermines the monitor, a second monitor included: of the library's protocols, only Trusted Monitoring, and Defer to Resample or Auto Mode set to draw at most one sample per step and then halt, keep the records of a monitor inside them sound, as [Two monitors in one agent](../explanation/design.md#two-monitors-in-one-agent) explains. |
 
 ## Related guides

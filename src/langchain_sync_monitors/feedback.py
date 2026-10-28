@@ -29,7 +29,7 @@ from langchain_core.messages import (
 )
 
 from langchain_sync_monitors.contracts import BlockedAttempt, Outcome, Sample, StepDecision
-from langchain_sync_monitors.transcript import (
+from langchain_sync_monitors.message_sources import (
     GROUNDING_METADATA_KEY,
     MONITOR_FEEDBACK_SOURCE,
     PROSE_BLOCK_TYPES,

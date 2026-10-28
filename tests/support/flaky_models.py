@@ -4,9 +4,11 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import Callable, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
+import hyoshigi
+from hyoshigi import Action, SuspicionScore, Trajectory
 from langchain_core.callbacks import AsyncCallbackManagerForLLMRun, CallbackManagerForLLMRun
 from langchain_core.language_models import BaseChatModel, LanguageModelInput
 from langchain_core.messages import AIMessage, BaseMessage
@@ -15,8 +17,8 @@ from langchain_core.runnables import Runnable
 from langchain_core.tools import BaseTool
 from pydantic import Field
 
-from langchain_sync_monitors.contracts import Monitor, MonitorInput, Verdict
-from langchain_sync_monitors.transcript import render_proposal_for_audit
+from langchain_sync_monitors import MonitorTwins
+from tests.support.monitors import read_action_text
 
 
 class FlakyChatModel(BaseChatModel):
@@ -81,22 +83,55 @@ class FlakyChatModel(BaseChatModel):
         return self.finish_reply(reply)
 
 
-@dataclass(kw_only=True)
-class TriggeredFailureMonitor(Monitor):
-    """Delegates to `inner`, but raises `TimeoutError` on a proposal that contains `trigger`."""
+def check_trigger(action: Action, *, trigger: str) -> None:
+    """Raise `TimeoutError` when the action holds the trigger."""
+    if trigger in read_action_text(action):
+        message = "monitor provider timed out"
+        raise TimeoutError(message)
 
-    inner: Monitor
+
+@dataclass(frozen=True, kw_only=True)
+class TriggeredFailureRater(hyoshigi.Monitor):
+    """Rates with `inner`, but raises `TimeoutError` on an action that holds `trigger`."""
+
+    inner: hyoshigi.Monitor
     trigger: str
 
-    def check(self, monitor_input: MonitorInput) -> None:
-        if self.trigger in render_proposal_for_audit(monitor_input.proposal):
-            message = "monitor provider timed out"
-            raise TimeoutError(message)
+    def rate(self, action: Action, *, trajectory: Trajectory) -> SuspicionScore:
+        check_trigger(action, trigger=self.trigger)
+        return self.inner.rate(action, trajectory=trajectory)
 
-    async def evaluate(self, monitor_input: MonitorInput) -> Verdict:
-        self.check(monitor_input)
-        return await self.inner.evaluate(monitor_input)
 
-    def evaluate_sync(self, monitor_input: MonitorInput) -> Verdict:
-        self.check(monitor_input)
-        return self.inner.evaluate_sync(monitor_input)
+@dataclass(frozen=True, kw_only=True)
+class AsyncTriggeredFailureRater(hyoshigi.AsyncMonitor):
+    """Rates as `TriggeredFailureRater` does, awaiting `inner`."""
+
+    inner: hyoshigi.AsyncMonitor
+    trigger: str
+
+    async def rate(self, action: Action, *, trajectory: Trajectory) -> SuspicionScore:
+        check_trigger(action, trigger=self.trigger)
+        return await self.inner.rate(action, trajectory=trajectory)
+
+
+@dataclass(frozen=True, kw_only=True)
+class TriggeredFailureMonitor(MonitorTwins):
+    """The twins of `inner`, raising `TimeoutError` on an action that holds `trigger`."""
+
+    inner: MonitorTwins
+    trigger: str
+    monitor: hyoshigi.Monitor = field(init=False)
+    async_monitor: hyoshigi.AsyncMonitor = field(init=False)
+
+    def __post_init__(self) -> None:
+        object.__setattr__(
+            self,
+            "monitor",
+            TriggeredFailureRater(inner=self.inner.monitor, trigger=self.trigger),
+        )
+        object.__setattr__(
+            self,
+            "async_monitor",
+            AsyncTriggeredFailureRater(inner=self.inner.async_monitor, trigger=self.trigger),
+        )
+        super().__post_init__()

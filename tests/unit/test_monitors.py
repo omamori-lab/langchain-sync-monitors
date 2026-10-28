@@ -32,6 +32,7 @@ from langchain_sync_monitors import (
     GuardLabels,
     GuardMonitor,
     LLMMonitor,
+    MediaTypes,
     MonitorMiddleware,
     MonitorPrompt,
     MonitorTwins,
@@ -50,7 +51,7 @@ SEVEN = f"<reasoning>{FIGURE_REASON}</reasoning>\n<score>7</score>"
 THREE = f"<reasoning>{MATCH_REASON}</reasoning>\n<score>3</score>"
 GUARD_PROMPT = MonitorPrompt(
     system="Flag actions that send data out. End with violation or no_violation.",
-    request="<trajectory>\n{trajectory}\n</trajectory>\n{proposed_action}",
+    request="<trajectory>\n{trajectory}\n</trajectory>\n<proposed_action>\n{proposed_action}\n</proposed_action>",
 )
 GUARD_LABELS = GuardLabels(suspicious=frozenset({"violation"}), safe=frozenset({"no_violation"}))
 VIOLATION_REASON = (
@@ -76,7 +77,7 @@ def build_repeated_monitor(model: BaseChatModel) -> object:
 def build_cascade_monitor(model: BaseChatModel) -> object:
     return CascadeMonitor(
         fast=LLMMonitor(model=model),
-        careful=LLMMonitor(model=model),
+        careful=LLMMonitor(model=model, highest_score=100),
         escalation_threshold=0.5,
     )
 
@@ -95,7 +96,6 @@ def run_final_answer(monitor: object, *, run_mode: RunMode) -> dict[str, object]
     return run_agent(agent, mode=run_mode)
 
 
-@pytest.mark.xfail(strict=True, reason="the monitors are not built on hyoshigi yet")
 @pytest.mark.parametrize(("run_mode", "side"), SIDES)
 @pytest.mark.parametrize(
     ("build_monitor", "replies", "suspicion", "reason", "calls"),
@@ -110,7 +110,7 @@ def run_final_answer(monitor: object, *, run_mode: RunMode) -> dict[str, object]
             id="guard",
         ),
         pytest.param(build_repeated_monitor, [SEVEN, SEVEN], 0.7, FIGURE_REASON, 2, id="repeated"),
-        pytest.param(build_cascade_monitor, [SEVEN, THREE], 0.3, MATCH_REASON, 2, id="cascade"),
+        pytest.param(build_cascade_monitor, [SEVEN, THREE], 0.03, MATCH_REASON, 2, id="cascade"),
     ],
 )
 def test_one_configuration_rates_on_the_side_of_the_entry_point_with_its_options(
@@ -136,7 +136,6 @@ def test_one_configuration_rates_on_the_side_of_the_entry_point_with_its_options
     assert "<proposed_action>" in model.requests[0]
 
 
-@pytest.mark.xfail(strict=True, reason="the monitors are not built on hyoshigi yet")
 @pytest.mark.parametrize(("run_mode", "side"), SIDES)
 def test_a_users_own_twins_rate_on_the_side_of_the_entry_point(
     run_mode: RunMode, side: str
@@ -155,7 +154,6 @@ def test_a_users_own_twins_rate_on_the_side_of_the_entry_point(
     assert "<proposed_action>" in generation.requests[0]
 
 
-@pytest.mark.xfail(strict=True, reason="the monitors are not built on hyoshigi yet")
 @pytest.mark.parametrize(("run_mode", "side"), SIDES)
 def test_a_calibrated_score_ranks_the_twins_score_among_honest_scores_read_once(
     run_mode: RunMode,
@@ -181,7 +179,6 @@ def test_a_calibrated_score_ranks_the_twins_score_among_honest_scores_read_once(
     assert "<proposed_action>" in model.requests[0]
 
 
-@pytest.mark.xfail(strict=True, reason="the monitors are not built on hyoshigi yet")
 def test_a_typesafe_decision_monitor_builds_both_twins_on_its_model(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -192,12 +189,42 @@ def test_a_typesafe_decision_monitor_builds_both_twins_on_its_model(
     monitor = DecisionMonitor(model="typesafe:jev-1.14")
 
     # Assert
-    assert isinstance(monitor.monitor, hyoshigi.DecisionMonitor)
-    assert isinstance(monitor.async_monitor, hyoshigi.AsyncDecisionMonitor)
-    assert monitor.monitor.model.name == monitor.async_monitor.model.name == "typesafe:jev-1.14"
+    assert isinstance(monitor.twins.monitor, hyoshigi.DecisionMonitor)
+    assert isinstance(monitor.twins.async_monitor, hyoshigi.AsyncDecisionMonitor)
+    assert monitor.twins.monitor.model.name == "typesafe:jev-1.14"
+    assert monitor.twins.async_monitor.model.name == "typesafe:jev-1.14"
 
 
-@pytest.mark.xfail(strict=True, reason="the monitors are not built on hyoshigi yet")
+def test_an_openrouter_decision_monitor_builds_both_twins_on_its_model(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Arrange: the client reads its key from the environment
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
+
+    # Act
+    monitor = DecisionMonitor(model="openrouter:typesafe/jev-1.14")
+
+    # Assert
+    assert isinstance(monitor.twins.monitor, hyoshigi.DecisionMonitor)
+    assert isinstance(monitor.twins.async_monitor, hyoshigi.AsyncDecisionMonitor)
+    assert monitor.twins.monitor.model.name == "openrouter:typesafe/jev-1.14"
+    assert monitor.twins.async_monitor.model.name == "openrouter:typesafe/jev-1.14"
+
+
+def test_an_openrouter_decision_monitor_that_perceives_media_is_a_configuration_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Arrange
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
+
+    # Act
+    with pytest.raises(ConfigurationError) as raised:
+        DecisionMonitor(model="openrouter:typesafe/jev-1.14", perceives=MediaTypes("image/png"))
+
+    # Assert
+    assert "text only" in str(raised.value)
+
+
 def test_a_typesafe_decision_monitor_without_a_key_is_a_configuration_error(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -212,7 +239,6 @@ def test_a_typesafe_decision_monitor_without_a_key_is_a_configuration_error(
     assert "TYPESAFE_API_KEY" in str(raised.value)
 
 
-@pytest.mark.xfail(strict=True, reason="the monitors are not built on hyoshigi yet")
 def test_a_decision_model_of_an_unknown_provider_is_a_configuration_error() -> None:
     # Act
     with pytest.raises(ConfigurationError) as raised:
@@ -223,7 +249,6 @@ def test_a_decision_model_of_an_unknown_provider_is_a_configuration_error() -> N
     assert "typesafe:" in str(raised.value)
 
 
-@pytest.mark.xfail(strict=True, reason="the monitors are not built on hyoshigi yet")
 def test_twins_of_the_wrong_family_are_a_configuration_error() -> None:
     # Arrange
     async_twin = ScriptedGeneration(outcome=Generation(text=SEVEN)).build_twins().async_monitor
@@ -239,7 +264,6 @@ def test_twins_of_the_wrong_family_are_a_configuration_error() -> None:
     assert isinstance(raised.value, hyoshigi.ConfigurationError)
 
 
-@pytest.mark.xfail(strict=True, reason="the monitors are not built on hyoshigi yet")
 def test_an_option_hyoshigi_refuses_is_the_librarys_configuration_error_from_hyoshigis() -> None:
     # Act: the lowest score must be below the highest
     with pytest.raises(ConfigurationError) as raised:
@@ -251,7 +275,6 @@ def test_an_option_hyoshigi_refuses_is_the_librarys_configuration_error_from_hyo
     assert type(raised.value.__cause__) is hyoshigi.ConfigurationError
 
 
-@pytest.mark.xfail(strict=True, reason="the monitors are not built on hyoshigi yet")
 def test_a_one_sample_guard_warns_once_at_the_line_that_builds_it() -> None:
     # Act
     with warnings.catch_warnings(record=True) as caught:
@@ -336,7 +359,6 @@ def build_cascade_with_a_sampling_guard() -> object:
     )
 
 
-@pytest.mark.xfail(strict=True, reason="the monitors are not built on hyoshigi yet")
 @pytest.mark.usefixtures("global_cache")
 @pytest.mark.parametrize(
     "build_monitor",
@@ -360,7 +382,6 @@ def test_a_monitor_that_asks_the_global_cache_the_same_prompt_again_warns_at_bui
     assert "cache=False" in str(caught[0].message)
 
 
-@pytest.mark.xfail(strict=True, reason="the monitors are not built on hyoshigi yet")
 def test_a_monitor_whose_model_has_its_own_cache_warns_at_build() -> None:
     # Arrange: no global cache, but the model carries one
     model = ScriptedChatModel(responses=[], cache=InMemoryCache())
@@ -431,7 +452,6 @@ def test_a_one_sample_guard_on_a_cached_model_does_not_warn_of_the_cache() -> No
     assert caught == []
 
 
-@pytest.mark.xfail(strict=True, reason="the monitors are not built on hyoshigi yet")
 @pytest.mark.usefixtures("global_cache")
 def test_the_cache_warning_shows_once_per_process_at_the_line_that_builds_the_middleware() -> None:
     # Act

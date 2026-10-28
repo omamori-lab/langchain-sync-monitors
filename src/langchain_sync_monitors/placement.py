@@ -283,8 +283,8 @@ def build_repeated_call_reason(
             "that calls the model at most once per step, such as TrustedMonitoring, "
             "DeferToResample(max_resamples=0, fallback=HaltRun()), or AutoMode with "
             "max_consecutive_blocks=1 or max_total_blocks=1 and when_limit_reached=HaltRun(). "
-            "Or judge with both monitors in one MonitorMiddleware, through a Monitor of your "
-            "own that runs both and keeps the higher suspicion."
+            "Or judge with both monitors in one MonitorMiddleware, through MonitorTwins of "
+            "your own whose twins run both and keep the higher suspicion."
         )
     return (
         f"wraps model calls inside {around}, which can call the model more than once in a "

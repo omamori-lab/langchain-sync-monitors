@@ -11,7 +11,7 @@ from typing import Final, Literal, TypedDict
 import httpx
 from pydantic import BaseModel, SecretStr, TypeAdapter, ValidationError
 
-from langchain_sync_monitors.monitors.openrouter_decisions import check_key_characters
+from langchain_sync_monitors.options import check_key_characters
 from langchain_sync_monitors.request_pool import RequestPool
 from langchain_sync_monitors.score_requests import (
     build_http_client,

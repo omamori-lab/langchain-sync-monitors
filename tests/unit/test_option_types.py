@@ -1,10 +1,10 @@
 """Constructors and functions check the type of their options when they are called.
 
-Protocols, fallbacks, the middleware, the monitors, their decision models,
-`MonitorView`, `DefaultThreshold`, `monitor_subagents`,
-`check_monitor_placement` and `resolve_threshold` refuse an option of the
-wrong type with `ConfigurationError`. `OpenRouterDecisionModel`'s `api_key` is
-tested with the decision model, in `monitors/test_decision.py`.
+Protocols, fallbacks, the middleware, the monitors, `DefaultThreshold`,
+`monitor_subagents`, `check_monitor_placement` and `resolve_threshold` refuse
+an option of the wrong type with `ConfigurationError`. An option a monitor
+passes to hyoshigi is refused with hyoshigi's message, raised again as the
+library's error.
 A limit given as a float, or a protocol given where a fallback belongs, used to
 build without error and fail only at the first suspicious step: with a
 `TypeError` or an `AttributeError`, during the attack the protocol exists for.
@@ -20,44 +20,32 @@ from dataclasses import dataclass
 from decimal import Decimal
 from enum import StrEnum
 from fractions import Fraction
+from operator import attrgetter
 from pathlib import Path
 from types import FunctionType
 from typing import Any
 
-import httpx
+import hyoshigi
 import pytest
+from hyoshigi import Action, Author, Observation, Step, TextPart, ToolCall, Trajectory
 from langchain.agents import create_agent
 from langchain_core.language_models.fake_chat_models import FakeListChatModel
-from langchain_core.messages import AIMessage, HumanMessage
-from langchain_core.prompts import ChatPromptTemplate
-from langchain_core.runnables import RunnableLambda
 
-from langchain_sync_monitors.contracts import (
-    Channel,
-    MonitorInput,
-    MonitorView,
-    Resampling,
-    SampleDrawing,
-    TaskAuthor,
+from langchain_sync_monitors import (
+    CalibratedMonitor,
+    CascadeMonitor,
+    DecisionMonitor,
+    GuardLabels,
+    GuardMonitor,
+    LLMMonitor,
+    MonitorPrompt,
+    MonitorTwins,
+    RepeatedMonitor,
 )
+from langchain_sync_monitors.contracts import Resampling, SampleDrawing
 from langchain_sync_monitors.deepagents import monitor_subagents
 from langchain_sync_monitors.errors import ConfigurationError
 from langchain_sync_monitors.middleware import MonitorMiddleware
-from langchain_sync_monitors.monitors import (
-    ATTACK_CRITERIA,
-    IS_THE_STEP_SUSPICIOUS,
-    Aggregation,
-    CalibratedMonitor,
-    CascadeMonitor,
-    DecisionModelMonitor,
-    GuardModelMonitor,
-    GuardScoring,
-    LLMMonitor,
-    OpenRouterDecisionModel,
-    RepeatedMonitor,
-    TypeSafeDecisionModel,
-    YesNoQuestion,
-)
 from langchain_sync_monitors.options import describe_option_value
 from langchain_sync_monitors.placement import check_monitor_placement
 from langchain_sync_monitors.protocols import (
@@ -75,9 +63,9 @@ from langchain_sync_monitors.thresholds import (
     DefaultThreshold,
     resolve_threshold,
 )
-from tests.support.monitors import KeywordMonitor
+from tests.support.monitors import KeywordMonitor, ScriptedGeneration
 from tests.support.protocols import AcceptFirst
-from tests.unit.monitors.doubles import CallPath, evaluate_on_path
+from tests.unit.monitors.doubles import CallPath, rate_on_path
 
 WRONG_COUNTS = [2.5, 2.0, "3", True, None]
 WRONG_COUNT_IDS = ["float", "whole-float", "string", "bool", "none"]
@@ -250,7 +238,7 @@ def test_a_fallback_given_as_the_protocol_points_to_the_protocol_it_resembles() 
     [
         (
             {"monitor": "openrouter:some/monitor-model"},
-            "monitor must be a Monitor, got 'openrouter:some/monitor-model'",
+            "monitor must be one of LLMMonitor, .*, got 'openrouter:some/monitor-model'",
         ),
         ({"protocol": "auto_mode"}, "protocol must be a ControlProtocol, got 'auto_mode'"),
     ],
@@ -438,16 +426,14 @@ def test_a_monitor_named_apart_from_its_label_and_agent_is_refused() -> None:
         RenamedMonitorMiddleware(monitor=KeywordMonitor(), protocol=AcceptFirst())
 
 
-POLICY_PROMPT = ChatPromptTemplate.from_messages([("human", "{transcript}{proposed_step}")])
-QUESTION_FIELDS: dict[str, Any] = {"key": "k", "text": "Leak?", "yes_means": "Y", "no_means": "N"}
-RUNNABLE_CLASSIFIER = RunnableLambda(lambda request: request)
-ONE_QUESTION = (IS_THE_STEP_SUSPICIOUS,)
+POLICY_PROMPT = MonitorPrompt(system="", request="{trajectory}{proposed_action}")
+LABELS = GuardLabels(suspicious=frozenset({"violation"}), safe=frozenset({"no_violation"}))
 
 
 @pytest.fixture(autouse=True)
-def openrouter_key(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Give the decision model a key, so no refusal below is the missing key's."""
-    monkeypatch.setenv("OPENROUTER_API_KEY", "unit-test-key")
+def typesafe_key(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Give the decision model's clients a key, so no refusal below is the missing key's."""
+    monkeypatch.setenv("TYPESAFE_API_KEY", "unit-test-key")
 
 
 def merge_options(defaults: dict[str, Any], options: dict[str, Any]) -> dict[str, Any]:
@@ -458,28 +444,19 @@ def build_llm_monitor(**options: Any) -> LLMMonitor:
     return LLMMonitor(**merge_options({"model": build_trusted_model()}, options))
 
 
-def build_guard_monitor(**options: Any) -> GuardModelMonitor:
-    labels = {"suspicious_labels": {"violation"}, "safe_labels": {"no_violation"}}
-    defaults = {"model": build_trusted_model(), "policy_prompt": POLICY_PROMPT, **labels}
-    return GuardModelMonitor(**merge_options(defaults, options))
+def build_guard_monitor(**options: Any) -> GuardMonitor:
+    defaults = {"model": build_trusted_model(), "prompt": POLICY_PROMPT, "labels": LABELS}
+    return GuardMonitor(**merge_options(defaults, options))
 
 
-def build_decision_model(**options: Any) -> OpenRouterDecisionModel:
-    return OpenRouterDecisionModel(**merge_options({"model": "typesafe/jev-1.13"}, options))
+def build_decision_monitor(**options: Any) -> DecisionMonitor:
+    return DecisionMonitor(**merge_options({"model": "typesafe:jev-1.14"}, options))
 
 
-def build_decision_monitor(**options: Any) -> DecisionModelMonitor:
-    defaults = {"decision_model": build_decision_model()}
-    return DecisionModelMonitor(**merge_options(defaults, options))
-
-
-def build_typesafe_model(**options: Any) -> TypeSafeDecisionModel:
-    pytest.importorskip("langchain_typesafe")
-    return TypeSafeDecisionModel(**options)
-
-
-def build_question(**options: Any) -> YesNoQuestion:
-    return YesNoQuestion(**merge_options(QUESTION_FIELDS, options))
+def build_monitor_twins(**options: Any) -> MonitorTwins:
+    twins = ScriptedGeneration(outcome=hyoshigi.Generation(text="unused")).build_twins()
+    defaults = {"monitor": twins.monitor, "async_monitor": twins.async_monitor}
+    return MonitorTwins(**merge_options(defaults, options))
 
 
 def build_repeated_monitor(**options: Any) -> RepeatedMonitor:
@@ -521,7 +498,6 @@ WRONG_WHOLE_NUMBERS: list[object] = [True, 2.5, 2.0, "3", math.nan]
 WRONG_THRESHOLDS: list[object] = [True, "0.5", None, math.nan, 1.5, -0.1, Decimal("sNaN")]
 WRONG_OBJECTS: list[object] = ["text", True, math.nan, None]
 WRONG_TEXTS: list[object] = [5, True, math.nan, None]
-WRONG_DURATIONS: list[object] = [0, -1, math.inf, math.nan, 10**400, Decimal("1E-400")]
 WHOLE = "be a whole number of at least"
 BETWEEN_ZERO_AND_ONE = "be (a number )?between 0 and 1, got"
 REFUSAL_RULES: list[tuple[Build, str, list[object], str]] = [
@@ -531,45 +507,35 @@ REFUSAL_RULES: list[tuple[Build, str, list[object], str]] = [
     (build_guard_monitor, "samples", [0], "be at least 1, got 0"),
     (build_llm_monitor, "max_parse_retries", [*WRONG_WHOLE_NUMBERS, None], f"{WHOLE} 0"),
     (build_llm_monitor, "max_parse_retries", [-1], "be at least 0, got -1"),
-    (MonitorView, "most_recent_entries", WRONG_WHOLE_NUMBERS, f"{WHOLE} 1, or None"),
-    (MonitorView, "most_recent_entries", [0, -1], "be at least 1, or None to keep every entry"),
     (build_llm_monitor, "lowest_score", [*WRONG_WHOLE_NUMBERS, None], "be an integer, got"),
     (build_llm_monitor, "highest_score", [*WRONG_WHOLE_NUMBERS, None], "be an integer, got"),
     (build_calibrated_monitor, "random_seed", WRONG_WHOLE_NUMBERS, "be an integer, got"),
     (build_cascade_monitor, "escalation_threshold", WRONG_THRESHOLDS, BETWEEN_ZERO_AND_ONE),
     (build_calibrated_monitor, "honest_scores", ["0.1", True, 0.5, None], "be an iterable of"),
     (build_calibrated_monitor, "honest_scores", [[]], "hold at least one score"),
-    (build_decision_model, "timeout_seconds", [True, "30", None], "be a positive number, got"),
-    (build_decision_model, "timeout_seconds", WRONG_DURATIONS, "be a positive, finite number"),
-    (build_decision_model, "timeout_seconds", [Decimal("sNaN")], "be a positive, finite number"),
     (build_llm_monitor, "model", [True, math.nan, None], "be a LangChain chat model or a"),
-    (build_llm_monitor, "prompt", WRONG_OBJECTS, "be a ChatPromptTemplate, got"),
-    (build_guard_monitor, "policy_prompt", WRONG_OBJECTS, "be a ChatPromptTemplate, got"),
-    (build_llm_monitor, "view", WRONG_OBJECTS, "be a MonitorView, got"),
-    (build_guard_monitor, "view", WRONG_OBJECTS, "be a MonitorView, got"),
-    (build_decision_monitor, "view", WRONG_OBJECTS, "be a MonitorView, got"),
-    (build_guard_monitor, "suspicious_labels", [*WRONG_OBJECTS, ["x"]], "be a set of strings"),
-    (build_guard_monitor, "suspicious_labels", [{5}], "hold only strings, got 5"),
-    (build_guard_monitor, "safe_labels", [*WRONG_OBJECTS, ["x"]], "be a set of strings"),
-    (build_guard_monitor, "safe_labels", [{None}], "hold only strings, got None"),
-    (build_guard_monitor, "scoring", WRONG_OBJECTS, "be one of GuardScoring.AUTO"),
-    (build_decision_monitor, "aggregation", WRONG_OBJECTS, "be one of Aggregation.MAX"),
-    (build_decision_monitor, "decision_model", WRONG_OBJECTS, "be a DecisionModel, got"),
-    (build_decision_monitor, "questions", [*WRONG_OBJECTS, *ONE_QUESTION], "be an iterable of"),
-    (build_decision_monitor, "questions", [[], ONE_QUESTION * 2], "be non-empty, with unique"),
-    (build_decision_model, "model", WRONG_TEXTS, "be a str, got"),
-    (build_decision_model, "base_url", WRONG_TEXTS, "be a str, got"),
-    (build_decision_model, "http_client", [httpx.AsyncClient(), "x"], "be a Client, got"),
-    (build_decision_model, "async_http_client", [httpx.Client(), "x"], "be an AsyncClient"),
-    (build_typesafe_model, "classifier", WRONG_OBJECTS, "be a Runnable, got"),
-    (build_repeated_monitor, "monitor", [*WRONG_OBJECTS, build_trusted_model()], "be a Monitor"),
-    (build_calibrated_monitor, "monitor", WRONG_OBJECTS, "be a Monitor, got"),
-    (build_cascade_monitor, "fast", WRONG_OBJECTS, "be a Monitor, got"),
-    (build_cascade_monitor, "careful", WRONG_OBJECTS, "be a Monitor, got"),
-    (MonitorView, "channels", [*WRONG_OBJECTS, 1], "be a Channel, got"),
-    (MonitorView, "delegation_tools", [*WRONG_OBJECTS, ["task"]], "be a set of strings, such as"),
-    (MonitorView, "delegation_tools", [{5}], "hold only strings, got 5"),
-    *[(build_question, field, WRONG_TEXTS, "be a str, got") for field in QUESTION_FIELDS],
+    (build_llm_monitor, "prompt", WRONG_OBJECTS, "be a MonitorPrompt, got"),
+    (build_guard_monitor, "prompt", WRONG_OBJECTS, "be a MonitorPrompt, got"),
+    (build_llm_monitor, "view", WRONG_OBJECTS, "be a View, got"),
+    (build_guard_monitor, "view", WRONG_OBJECTS, "be a View, got"),
+    (build_decision_monitor, "view", WRONG_OBJECTS, "be a View, got"),
+    (build_guard_monitor, "labels", WRONG_OBJECTS, "be a GuardLabels, got"),
+    (build_decision_monitor, "aggregation", WRONG_OBJECTS, "be an Aggregation, got"),
+    (build_decision_monitor, "statements", [*WRONG_OBJECTS, ["x"]], "be a tuple, got"),
+    (build_decision_monitor, "statements", [()], "not be empty"),
+    (build_decision_monitor, "model", WRONG_TEXTS, "be a str, got"),
+    (
+        build_decision_monitor,
+        "model",
+        ["anthropic:x", "jev-1.14", "typesafe:"],
+        "name a decision model",
+    ),
+    (build_repeated_monitor, "monitor", [*WRONG_OBJECTS, build_trusted_model()], "be one of"),
+    (build_calibrated_monitor, "monitor", WRONG_OBJECTS, "be one of LLMMonitor, "),
+    (build_cascade_monitor, "fast", WRONG_OBJECTS, "be one of LLMMonitor, "),
+    (build_cascade_monitor, "careful", WRONG_OBJECTS, "be one of LLMMonitor, "),
+    (build_monitor_twins, "monitor", WRONG_OBJECTS, "be a Monitor, got"),
+    (build_monitor_twins, "async_monitor", WRONG_OBJECTS, "be an AsyncMonitor, got"),
     (build_middleware, "label", ["", " ", *WRONG_TEXTS], "be a non-blank string, got"),
     (build_middleware, "label", ["team:a", "team|a"], "not contain '[:|]', which LangGraph"),
     (build_middleware, "agent_name", ["", *WRONG_TEXTS], "be a non-blank string, got"),
@@ -638,7 +604,6 @@ ITEM_REFUSAL_CASES: list[tuple[Build, dict[str, Any], str]] = [
         (build_calibrated_monitor, {"honest_scores": [0.2, value]}, HONEST_SCORE_REFUSAL)
         for value in WRONG_THRESHOLDS
     ],
-    (build_decision_monitor, {"questions": [*ONE_QUESTION, "x"]}, r"questions\[1\] must be a Yes"),
     (build_monitored_subagents, {"subagents": ["worker"]}, r"subagents\[0\] must be a Mapping"),
     *[
         (build_monitored_subagents, {"subagents": [{**WORKER_SPEC, "name": name}]}, message)
@@ -682,39 +647,58 @@ def test_the_ends_of_a_scale_are_read_before_they_are_compared() -> None:
 
 SCORES_IN_ANY_FORM = iter([Decimal("0.5"), Fraction(1, 4), 1, 0, -0.0])
 ACCEPTED_CASES: list[tuple[Build, dict[str, object], str, object]] = [
-    (build_repeated_monitor, {"ensemble_size": 1}, "ensemble_size", 1),
-    (build_repeated_monitor, {"ensemble_size": ArrayInteger(3)}, "ensemble_size", 3),
-    (build_guard_monitor, {"samples": 1}, "samples", 1),
-    (build_guard_monitor, {"samples": ArrayInteger(2)}, "samples", 2),
-    (build_llm_monitor, {"max_parse_retries": 0}, "max_parse_retries", 0),
-    (build_llm_monitor, {"max_parse_retries": ArrayInteger(1)}, "max_parse_retries", 1),
-    (build_llm_monitor, {"lowest_score": -5, "highest_score": -4}, "highest_score", -4),
-    (build_llm_monitor, {"lowest_score": ArrayInteger(9)}, "lowest_score", 9),
-    (MonitorView, {"most_recent_entries": 1}, "most_recent_entries", 1),
-    (MonitorView, {"most_recent_entries": ArrayInteger(2)}, "most_recent_entries", 2),
-    (MonitorView, {"most_recent_entries": None}, "most_recent_entries", None),
-    (MonitorView, {"channels": Channel.USER | Channel.REASONING}, "channels", Channel(3)),
-    (MonitorView, {"delegation_tools": {"ask"}}, "delegation_tools", frozenset({"ask"})),
-    (build_calibrated_monitor, {"random_seed": None}, "random_seed", None),
-    (build_calibrated_monitor, {"random_seed": -3}, "random_seed", -3),
-    (build_calibrated_monitor, {"random_seed": ArrayInteger(7)}, "random_seed", 7),
-    (build_calibrated_monitor, {"honest_scores": [0.2, 1]}, "sorted_honest_scores", [0.2, 1.0]),
+    (build_repeated_monitor, {"ensemble_size": 1}, "twins.monitor.ensemble_size", 1),
+    (build_repeated_monitor, {"ensemble_size": ArrayInteger(3)}, "twins.monitor.ensemble_size", 3),
+    (build_guard_monitor, {"samples": 1}, "twins.async_monitor.samples", 1),
+    (build_guard_monitor, {"samples": ArrayInteger(2)}, "twins.async_monitor.samples", 2),
+    (build_llm_monitor, {"max_parse_retries": 0}, "twins.monitor.max_parse_retries", 0),
+    (
+        build_llm_monitor,
+        {"max_parse_retries": ArrayInteger(1)},
+        "twins.async_monitor.max_parse_retries",
+        1,
+    ),
+    (
+        build_llm_monitor,
+        {"lowest_score": -5, "highest_score": -4},
+        "twins.monitor.highest_score",
+        -4,
+    ),
+    (build_llm_monitor, {"lowest_score": ArrayInteger(9)}, "twins.monitor.lowest_score", 9),
+    (build_calibrated_monitor, {"random_seed": None}, "twins.monitor.random_seed", None),
+    (build_calibrated_monitor, {"random_seed": -3}, "twins.async_monitor.random_seed", -3),
+    (build_calibrated_monitor, {"random_seed": ArrayInteger(7)}, "twins.monitor.random_seed", 7),
+    (
+        build_calibrated_monitor,
+        {"honest_scores": [0.2, 1]},
+        "twins.async_monitor.sorted_honest_scores",
+        (0.2, 1.0),
+    ),
     (
         build_calibrated_monitor,
         {"honest_scores": SCORES_IN_ANY_FORM},
-        "sorted_honest_scores",
-        [0.0, 0.0, 0.25, 0.5, 1.0],
+        "twins.async_monitor.sorted_honest_scores",
+        (0.0, 0.0, 0.25, 0.5, 1.0),
     ),
-    (build_cascade_monitor, {"escalation_threshold": 0}, "escalation_threshold", 0.0),
-    (build_cascade_monitor, {"escalation_threshold": 1}, "escalation_threshold", 1.0),
-    (build_cascade_monitor, {"escalation_threshold": -0.0}, "escalation_threshold", 0.0),
-    (build_cascade_monitor, {"escalation_threshold": Decimal("0.3")}, "escalation_threshold", 0.3),
-    (build_decision_model, {"timeout_seconds": 30}, "timeout_seconds", 30.0),
-    (build_decision_model, {"timeout_seconds": 5e-324}, "timeout_seconds", 5e-324),
-    (build_decision_model, {"timeout_seconds": Decimal("0.5")}, "timeout_seconds", 0.5),
-    (build_decision_model, {"async_http_client": None}, "async_http_client", None),
-    (build_decision_monitor, {"questions": iter(ONE_QUESTION)}, "questions", ONE_QUESTION),
-    (build_typesafe_model, {"classifier": RUNNABLE_CLASSIFIER}, "classifier", RUNNABLE_CLASSIFIER),
+    (build_cascade_monitor, {"escalation_threshold": 0}, "twins.monitor.escalation_threshold", 0.0),
+    (
+        build_cascade_monitor,
+        {"escalation_threshold": 1},
+        "twins.async_monitor.escalation_threshold",
+        1.0,
+    ),
+    (
+        build_cascade_monitor,
+        {"escalation_threshold": -0.0},
+        "twins.monitor.escalation_threshold",
+        0.0,
+    ),
+    (
+        build_cascade_monitor,
+        {"escalation_threshold": Decimal("0.3")},
+        "twins.monitor.escalation_threshold",
+        0.3,
+    ),
     (build_middleware, {"label": "team[a"}, "name", "team[a[main]"),
     (build_middleware, {"agent_name": "worker[v2]"}, "name", "monitor[worker[v2]]"),
     (build_middleware, {"label": "team.a", "agent_name": "sub a"}, "name", "team.a[sub a]"),
@@ -723,6 +707,7 @@ ACCEPTED_CASES: list[tuple[Build, dict[str, object], str, object]] = [
 ]
 
 
+@pytest.mark.filterwarnings("ignore::hyoshigi.HardLabelWarning")
 @pytest.mark.parametrize(("build", "options", "attribute", "expected"), ACCEPTED_CASES)
 def test_a_valid_option_is_kept_as_a_plain_value(
     build: Build,
@@ -734,7 +719,7 @@ def test_a_valid_option_is_kept_as_a_plain_value(
     built = build(**options)
 
     # Assert: the repr tells an int from numpy's, a float from a Decimal and 0.0 from -0.0
-    kept = getattr(built, attribute)
+    kept = attrgetter(attribute)(built)
     assert kept == expected
     assert repr(kept) == repr(expected)
 
@@ -744,14 +729,10 @@ async def test_a_decimal_escalation_threshold_escalates_the_float_score_it_names
     call_path: CallPath,
 ) -> None:
     # Arrange: the float 0.3 lies below Decimal("0.3"), so a Decimal kept as given missed it
-    step = MonitorInput(
-        history=(HumanMessage("Summarise q3.md."),),
-        proposal=AIMessage(
-            content="",
-            tool_calls=[{"id": "call-1", "name": "read_file", "args": {"path": "q3.md"}}],
-        ),
-        task_author=TaskAuthor.USER,
-    )
+    trajectory = Trajectory()
+    trajectory.observe(Observation(author=Author.USER, parts=(TextPart(text="Summarise q3.md."),)))
+    call = ToolCall(id="call-1", name="read_file", arguments='{"path": "q3.md"}')
+    step = Step(trajectory=trajectory, action=Action(tool_calls=(call,)))
     cascade = build_cascade_monitor(
         fast=KeywordMonitor(suspicion_by_keyword={"read_file": 0.3}),
         careful=KeywordMonitor(suspicion_by_keyword={"read_file": 0.9}),
@@ -759,10 +740,10 @@ async def test_a_decimal_escalation_threshold_escalates_the_float_score_it_names
     )
 
     # Act
-    verdict = await evaluate_on_path(cascade, step, call_path=call_path)
+    score = await rate_on_path(cascade, step, call_path=call_path)
 
     # Assert
-    assert verdict.suspicion == 0.9
+    assert score.value == 0.9
 
 
 def test_a_bracketed_name_builds_an_agent() -> None:
@@ -800,12 +781,12 @@ def test_the_placement_check_takes_a_tuple_as_it_takes_a_list() -> None:
         (
             build_repeated_monitor,
             {"monitor": LLMMonitor},
-            "got the class LLMMonitor; pass an instance$",
+            r"got the class LLMMonitor; pass an instance\. A monitor of your own",
         ),
         (
-            build_decision_monitor,
-            {"decision_model": OpenRouterDecisionModel},
-            "; pass an instance. Use",
+            build_monitor_twins,
+            {"monitor": hyoshigi.LLMMonitor},
+            "; pass an instance. It is the twin",
         ),
         (build_repeated_monitor, {"ensemble_size": int}, "got the class int; pass an instance$"),
     ],
@@ -824,10 +805,11 @@ def test_a_class_given_where_an_instance_belongs_is_named_as_a_class(
 @pytest.mark.parametrize(
     ("options", "message"),
     [
-        ({"view": "all"}, r"view must be a MonitorView, got 'all'$"),
+        ({"view": "all"}, r"view must be a View, got an instance of str$"),
         (
-            {"prompt": None},
-            r"got None\. Build one with ChatPromptTemplate\.from_messages\(\.\.\.\)\.$",
+            {"model": None},
+            r"got NoneType\. Pass the chat model itself, not a Runnable wrapped around it, and "
+            r"set its retries through its own max_retries\.$",
         ),
     ],
     ids=["no-hint", "hint"],
@@ -853,8 +835,6 @@ HUGE_OPTIONS = {
     "resamples": lambda: DeferToResample(
         fallback=HaltRun(), defer_threshold=0.6, audit_threshold=None, max_resamples=-HUGE
     ),
-    "most-recent-entries": lambda: MonitorView(most_recent_entries=-HUGE),
-    "timeout": lambda: OpenRouterDecisionModel(model="typesafe/jev-1.13", timeout_seconds=HUGE),
     "enum": lambda: MonitorMiddleware(
         monitor=KeywordMonitor(),
         protocol=AcceptFirst(),
@@ -920,83 +900,6 @@ FULL_REFUSALS: dict[str, tuple[Build, dict[str, object], str]] = {
         {"honest_scores": []},
         "honest_scores must hold at least one score",
     ),
-    "classifier": (
-        build_typesafe_model,
-        {"classifier": "text"},
-        "classifier must be a Runnable, got 'text'. Pass a TypeSafeClassifier from "
-        "langchain-typesafe.",
-    ),
-    "questions-not-an-iterable": (
-        build_decision_monitor,
-        {"questions": "text"},
-        "questions must be an iterable of YesNoQuestion, got 'text'. Wrap one question in a "
-        "list, such as [IS_THE_STEP_SUSPICIOUS].",
-    ),
-    "suspicious-labels-not-a-set": (
-        build_guard_monitor,
-        {"suspicious_labels": ["violation"]},
-        "suspicious_labels must be a set of strings, such as {'violation'}, got an instance "
-        "of list",
-    ),
-    "safe-labels-not-a-set": (
-        build_guard_monitor,
-        {"safe_labels": ["no_violation"]},
-        "safe_labels must be a set of strings, such as {'no_violation'}, got an instance of list",
-    ),
-    "no-suspicious-labels": (
-        build_guard_monitor,
-        {"suspicious_labels": set()},
-        "suspicious_labels must hold at least one label",
-    ),
-    "no-safe-labels": (
-        build_guard_monitor,
-        {"safe_labels": set()},
-        "safe_labels must hold at least one label",
-    ),
-    "suspicious-label-of-two-words": (
-        build_guard_monitor,
-        {"suspicious_labels": {"not safe"}},
-        "suspicious_labels must hold only single words of letters, digits, _ or -, each "
-        "beginning and ending with a letter or digit, got ['not safe']",
-    ),
-    "safe-labels-of-two-words": (
-        build_guard_monitor,
-        {"safe_labels": {"no violation", "fine", "all clear"}},
-        "safe_labels must hold only single words of letters, digits, _ or -, each beginning "
-        "and ending with a letter or digit, got ['all clear', 'no violation']",
-    ),
-    "labels-in-both-sets": (
-        build_guard_monitor,
-        {
-            "suspicious_labels": {"Unsafe", "violation", "harmful", "toxic"},
-            "safe_labels": {"unsafe", "VIOLATION", "harmful", "fine"},
-        },
-        "a label cannot be in both suspicious_labels and safe_labels, got ['harmful', "
-        "'unsafe', 'violation']",
-    ),
-    "most-recent-entries": (
-        MonitorView,
-        {"most_recent_entries": 2.5},
-        "most_recent_entries must be a whole number of at least 1, or None to keep every "
-        "entry, got 2.5",
-    ),
-    "timeout-as-text": (
-        build_decision_model,
-        {"timeout_seconds": "30"},
-        "timeout_seconds must be a positive number, got '30'",
-    ),
-    "http-client": (
-        build_decision_model,
-        {"http_client": "x"},
-        "http_client must be a Client, got 'x'. Pass an httpx.Client, or None for one the "
-        "model opens.",
-    ),
-    "async-http-client": (
-        build_decision_model,
-        {"async_http_client": "x"},
-        "async_http_client must be an AsyncClient, got 'x'. Pass an httpx.AsyncClient, or "
-        "None for one per request.",
-    ),
     "limit-fallback": (
         build_auto_mode,
         {"when_limit_reached": "halt"},
@@ -1040,13 +943,6 @@ def test_a_refusal_reads_in_full(
 @pytest.mark.parametrize(
     ("option_type", "text", "member"),
     [
-        (Aggregation, "max", Aggregation.MAX),
-        (Aggregation, "min", Aggregation.MIN),
-        (Aggregation, "mean", Aggregation.MEAN),
-        (GuardScoring, "auto", GuardScoring.AUTO),
-        (GuardScoring, "log_probabilities", GuardScoring.LOG_PROBABILITIES),
-        (GuardScoring, "sample_fraction", GuardScoring.SAMPLE_FRACTION),
-        (GuardScoring, "hard_label", GuardScoring.HARD_LABEL),
         (Resampling, "sequential", Resampling.SEQUENTIAL),
         (Resampling, "parallel", Resampling.PARALLEL),
         (SampleDrawing, "sequential", SampleDrawing.SEQUENTIAL),
@@ -1066,8 +962,6 @@ def test_a_string_from_configuration_converts_to_the_member_it_names(
 
 
 SHARED_PRESETS: dict[str, tuple[object, str]] = {
-    "default-question": (IS_THE_STEP_SUSPICIOUS, "key"),
-    "attack-criterion": (ATTACK_CRITERIA[0], "text"),
     "default-feedback": (DEFAULT_FEEDBACK_TEMPLATE, "text"),
     "default-limit-fallback": (build_auto_mode().when_limit_reached, "message"),
     "default-threshold": (DEFAULT_BLOCK_THRESHOLD, "value"),

@@ -1,9 +1,10 @@
 """The spans a monitored step opens in LangChain tracers, and what each one carries.
 
 Every step opens a `monitor step` span around the protocol, and the agent's
-samples nest in it. Each sample the monitor judges gets a `monitor judgement`
-span, around the monitor's own calls, and each Decisions API request a
-`monitor classifier` span. Once the protocol has decided, a short
+samples nest in it. Each rating gets a `monitor judgement` span, around the
+monitor's own calls: `TracedMonitor` and `AsyncTracedMonitor` wrap the
+monitor's twins and open it around each `rate`, numbering the step's
+ratings in the order they start. Once the protocol has decided, a short
 `monitor decision` span carries the outcome in its tags, which a span cannot
 change after it starts. The names are fixed, so LangSmith and Langfuse filter
 and count spans by name, and what varies goes in metadata under flat keys
@@ -20,12 +21,16 @@ samples nest in it.
 
 from __future__ import annotations
 
-from collections.abc import AsyncGenerator, Generator, Sequence
+import itertools
+from collections.abc import AsyncGenerator, Generator, Iterator, Sequence
 from contextlib import asynccontextmanager, contextmanager
+from contextvars import ContextVar
 from dataclasses import dataclass, field
 from types import MappingProxyType
 from uuid import UUID
 
+import hyoshigi
+from hyoshigi import Action, SuspicionScore, Trajectory
 from langchain_core.utils.uuid import uuid7
 
 from langchain_sync_monitors._langchain import (
@@ -37,18 +42,13 @@ from langchain_sync_monitors._langchain import (
     open_traced_run,
     open_traced_run_sync,
 )
-from langchain_sync_monitors.contracts import (
-    Monitor,
-    SampleRecord,
-    StepDecision,
-    StepRecord,
-    Verdict,
-)
+from langchain_sync_monitors.context_values import set_context_value
+from langchain_sync_monitors.contracts import SampleRecord, StepDecision, StepRecord
+from langchain_sync_monitors.monitors import MonitorConfiguration
 from langchain_sync_monitors.records import build_step_record
 
 STEP_SPAN_NAME = "monitor step"
 JUDGEMENT_SPAN_NAME = "monitor judgement"
-CLASSIFIER_SPAN_NAME = "monitor classifier"
 DECISION_SPAN_NAME = "monitor decision"
 
 MONITOR_TAG = "monitor"
@@ -191,24 +191,88 @@ def build_decision_span_outputs(record: StepRecord) -> dict[str, TraceValue]:
     }
 
 
-def build_judgement_span(*, sample_number: int, monitor: Monitor) -> TraceSpan:
-    """Return the span of one judgement: which sample of the step, judged by which monitor.
+judgement_numbers: ContextVar[Iterator[int]] = ContextVar("judgement_numbers")
+"""The numbers of the step's ratings, in the order they start; `counting_judgements` sets it."""
 
-    The sample's proposal stays out, since the model call that drew it
-    carries it, and the monitor's own calls, nested in the span, carry the
-    transcript as the monitor read it.
+
+@contextmanager
+def counting_judgements() -> Generator[None, None, None]:
+    """Number the ratings made in the block from 1, in the order they start."""
+    with set_context_value(judgement_numbers, value=itertools.count(1)):
+        yield
+
+
+def build_judgement_span(*, monitor: object) -> TraceSpan:
+    """Return the span of one rating: its number in the step, and the class of the twin rating.
+
+    The action stays out, since the model call that drew it carries it, and
+    the monitor's own calls, nested in the span, carry what the monitor read.
     """
     return TraceSpan(
         name=JUDGEMENT_SPAN_NAME,
-        inputs={"sample_number": sample_number, "monitor_class": type(monitor).__name__},
+        inputs={
+            "sample_number": next(judgement_numbers.get()),
+            "monitor_class": type(monitor).__name__,
+        },
         metadata=MONITOR_WORK_METADATA,
         tags=[MONITOR_TAG],
     )
 
 
-def build_verdict_outputs(verdict: Verdict) -> dict[str, TraceValue]:
-    """Return a judgement span's outputs: the verdict's suspicion and reason."""
-    return {"suspicion": verdict.suspicion, "reason": verdict.reason}
+def build_score_outputs(score: SuspicionScore) -> dict[str, TraceValue]:
+    """Return a judgement span's outputs: the score's value, its explanation, and whether it failed
+    closed.
+    """
+    return {
+        "suspicion": score.value,
+        "reason": score.explanation,
+        "failed_closed": score.failed_closed,
+    }
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class TracedMonitor(hyoshigi.Monitor):
+    """The sync twin with a `monitor judgement` span around each of its ratings."""
+
+    inner: hyoshigi.Monitor
+
+    def rate(self, action: Action, *, trajectory: Trajectory) -> SuspicionScore:
+        """Rate the action with the inner twin, inside its judgement span."""
+        with open_traced_run_sync(build_judgement_span(monitor=self.inner)) as traced_judgement:
+            score = self.inner.rate(action, trajectory=trajectory)
+            traced_judgement.outputs = build_score_outputs(score)
+        return score
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class AsyncTracedMonitor(hyoshigi.AsyncMonitor):
+    """The async twin with a `monitor judgement` span around each of its ratings."""
+
+    inner: hyoshigi.AsyncMonitor
+
+    async def rate(self, action: Action, *, trajectory: Trajectory) -> SuspicionScore:
+        """Rate the action with the inner twin, inside its judgement span."""
+        async with open_traced_run(build_judgement_span(monitor=self.inner)) as traced_judgement:
+            score = await self.inner.rate(action, trajectory=trajectory)
+            traced_judgement.outputs = build_score_outputs(score)
+        return score
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class TracedTwins:
+    """A monitor's twins, each with a judgement span around its ratings."""
+
+    monitor: TracedMonitor
+    async_monitor: AsyncTracedMonitor
+
+
+def trace_monitors(monitor: MonitorConfiguration) -> TracedTwins:
+    """Return the monitor's twins, each with a judgement span around its ratings."""
+    twins = monitor.twins
+    return TracedTwins(
+        monitor=TracedMonitor(inner=twins.monitor),
+        async_monitor=AsyncTracedMonitor(inner=twins.async_monitor),
+    )
 
 
 @contextmanager

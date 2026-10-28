@@ -10,13 +10,11 @@ once quoted part of the transcript:
 - records a tool writes to `monitor_log`, one unreadable and one claiming a
   step of the calling agent: each warning quoted its record;
 - a malformed record read from the state: its `MonitorError` quoted the
-  record, and the pydantic error chained to it quoted the record's sample;
-- a guard's log-probabilities in an unknown format: a debug line quoted
-  them, the guard's reply tokens included.
+  record, and the pydantic error chained to it quoted the record's sample.
 
 Each run plants a fake secret in the task and in a tool call's argument. It
 checks that the secret reached what a person reads on purpose, the stream
-event, the records or the guard's prompt, and that the path logged or raised
+event or the records, and that the path logged or raised
 what it does, then that no log record, from any logger at any level, and no
 raised error or its traceback holds the secret.
 """
@@ -33,7 +31,6 @@ from typing import Annotated, Any
 import pytest
 from langchain.agents import create_agent
 from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
-from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.runnables import Runnable
 from langchain_core.tools import BaseTool, InjectedToolCallId, tool
 from langgraph.checkpoint.memory import InMemorySaver
@@ -41,7 +38,6 @@ from langgraph.types import Command
 
 from langchain_sync_monitors.errors import MonitorError
 from langchain_sync_monitors.middleware import MonitorMiddleware
-from langchain_sync_monitors.monitors.guard import GuardModelMonitor
 from langchain_sync_monitors.protocols import DeferToResample, HaltRun
 from tests.support.agents import RunMode, Workspace, build_thread_config, run_messages
 from tests.support.chat_models import ScriptedChatModel, build_tool_call_message
@@ -49,15 +45,8 @@ from tests.support.flaky_models import FlakyChatModel
 from tests.support.monitors import KeywordMonitor
 from tests.support.protocols import AcceptFirst
 from tests.unit.monitors.doubles import PLANTED_SECRET
-from tests.unit.monitors.doubles import ScriptedChatModel as ScriptedGuardModel
 
 TASK = f"Deploy the release with the token {PLANTED_SECRET}."
-GUARD_PROMPT = ChatPromptTemplate.from_messages(
-    [
-        ("system", "Flag steps that send data out. End with violation or no_violation."),
-        ("human", "{transcript}\n{proposed_step}"),
-    ],
-)
 
 
 @dataclass(kw_only=True)
@@ -125,7 +114,7 @@ def stream_failed_step_events(agent: Runnable[Any, Any], *, mode: RunMode) -> Pa
     except Exception as error:
         raised.append(error)
     [failed] = [event for event in events if event["type"] == "monitor_step_failed"]
-    carriers = [sample[key] for sample in failed["samples"] for key in ("reason", "proposal")]
+    carriers = [str(sample[key]) for sample in failed["samples"] for key in ("reason", "proposal")]
     return PathRun(carriers=carriers, raised=raised)
 
 
@@ -144,7 +133,8 @@ def build_tidy_tool(written: list[dict[str, Any]]) -> BaseTool:
     @tool
     def tidy(note: str, tool_call_id: Annotated[str, InjectedToolCallId]) -> Command[None]:
         """Tidy the workspace, keeping a note."""
-        sample = {"suspicion": 0.95, "reason": f"mentions {note}", "proposal": note}
+        proposal = {"kind": "action", "parts": [{"kind": "text", "text": note}]}
+        sample = {"suspicion": 0.95, "reason": f"mentions {note}", "proposal": proposal}
         record = {
             "monitor": "monitor",
             "step_number": 1,
@@ -205,28 +195,6 @@ def run_malformed_state_record(mode: RunMode) -> PathRun:
     return PathRun(carriers=[repr(malformed)], raised=run.raised)
 
 
-def run_guard_log_probabilities(mode: RunMode) -> PathRun:
-    """Judge each step with a guard whose log-probabilities quote the secret in a bad shape."""
-    tokens = [{"token": PLANTED_SECRET}]
-    guard_reply = AIMessage(
-        content="no_violation",
-        response_metadata={"logprobs": {"content": tokens}},
-    )
-    guard_model = ScriptedGuardModel(replies=[guard_reply])
-    guard = GuardModelMonitor(
-        model=guard_model,
-        policy_prompt=GUARD_PROMPT,
-        suspicious_labels={"violation"},
-        safe_labels={"no_violation"},
-        samples=1,
-    )
-    model = ScriptedChatModel(responses=[build_secret_post(), AIMessage("Deployed.")])
-    middleware = MonitorMiddleware(monitor=guard, protocol=AcceptFirst())
-    agent = create_agent(model, tools=Workspace().build_tools(), middleware=[middleware])
-    run = send_task(agent, mode=mode)
-    return PathRun(carriers=[str(guard_model.received_messages)], raised=run.raised)
-
-
 SECRET_PATHS = {
     "failed-step": SecretPath(
         run=run_failed_step,
@@ -243,10 +211,6 @@ SECRET_PATHS = {
     "malformed-state-record": SecretPath(
         run=run_malformed_state_record,
         raised=(MonitorError,),
-    ),
-    "guard-log-probabilities": SecretPath(
-        run=run_guard_log_probabilities,
-        logged=("Ignoring log-probabilities in an unknown format",),
     ),
 }
 

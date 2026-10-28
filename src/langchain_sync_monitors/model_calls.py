@@ -110,8 +110,8 @@ MONITOR_CALL_NAME = "monitor call"
 A tracer otherwise names a call after its chat model's class, the same name
 as the agent's own calls. With this fixed name, LangSmith and Langfuse filter
 the monitor's calls by name, beside the spans in `spans`
-[@langsmith2026traces; @langfuse2026]. `OpenRouterDecisionModel` sends its
-request without LangChain, so it shows as a `monitor classifier` span instead.
+[@langsmith2026traces; @langfuse2026]. A decision monitor calls its provider's
+API without LangChain, so its requests show only as the judgement around them.
 """
 
 

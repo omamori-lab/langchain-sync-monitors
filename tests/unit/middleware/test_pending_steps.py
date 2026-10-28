@@ -4,31 +4,31 @@ from __future__ import annotations
 
 import asyncio
 import time
+from collections.abc import Iterator
 from dataclasses import dataclass, field
-from typing import Any, override
+from typing import Any, cast
 
+import hyoshigi
 import pytest
-from langchain.agents.middleware.types import ModelRequest, ModelResponse
+from hyoshigi import Action, Author, Observation, SuspicionScore, Trajectory
+from langchain.agents.middleware.types import AgentState, ModelRequest, ModelResponse
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, ToolMessage
 
-from langchain_sync_monitors.contracts import (
-    BlockedAttempt,
-    MonitorInput,
-    Sample,
-    SampleDrawing,
-    TaskAuthor,
-    Verdict,
-)
+from langchain_sync_monitors import MonitorTwins
+from langchain_sync_monitors._langchain import AsyncModelCallHandler, ModelCallHandler
+from langchain_sync_monitors.contracts import BlockedAttempt, Sample, SampleDrawing, TaskAuthor
 from langchain_sync_monitors.errors import ConfigurationError, MonitorError
 from langchain_sync_monitors.pending_steps import (
     AsyncPendingStep,
     SyncPendingStep,
     run_synchronously,
 )
+from langchain_sync_monitors.spans import counting_judgements, trace_monitors
+from langchain_sync_monitors.trajectories import load_step_trajectory
 from tests.support.agents import RunMode
 from tests.support.chat_models import ScriptedChatModel
 from tests.support.flaky_models import FlakyChatModel
-from tests.support.monitors import GatedMonitor, KeywordMonitor
+from tests.support.monitors import GatedMonitor, KeywordMonitor, read_action_text, score_by_keyword
 
 TASK = HumanMessage("Summarise the report.", id="task")
 
@@ -70,20 +70,86 @@ class RecordingHandler:
         return ModelResponse(result=[await request.model.ainvoke(request.messages)])
 
 
-@dataclass(kw_only=True)
-class EventRecordingMonitor(KeywordMonitor):
-    """Scores as `KeywordMonitor` does, noting each judgement in a log shared with the handler."""
+def note_rating(events: list[str], *, action: Action) -> SuspicionScore:
+    """Note a rating in a log shared with the handler, and score the action as benign."""
+    events.append(f"judgement of {read_action_text(action)}")
+    return score_by_keyword("", suspicion_by_keyword={})
+
+
+@dataclass(frozen=True, kw_only=True)
+class EventRecordingRater(hyoshigi.Monitor):
+    """Notes each rating in `events`."""
 
     events: list[str]
 
-    @override
-    def score(self, monitor_input: MonitorInput) -> Verdict:
-        self.events.append(f"judgement of {monitor_input.proposal.text}")
-        return super().score(monitor_input)
+    def rate(self, action: Action, *, trajectory: Trajectory) -> SuspicionScore:
+        return note_rating(self.events, action=action)
 
 
-def build_request(model: ScriptedChatModel) -> ModelRequest[Any]:
-    return ModelRequest(model=model, messages=[TASK], state={"messages": [TASK]})
+@dataclass(frozen=True, kw_only=True)
+class AsyncEventRecordingRater(hyoshigi.AsyncMonitor):
+    """Notes each rating in `events`."""
+
+    events: list[str]
+
+    async def rate(self, action: Action, *, trajectory: Trajectory) -> SuspicionScore:
+        return note_rating(self.events, action=action)
+
+
+def build_event_recording_monitor(events: list[str]) -> MonitorTwins:
+    return MonitorTwins(
+        monitor=EventRecordingRater(events=events),
+        async_monitor=AsyncEventRecordingRater(events=events),
+    )
+
+
+@pytest.fixture(autouse=True)
+def numbered_judgements() -> Iterator[None]:
+    """Number the ratings, as the middleware does for each step."""
+    with counting_judgements():
+        yield
+
+
+def build_request(
+    model: ScriptedChatModel, *, task_ids: list[str] | None = None
+) -> ModelRequest[Any]:
+    state: dict[str, Any] = {"messages": [TASK]}
+    if task_ids is not None:
+        state["monitor_task_messages"] = task_ids
+    return ModelRequest(model=model, messages=[TASK], state=cast("AgentState[Any]", state))
+
+
+def build_step_options(
+    request: ModelRequest[Any],
+    *,
+    monitor: MonitorTwins,
+    task_author: TaskAuthor,
+) -> dict[str, Any]:
+    """Return the keywords of a step rated by the monitor against the request's trajectory."""
+    trajectory = load_step_trajectory(request, label="monitor", task_author=task_author)
+    return {"request": request, "monitors": trace_monitors(monitor), "trajectory": trajectory}
+
+
+def build_sync_step(
+    request: ModelRequest[Any],
+    *,
+    handler: ModelCallHandler,
+    monitor: MonitorTwins,
+    task_author: TaskAuthor = TaskAuthor.USER,
+) -> SyncPendingStep:
+    options = build_step_options(request, monitor=monitor, task_author=task_author)
+    return SyncPendingStep(handler=handler, **options)
+
+
+def build_async_step(
+    request: ModelRequest[Any],
+    *,
+    handler: AsyncModelCallHandler,
+    monitor: MonitorTwins,
+    task_author: TaskAuthor = TaskAuthor.USER,
+) -> AsyncPendingStep:
+    options = build_step_options(request, monitor=monitor, task_author=task_author)
+    return AsyncPendingStep(handler=handler, **options)
 
 
 def draw_samples(
@@ -91,19 +157,15 @@ def draw_samples(
     *,
     mode: RunMode,
     handler: RecordingHandler,
-    monitor: KeywordMonitor,
+    monitor: MonitorTwins,
     sample_options: dict[str, Any],
 ) -> tuple[Sample, ...]:
     """Draw samples through the pending step that `invoke()` or `ainvoke()` builds."""
     request = build_request(model)
     if mode == "invoke":
-        step = SyncPendingStep(
-            request=request, handler=handler, monitor=monitor, task_author=TaskAuthor.USER
-        )
+        step = build_sync_step(request, handler=handler, monitor=monitor)
         return run_synchronously(step.sample(**sample_options))
-    async_step = AsyncPendingStep(
-        request=request, handler=handler.run_async, monitor=monitor, task_author=TaskAuthor.USER
-    )
+    async_step = build_async_step(request, handler=handler.run_async, monitor=monitor)
     return asyncio.run(async_step.sample(**sample_options))
 
 
@@ -130,8 +192,8 @@ def test_without_recorded_input_the_monitor_reads_no_human_message_as_the_task_a
     monitor: KeywordMonitor,
 ) -> None:
     # Arrange: a request whose state holds no run input, as when no before_agent hook ran
-    step = SyncPendingStep(
-        request=build_request(untrusted_model),
+    step = build_sync_step(
+        build_request(untrusted_model),
         handler=RecordingHandler(),
         monitor=monitor,
         task_author=TaskAuthor.USER,
@@ -141,8 +203,9 @@ def test_without_recorded_input_the_monitor_reads_no_human_message_as_the_task_a
     run_synchronously(step.sample(count=1))
 
     # Assert
-    [task] = monitor.inputs[0].history
-    assert task.additional_kwargs == {"lc_source": "application"}
+    [task] = monitor.ratings[0].history
+    assert isinstance(task, Observation)
+    assert (task.author, task.source) == (Author.SCAFFOLD, "application")
     assert TASK.additional_kwargs == {}
 
 
@@ -153,12 +216,11 @@ async def test_async_samples_see_each_blocked_attempt_and_its_feedback(
 ) -> None:
     # Arrange
     handler = RecordingHandler()
-    step = AsyncPendingStep(
-        request=build_request(untrusted_model),
+    step = build_async_step(
+        build_request(untrusted_model, task_ids=["task"]),
         handler=handler.run_async,
         monitor=monitor,
         task_author=TaskAuthor.PARENT_AGENT,
-        task_message_ids=frozenset({"task"}),
     )
 
     # Act
@@ -171,8 +233,13 @@ async def test_async_samples_see_each_blocked_attempt_and_its_feedback(
         "Read .env first.",
         "[Safety monitor] Blocked: reads credentials.",
     ]
-    assert monitor.inputs[0].history == tuple(seen)
-    assert monitor.inputs[0].task_author is TaskAuthor.PARENT_AGENT
+    task, attempt, feedback = monitor.ratings[0].history
+    assert isinstance(task, Observation)
+    assert isinstance(attempt, Action)
+    assert isinstance(feedback, Observation)
+    assert task.author is Author.DELEGATOR
+    assert read_action_text(attempt) == "Read .env first."
+    assert feedback.author is Author.MONITOR
     assert sample.proposal.text == "sample 0"
     assert sample.verdict.suspicion == pytest.approx(0.1)
 
@@ -195,8 +262,8 @@ async def test_async_samples_overlap_only_when_drawn_concurrently(
 ) -> None:
     # Arrange
     handler = RecordingHandler(delay=0.01)
-    step = AsyncPendingStep(
-        request=build_request(untrusted_model),
+    step = build_async_step(
+        build_request(untrusted_model),
         handler=handler.run_async,
         monitor=monitor,
         task_author=TaskAuthor.USER,
@@ -207,7 +274,7 @@ async def test_async_samples_overlap_only_when_drawn_concurrently(
 
     # Assert: every draw is judged, and a call returns all the samples it asked for
     assert handler.most_at_once == expected_overlap
-    assert len(monitor.inputs) == count
+    assert len(monitor.ratings) == count
     assert sorted(sample.proposal.text for sample in samples) == [
         f"sample {index}" for index in range(count)
     ]
@@ -224,8 +291,8 @@ def test_sync_step_draws_samples_one_after_another_however_asked(
 ) -> None:
     # Arrange: each call holds the model a moment, so draws run on threads would overlap
     handler = RecordingHandler(delay=0.01)
-    step = SyncPendingStep(
-        request=build_request(untrusted_model),
+    step = build_sync_step(
+        build_request(untrusted_model),
         handler=handler,
         monitor=monitor,
         task_author=TaskAuthor.USER,
@@ -239,7 +306,7 @@ def test_sync_step_draws_samples_one_after_another_however_asked(
     assert [sample.proposal.text for sample in samples] == [
         f"sample {index}" for index in range(count)
     ]
-    assert [monitor_input.proposal.text for monitor_input in monitor.inputs] == [
+    assert [read_action_text(rating.action) for rating in monitor.ratings] == [
         f"sample {index}" for index in range(count)
     ]
 
@@ -251,7 +318,7 @@ def test_a_sequential_draw_judges_each_sample_before_the_next_model_call(
     # Arrange: the handler and the monitor note what they do in one shared log
     events: list[str] = []
     handler = RecordingHandler(events=events)
-    monitor = EventRecordingMonitor(events=events)
+    monitor = build_event_recording_monitor(events)
     sample_options: dict[str, Any] = {"count": 3, "drawing": SampleDrawing.SEQUENTIAL}
 
     # Act
@@ -301,7 +368,7 @@ def test_a_drawing_that_is_not_a_member_is_refused_before_any_draw(
         f"got {drawing!r}. Convert a string with SampleDrawing(value)."
     )
     assert handler.requests == []
-    assert monitor.inputs == []
+    assert monitor.ratings == []
 
 
 def test_sync_samples_see_blocked_attempts_too(
@@ -310,8 +377,8 @@ def test_sync_samples_see_blocked_attempts_too(
     blocked_attempt: BlockedAttempt,
 ) -> None:
     # Arrange
-    step = SyncPendingStep(
-        request=build_request(untrusted_model),
+    step = build_sync_step(
+        build_request(untrusted_model),
         handler=RecordingHandler(),
         monitor=monitor,
         task_author=TaskAuthor.USER,
@@ -333,8 +400,8 @@ async def test_async_trusted_step_uses_the_trusted_model_through_the_handler(
     # Arrange
     trusted_model = ScriptedChatModel(responses=[AIMessage("trusted step")])
     handler = RecordingHandler()
-    step = AsyncPendingStep(
-        request=build_request(untrusted_model),
+    step = build_async_step(
+        build_request(untrusted_model),
         handler=handler.run_async,
         monitor=monitor,
         task_author=TaskAuthor.USER,
@@ -357,8 +424,8 @@ def test_sync_trusted_step_uses_the_trusted_model_through_the_handler(
     # Arrange
     trusted_model = ScriptedChatModel(responses=[AIMessage("trusted step")])
     handler = RecordingHandler()
-    step = SyncPendingStep(
-        request=build_request(untrusted_model),
+    step = build_sync_step(
+        build_request(untrusted_model),
         handler=handler,
         monitor=monitor,
         task_author=TaskAuthor.USER,
@@ -376,8 +443,8 @@ def test_the_proposal_is_the_first_ai_message_of_the_response(monitor: KeywordMo
     # Arrange
     proposal = AIMessage("structured answer", id="answer")
     extra: list[BaseMessage] = [proposal, ToolMessage("{}", tool_call_id="c"), AIMessage("later")]
-    step = SyncPendingStep(
-        request=build_request(ScriptedChatModel(responses=[])),
+    step = build_sync_step(
+        build_request(ScriptedChatModel(responses=[])),
         handler=lambda _request: ModelResponse(result=extra),
         monitor=monitor,
         task_author=TaskAuthor.USER,
@@ -392,8 +459,8 @@ def test_the_proposal_is_the_first_ai_message_of_the_response(monitor: KeywordMo
 
 def test_a_response_without_an_ai_message_raises(monitor: KeywordMonitor) -> None:
     # Arrange
-    step = SyncPendingStep(
-        request=build_request(ScriptedChatModel(responses=[])),
+    step = build_sync_step(
+        build_request(ScriptedChatModel(responses=[])),
         handler=lambda _request: ModelResponse(result=[ToolMessage("{}", tool_call_id="c")]),
         monitor=monitor,
         task_author=TaskAuthor.USER,
@@ -417,8 +484,8 @@ async def test_a_failed_concurrent_draw_cancels_the_others_and_raises_its_own_er
         replies=[RuntimeError("429 rate limited"), AIMessage("slow"), AIMessage("slow")],
         delays=[0.0, 0.2, 0.2],
     )
-    step = AsyncPendingStep(
-        request=ModelRequest(model=model, messages=[TASK], state={"messages": [TASK]}),
+    step = build_async_step(
+        ModelRequest(model=model, messages=[TASK], state={"messages": [TASK]}),
         handler=RecordingHandler().run_async,
         monitor=monitor,
         task_author=TaskAuthor.USER,
@@ -440,8 +507,8 @@ async def test_each_judged_sample_is_kept_on_the_step(
     monitor: KeywordMonitor,
 ) -> None:
     # Arrange
-    step = AsyncPendingStep(
-        request=build_request(untrusted_model),
+    step = build_async_step(
+        build_request(untrusted_model),
         handler=RecordingHandler().run_async,
         monitor=monitor,
         task_author=TaskAuthor.USER,
@@ -461,8 +528,8 @@ async def test_an_async_draw_the_step_outlasts_is_never_judged(
 ) -> None:
     # Arrange: the model call is still running when the step is closed
     handler = RecordingHandler(delay=0.05)
-    step = AsyncPendingStep(
-        request=build_request(untrusted_model),
+    step = build_async_step(
+        build_request(untrusted_model),
         handler=handler.run_async,
         monitor=monitor,
         task_author=TaskAuthor.USER,
@@ -477,7 +544,7 @@ async def test_an_async_draw_the_step_outlasts_is_never_judged(
 
     # Assert
     assert len(handler.requests) == 1
-    assert monitor.inputs == []
+    assert monitor.ratings == []
     assert step.judged_samples == []
 
 
@@ -487,8 +554,8 @@ async def test_an_async_draw_after_its_step_closed_never_calls_the_model(
     # Arrange: the step is closed while the monitor judges the first of two samples
     handler = RecordingHandler()
     monitor = GatedMonitor()
-    step = AsyncPendingStep(
-        request=build_request(untrusted_model),
+    step = build_async_step(
+        build_request(untrusted_model),
         handler=handler.run_async,
         monitor=monitor,
         task_author=TaskAuthor.USER,
@@ -513,8 +580,8 @@ async def test_a_closed_async_step_refuses_every_call(
 ) -> None:
     # Arrange
     handler = RecordingHandler()
-    step = AsyncPendingStep(
-        request=build_request(untrusted_model),
+    step = build_async_step(
+        build_request(untrusted_model),
         handler=handler.run_async,
         monitor=monitor,
         task_author=TaskAuthor.USER,

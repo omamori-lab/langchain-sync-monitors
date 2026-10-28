@@ -109,9 +109,9 @@ Every step adds one record.
 | `"halted"` | Only with `when_subagent_halts=SubagentHalt.STOP_WHOLE_RUN`: a subagent was halted, or that halt still stands. | 0 | None |
 
 `flagged` is `True` when the proposal's suspicion reached `audit_threshold`,
-and on every halt. The record keeps the rejected proposal rendered with every
-channel, but not the trusted model's step, which is in the agent's messages
-like any other step. A halt under `STOP_WHOLE_RUN` stands: until a later run
+and on every halt. The record keeps the rejected proposal whole, its
+reasoning included, but not the trusted model's step, which is in the agent's
+messages like any other step. A halt under `STOP_WHOLE_RUN` stands: until a later run
 brings new input from the user, every further step halts without a sample,
 and two paths through middleware listed before the monitor can lift it early;
 see [A halt stands](../explanation/design.md#a-halt-stands).
@@ -124,7 +124,9 @@ for record in result["monitor_log"]:
         # A deferred step keeps the agent's rejected proposal as its one sample.
         [rejected] = record["samples"]
         print(f"Step {record['step_number']} was deferred ({rejected['suspicion']:.2f}):")
-        print(rejected["proposal"])
+        # The rejected step's tool calls, each with its argument text.
+        for call in rejected["proposal"]["tool_calls"]:
+            print(f"  {call['name']} {call['arguments']}")
 ```
 
 ## Limits

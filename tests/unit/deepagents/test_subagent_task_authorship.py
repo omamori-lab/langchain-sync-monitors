@@ -5,6 +5,7 @@ from __future__ import annotations
 from langchain_core.messages import AIMessage
 from langgraph.checkpoint.memory import InMemorySaver
 
+from langchain_sync_monitors import Channel, View
 from tests.support.agents import (
     RunMode,
     Workspace,
@@ -20,13 +21,15 @@ from tests.support.written_human_messages import FRAMES_TEXT, attach_video, buil
 
 TASK = "Summarise q3.md for the team."
 DESCRIPTION = "Find the sources for q3.md."
+NOTES_VIEW = View(channels=Channel.DEFAULT | Channel.CONTEXT)
+FRAMES_NOTE = f'<context_note author="scaffold" source="attach_video">{FRAMES_TEXT}</context_note>'
 
 
 def test_a_human_message_a_subagent_tool_writes_is_a_note_not_the_delegator(
     run_mode: RunMode,
 ) -> None:
     # Arrange
-    worker_reader = RenderingMonitor()
+    worker_reader = RenderingMonitor(view=NOTES_VIEW)
     main_model = ScriptedChatModel(
         responses=[build_delegation_step(description=DESCRIPTION), AIMessage("Done.")],
     )
@@ -47,9 +50,9 @@ def test_a_human_message_a_subagent_tool_writes_is_a_note_not_the_delegator(
     run_agent(agent, mode=run_mode, config=config, task=TASK)
 
     # Assert
-    transcript = worker_reader.find_reading(tool_name="http_post").transcript
-    assert read_tagged_entries(transcript, tag="delegator") == [DESCRIPTION]
-    assert read_tagged_entries(transcript, tag="context_note") == [FRAMES_TEXT]
+    trajectory = worker_reader.find_reading(tool_name="http_post").trajectory
+    assert read_tagged_entries(trajectory, tag="delegator") == [DESCRIPTION]
+    assert FRAMES_NOTE in trajectory.splitlines()
     state = agent.get_state(config).values
     task_message_id = state["messages"][0].id
     assert state["monitor_task_messages"] == [task_message_id]

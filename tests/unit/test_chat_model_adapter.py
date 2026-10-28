@@ -60,6 +60,7 @@ from tests.support.tracing import RecordingTracer
 type CallPath = Literal["async", "sync"]
 
 ADAPTER_LOGGER = "langchain_sync_monitors.chat_model_adapter"
+LOG_PROBABILITIES_LOGGER = "langchain_sync_monitors.log_probabilities"
 SOURCE = "llm_monitor"
 PLANTED_SECRET = "planted-secret-9f3c1e"
 """A credential the prompt quotes, which no retry hook may be able to read."""
@@ -1332,7 +1333,6 @@ class KeywordRejectingChatModel(ScriptedChatModel):
         return await super()._agenerate(messages, stop, run_manager, **kwargs)
 
 
-@pytest.mark.xfail(strict=True)
 @pytest.mark.parametrize(
     "build_model",
     [
@@ -1358,18 +1358,8 @@ async def test_a_reply_with_log_probabilities_is_a_generation_that_holds_them(
     ("count", "expected"),
     [
         pytest.param(0, {}, id="zero"),
-        pytest.param(
-            2,
-            {"logprobs": True, "top_logprobs": 2},
-            id="two",
-            marks=pytest.mark.xfail(strict=True),
-        ),
-        pytest.param(
-            7,
-            {"logprobs": True, "top_logprobs": 7},
-            id="seven",
-            marks=pytest.mark.xfail(strict=True),
-        ),
+        pytest.param(2, {"logprobs": True, "top_logprobs": 2}, id="two"),
+        pytest.param(7, {"logprobs": True, "top_logprobs": 7}, id="seven"),
     ],
 )
 async def test_the_chat_model_is_asked_for_the_alternatives_the_count_names(
@@ -1391,8 +1381,8 @@ async def test_the_chat_model_is_asked_for_the_alternatives_the_count_names(
     "count",
     [
         pytest.param(0, id="zero"),
-        pytest.param(2, id="two", marks=pytest.mark.xfail(strict=True)),
-        pytest.param(7, id="seven", marks=pytest.mark.xfail(strict=True)),
+        pytest.param(2, id="two"),
+        pytest.param(7, id="seven"),
     ],
 )
 def test_both_models_declare_the_count_of_alternatives_the_chat_model_is_asked_for(
@@ -1409,7 +1399,6 @@ def test_both_models_declare_the_count_of_alternatives_the_chat_model_is_asked_f
     assert adapter.async_generative_model.top_log_probabilities == count
 
 
-@pytest.mark.xfail(strict=True)
 @pytest.mark.parametrize("count", [-1, True, 2.0, "2"])
 def test_a_count_that_is_not_a_whole_number_of_at_least_zero_is_a_configuration_error(
     count: object,
@@ -1505,7 +1494,6 @@ UNREADABLE_LOG_PROBABILITIES = [
 ]
 
 
-@pytest.mark.xfail(strict=True)
 @pytest.mark.parametrize("payload", UNREADABLE_LOG_PROBABILITIES)
 async def test_log_probabilities_not_in_the_documented_shape_make_the_reply_unavailable(
     call_path: CallPath,
@@ -1522,7 +1510,6 @@ async def test_log_probabilities_not_in_the_documented_shape_make_the_reply_unav
     assert outcome == Unavailable()
 
 
-@pytest.mark.xfail(strict=True)
 @pytest.mark.parametrize("alternatives", [[], None], ids=["empty-list", "null"])
 async def test_a_position_with_no_alternatives_is_kept_with_none(
     call_path: CallPath,
@@ -1572,7 +1559,6 @@ UNREADABLE_PAYLOADS_BY_REJECTER = [
 ]
 
 
-@pytest.mark.xfail(strict=True)
 @pytest.mark.parametrize("payload", UNREADABLE_PAYLOADS_BY_REJECTER)
 async def test_unreadable_log_probabilities_are_warned_of_by_their_type_alone(
     call_path: CallPath,
@@ -1590,7 +1576,7 @@ async def test_unreadable_log_probabilities_are_warned_of_by_their_type_alone(
     lines = [
         (record.levelname, record.getMessage())
         for record in every_log_record
-        if record.name == ADAPTER_LOGGER
+        if record.name == LOG_PROBABILITIES_LOGGER
     ]
     expected = (
         "WARNING",
@@ -1601,7 +1587,6 @@ async def test_unreadable_log_probabilities_are_warned_of_by_their_type_alone(
     assert find_logged_leaks(every_log_record, secrets=[PLANTED_TOKEN]) == []
 
 
-@pytest.mark.xfail(strict=True)
 @pytest.mark.parametrize(
     "rejection",
     [
@@ -1617,7 +1602,7 @@ async def test_a_chat_model_that_rejects_the_request_for_log_probabilities_is_a_
     # Arrange
     model = KeywordRejectingChatModel(responses=[FINE], rejection=rejection)
     message = (
-        "KeywordRejectingChatModel does not accept the request for log-probabilities that "
+        "keywordrejectingchatmodel does not accept the request for log-probabilities that "
         "top_log_probabilities makes; use top_log_probabilities=0 with this model"
     )
 
@@ -1635,7 +1620,6 @@ async def test_a_chat_model_that_rejects_the_request_for_log_probabilities_is_a_
             False,
             2,
             id="another-type-error",
-            marks=pytest.mark.xfail(strict=True),
         ),
         pytest.param(
             "Additional kwargs key logprobs already exists in left dict and value has "
@@ -1643,7 +1627,6 @@ async def test_a_chat_model_that_rejects_the_request_for_log_probabilities_is_a_
             False,
             2,
             id="a-merge-error-naming-logprobs",
-            marks=pytest.mark.xfail(strict=True),
         ),
         pytest.param(
             "Messages.create() got an unexpected keyword argument 'logprobs'",
@@ -1701,7 +1684,6 @@ def respond_and_keep_bodies(
     return respond
 
 
-@pytest.mark.xfail(strict=True)
 @pytest.mark.parametrize(
     ("settings", "expected"),
     [
@@ -1728,13 +1710,11 @@ def respond_and_keep_bodies(
             },
             {"order": ["AkashML"], "require_parameters": True},
             id="openrouter_provider-over-model_kwargs",
-            marks=pytest.mark.xfail(strict=True),
         ),
         pytest.param(
             {"openrouter_provider": {}, "model_kwargs": {"provider": {"order": ["Groq"]}}},
             {"require_parameters": True},
             id="an-empty-openrouter_provider",
-            marks=pytest.mark.xfail(strict=True),
         ),
     ],
 )

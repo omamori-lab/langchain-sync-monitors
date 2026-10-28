@@ -512,7 +512,8 @@
   author  = {Chase, Harrison},
   year    = {2026},
   version = {1.7.0},
-  url     = {https://github.com/langchain-ai/langchain/tree/master/libs/core}
+  url     = {https://github.com/langchain-ai/langchain/tree/master/libs/core},
+  note    = {Its chat model base class, which merges a generation's generation_info into the reply's response_metadata}
 }
 
 @software{langgraph2026,
@@ -536,7 +537,8 @@
   author  = {Chase, Harrison},
   year    = {2026},
   version = {0.2.9},
-  url     = {https://github.com/langchain-ai/langchain/tree/master/libs/partners/openrouter}
+  url     = {https://github.com/langchain-ai/langchain/tree/master/libs/partners/openrouter},
+  note    = {Its openrouter_provider field and the provider among its model_kwargs, which _default_params sends as the request's provider, a keyword bound to the model overriding it; and _create_chat_result, which keeps a choice's logprobs in generation_info}
 }
 
 @software{langchainanthropic2026,
@@ -553,7 +555,7 @@
   year    = {2026},
   version = {1.6.6},
   url     = {https://github.com/langchain-ai/langchain/tree/master/libs/partners/openai},
-  note    = {Its WellKnownTools list of built-in tool types, and _create_chat_result, which keeps a Chat Completions refusal in additional_kwargs}
+  note    = {Its WellKnownTools list of built-in tool types, and _create_chat_result, which keeps a Chat Completions refusal in additional_kwargs and a choice's logprobs in generation_info}
 }
 
 @techreport{rfc2046,
@@ -648,6 +650,15 @@
   url          = {https://docs.aws.amazon.com/bedrock/latest/APIReference/API_runtime_Converse.html}
 }
 
+@online{openrouter2026providerrouting,
+  title        = {Provider Routing},
+  author       = {{OpenRouter}},
+  year         = {2026},
+  organization = {OpenRouter documentation},
+  note         = {Its provider preferences, and require\_parameters, which routes a request only to providers that support every parameter in it (section "Requiring Providers to Support All Parameters")},
+  url          = {https://openrouter.ai/docs/guides/routing/provider-selection}
+}
+
 @software{anthropicpythonsdk2026,
   title   = {{anthropic}: the {Anthropic} {Python} {API} library},
   author  = {{Anthropic}},
@@ -695,6 +706,15 @@
   version = {0.5.0},
   url     = {https://github.com/omamori-lab/hyoshigi},
   note    = {Its monitors, their sync and async twins, views, prompts, guard labels, decision statements, wrappers and the rules for failing closed: https://omamori-lab.github.io/hyoshigi/; its GenerativeModel and AsyncGenerativeModel, the outcomes they return, and the rules its provider models apply to a failure: https://omamori-lab.github.io/hyoshigi/reference/providers/; and its trajectory format readers (hyoshigi.trajectory.formats), whose mapping of reasoning, server tools and opaque content the LangChain reader follows}
+}
+
+@online{hyoshigi2026choosing,
+  title        = {Choosing a monitor},
+  author       = {Badilla-Olivas, Antonio},
+  year         = {2026},
+  organization = {hyoshigi documentation},
+  note         = {The guard monitor's two ways of scoring, and top\_log\_probabilities, which a generative model declares to be scored from its log-probabilities (section "A guard monitor scores a model's log-probabilities in one call")},
+  url          = {https://omamori-lab.github.io/hyoshigi/how-to/choosing-a-monitor/}
 }
 
 @software{pydantic2026,

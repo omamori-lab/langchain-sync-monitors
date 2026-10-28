@@ -61,6 +61,10 @@ from langchain_sync_monitors.contracts import (
 )
 from langchain_sync_monitors.delegation import count_blocks_in_thread, read_delegation_id
 from langchain_sync_monitors.errors import ConfigurationError
+from langchain_sync_monitors.given_ids import (
+    build_run_end_trajectories_update,
+    build_run_start_trajectories_update,
+)
 from langchain_sync_monitors.halts import (
     build_jump_to_end_update,
     find_halt_decision,
@@ -105,8 +109,6 @@ from langchain_sync_monitors.task_authorship import (
 from langchain_sync_monitors.tool_calls import run_tool_call, run_tool_call_sync
 from langchain_sync_monitors.trajectories import (
     add_step_events,
-    build_trajectory_update,
-    load_run_start_trajectory,
     load_step_trajectory,
     monitor_step_open,
 )
@@ -447,7 +449,7 @@ class MonitorMiddleware(AgentMiddleware[MonitorState, AgentContext, StructuredOu
     @override
     def after_agent(self, state: MonitorState, runtime: AgentRuntime) -> AgentStateUpdate | None:
         """Tag the notes written since the last step, and close the run, under `invoke()`."""
-        return build_run_end_update(state)
+        return self.build_run_end_update(state)
 
     @override
     async def aafter_agent(  # lanorme: ignore[NAMING-011]
@@ -456,7 +458,21 @@ class MonitorMiddleware(AgentMiddleware[MonitorState, AgentContext, StructuredOu
         runtime: AgentRuntime,
     ) -> AgentStateUpdate | None:
         """Tag the notes written since the last step, and close the run, under `ainvoke()`."""
-        return build_run_end_update(state)
+        return self.build_run_end_update(state)
+
+    def build_run_end_update(self, state: MonitorState) -> AgentStateUpdate:
+        """Return the update a run ends with: the notes tagged, the run closed, ids marked read.
+
+        A message a trajectory read under its key, and the end gives an id,
+        would otherwise be read again under that id in the next run.
+        """
+        update = build_run_end_update(state)
+        trajectories = build_run_end_trajectories_update(
+            state,
+            update=update,
+            task_author=self.task_author,
+        )
+        return {**update, **trajectories}
 
     def build_run_start_update(self, state: MonitorState) -> AgentStateUpdate:
         """Return the update a run starts with, which adds the run's input to the trajectory.
@@ -466,13 +482,13 @@ class MonitorMiddleware(AgentMiddleware[MonitorState, AgentContext, StructuredOu
         remove the input.
         """
         update = build_run_start_update(state)
-        trajectory = load_run_start_trajectory(
+        trajectories = build_run_start_trajectories_update(
             state,
             update=update,
             label=self.label,
             task_author=self.task_author,
         )
-        return {**update, **build_trajectory_update(trajectory, answered_lost_writes=0)}
+        return {**update, **trajectories}
 
     def build_halt_end_update(self, state: MonitorState) -> AgentStateUpdate | None:
         """Return the update that jumps to the agent's end after this monitor's halt, else None."""

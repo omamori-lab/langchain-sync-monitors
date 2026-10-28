@@ -21,6 +21,10 @@ developer message in the trajectory. A tool message answering a Deep Agents
 subagent's trajectory, with the call's description as its instruction
 [@deepagents2026].
 
+An id the start or the end of a run gives a message the trajectory read under
+its key is marked seen as well, in the same write (`given_ids`), so the message
+is not read again under its id.
+
 Each message a step commits is marked seen in the step's own write, so it is
 never read again. The step's events stand in for them: each
 blocked attempt as its proposal and the monitor's feedback, whatever the
@@ -353,6 +357,17 @@ def mark_seen(loaded: LoadedTrajectory, *, key: str) -> None:
         loaded.new_seen.append(key)
 
 
+type GivenId = tuple[str, str]
+"""The key a message had, then the id an update gave it."""
+
+
+def mark_given_ids(loaded: LoadedTrajectory, *, given: Sequence[GivenId]) -> None:
+    """Mark each given id as read where the trajectory read the message under its key."""
+    for key, message_id in given:
+        if key in loaded.seen:
+            mark_seen(loaded, key=message_id)
+
+
 def find_tool_call(trajectory: Trajectory, *, call_id: str) -> ToolCall | None:
     """Return the tool call with this id among the trajectory's actions, latest first."""
     for event in reversed(trajectory.history):
@@ -488,12 +503,18 @@ def load_run_start_trajectory(
     state: Mapping[str, object],
     *,
     update: AgentStateUpdate,
+    given: Sequence[GivenId],
     label: str,
     task_author: TaskAuthor,
 ) -> LoadedTrajectory:
-    """Load a label's trajectory at the start of a run, and sync the state `update` leaves."""
+    """Load a label's trajectory at the start of a run, and sync the state `update` leaves.
+
+    Each id `update` gave a message is marked read first, where the label read
+    the message under its key.
+    """
     started = read_state_after(state, update=update)
     loaded = load_trajectory(started, label=label, task_author=task_author)
+    mark_given_ids(loaded, given=given)
     add_unread_messages(
         loaded,
         messages=read_state_messages(started),

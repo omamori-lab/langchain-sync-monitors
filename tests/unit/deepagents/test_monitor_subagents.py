@@ -8,6 +8,7 @@ from deepagents.middleware.subagents import GENERAL_PURPOSE_SUBAGENT
 from langchain.agents import create_agent
 from langchain.agents.middleware import HumanInTheLoopMiddleware
 
+from langchain_sync_monitors import Redaction
 from langchain_sync_monitors.contracts import TaskAuthor
 from langchain_sync_monitors.deepagents import monitor_subagents
 from langchain_sync_monitors.errors import ConfigurationError
@@ -16,6 +17,7 @@ from tests.support.chat_models import ScriptedChatModel
 from tests.support.deep_agents import read_monitor
 from tests.support.monitors import KeywordMonitor
 from tests.support.protocols import HALT_EVERY_STEP, RUN_EVERY_STEP
+from tests.support.redaction import COUNT_PASSES, MASK_SECRET
 
 
 @pytest.fixture
@@ -197,6 +199,61 @@ def test_an_override_with_another_label_is_rejected(
         monitor_subagents(
             middleware=middleware, subagents=[researcher], overrides={"researcher": guard}
         )
+
+
+@pytest.mark.xfail(strict=True, reason="the parent redacts what joins its run")
+@pytest.mark.parametrize(
+    ("main_redaction", "override_redaction"),
+    [(MASK_SECRET, None), (None, MASK_SECRET), (MASK_SECRET, COUNT_PASSES)],
+    ids=["override-has-none", "only-the-override-has-one", "another-redaction"],
+)
+def test_an_override_with_another_redaction_is_rejected(
+    researcher: SubAgent,
+    main_redaction: Redaction | None,
+    override_redaction: Redaction | None,
+) -> None:
+    # Arrange
+    main = MonitorMiddleware(
+        monitor=KeywordMonitor(),
+        protocol=RUN_EVERY_STEP,
+        redaction=main_redaction,
+    )
+    override = MonitorMiddleware(
+        monitor=KeywordMonitor(),
+        protocol=RUN_EVERY_STEP,
+        redaction=override_redaction,
+    )
+
+    # Act / Assert
+    with pytest.raises(
+        ConfigurationError,
+        match=r"overrides\['researcher'\] has a redaction that differs from the middleware's",
+    ):
+        monitor_subagents(
+            middleware=main, subagents=[researcher], overrides={"researcher": override}
+        )
+
+
+def test_an_override_with_the_middleware_s_redaction_is_accepted(researcher: SubAgent) -> None:
+    # Arrange
+    main = MonitorMiddleware(
+        monitor=KeywordMonitor(),
+        protocol=RUN_EVERY_STEP,
+        redaction=MASK_SECRET,
+    )
+    override = MonitorMiddleware(
+        monitor=KeywordMonitor(),
+        protocol=HALT_EVERY_STEP,
+        redaction=MASK_SECRET,
+    )
+
+    # Act
+    specs = monitor_subagents(
+        middleware=main, subagents=[researcher], overrides={"researcher": override}
+    )
+
+    # Assert
+    assert read_monitor(specs[0]).redaction is MASK_SECRET
 
 
 def test_existing_middleware_is_kept_and_the_given_specs_are_not_changed(

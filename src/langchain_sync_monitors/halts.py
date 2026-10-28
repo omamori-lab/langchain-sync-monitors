@@ -76,9 +76,10 @@ class InputsAtHalt(TypedDict):
     run_inputs: int
 
 
-def merge_inputs_at_halt(  # lanorme: ignore[KWARG-001]
+def merge_inputs_at_halt(
     recorded: list[InputsAtHalt],
     new: list[InputsAtHalt],
+    /,
 ) -> list[InputsAtHalt]:
     """Keep one entry per monitor, the latest, so stacked monitors can write in one node.
 

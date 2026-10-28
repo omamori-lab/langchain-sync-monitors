@@ -123,9 +123,10 @@ def read_run_input_entries(value: object) -> list[RunInput]:
     ]
 
 
-def merge_run_inputs(  # lanorme: ignore[KWARG-001]
+def merge_run_inputs(
     recorded: list[RunInput],
     new: list[RunInput],
+    /,
 ) -> list[RunInput]:
     """Keep one copy of each input: its latest text, in the place it was first recorded.
 

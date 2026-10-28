@@ -448,7 +448,10 @@ class MonitorMiddleware(AgentMiddleware[MonitorState, AgentContext, StructuredOu
 
     @override
     def after_agent(self, state: MonitorState, runtime: AgentRuntime) -> AgentStateUpdate | None:
-        """Tag the notes written since the last step, and close the run, under `invoke()`."""
+        """Tag the notes written since the last step, and close the run, under `invoke()`.
+
+        The ids it gives messages are marked as read in the monitors' trajectories.
+        """
         return self.build_run_end_update(state)
 
     @override
@@ -457,7 +460,10 @@ class MonitorMiddleware(AgentMiddleware[MonitorState, AgentContext, StructuredOu
         state: MonitorState,
         runtime: AgentRuntime,
     ) -> AgentStateUpdate | None:
-        """Tag the notes written since the last step, and close the run, under `ainvoke()`."""
+        """Tag the notes written since the last step, and close the run, under `ainvoke()`.
+
+        The ids it gives messages are marked as read in the monitors' trajectories.
+        """
         return self.build_run_end_update(state)
 
     def build_run_end_update(self, state: MonitorState) -> AgentStateUpdate:

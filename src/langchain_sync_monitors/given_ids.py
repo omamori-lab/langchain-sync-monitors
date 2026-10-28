@@ -20,12 +20,12 @@ from langgraph.types import Overwrite
 
 from langchain_sync_monitors._langchain import AgentStateUpdate
 from langchain_sync_monitors.contracts import TaskAuthor
+from langchain_sync_monitors.message_keys import build_content_key
 from langchain_sync_monitors.state_keys import TRAJECTORY_KEY
 from langchain_sync_monitors.task_authorship import is_run_open, read_state_messages
 from langchain_sync_monitors.trajectories import (
     GivenId,
     LoadedTrajectory,
-    build_message_key,
     build_trajectory_update,
     load_run_start_trajectory,
     load_trajectory,
@@ -45,16 +45,19 @@ def find_given_ids(state: Mapping[str, object], *, update: AgentStateUpdate) -> 
     """Return each id `update` gives a message the state holds without one.
 
     An update gives ids by writing the history back in an `Overwrite`, one
-    message for each the state holds, in the same order.
+    message for each the state holds, in the same order. A content key
+    stands for one message, the first in the history with that type and
+    content, with an id or without: only its id is returned.
     """
     written = read_written_messages(update)
     held = read_state_messages(state)
     if len(written) != len(held):
         return []
+    keys = [build_content_key(message) for message in held]
     return [
-        (build_message_key(before), after.id)
-        for before, after in zip(held, written, strict=True)
-        if not before.id and after.id
+        (key, after.id)
+        for index, (key, before, after) in enumerate(zip(keys, held, written, strict=True))
+        if not before.id and after.id and keys.index(key) == index
     ]
 
 

@@ -365,7 +365,6 @@ def test_a_string_input_with_the_text_of_an_earlier_note_enters_as_the_user_s(
     )
 
 
-@pytest.mark.xfail(strict=True)
 @pytest.mark.parametrize(
     "labels",
     [("monitor",), ("outer", "inner")],
@@ -389,7 +388,6 @@ def test_a_string_input_with_the_text_of_a_note_an_unended_run_read_enters_as_un
     assert lost_writes == dict.fromkeys(labels, 0)
 
 
-@pytest.mark.xfail(strict=True)
 def test_a_note_written_after_the_last_step_with_the_text_of_a_read_one_enters_in_the_next_run(
     run_mode: RunMode,
 ) -> None:
@@ -419,7 +417,6 @@ def test_a_note_written_after_the_last_step_with_the_text_of_a_read_one_enters_i
     )
 
 
-@pytest.mark.xfail(strict=True)
 def test_a_string_input_with_the_text_of_a_note_given_an_id_earlier_enters_as_unconfirmed_input(
     run_mode: RunMode,
 ) -> None:

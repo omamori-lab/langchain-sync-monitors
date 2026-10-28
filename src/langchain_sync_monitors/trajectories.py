@@ -38,7 +38,6 @@ trajectory raises `MessageFormatError`, as hyoshigi's own readers refuse one
 
 from __future__ import annotations
 
-import hashlib
 import json
 from collections.abc import Iterator, Mapping, Sequence
 from contextvars import ContextVar
@@ -64,6 +63,7 @@ from langchain_sync_monitors.contracts import BlockedAttempt, Outcome, StepDecis
 from langchain_sync_monitors.delegation import read_delegation_id
 from langchain_sync_monitors.errors import MessageFormatError
 from langchain_sync_monitors.feedback import build_feedback_messages
+from langchain_sync_monitors.message_keys import build_message_key
 from langchain_sync_monitors.state_keys import TASK_MESSAGES_KEY, TRAJECTORY_KEY
 from langchain_sync_monitors.task_authorship import (
     read_message_ids,
@@ -320,14 +320,6 @@ def load_trajectory(
         subagent_ids=frozenset(trajectory.subagents),
         seen=set(stored["seen"]),
     )
-
-
-def build_message_key(message: BaseMessage) -> str:
-    """Return a message's key: its id, or a hash of its type and content when it has none."""
-    if message.id:
-        return message.id
-    text = json.dumps([type(message).__name__, message.content], sort_keys=True, default=str)
-    return "sha256:" + hashlib.sha256(text.encode()).hexdigest()
 
 
 def add_event(loaded: LoadedTrajectory, *, event: Event, path: str) -> None:

@@ -90,13 +90,13 @@ The threshold has no default: suspicion scores differ between monitors and
 agents, so a fixed value may flag most honest work or miss attacks.
 
 Control evaluations set thresholds at percentiles of the scores the monitor
-gives on honest runs [@greenblatt2023aicontrol; @bhatt2025ctrlz];
-[Thresholds](choose-a-protocol.md#thresholds) gives the percentiles they
-use. Trusted Monitoring never changes a run, so it is the protocol to collect
-them with for a threshold compared with one sample's score:
-`defer_threshold`, `block_threshold`, and the `audit_threshold` of Trusted
-Monitoring and Defer to Trusted. Set the threshold at 1.0 while you collect,
-so that only a step rated 1.0 is flagged. With resamples, Defer to
+gives on honest runs;
+[hyoshigi's page on calibration](https://omamori-lab.github.io/hyoshigi/explanation/calibration/#an-audit-budget-is-a-percentile-of-honest-scores)
+gives the percentiles they use. Trusted Monitoring never changes a run, so it
+is the protocol to collect them with for a threshold compared with one
+sample's score: `defer_threshold`, `block_threshold`, and the
+`audit_threshold` of Trusted Monitoring and Defer to Trusted. Set the
+threshold at 1.0 while you collect, so that only a step rated 1.0 is flagged. With resamples, Defer to
 Resample's `audit_threshold` and the middleware's `flag_threshold` are
 compared with the lowest score across a step's samples instead, and
 [Calibrate the flag threshold](use-defer-to-resample.md#calibrate-the-flag-threshold)

@@ -67,9 +67,9 @@ body:
       label: Configuration
       description: |
         The code that builds the `MonitorMiddleware`: the monitor class and any
-        wrappers around it, its `MonitorView` or channels, the control protocol
-        with its thresholds and fallback, and any other option you set. Add the
-        `create_agent` or `create_deep_agent` call it goes into, with
+        wrappers around it, its `View` or channels, the control protocol with
+        its thresholds, the `trusted_model`, and any other option you set. Add
+        the `create_agent` or `create_deep_agent` call it goes into, with
         `monitor_subagents` if you use it. If your reproduction below builds it
         the same way, write `# as in the reproduction`.
       render: python

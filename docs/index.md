@@ -168,20 +168,19 @@ as new input and lifts the halt.
 
 The monitors are hyoshigi's [@hyoshigi2026]: each class here is one
 configuration that builds hyoshigi's sync and async monitors from the same
-options, so `invoke()` rates with one and `ainvoke()` with the other.
-A rating that cannot be made, such as one whose model is unavailable, fails
-closed: suspicion 1.0, and the protocol's rules apply.
+options, so `invoke()` rates with one and `ainvoke()` with the other. A rating
+that cannot be made [fails
+closed](https://omamori-lab.github.io/hyoshigi/explanation/failing-closed/).
 
 ## Choose what the monitor reads
 
 [![Every entry of the monitor's trajectory belongs to one channel. The default view, Channel.DEFAULT, reads TASK (the user's turns, or the delegator's, kept as first read even after summarisation), TOOL_CALLS (tool calls and their errors, the monitor's feedback on a blocked call included) and SUBAGENT_REPORTS (what subagents report), and leaves out CONTEXT (context notes, system messages and feedback written as a message), THOUGHTS, AGENT_PARTS and TOOL_OBSERVATIONS, each one flag away. The proposed action's tool calls and text are always shown, and its thought when the view holds THOUGHTS. A View chooses the channels, can keep only the most recent entries besides the task's, and names the tools whose results are subagent reports. The monitor reads the chosen entries as escaped, tagged text ending with the proposed action, then scores it.](assets/diagrams/monitor-view-light.svg#only-light)](assets/diagrams/monitor-view-light.svg "Open the diagram at full size")
 [![Every entry of the monitor's trajectory belongs to one channel. The default view, Channel.DEFAULT, reads TASK (the user's turns, or the delegator's, kept as first read even after summarisation), TOOL_CALLS (tool calls and their errors, the monitor's feedback on a blocked call included) and SUBAGENT_REPORTS (what subagents report), and leaves out CONTEXT (context notes, system messages and feedback written as a message), THOUGHTS, AGENT_PARTS and TOOL_OBSERVATIONS, each one flag away. The proposed action's tool calls and text are always shown, and its thought when the view holds THOUGHTS. A View chooses the channels, can keep only the most recent entries besides the task's, and names the tools whose results are subagent reports. The monitor reads the chosen entries as escaped, tagged text ending with the proposed action, then scores it.](assets/diagrams/monitor-view-dark.svg#only-dark)](assets/diagrams/monitor-view-dark.svg "Open the diagram at full size")
 
-By default a monitor reads the task, the tool calls and the subagent reports.
-It leaves out the agent's reasoning, the text it wrote beside its earlier tool
-calls and raw tool output, as Claude Code's auto mode does
-[@hughes2026automode], and context notes. The step being judged always shows
-its tool calls and its text. Each left-out channel is one flag away:
+A monitor reads its trajectory through a `View`, hyoshigi's;
+[hyoshigi's page on the default view](https://omamori-lab.github.io/hyoshigi/explanation/the-default-view/)
+says what it reads and why. Each channel the default leaves out is one flag
+away:
 
 ```python
 from langchain_sync_monitors import Channel, LLMMonitor, View

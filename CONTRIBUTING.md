@@ -98,17 +98,18 @@ there.
 
 ## Adding a monitor or a protocol
 
-- A new way to score a step implements `Monitor` from `contracts.py`, with both
-  `evaluate` and `evaluate_sync`.
-- A new way to act on scores implements `ControlProtocol`: one `decide`
-  coroutine that awaits nothing that needs an event loop: the `PendingStep`'s
-  methods and coroutines built only on them, such as the built-in fallbacks'
-  `take_over` or a helper of your own. The same copy then runs under both
-  `invoke()` and `ainvoke()`. Under `invoke()`, awaiting work that needs an
-  event loop raises `SynchronousRunError`.
-- A new decision model implements `DecisionModel`, with both
-  `estimate_probabilities` and `estimate_probabilities_sync`; a new fallback
-  implements `Fallback.take_over`, under the same rule as `decide`.
+- A new way to score a step is a `hyoshigi.Monitor` and a
+  `hyoshigi.AsyncMonitor` that rate alike, held in a `MonitorTwins`. A new
+  monitor class of the library is a frozen dataclass in `monitors.py` that
+  builds its twins from its options.
+- A new way to act on scores is a protocol in hyoshigi first, with its sync
+  and async classes. The library adds a settings class beside `DeferToResample`
+  in `protocols.py`, whose `build` makes hyoshigi's two classes around a
+  monitor's twins, and lists it in `ProtocolConfiguration`; `steps.py` drives
+  the decisions once for `invoke()` and `ainvoke()`.
+- A new decision model is a `hyoshigi.DecisionModel` and a
+  `hyoshigi.AsyncDecisionModel`, which a `hyoshigi.DecisionMonitor` and a
+  `hyoshigi.AsyncDecisionMonitor` take, held in a `MonitorTwins`.
 - Keep no run state on the instance: one copy serves parallel subagent runs.
 - Keep every model a constructor parameter.
 - Cite the research, evaluation or codebase it rests on (see "Citing
@@ -121,10 +122,11 @@ Cite at the point of use in pandoc's citation syntax, `[@key]` or
 that applies the source or in the docs text:
 
 ```python
-class DeferToResample(ControlProtocol):
-    """Replace a suspicious step with a fresh sample of it, or hand it to a fallback.
+class DeferToResample:
+    """Resample a suspicious step, run the least suspicious sample, and defer or audit the rest.
 
-    This is the basic Defer to Resample protocol of Ctrl-Z [@bhatt2025ctrlz].
+    This is Ctrl-Z's protocol [@bhatt2025ctrlz], as hyoshigi's `DeferToResample` decides it
+    [@hyoshigi2026].
     """
 ```
 

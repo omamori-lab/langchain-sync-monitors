@@ -19,10 +19,10 @@ hyoshigi decides it; see
 
 ## How it works
 
-A proposal below `defer_threshold` runs. From `defer_threshold` up to
-`audit_threshold`, the middleware's `trusted_model` writes the step instead.
-At or above `audit_threshold`, the step is audited: the run pauses for a
-person's answer, as [Answer an audit](answer-an-audit.md) sets out.
+The middleware has hyoshigi's protocol decide each proposal. A proposal it
+defers is replaced by the step `trusted_model` writes, and a proposal it
+audits pauses the run for a person's answer, as [Answer an
+audit](answer-an-audit.md) sets out.
 
 A rejected proposal's tool calls never run, and neither the agent nor the
 trusted model sees it. Server-side tools in it, such as a web fetch, already

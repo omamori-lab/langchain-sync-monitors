@@ -63,14 +63,13 @@ Langfuse](see-decisions-in-langsmith-and-langfuse.md) shows how to find it.
 [![Every entry of the monitor's trajectory belongs to one channel. The default view, Channel.DEFAULT, reads TASK (the user's turns, or the delegator's, kept as first read even after summarisation), TOOL_CALLS (tool calls and their errors, the monitor's feedback on a blocked call included) and SUBAGENT_REPORTS (what subagents report), and leaves out CONTEXT (context notes, system messages and feedback written as a message), THOUGHTS, AGENT_PARTS and TOOL_OBSERVATIONS, each one flag away. The proposed action's tool calls and text are always shown, and its thought when the view holds THOUGHTS. A View chooses the channels, can keep only the most recent entries besides the task's, and names the tools whose results are subagent reports. The monitor reads the chosen entries as escaped, tagged text ending with the proposed action, then scores it.](../assets/diagrams/monitor-view-light.svg#only-light)](../assets/diagrams/monitor-view-light.svg "Open the diagram at full size")
 [![Every entry of the monitor's trajectory belongs to one channel. The default view, Channel.DEFAULT, reads TASK (the user's turns, or the delegator's, kept as first read even after summarisation), TOOL_CALLS (tool calls and their errors, the monitor's feedback on a blocked call included) and SUBAGENT_REPORTS (what subagents report), and leaves out CONTEXT (context notes, system messages and feedback written as a message), THOUGHTS, AGENT_PARTS and TOOL_OBSERVATIONS, each one flag away. The proposed action's tool calls and text are always shown, and its thought when the view holds THOUGHTS. A View chooses the channels, can keep only the most recent entries besides the task's, and names the tools whose results are subagent reports. The monitor reads the chosen entries as escaped, tagged text ending with the proposed action, then scores it.](../assets/diagrams/monitor-view-dark.svg#only-dark)](../assets/diagrams/monitor-view-dark.svg "Open the diagram at full size")
 
-The default view, hyoshigi's `Channel.DEFAULT`, reads the task, the tool calls
-with their errors, and the subagent reports;
+The default view is hyoshigi's `Channel.DEFAULT`;
 [hyoshigi's page on the default view](https://omamori-lab.github.io/hyoshigi/explanation/the-default-view/)
 gives its channels and the evidence for them. It leaves out every context
-note: a summary, the system message, a note from `unconfirmed_input`, and the
-monitor's feedback on a blocked final answer. Add `Channel.CONTEXT` to read
-them. Feedback on a blocked tool call is a tool error, so the default view
-shows that the monitor blocked the call.
+note the middleware records: a summary, the system message, a note from
+`unconfirmed_input`, and the monitor's feedback on a blocked final answer. Add
+`Channel.CONTEXT` to read them. Feedback on a blocked tool call is a tool
+error, so the default view shows that the monitor blocked the call.
 
 The action being rated always shows its tool calls and its text, since the
 step commits its text to the conversation, where a chat interface shows it to

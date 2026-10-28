@@ -26,7 +26,14 @@ from hyoshigi import (
 from langchain.agents import create_agent
 from langchain_core.runnables import Runnable, RunnableConfig
 
-from langchain_sync_monitors import Channel, DeferToResample, MonitorTwins, Redaction, View
+from langchain_sync_monitors import (
+    Channel,
+    ConfigurationError,
+    DeferToResample,
+    MonitorTwins,
+    Redaction,
+    View,
+)
 from langchain_sync_monitors.middleware import MonitorMiddleware
 from tests.support.agents import (
     RunMode,
@@ -48,12 +55,16 @@ from tests.support.redaction import (
     MASK_SECRET,
     MASKED_FIRST_REPLY,
     MASKED_LAST_REPLY,
+    MASKED_READ_CALL,
     MASKED_READ_RESULT,
     MASKED_TASK,
+    READ_CALL_WITH_SECRET,
     READ_RESULT_WITH_SECRET,
+    RETURN_NONE_FOR_REASONS,
     SECRET,
     SUSPICION_BY_SECRET,
     TASK_WITH_SECRET,
+    UPPER_CASE,
     build_secret_steps,
     build_secret_tools,
 )
@@ -61,7 +72,6 @@ from tests.support.tracing import RecordingTracer
 
 type Agent = Runnable[Any, Any]
 
-READ_CALL = ToolCall(id="call-read", name="read_file", arguments='{"path": "q3.md"}')
 MASKED_REASON = f"mentions {MASK}"
 
 
@@ -93,7 +103,9 @@ def test_the_stored_trajectory_holds_what_the_redaction_leaves(run_mode: RunMode
     assert SECRET not in json.dumps(stored)
     assert Trajectory.load(stored).history == (
         Observation(author=Author.USER, parts=(TextPart(text=MASKED_TASK),)),
-        Action(id="step-1", parts=(TextPart(text=MASKED_FIRST_REPLY),), tool_calls=(READ_CALL,)),
+        Action(
+            id="step-1", parts=(TextPart(text=MASKED_FIRST_REPLY),), tool_calls=(MASKED_READ_CALL,)
+        ),
         ToolObservation(call_id="call-read", parts=(TextPart(text=MASKED_READ_RESULT),)),
         Action(id="step-2", parts=(TextPart(text=MASKED_LAST_REPLY),)),
     )
@@ -263,7 +275,9 @@ def test_a_system_prompt_the_redaction_changes_is_observed_once(run_mode: RunMod
             source="system",
             parts=(TextPart(text=f"You are helpful, key {MASK}."),),
         ),
-        Action(id="step-1", parts=(TextPart(text=MASKED_FIRST_REPLY),), tool_calls=(READ_CALL,)),
+        Action(
+            id="step-1", parts=(TextPart(text=MASKED_FIRST_REPLY),), tool_calls=(MASKED_READ_CALL,)
+        ),
         ToolObservation(call_id="call-read", parts=(TextPart(text=MASKED_READ_RESULT),)),
         Action(id="step-2", parts=(TextPart(text=MASKED_LAST_REPLY),)),
     )
@@ -287,7 +301,7 @@ def test_without_a_redaction_the_trajectory_and_the_log_hold_the_text_as_it_was(
         Action(
             id="step-1",
             parts=(TextPart(text=FIRST_REPLY_WITH_SECRET),),
-            tool_calls=(READ_CALL,),
+            tool_calls=(READ_CALL_WITH_SECRET,),
         ),
         ToolObservation(call_id="call-read", parts=(TextPart(text=READ_RESULT_WITH_SECRET),)),
         Action(id="step-2", parts=(TextPart(text=LAST_REPLY_WITH_SECRET),)),
@@ -296,3 +310,94 @@ def test_without_a_redaction_the_trajectory_and_the_log_hold_the_text_as_it_was(
         f"mentions {SECRET}",
         f"mentions {SECRET}",
     ]
+
+
+UPPER_TASK = "SUMMARISE Q3.MD, KEY SECRET-123."
+UPPER_READ_CALL = ToolCall(
+    id="call-read",
+    name="read_file",
+    arguments='{"PATH": "Q3.MD", "NOTE": "SECRET-123"}',
+)
+
+
+@pytest.mark.xfail(strict=True, reason="PR 8 compares redacted sources")
+def test_a_system_prompt_is_observed_once_when_the_redaction_changes_its_source(
+    run_mode: RunMode,
+) -> None:
+    # Arrange: capitals turn the source "system" into "SYSTEM", and every other text too
+    agent = build_agent(
+        KeywordMonitor(),
+        redaction=UPPER_CASE,
+        system_prompt=f"You are helpful, key {SECRET}.",
+    )
+
+    # Act
+    result = run_agent(agent, mode=run_mode, task=TASK_WITH_SECRET)
+
+    # Assert
+    assert Trajectory.load(read_stored_trajectory(result)).history == (
+        Observation(author=Author.USER, parts=(TextPart(text=UPPER_TASK),)),
+        Observation(
+            author=Author.SCAFFOLD,
+            source="SYSTEM",
+            parts=(TextPart(text="YOU ARE HELPFUL, KEY SECRET-123."),),
+        ),
+        Action(
+            id="step-1",
+            parts=(TextPart(text="READING WITH SECRET-123."),),
+            tool_calls=(UPPER_READ_CALL,),
+        ),
+        ToolObservation(
+            call_id="call-read",
+            parts=(TextPart(text="CONTENTS OF Q3.MD: SECRET-123"),),
+        ),
+        Action(id="step-2", parts=(TextPart(text="THE KEY IS SECRET-123."),)),
+    )
+
+
+def run_until_it_fails(agent: Agent, *, mode: RunMode) -> Exception | None:
+    """Run the agent on the task with the token, and return the error it raised, if any."""
+    try:
+        run_agent(agent, mode=mode, task=TASK_WITH_SECRET)
+    except Exception as error:
+        return error
+    return None
+
+
+@pytest.mark.xfail(strict=True, reason="PR 8 checks the text function's result where lsm calls it")
+def test_a_judgement_reason_that_the_text_function_returns_no_str_for_raises(
+    run_mode: RunMode,
+) -> None:
+    # Arrange: the span ends before hyoshigi records the reason and applies the function itself
+    agent = build_agent(
+        KeywordMonitor(suspicion_by_keyword=SUSPICION_BY_SECRET),
+        redaction=RETURN_NONE_FOR_REASONS,
+    )
+
+    # Act
+    error = run_until_it_fails(agent, mode=run_mode)
+
+    # Assert
+    assert isinstance(error, ConfigurationError)
+    assert "text function must return a str, got None" in str(error)
+
+
+@pytest.mark.xfail(strict=True, reason="PR 8 checks the text function's result where lsm calls it")
+def test_a_failed_step_s_error_that_the_text_function_returns_no_str_for_raises(
+    run_mode: RunMode,
+) -> None:
+    # Arrange: the agent's model fails on its first call, with the token in the error
+    model = FlakyChatModel(replies=[RuntimeError(f"429 rate limited for {SECRET}")])
+    middleware = MonitorMiddleware(
+        monitor=KeywordMonitor(),
+        protocol=RUN_EVERY_STEP,
+        redaction=RETURN_NONE_FOR_REASONS,
+    )
+    agent = create_agent(model, tools=build_secret_tools(), middleware=[middleware])
+
+    # Act
+    error = run_until_it_fails(agent, mode=run_mode)
+
+    # Assert
+    assert isinstance(error, ConfigurationError)
+    assert "text function must return a str, got None" in str(error)

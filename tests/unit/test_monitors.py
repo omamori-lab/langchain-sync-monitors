@@ -454,6 +454,26 @@ def test_a_one_sample_guard_on_a_cached_model_does_not_warn_of_the_cache() -> No
     assert caught == []
 
 
+@pytest.mark.xfail(strict=True)
+@pytest.mark.usefixtures("global_cache")
+def test_a_guard_that_scores_log_probabilities_does_not_warn_of_a_cached_model() -> None:
+    # Arrange
+    def build_monitor() -> object:
+        return GuardMonitor(
+            model=ScriptedChatModel(responses=[]),
+            prompt=GUARD_PROMPT,
+            labels=GUARD_LABELS,
+            samples=2,
+            top_log_probabilities=2,
+        )
+
+    # Act
+    caught = build_middleware_and_collect_cache_warnings(build_monitor)
+
+    # Assert
+    assert caught == []
+
+
 @pytest.mark.usefixtures("global_cache")
 def test_the_cache_warning_shows_once_per_process_at_the_line_that_builds_the_middleware() -> None:
     # Act

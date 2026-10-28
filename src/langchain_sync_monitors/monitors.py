@@ -189,6 +189,7 @@ class GuardMonitor:
     prompt: MonitorPrompt
     labels: GuardLabels
     samples: int = 5
+    top_log_probabilities: int = 0
     view: View = field(default_factory=View)
     chat_model: BaseChatModel = field(init=False, repr=False, compare=False)
     twins: MonitorTwins = field(init=False, repr=False, compare=False)

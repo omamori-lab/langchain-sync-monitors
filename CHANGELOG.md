@@ -25,7 +25,9 @@ change raises the minor version.
   run or of the step that reads it. A history passed in must give each action
   and each tool call an id of its own. A reply the agent's model draws that
   repeats such an id, as a cached or scripted model's or a retry after a
-  block can, is read and committed under fresh `uuid4` ids instead.
+  block can, is read and committed under fresh `uuid4` ids instead, and so
+  is each call after the first that shares an id with another call of the
+  same reply.
 - `Delegation` gains `runs`: for each monitor label whose trajectory holds
   the call, the run the subagent's trajectory joins. `DelegatedRun` is
   exported. A `Delegation` without `runs`, or whose run cannot hold the
@@ -170,8 +172,10 @@ change raises the minor version.
 - A reply is read from a model call's response as its last AI message, so
   the trailing tool message of tool-strategy structured output, and the
   blocked replies a monitor inside this one commits, are left aside.
-- The agent model's `CachedResampleWarning` fires on every resample drawn
-  under a response cache.
+- The agent model's `CachedResampleWarning` now fires for any resample
+  drawn under a response cache, where it fired for a draw of several samples
+  at once or a draw that repeated earlier blocked attempts; it still shows
+  once per process.
 - `check_monitor_placement` counts a monitor as calling the model once per
   step only for `DeferToResample` with `max_resamples=0`, no
   `trusted_model` and no block, and warns about every monitor that may block

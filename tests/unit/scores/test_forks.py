@@ -17,6 +17,7 @@ from typing import NoReturn
 import httpx
 import pytest
 
+from langchain_sync_monitors.request_pool import PROCESS_POOL
 from langchain_sync_monitors.score_export import PROCESS_NOTICES, PROCESS_SCORE_WORKER
 from langchain_sync_monitors.score_requests import PROCESS_ORIGIN, build_http_client
 from langchain_sync_monitors.score_worker import ScoreWorker
@@ -143,4 +144,36 @@ def test_a_forked_child_builds_its_clients_after_its_parent_read_the_system_prox
         idle.join(timeout=5.0)
 
     # Assert: on macOS, the system proxy lookup killed such a child with SIGSEGV or SIGABRT
+    assert ending == "exit 0"
+
+
+def is_call_run_on_the_pool() -> bool:
+    """Submit a call to the process's pool, which must run it on a thread of the child's own."""
+    return PROCESS_POOL.read_pool().submit(lambda: 7).result(timeout=CHECK_SECONDS / 2) == 7
+
+
+@pytest.mark.xfail(strict=True, reason="PR 7: the process has a request pool")
+def test_a_forked_child_runs_calls_on_a_pool_of_its_own_though_the_parents_lock_was_held() -> None:
+    # Arrange: the parent has a pool whose threads the child does not inherit, and another
+    # thread holds the process pool's lock at the fork
+    PROCESS_POOL.read_pool()
+    held, release = threading.Event(), threading.Event()
+
+    def hold_the_lock() -> None:
+        with PROCESS_POOL.lock:
+            held.set()
+            release.wait(timeout=CHILD_ALARM_SECONDS)
+
+    holder = threading.Thread(target=hold_the_lock, daemon=True)
+    holder.start()
+    assert held.wait(timeout=5.0)
+
+    # Act
+    try:
+        ending = fork_and_check([is_call_run_on_the_pool])
+    finally:
+        release.set()
+        holder.join(timeout=5.0)
+
+    # Assert: exit 10 means the child's pool did not run the call in time
     assert ending == "exit 0"

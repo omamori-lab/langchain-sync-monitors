@@ -16,6 +16,8 @@ import logging
 import queue
 import threading
 from collections.abc import Callable, Sequence
+from concurrent.futures import Future
+from dataclasses import dataclass, field
 
 logger = logging.getLogger(__name__)
 
@@ -86,8 +88,34 @@ class RequestPool:
             finished.get()
         return results
 
+    def submit[Result](self, call: Callable[[], Result], /) -> Future[Result | None]:
+        """Stub: returns a finished future with no result, and runs nothing."""
+        future: Future[Result | None] = Future()
+        future.set_result(None)
+        return future
+
+    def drain(self, *, timeout: float) -> None:
+        """Stub: waits for nothing."""
+
     def close(self) -> None:
         """Let every thread finish once the tasks before it are done; later calls run in turn."""
         for _ in self.threads:
             self.tasks.put(None)
         self.threads = []
+
+
+@dataclass(slots=True, kw_only=True)
+class ProcessRequestPool:
+    """Stub: the pool of this process, which has no pool until the code is written."""
+
+    pool: RequestPool | None = None
+    process_id: int | None = None
+    lock: threading.Lock = field(default_factory=threading.Lock)
+
+    def read_pool(self) -> RequestPool:
+        """Stub: a pool that runs calls in turn."""
+        return RequestPool(size=1)
+
+
+PROCESS_POOL = ProcessRequestPool()
+"""The request pool of this process."""

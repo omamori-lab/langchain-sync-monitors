@@ -6,6 +6,8 @@ import logging
 import subprocess
 import sys
 import threading
+import time
+from pathlib import Path
 
 import pytest
 
@@ -27,6 +29,23 @@ from langchain_sync_monitors.request_pool import RequestPool
 sender = LangSmithFeedbackSender()
 pool = RequestPool(size=3)
 print(len(sender.pool.threads), len(pool.threads))
+"""
+
+
+SUBMITS_A_SLOW_CALL_AND_EXITS = """
+import sys
+import time
+from pathlib import Path
+
+from langchain_sync_monitors.request_pool import PROCESS_POOL
+
+
+def write_after_a_second() -> None:
+    time.sleep(1.0)
+    Path(sys.argv[1]).write_text("written")
+
+
+PROCESS_POOL.read_pool().submit(write_after_a_second)
 """
 
 
@@ -121,3 +140,113 @@ def test_closing_the_pool_ends_every_thread_and_later_calls_run_in_turn() -> Non
     assert not any(thread.is_alive() for thread in threads)
     assert pool.threads == []
     assert pool.run_all(multiply_or_refuse, items=[1, 3]) == [10, 30]
+
+
+@pytest.mark.xfail(strict=True, reason="PR 7: the pool submits calls")
+@pytest.mark.parametrize("size", [1, 3])
+def test_a_submitted_call_gives_its_result_through_its_future(size: int) -> None:
+    # Arrange
+    pool = RequestPool(size=size)
+
+    # Act
+    future = pool.submit(lambda: 20 + 1)
+    result = future.result(timeout=5.0)
+    pool.close()
+
+    # Assert
+    assert result == 21
+
+
+@pytest.mark.xfail(strict=True, reason="PR 7: the pool submits calls")
+def test_a_call_submitted_to_a_pool_of_threads_runs_on_one_of_them() -> None:
+    # Arrange
+    pool = RequestPool(size=3)
+    threads = list(pool.threads)
+
+    # Act
+    thread = pool.submit(threading.current_thread).result(timeout=5.0)
+    pool.close()
+
+    # Assert
+    assert thread in threads
+
+
+@pytest.mark.xfail(strict=True, reason="PR 7: the pool submits calls")
+@pytest.mark.parametrize("size", [1, 3])
+def test_a_submitted_call_that_raises_is_logged_by_type_alone(
+    size: int,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    # Arrange
+    caplog.set_level(logging.WARNING, logger=POOL_LOGGER)
+    pool = RequestPool(size=size)
+
+    def refuse() -> int:
+        raise ValueError(ERROR_TEXT)
+
+    # Act
+    future = pool.submit(refuse)
+    error = future.exception(timeout=5.0)
+    pool.close()
+
+    # Assert
+    assert isinstance(error, ValueError)
+    [record] = [record for record in caplog.records if record.name == POOL_LOGGER]
+    assert record.getMessage() == "score export: a request failed with ValueError"
+    assert record.exc_info is None
+    assert ERROR_TEXT not in caplog.text
+
+
+@pytest.mark.xfail(strict=True, reason="PR 7: the pool drains")
+def test_draining_waits_for_the_calls_submitted_before_it() -> None:
+    # Arrange
+    pool = RequestPool(size=2)
+    finished: list[str] = []
+
+    def finish_after_a_moment() -> None:
+        time.sleep(0.3)
+        finished.append("done")
+
+    pool.submit(finish_after_a_moment)
+
+    # Act
+    pool.drain(timeout=5.0)
+
+    # Assert
+    assert finished == ["done"]
+
+
+@pytest.mark.xfail(strict=True, reason="PR 7: the pool drains")
+def test_draining_gives_up_at_its_timeout_on_a_call_that_hangs() -> None:
+    # Arrange
+    pool = RequestPool(size=2)
+    release = threading.Event()
+    pool.submit(lambda: release.wait(timeout=10.0))
+
+    # Act
+    started = time.monotonic()
+    pool.drain(timeout=0.2)
+    waited = time.monotonic() - started
+    release.set()
+
+    # Assert
+    assert 0.2 <= waited < 3.0
+
+
+@pytest.mark.xfail(strict=True, reason="PR 7: the process pool drains at exit")
+def test_a_process_finishes_the_calls_it_submitted_before_it_exits(tmp_path: Path) -> None:
+    # Arrange
+    written = tmp_path / "written.txt"
+    command = [sys.executable, "-c", SUBMITS_A_SLOW_CALL_AND_EXITS, str(written)]
+
+    # Act
+    try:
+        finished = subprocess.run(
+            command, capture_output=True, text=True, check=False, timeout=EXIT_SECONDS
+        )
+    except subprocess.TimeoutExpired:
+        pytest.fail(f"the process did not exit within {EXIT_SECONDS:.0f} seconds")
+
+    # Assert
+    assert finished.returncode == 0, finished.stderr
+    assert written.read_text() == "written"

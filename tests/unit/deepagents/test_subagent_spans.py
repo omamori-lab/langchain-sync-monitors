@@ -119,4 +119,6 @@ def test_a_halt_after_a_subagent_halt_is_a_step_span_with_only_its_decision(
     )
     assert decision.tags == ["monitor", "monitor:halted", "monitor:flagged"]
     assert "monitor_max_suspicion" not in decision.metadata
+    assert "monitor_min_suspicion" not in decision.metadata
+    assert "monitor_suspicions" not in decision.metadata
     assert all(step.error is None for step in steps)

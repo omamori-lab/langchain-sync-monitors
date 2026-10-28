@@ -340,7 +340,7 @@ class MonitorMiddleware(AgentMiddleware[MonitorState, AgentContext, StructuredOu
                 middleware_name=self.name,
                 trajectory=step.trajectory,
             )
-            # Only a committed step, one in monitor_log, gets a score in the tracing tools.
+            # A decided step, or a held one before its answer, gets a score in the tracing tools.
             queue_step_score(traced_step, record=record, monitor=self)
             return committed
 
@@ -386,7 +386,7 @@ class MonitorMiddleware(AgentMiddleware[MonitorState, AgentContext, StructuredOu
                 middleware_name=self.name,
                 trajectory=step.trajectory,
             )
-            # Only a committed step, one in monitor_log, gets a score in the tracing tools.
+            # A decided step, or a held one before its answer, gets a score in the tracing tools.
             queue_step_score(traced_step, record=record, monitor=self)
             return committed
 

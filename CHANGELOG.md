@@ -156,7 +156,9 @@ change raises the minor version.
   `DEFAULT_HALT_MESSAGE`. A malformed answer raises pydantic's
   `ValidationError`, and the audit can be answered again. New input sent in
   place of an answer stops the held step, and the run goes on with the
-  input. The step's record is written with the answer. A step at or above
+  input. The step's record is written with the answer. A held reply
+  removed from `messages` makes the next resume or input raise
+  `MonitorError`. A step at or above
   `audit_threshold` is audited rather than deferred and flagged; a trusted
   step without a `trusted_model`, a rating that failed closed, and the
   proposal after a block limit are audited too.

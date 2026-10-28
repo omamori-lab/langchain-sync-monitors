@@ -176,8 +176,10 @@ def run_stopping_audits(
         if not result.get("__interrupt__"):
             return result
         result = send_audit_answer(agent, result, answer=STOP_ANSWER, mode=mode, config=config)
-    message = f"the run still paused after {MAX_AUDITS} audits were stopped"
-    raise AssertionError(message)
+    if result.get("__interrupt__"):
+        message = f"the run still paused after {MAX_AUDITS} audits were stopped"
+        raise AssertionError(message)
+    return result
 
 
 def run_agent(

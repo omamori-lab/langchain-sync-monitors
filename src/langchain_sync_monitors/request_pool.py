@@ -68,6 +68,7 @@ class RequestPool:
     def __init__(self, *, size: int) -> None:
         self.tasks: queue.SimpleQueue[Callable[[], None] | None] = queue.SimpleQueue()
         self.threads: list[threading.Thread] = []
+        self.lock = threading.Lock()
         for _ in range(size if size > 1 else 0):
             thread = threading.Thread(
                 target=self.serve,
@@ -89,27 +90,35 @@ class RequestPool:
     def submit[Result](self, call: Callable[[], Result], /) -> Future[Result]:
         """Run the call on a thread of the pool, and return a future for its result.
 
-        A call that raises is logged by the error's type alone, and the
-        future holds the error.
+        A call that raises is logged by the error's type alone, and the future
+        holds the error. A call submitted to a pool that is closed runs in the
+        caller's thread. Submitting and closing exclude each other, so a call
+        is queued before the pool stops or not at all.
         """
         future: Future[Result] = Future()
         future.add_done_callback(log_failed_request)
-        if self.threads:
-            self.tasks.put(lambda: run_in_future(future, call=call))
-        else:
-            run_in_future(future, call=call)
+        with self.lock:
+            if self.threads:
+                self.tasks.put(lambda: run_in_future(future, call=call))
+                return future
+        run_in_future(future, call=call)
         return future
 
     def close(self) -> None:
         """Let every thread finish once the tasks before it are done; later calls run in turn."""
-        for _ in self.threads:
-            self.tasks.put(None)
-        self.threads = []
+        self.stop_threads()
+
+    def stop_threads(self) -> list[threading.Thread]:
+        """Tell every thread to stop after the tasks queued so far, and return them."""
+        with self.lock:
+            threads, self.threads = self.threads, []
+            for _ in threads:
+                self.tasks.put(None)
+        return threads
 
     def drain(self, *, timeout: float) -> None:
         """Close the pool, and wait up to `timeout` seconds for the calls already submitted."""
-        threads = self.threads
-        self.close()
+        threads = self.stop_threads()
         deadline = time.monotonic() + timeout
         for thread in threads:
             thread.join(timeout=max(deadline - time.monotonic(), 0.0))

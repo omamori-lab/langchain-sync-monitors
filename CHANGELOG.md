@@ -240,9 +240,11 @@ change raises the minor version.
 - The scores no longer wait on Langfuse to ingest a step or on a window of ten
   seconds. LangSmith's project lookup, once per client and project, and its
   posts run on up to 4 daemon threads, which keep running for up to 30
-  seconds at exit, and Langfuse's client queues each score at once. A failed
-  LangSmith call is logged by `langchain_sync_monitors.request_pool` with the
-  error's type alone. A Langfuse client that traces nothing drops the scores
+  seconds at exit, and Langfuse's client queues each score at once. A score
+  that cannot be sent is logged by `langchain_sync_monitors.score_export`,
+  and a failed LangSmith project lookup by
+  `langchain_sync_monitors.request_pool`, each with the error's type alone;
+  neither stops the scores or the tools after it. A Langfuse client that traces nothing drops the scores
   itself, so the library no longer reads its private attributes to tell; a
   handler that holds no observation of the step warns once.
 - `langsmith>=0.14.11` is a direct dependency.
@@ -361,6 +363,13 @@ change raises the minor version.
   so it is audited, except under trusted monitoring.
 - An `openrouter:` decision model reads text only, so an action that holds
   media fails closed.
+- The first steps of a brand-new LangSmith project may lose their scores:
+  the project lookup fails until the tracer has created the project. The
+  failed lookup is not remembered, so a later step asks again.
+- LangSmith's SDK sends a feedback again when its run is not ingested yet, up
+  to its own limit of attempts, and the pool thread that posts it waits
+  meanwhile. At exit the pool keeps running for 30 seconds, then the process
+  leaves.
 
 ## [0.1.5] - 2026-10-04
 

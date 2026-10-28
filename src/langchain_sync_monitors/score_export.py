@@ -40,7 +40,7 @@ import operator
 import os
 import threading
 from collections import OrderedDict
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from collections.abc import Set as AbstractSet
 from dataclasses import dataclass, field
 from enum import StrEnum
@@ -143,8 +143,10 @@ PROCESS_NOTICES = ProcessNotices()
 
 def forget_process_state_after_fork() -> None:
     """In a forked child, start afresh: no inherited pool, and no lock another thread held."""
+    global LANGSMITH_PROJECT_IDS_LOCK
     PROCESS_POOL.forget_after_fork()
     PROCESS_NOTICES.lock = threading.Lock()
+    LANGSMITH_PROJECT_IDS_LOCK = threading.Lock()
 
 
 if hasattr(os, "register_at_fork"):
@@ -369,6 +371,15 @@ def find_destinations(
     return list(dict.fromkeys(item for item in destinations if item is not None))
 
 
+def send_each(*sends: Callable[[], None]) -> None:
+    """Run every send in turn, and log each that raises by the error's type alone."""
+    for send in sends:
+        try:
+            send()
+        except Exception as error:
+            logger.warning("score export: a score could not be sent: %s", type(error).__name__)
+
+
 def post_to_langsmith(
     destination: LangSmithDestination,
     *,
@@ -379,7 +390,8 @@ def post_to_langsmith(
     """Post the step's scores, and its flag, as feedback on its run: the pool's call.
 
     The lowest score's report carries the review flag, which it posts itself
-    for a score at or above `flag_threshold`.
+    for a score at or above `flag_threshold`. Each post is made whether or not
+    the one before it failed.
     """
     project_id = read_project_id(destination.client, project_name=destination.project_name)
     run_id = str(destination.run_id)
@@ -394,11 +406,13 @@ def post_to_langsmith(
         name=names.lowest,
         review_flag=ReviewFlag(name=FLAG_NAME, threshold=flag_threshold),
     )
+    sends: list[Callable[[], None]] = []
     if scores.extremes is not None:
-        highest.send(scores.extremes.highest, run_id=run_id)
-        lowest.send(scores.extremes.lowest, run_id=run_id)
+        sends.append(partial(highest.send, scores.extremes.highest, run_id=run_id))
+        sends.append(partial(lowest.send, scores.extremes.lowest, run_id=run_id))
     if needs_flag(scores, flag_threshold=flag_threshold):
-        lowest.flag(run_id=run_id)
+        sends.append(partial(lowest.flag, run_id=run_id))
+    send_each(*sends)
 
 
 def send_to_langfuse(
@@ -411,7 +425,8 @@ def send_to_langfuse(
     """Queue the step's scores, and its flag, as scores on its observation: Langfuse sends them.
 
     The lowest score's report carries the review flag, which it queues itself
-    for a score at or above `flag_threshold`.
+    for a score at or above `flag_threshold`. Each is queued whether or not
+    the one before it failed.
     """
     highest = LangfuseScores(client=destination.client, name=names.highest)
     lowest = LangfuseScores(
@@ -419,19 +434,14 @@ def send_to_langfuse(
         name=names.lowest,
         review_flag=ReviewFlag(name=FLAG_NAME, threshold=flag_threshold),
     )
+    ids = {"trace_id": destination.trace_id, "observation_id": destination.observation_id}
+    sends: list[Callable[[], None]] = []
     if scores.extremes is not None:
-        highest.send(
-            scores.extremes.highest,
-            trace_id=destination.trace_id,
-            observation_id=destination.observation_id,
-        )
-        lowest.send(
-            scores.extremes.lowest,
-            trace_id=destination.trace_id,
-            observation_id=destination.observation_id,
-        )
+        sends.append(partial(highest.send, scores.extremes.highest, **ids))
+        sends.append(partial(lowest.send, scores.extremes.lowest, **ids))
     if needs_flag(scores, flag_threshold=flag_threshold):
-        lowest.flag(trace_id=destination.trace_id, observation_id=destination.observation_id)
+        sends.append(partial(lowest.flag, **ids))
+    send_each(*sends)
 
 
 def send_to_destination(
@@ -477,18 +487,27 @@ def send_step_scores(
     `flagged` whether the step is flagged for review. Nothing is sent when
     the monitor exports to no tool or when the step span had no handler. It
     never raises: a failure is logged by the error's type alone, and the run
-    goes on.
+    goes on. A tool that fails does not stop the tools after it, nor a score
+    the scores after it.
     """
     if not tracers:
         return
     scores = read_step_scores(decisions, flagged=flagged)
     names = build_score_names(label)
     try:
-        for destination in find_destinations(traced_step, tracers=tracers):
+        destinations = find_destinations(traced_step, tracers=tracers)
+    except Exception as error:
+        log_unsent_scores(error)
+        return
+    for destination in destinations:
+        try:
             send_to_destination(
                 destination, scores=scores, names=names, flag_threshold=flag_threshold
             )
-    except Exception as error:
-        logger.warning(
-            "score export: the step's scores could not be sent: %s", type(error).__name__
-        )
+        except Exception as error:
+            log_unsent_scores(error)
+
+
+def log_unsent_scores(error: Exception) -> None:
+    """Log that a step's scores could not be sent to a tool, by the error's type alone."""
+    logger.warning("score export: the step's scores could not be sent: %s", type(error).__name__)

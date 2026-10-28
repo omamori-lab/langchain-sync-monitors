@@ -116,7 +116,6 @@ def test_a_forked_child_runs_calls_on_a_pool_of_its_own_though_the_parents_locks
     assert ending == "exit 0"
 
 
-@pytest.mark.xfail(strict=True, reason="PR 7 review: the project ids' lock is not reset")
 def test_a_forked_child_reads_a_remembered_project_id_though_the_parents_lock_was_held(
     langsmith: LangSmithServer,
     monkeypatch: pytest.MonkeyPatch,

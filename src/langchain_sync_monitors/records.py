@@ -22,6 +22,7 @@ elsewhere, such as `update_state` or an older checkpoint, and raises
 from __future__ import annotations
 
 from collections.abc import Iterable, Mapping, Sequence, Sized
+from dataclasses import dataclass
 
 from hyoshigi import (
     JSON,
@@ -88,19 +89,27 @@ def dump_action(action: Action) -> dict[str, JSON]:
             raise MonitorError(message)
 
 
+@dataclass(frozen=True, slots=True, kw_only=True)
+class RatedProposal:
+    """A proposal's action and the score the monitor gave it."""
+
+    action: Action
+    score: SuspicionScore
+
+
 def find_rated(
     weighed: Sequence[ProtocolDecision | ProtocolRequest],
-) -> list[tuple[Action, SuspicionScore]]:
+) -> list[RatedProposal]:
     """Return each rated proposal the decisions or requests hold, once, in the order rated.
 
     A trusted step is not rated, so it is left out.
     """
-    rated = {
-        proposal.action.id: (proposal.action, proposal.score)
-        for each in weighed
-        for proposal in each.proposals
-    }
-    return [(action, score) for action, score in rated.values() if score is not None]
+    rated = {proposal.action.id: proposal for each in weighed for proposal in each.proposals}
+    return [
+        RatedProposal(action=proposal.action, score=proposal.score)
+        for proposal in rated.values()
+        if proposal.score is not None
+    ]
 
 
 def build_sample_records(
@@ -115,12 +124,12 @@ def build_sample_records(
     """
     return [
         SampleRecord(
-            suspicion=float(score.value),
-            reason=score.explanation,
-            proposal=dump_action(action),
-            executed=action.id == executed_id,
+            suspicion=float(rated.score.value),
+            reason=rated.score.explanation,
+            proposal=dump_action(rated.action),
+            executed=rated.action.id == executed_id,
         )
-        for action, score in find_rated(weighed)
+        for rated in find_rated(weighed)
     ]
 
 

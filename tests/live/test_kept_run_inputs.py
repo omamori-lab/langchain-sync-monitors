@@ -43,7 +43,7 @@ from langchain_core.messages import HumanMessage
 from langchain_core.runnables import Runnable
 from langgraph.checkpoint.memory import InMemorySaver
 
-from langchain_sync_monitors import AutoMode, MonitorMiddleware, MonitorTwins
+from langchain_sync_monitors import BlockAndFeedBack, MonitorMiddleware, MonitorTwins
 from langchain_sync_monitors.monitors import MonitorConfiguration
 from tests.live.checks import LIVE_MARKS, list_errors, save_report, skip_if_rate_limited
 from tests.live.costs import CostLedger, CostRole
@@ -177,7 +177,7 @@ def build_summarised_agent(
         SummarizationMiddleware(model=summariser, trigger=("messages", 6), keep=("messages", 2)),
         MonitorMiddleware(
             monitor=build_recording_monitor(jev, turn=turn, seen=thread.seen),
-            protocol=AutoMode(block_threshold=SUSPICION_THRESHOLD),
+            protocol=BlockAndFeedBack(block_threshold=SUSPICION_THRESHOLD),
         ),
     ]
     return create_agent(

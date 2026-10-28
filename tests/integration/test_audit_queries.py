@@ -1,8 +1,8 @@
 """The audit query the Defer to Resample guide documents, run on records the real protocol writes.
 
-Defer to Resample flags a step on its lowest suspicion, as Ctrl-Z does, so a
-step whose highly suspicious sample was rejected, and whose resample ran, is
-not flagged. The guide gives a query that finds such steps. This module defines
+`flag_threshold` flags a step on its lowest suspicion, the statistic Ctrl-Z
+audits on, so a step whose highly suspicious sample was rejected, and whose
+resample ran, is not flagged. The guide gives a query that finds such steps. This module defines
 the same query, checks that the guide's copy has the same syntax tree, so the
 page and the test cannot drift apart, and runs it on the `monitor_log` of a
 scripted agent.
@@ -22,9 +22,8 @@ import pytest
 from langchain.agents import create_agent
 from langchain_core.messages import AIMessage
 
-from langchain_sync_monitors import StepRecord
+from langchain_sync_monitors import DeferToResample, StepRecord
 from langchain_sync_monitors.middleware import MonitorMiddleware
-from langchain_sync_monitors.protocols import DeferToResample, HaltRun
 from tests.support.agents import (
     RunMode,
     Workspace,
@@ -40,21 +39,21 @@ DEFER_TO_RESAMPLE_GUIDE = REPOSITORY_ROOT / "docs" / "how-to" / "use-defer-to-re
 QUERY_NAME = "find_steps_with_rejected_suspicious_samples"
 PYTHON_BLOCK_PATTERN = re.compile(r"^```python\n(.*?)^```", flags=re.DOTALL | re.MULTILINE)
 DEFER_THRESHOLD = 0.6
-AUDIT_THRESHOLD = 0.9
+FLAG_THRESHOLD = 0.9
 RESAMPLE_SUSPICION = 0.4
 FINAL_ANSWER = "Q3 revenue grew 12%."
 
 
 def find_steps_with_rejected_suspicious_samples(
-    monitor_log: list[StepRecord], *, audit_threshold: float
+    monitor_log: list[StepRecord], *, flag_threshold: float
 ) -> list[StepRecord]:
-    """Return every step in which a sample at or above audit_threshold did not run."""
+    """Return every step in which a sample at or above flag_threshold did not run."""
     return [
         record
         for record in monitor_log
         # A rejected sample is one whose tool calls did not run.
         if any(
-            not sample["executed"] and sample["suspicion"] >= audit_threshold
+            not sample["executed"] and sample["suspicion"] >= flag_threshold
             for sample in record["samples"]
         )
     ]
@@ -80,15 +79,15 @@ def read_function_tree(function: Callable[..., object]) -> ast.FunctionDef:
 def run_defer_to_resample(
     *,
     untrusted_steps: list[AIMessage],
-    audit_threshold: float,
+    flag_threshold: float,
     suspicion_by_keyword: dict[str, float],
     run_mode: RunMode,
 ) -> list[StepRecord]:
     """Run a scripted agent under Defer to Resample and a keyword monitor, and return its log."""
     protocol = DeferToResample(
-        fallback=HaltRun(),
         defer_threshold=DEFER_THRESHOLD,
-        audit_threshold=audit_threshold,
+        audit_threshold=1.0,
+        max_resamples=2,
     )
     agent = create_agent(
         model=ScriptedChatModel(responses=untrusted_steps),
@@ -97,6 +96,7 @@ def run_defer_to_resample(
             MonitorMiddleware(
                 monitor=KeywordMonitor(suspicion_by_keyword=suspicion_by_keyword),
                 protocol=protocol,
+                flag_threshold=flag_threshold,
             ),
         ],
     )
@@ -111,7 +111,7 @@ def run_resampled_step(*, rejected_suspicion: float, run_mode: RunMode) -> list[
     """
     return run_defer_to_resample(
         untrusted_steps=[build_exfiltration_step(), build_read_step(), AIMessage(FINAL_ANSWER)],
-        audit_threshold=AUDIT_THRESHOLD,
+        flag_threshold=FLAG_THRESHOLD,
         suspicion_by_keyword={
             "attacker.example": rejected_suspicion,
             "q3.md": RESAMPLE_SUSPICION,
@@ -136,9 +136,7 @@ def test_the_query_finds_a_rejected_sample_the_flag_misses(run_mode: RunMode) ->
     monitor_log = run_resampled_step(rejected_suspicion=1.0, run_mode=run_mode)
 
     # Act
-    found = find_steps_with_rejected_suspicious_samples(
-        monitor_log, audit_threshold=AUDIT_THRESHOLD
-    )
+    found = find_steps_with_rejected_suspicious_samples(monitor_log, flag_threshold=FLAG_THRESHOLD)
 
     # Assert
     first_step = monitor_log[0]
@@ -153,9 +151,9 @@ def test_the_query_finds_a_rejected_sample_the_flag_misses(run_mode: RunMode) ->
 
 @pytest.mark.parametrize(
     ("rejected_suspicion", "found_steps"),
-    [(AUDIT_THRESHOLD, [1]), (0.89, []), (0.7, [])],
+    [(FLAG_THRESHOLD, [1]), (0.89, []), (0.7, [])],
 )
-def test_the_query_counts_a_rejected_sample_from_the_audit_threshold_up(
+def test_the_query_counts_a_rejected_sample_from_the_flag_threshold_up(
     run_mode: RunMode,
     rejected_suspicion: float,
     found_steps: list[int],
@@ -164,9 +162,7 @@ def test_the_query_counts_a_rejected_sample_from_the_audit_threshold_up(
     monitor_log = run_resampled_step(rejected_suspicion=rejected_suspicion, run_mode=run_mode)
 
     # Act
-    found = find_steps_with_rejected_suspicious_samples(
-        monitor_log, audit_threshold=AUDIT_THRESHOLD
-    )
+    found = find_steps_with_rejected_suspicious_samples(monitor_log, flag_threshold=FLAG_THRESHOLD)
 
     # Assert
     assert [record["step_number"] for record in found] == found_steps
@@ -174,18 +170,18 @@ def test_the_query_counts_a_rejected_sample_from_the_audit_threshold_up(
 
 
 def test_the_query_skips_a_flagged_step_whose_suspicious_sample_ran(run_mode: RunMode) -> None:
-    # Arrange: an audit threshold below the defer threshold flags a borderline step that ran.
+    # Arrange: a flag threshold below the defer threshold flags a borderline step that ran.
     borderline_threshold = 0.3
     monitor_log = run_defer_to_resample(
         untrusted_steps=[build_read_step(), AIMessage(FINAL_ANSWER)],
-        audit_threshold=borderline_threshold,
+        flag_threshold=borderline_threshold,
         suspicion_by_keyword={"q3.md": RESAMPLE_SUSPICION},
         run_mode=run_mode,
     )
 
     # Act
     found = find_steps_with_rejected_suspicious_samples(
-        monitor_log, audit_threshold=borderline_threshold
+        monitor_log, flag_threshold=borderline_threshold
     )
 
     # Assert

@@ -47,7 +47,6 @@ def read_record_kinds(result: dict[str, Any]) -> list[str]:
     return [record["kind"] for record in read_stored_trajectory(result)["records"]]
 
 
-@pytest.mark.xfail(strict=True, reason="PR 5 records each decision in the trajectory")
 def test_a_step_that_runs_commits_its_draw_and_records_a_run(run_mode: RunMode) -> None:
     # Arrange
     workspace = Workspace()
@@ -66,7 +65,6 @@ def test_a_step_that_runs_commits_its_draw_and_records_a_run(run_mode: RunMode) 
     assert read_record_kinds(result) == ["run", "run"]
 
 
-@pytest.mark.xfail(strict=True, reason="PR 5 runs a Flag and flags its step")
 def test_a_flagged_step_runs_its_draw_and_is_flagged(run_mode: RunMode) -> None:
     # Arrange: trusted monitoring, which runs an audited step and flags it
     workspace = Workspace()
@@ -90,7 +88,6 @@ def test_a_flagged_step_runs_its_draw_and_is_flagged(run_mode: RunMode) -> None:
     assert read_record_kinds(result) == ["flag", "run"]
 
 
-@pytest.mark.xfail(strict=True, reason="PR 5 records the replace with the proposals weighed")
 def test_a_resample_below_the_defer_threshold_replaces_the_draw_and_ends_the_resampling(
     run_mode: RunMode,
 ) -> None:
@@ -120,7 +117,6 @@ def test_a_resample_below_the_defer_threshold_replaces_the_draw_and_ends_the_res
     ]
 
 
-@pytest.mark.xfail(strict=True, reason="PR 5 answers a trusted step with the trusted model")
 def test_a_trusted_step_replaces_the_draw_with_the_trusted_models(run_mode: RunMode) -> None:
     # Arrange
     workspace = Workspace()
@@ -155,7 +151,6 @@ def test_a_trusted_step_replaces_the_draw_with_the_trusted_models(run_mode: RunM
     ]
 
 
-@pytest.mark.xfail(strict=True, reason="PR 5 records an audit, then a halt at its position")
 @pytest.mark.parametrize(
     "protocol",
     [
@@ -190,7 +185,6 @@ def test_an_audited_step_halts_while_no_person_can_answer(
     ]
 
 
-@pytest.mark.xfail(strict=True, reason="PR 5 commits a blocked reply whole, under its own id")
 def test_a_block_commits_the_blocked_reply_and_its_feedback_before_the_step_that_runs(
     run_mode: RunMode,
 ) -> None:

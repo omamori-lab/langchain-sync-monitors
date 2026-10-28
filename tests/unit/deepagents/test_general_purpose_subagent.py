@@ -15,7 +15,7 @@ from tests.support.agents import RunMode, run_agent
 from tests.support.chat_models import ScriptedChatModel
 from tests.support.deep_agents import build_delegation_step
 from tests.support.monitors import KeywordMonitor
-from tests.support.protocols import AcceptFirst
+from tests.support.protocols import RUN_EVERY_STEP
 
 SKILLS = ["/skills/"]
 SKILL_NAME = "quarterly-report"
@@ -59,7 +59,7 @@ def test_the_general_purpose_subagent_keeps_the_main_agents_skills(
             AIMessage("Here is the summary."),
         ]
     )
-    main_monitor = MonitorMiddleware(monitor=KeywordMonitor(), protocol=AcceptFirst())
+    main_monitor = MonitorMiddleware(monitor=KeywordMonitor(), protocol=RUN_EVERY_STEP)
     agent = create_deep_agent(
         model=model,
         middleware=[main_monitor],

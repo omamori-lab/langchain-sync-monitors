@@ -77,9 +77,8 @@ the user; its reasoning follows the view. A refusal is part of the text: the
 library reads it from the provider's own refusal block, or, under OpenAI's
 Chat Completions API, from `additional_kwargs["refusal"]`, where
 langchain-openai keeps it outside the content of a reply it did not stream
-[@langchainopenai2026]. Under Auto Mode with
-`FeedbackVisibility.IN_TRANSCRIPT`, a blocked attempt is committed with its
-text withheld; see [What the agent sees](use-auto-mode.md#what-the-agent-sees).
+[@langchainopenai2026]. A blocked reply is committed whole, with the
+feedback on it; see [Feedback](choose-a-protocol.md#feedback).
 
 ## Know what fails closed before any request
 
@@ -99,9 +98,10 @@ sets out:
   without a profile perceives text only [@langchaincore2026]. An `openrouter:`
   decision model perceives text only.
 
-A protocol treats each such sample as it treats any score of 1.0, so a step
-whose every sample uses a server tool never passes Defer to Resample or Auto
-Mode, and goes to their fallback.
+A rating that fails closed this way is audited, whatever the protocol, as
+[a failure without a verdict goes to a person by default](https://omamori-lab.github.io/hyoshigi/explanation/control-protocols/#a-failure-without-a-verdict-goes-to-a-person-by-default)
+sets out, so the step halts while no person can answer, or, under
+`on_audit=AuditResponse.FLAG`, runs flagged.
 
 ## Know what server tools have done
 

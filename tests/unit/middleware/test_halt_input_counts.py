@@ -31,17 +31,17 @@ from langgraph.graph.message import REMOVE_ALL_MESSAGES
 from langgraph.graph.state import CompiledStateGraph
 from langgraph.runtime import Runtime
 
+from langchain_sync_monitors import AuditResponse, DeferToResample
 from langchain_sync_monitors.contracts import StepRecord, SubagentHalt
 from langchain_sync_monitors.halts import (
     INPUTS_AT_HALT_KEY,
     STANDING_HALT_MESSAGE,
     InputsAtHalt,
-    find_halt_decision,
+    find_halt_message,
     merge_inputs_at_halt,
     read_run_inputs_at_halt,
 )
 from langchain_sync_monitors.middleware import MonitorMiddleware
-from langchain_sync_monitors.protocols import TrustedMonitoring
 from langchain_sync_monitors.state_keys import TASK_MESSAGES_KEY
 from tests.support.agents import (
     RunMode,
@@ -394,7 +394,12 @@ def test_an_outer_monitor_s_halt_stands_on_its_own_latest_count(run_mode: RunMod
     outer = build_halting_monitor(label="guard")
     inner = MonitorMiddleware(
         monitor=build_keyword_monitor(),
-        protocol=TrustedMonitoring(audit_threshold=0.5),
+        protocol=DeferToResample(
+            defer_threshold=0.5,
+            audit_threshold=0.5,
+            max_resamples=0,
+            on_audit=AuditResponse.FLAG,
+        ),
         label="inner",
     )
     agent = build_agent(model, workspace=workspace, middleware=[outer, inner])
@@ -466,7 +471,7 @@ def test_a_halt_whose_count_is_no_integer_stands_after_new_run_inputs(count: obj
     }
 
     # Act
-    decision = find_halt_decision(
+    halt_message = find_halt_message(
         state,
         previous_records=[halt],
         returns=[],
@@ -475,5 +480,5 @@ def test_a_halt_whose_count_is_no_integer_stands_after_new_run_inputs(count: obj
     )
 
     # Assert: the count reads as none, so the halt fails closed
-    assert decision is not None
-    assert [message.text for message in decision.response.result] == [STANDING_HALT_MESSAGE]
+    assert halt_message is not None
+    assert halt_message.text == STANDING_HALT_MESSAGE

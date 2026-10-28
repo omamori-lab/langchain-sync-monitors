@@ -9,30 +9,21 @@ from __future__ import annotations
 
 from typing import Any
 
+import hyoshigi
 import pytest
 
-from langchain_sync_monitors.contracts import (
-    FeedbackVisibility,
-    Resampling,
-    SubagentHalt,
-    TaskAuthor,
-)
+from langchain_sync_monitors import DeferToResample, Resampling
+from langchain_sync_monitors.contracts import SubagentHalt, TaskAuthor
 from langchain_sync_monitors.errors import ConfigurationError
 from langchain_sync_monitors.middleware import MonitorMiddleware
-from langchain_sync_monitors.protocols import DeferToResample, HaltRun
 from tests.support.monitors import KeywordMonitor
-from tests.support.protocols import AcceptFirst
+from tests.support.protocols import RUN_EVERY_STEP
 
 
 @pytest.mark.parametrize(
     ("parameter_name", "value", "accepted"),
     [
         ("task_author", "user", "TaskAuthor.USER, TaskAuthor.PARENT_AGENT"),
-        (
-            "feedback_visibility",
-            "in_transcript",
-            "FeedbackVisibility.HIDDEN, FeedbackVisibility.IN_TRANSCRIPT",
-        ),
         (
             "when_subagent_halts",
             "stop_subagent_only",
@@ -50,22 +41,21 @@ def test_the_middleware_refuses_a_plain_string_option(
 
     # Act / Assert
     with pytest.raises(ConfigurationError, match=f"{parameter_name} must be one of {accepted}"):
-        MonitorMiddleware(monitor=KeywordMonitor(), protocol=AcceptFirst(), **options)
+        MonitorMiddleware(monitor=KeywordMonitor(), protocol=RUN_EVERY_STEP, **options)
 
 
 def test_defer_to_resample_refuses_a_plain_string_resampling() -> None:
-    # Act / Assert
-    with pytest.raises(
-        ConfigurationError,
-        match=r"resampling must be one of Resampling.SEQUENTIAL, Resampling.PARALLEL, "
-        r"got 'parallel'. Convert a string with Resampling\(value\)",
-    ):
-        DeferToResample(
-            fallback=HaltRun(),
-            defer_threshold=0.6,
-            audit_threshold=0.9,
-            resampling="parallel",  # ty: ignore[invalid-argument-type]
-        )
+    # Arrange
+    protocol = DeferToResample(
+        defer_threshold=0.6,
+        audit_threshold=0.9,
+        max_resamples=2,
+        resampling="parallel",  # ty: ignore[invalid-argument-type]
+    )
+
+    # Act / Assert: hyoshigi refuses it when the middleware builds the protocol
+    with pytest.raises(ConfigurationError, match="resampling must be a Resampling"):
+        MonitorMiddleware(monitor=KeywordMonitor(), protocol=protocol)
 
 
 def test_members_are_accepted_and_survive_a_subagent_copy() -> None:
@@ -73,12 +63,11 @@ def test_members_are_accepted_and_survive_a_subagent_copy() -> None:
     middleware = MonitorMiddleware(
         monitor=KeywordMonitor(),
         protocol=DeferToResample(
-            fallback=HaltRun(),
             defer_threshold=0.6,
             audit_threshold=0.9,
+            max_resamples=2,
             resampling=Resampling("parallel"),
         ),
-        feedback_visibility=FeedbackVisibility("in_transcript"),
         when_subagent_halts=SubagentHalt.STOP_WHOLE_RUN,
     )
 
@@ -87,5 +76,7 @@ def test_members_are_accepted_and_survive_a_subagent_copy() -> None:
 
     # Assert
     assert copy.task_author is TaskAuthor.PARENT_AGENT
-    assert copy.feedback_visibility is FeedbackVisibility.IN_TRANSCRIPT
+    rebuilt = copy.protocols.async_protocol
+    assert isinstance(rebuilt, hyoshigi.AsyncDeferToResample)
+    assert rebuilt.resampling is Resampling.PARALLEL
     assert copy.when_subagent_halts is SubagentHalt.STOP_WHOLE_RUN

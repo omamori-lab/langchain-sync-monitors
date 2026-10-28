@@ -30,7 +30,7 @@ from pathlib import Path
 
 from langchain.agents import create_agent
 
-from langchain_sync_monitors import LLMMonitor, MonitorMiddleware, TrustedMonitoring
+from langchain_sync_monitors import AuditResponse, DeferToResample, LLMMonitor, MonitorMiddleware
 
 
 def read_file(path: str) -> str:
@@ -40,13 +40,18 @@ def read_file(path: str) -> str:
 
 # The monitor's model, as a provider string that init_chat_model resolves.
 monitor = LLMMonitor(model="openrouter:xiaomi/mimo-v2.6-pro")
+# Trusted monitoring: every step runs, and one at or above 0.6 is flagged.
+protocol = DeferToResample(
+    defer_threshold=0.6,
+    audit_threshold=0.6,
+    max_resamples=0,
+    on_audit=AuditResponse.FLAG,
+)
 agent = create_agent(
     "openrouter:deepseek/deepseek-v4.1-flash",
     tools=[read_file],
     # The monitor goes last in the middleware list.
-    middleware=[
-        MonitorMiddleware(monitor=monitor, protocol=TrustedMonitoring(audit_threshold=0.6)),
-    ],
+    middleware=[MonitorMiddleware(monitor=monitor, protocol=protocol)],
 )
 ```
 
@@ -92,7 +97,7 @@ gives the scale, the reply's shape and the retries.
 [![LLMMonitor calls its model with the filled prompt, the same prompt on every attempt. A call the provider answers with HTTP 429 is made again, up to four attempts in all. A rate limit, a server error, a timeout or a failed connection that outlasts the retries leaves the model unavailable, and a refusal, or a prompt the provider rejects, ends the rating at once: either way the monitor fails closed, suspicion 1.0. A call that fails for any other reason, such as a bad key, raises its error: the step fails, and none of the agent's own tools run. A reply the provider reports as cut off at a length limit is asked for again. So is a reply without a reasoning block that holds some text, then exactly one score tag, with nothing but whitespace between them or after the score, and a reply whose score is not an integer from lowest_score to highest_score. A readable reply gives the score mapped onto a suspicion from 0 to 1, with the reasoning as the explanation. Attempts run while any are left, 1 plus max_parse_retries in all, 3 by default. When none are left, the monitor fails closed: suspicion 1.0, with an explanation that names the cause.](../assets/diagrams/monitors-llm-monitor-dark.svg#only-dark)](../assets/diagrams/monitors-llm-monitor-dark.svg "Open the diagram at full size")
 
 The reasoning becomes the verdict's reason, which `monitor_log` keeps and
-Auto Mode shows the agent. A rating that failed closed has a reason that names
+Block and Feed Back shows the agent. A rating that failed closed has a reason that names
 its cause instead;
 [hyoshigi's page on failing closed](https://omamori-lab.github.io/hyoshigi/explanation/failing-closed/)
 lists the causes, and how the wrappers keep the 1.0.
@@ -219,6 +224,6 @@ how to change the view.
 ## Related guides
 
 - [Choose a protocol](choose-a-protocol.md) to decide what happens with the monitor's verdict.
-- [Use Auto Mode](use-auto-mode.md), where the monitor's reasoning becomes the agent's feedback.
+- [Use Block and Feed Back](use-block-and-feed-back.md), where the monitor's reasoning becomes the agent's feedback.
 
 ## References

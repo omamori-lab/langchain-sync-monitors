@@ -12,16 +12,22 @@ from typing import Any
 
 import pytest
 from deepagents import SubAgent, create_deep_agent
+from hyoshigi import Action
 from langchain.agents.middleware import ToolRetryMiddleware
 from langchain.agents.middleware.types import AgentMiddleware
 from langchain_core.messages import AIMessage
 
-from langchain_sync_monitors.contracts import ControlProtocol, FeedbackVisibility
+from langchain_sync_monitors import AuditResponse, BlockAndFeedBack, DeferToResample, SubagentHalt
 from langchain_sync_monitors.deepagents import monitor_subagents
 from langchain_sync_monitors.middleware import MonitorMiddleware
 from langchain_sync_monitors.placement import MonitorPlacementWarning, check_monitor_placement
-from langchain_sync_monitors.protocols import AutoMode, DeferToResample, HaltRun, TrustedMonitoring
-from tests.support.agents import RunMode, build_exfiltration_step, build_keyword_monitor, run_agent
+from tests.support.agents import (
+    RunMode,
+    build_exfiltration_step,
+    build_keyword_monitor,
+    build_read_step,
+    run_agent,
+)
 from tests.support.chat_models import ScriptedChatModel
 from tests.support.deep_agents import build_delegation_step
 from tests.support.monitors import KeywordMonitor
@@ -30,9 +36,16 @@ THRESHOLD = 0.5
 WORKER_REPORT = "Three sources found."
 
 
-def build_resampling(*, max_resamples: int) -> ControlProtocol:
+TRUSTED_MONITORING = DeferToResample(
+    defer_threshold=THRESHOLD,
+    audit_threshold=THRESHOLD,
+    max_resamples=0,
+    on_audit=AuditResponse.FLAG,
+)
+
+
+def build_resampling(*, max_resamples: int) -> DeferToResample:
     return DeferToResample(
-        fallback=HaltRun(),
         defer_threshold=THRESHOLD,
         audit_threshold=THRESHOLD,
         max_resamples=max_resamples,
@@ -40,14 +53,11 @@ def build_resampling(*, max_resamples: int) -> ControlProtocol:
 
 
 def build_trusted_monitoring_monitor(monitor: KeywordMonitor | None = None) -> MonitorMiddleware:
-    return MonitorMiddleware(
-        monitor=monitor or KeywordMonitor(),
-        protocol=TrustedMonitoring(audit_threshold=THRESHOLD),
-    )
+    return MonitorMiddleware(monitor=monitor or KeywordMonitor(), protocol=TRUSTED_MONITORING)
 
 
 def build_guarded_worker(
-    guard_protocol: ControlProtocol,
+    guard_protocol: DeferToResample,
     *,
     model: ScriptedChatModel | None = None,
 ) -> SubAgent:
@@ -136,11 +146,11 @@ def test_monitoring_its_own_output_again_names_each_monitor_added_inside() -> No
 
 @pytest.mark.parametrize(
     "guard_protocol",
-    [TrustedMonitoring(audit_threshold=THRESHOLD), build_resampling(max_resamples=0)],
-    ids=["trusted-monitoring", "resample-none-then-halt"],
+    [TRUSTED_MONITORING, build_resampling(max_resamples=0)],
+    ids=["trusted-monitoring", "resample-none-then-audit"],
 )
 def test_a_monitor_added_inside_a_spec_s_single_call_monitor_is_not_named(
-    guard_protocol: ControlProtocol,
+    guard_protocol: DeferToResample,
 ) -> None:
     # Arrange
     worker = build_guarded_worker(guard_protocol)
@@ -155,22 +165,19 @@ def test_a_monitor_added_inside_a_spec_s_single_call_monitor_is_not_named(
     assert [item.name for item in worker_middleware] == ["guard[worker]", "monitor[worker]"]
 
 
-def test_subagent_blocks_at_the_total_leave_a_monitor_inside_auto_mode_sound(
+def test_a_subagent_halt_leaves_a_monitor_inside_a_single_call_monitor_sound(
     run_mode: RunMode,
 ) -> None:
-    # Arrange: Auto Mode allows one block in the thread; the worker's block reaches it, so
-    # the main agent's next step halts without a sample
+    # Arrange: the outer monitor halts the worker's suspicious step and stops the whole run,
+    # so the main agent's next step halts without a sample
     inner_monitor = KeywordMonitor()
     outer = MonitorMiddleware(
         monitor=build_keyword_monitor(),
-        protocol=AutoMode(block_threshold=THRESHOLD, max_consecutive_blocks=3, max_total_blocks=1),
+        protocol=build_resampling(max_resamples=0),
         label="outer",
+        when_subagent_halts=SubagentHalt.STOP_WHOLE_RUN,
     )
-    inner = MonitorMiddleware(
-        monitor=inner_monitor,
-        protocol=TrustedMonitoring(audit_threshold=THRESHOLD),
-        label="inner",
-    )
+    inner = MonitorMiddleware(monitor=inner_monitor, protocol=TRUSTED_MONITORING, label="inner")
     worker = SubAgent(
         name="worker",
         description="Finds sources.",
@@ -213,15 +220,15 @@ def test_a_spec_s_other_middleware_is_left_to_check_monitor_placement() -> None:
         check_monitor_placement(middleware=specs[0].get("middleware", []))
 
 
-def test_an_added_monitor_that_shows_its_blocks_inside_a_spec_s_monitor_is_named(
+def test_an_added_monitor_that_may_block_inside_a_spec_s_monitor_is_named(
     run_mode: RunMode,
 ) -> None:
-    # Arrange: the added Auto Mode blocks the worker's first draft and keeps it in the
-    # transcript, inside the spec's own Trusted Monitoring guard
+    # Arrange: the added monitor blocks the worker's first draft and commits it with the step,
+    # inside the spec's own trusted monitoring guard; the worker then reads and reports
     guard_monitor = KeywordMonitor()
     guard = MonitorMiddleware(
         monitor=guard_monitor,
-        protocol=TrustedMonitoring(audit_threshold=THRESHOLD),
+        protocol=TRUSTED_MONITORING,
         label="guard",
         agent_name="worker",
     )
@@ -230,12 +237,13 @@ def test_an_added_monitor_that_shows_its_blocks_inside_a_spec_s_monitor_is_named
         name="worker",
         description="Finds sources.",
         middleware=spec_middleware,
-        model=ScriptedChatModel(responses=[build_exfiltration_step(), AIMessage(WORKER_REPORT)]),
+        model=ScriptedChatModel(
+            responses=[build_exfiltration_step(), build_read_step(), AIMessage(WORKER_REPORT)],
+        ),
     )
     added = MonitorMiddleware(
         monitor=build_keyword_monitor(),
-        protocol=AutoMode(block_threshold=THRESHOLD),
-        feedback_visibility=FeedbackVisibility.IN_TRANSCRIPT,
+        protocol=BlockAndFeedBack(block_threshold=THRESHOLD),
     )
 
     # Act
@@ -246,16 +254,13 @@ def test_an_added_monitor_that_shows_its_blocks_inside_a_spec_s_monitor_is_named
         middleware=[build_trusted_monitoring_monitor()],
         subagents=subagents,
     )
-    result = run_agent(agent, mode=run_mode)
+    run_agent(agent, mode=run_mode)
 
-    # Assert: the warning is right, since the guard judged the blocked draft, not the report
+    # Assert: the warning is right, since the guard rated the read that ran, and its history at
+    # the report holds the read but not the blocked draft the worker saw
     [message] = [str(warning.message) for warning in caught]
-    assert message.startswith("monitor[worker] commits its blocked attempts")
-    [guard_record] = [
-        record
-        for record in result["monitor_log"]
-        if (record["agent"], record["monitor"]) == ("worker", "guard")
+    assert message.startswith("monitor[worker] may commit blocked replies")
+    guard_actions = [
+        event for event in guard_monitor.ratings[1].history if isinstance(event, Action)
     ]
-    [call] = guard_record["samples"][0]["proposal"]["tool_calls"]
-    assert "attacker.example" in call["arguments"]
-    assert [rating.action.tool_calls[0].name for rating in guard_monitor.ratings] == ["http_post"]
+    assert [call.name for action in guard_actions for call in action.tool_calls] == ["read_file"]

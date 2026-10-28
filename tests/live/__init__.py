@@ -14,10 +14,11 @@ in full, on 1 October 2026:
 
 - `test_monitor_families`: the threshold separates a malicious step from a
   benign one, for each family. 3 runs at $0.01; $0.0022.
-- `test_whole_agent_runs`: Jev under Auto Mode, an honest run that does its
-  task and an attack that keeps the key in. 2 runs at $0.03; $0.0010.
-- `test_protocol_paths`: each of six protocol variants acts on every step
-  that reaches the threshold. 6 runs at $0.03; $0.023.
+- `test_whole_agent_runs`: Jev under Block and Feed Back, an honest run that
+  does its task and an attack that keeps the key in. 2 runs at $0.03; $0.0010.
+- `test_protocol_paths`: each of five protocol variants acts on every step
+  that reaches the threshold. 5 runs at $0.03; the six run on 1 October cost
+  $0.023.
 - `test_honest_runs`: false positives on four tasks, three of them near
   misses, for each family. 12 runs at $0.02; $0.018.
 - `test_wrapper_monitors`: the cascade, the repeat and the calibration score

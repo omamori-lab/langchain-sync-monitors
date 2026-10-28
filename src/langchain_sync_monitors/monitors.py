@@ -42,8 +42,11 @@ from langchain_sync_monitors.errors import (
 )
 from langchain_sync_monitors.model_calls import CachedResampleWarning, is_response_cache_active
 from langchain_sync_monitors.openrouter_decisions import open_decision_models
-from langchain_sync_monitors.options import check_instance_option, describe_option_value
-from langchain_sync_monitors.thresholds import LIBRARY_DIRECTORY
+from langchain_sync_monitors.options import (
+    LIBRARY_DIRECTORY,
+    check_instance_option,
+    describe_option_value,
+)
 
 if TYPE_CHECKING:
     from typesafe_sdk import AsyncTypeSafeClient, TypeSafeClient
@@ -528,7 +531,7 @@ def warn_about_cached_monitor_replies() -> None:
     """Emit the `CachedResampleWarning` for a monitor's model, on the first call in the process.
 
     The cache on this function keeps the warning to one per process, as
-    `pending_steps.warn_about_cached_resamples` does for the agent's model.
+    `steps.warn_about_cached_resamples` does for the agent's model.
     It points at the line that built the middleware, past its `__post_init__`.
     """
     warnings.warn(

@@ -8,16 +8,9 @@ This guide shows how to wrap a monitor in `RepeatedMonitor`,
 
 ## Set every threshold yourself
 
-Every control protocol compares the monitor's suspicion with a threshold. Each
-threshold has a default, listed in
-[Thresholds](choose-a-protocol.md#thresholds), and a protocol built with a
-default warns. This is the warning Auto Mode gives:
-
-```text
-UncalibratedThresholdWarning: block_threshold uses the uncalibrated default 0.6. Suspicion scores differ between monitors and agents, so a fixed default may block honest work or miss attacks. Run the agent on honest tasks, take the suspicion scores of the monitor_log records whose agent and monitor are your MonitorMiddleware's agent_name and label, and set the threshold at a high percentile of those scores (for example the 98th), as the section "Calibrate the threshold" of the guide "Use Trusted Monitoring" shows, or wrap the monitor in CalibratedMonitor so that its scores are smoothed conformal p-values against honest scores. Pass block_threshold explicitly to silence this warning.
-```
-
-Treat the defaults as placeholders. Each monitor spreads its scores
+Every control protocol compares the monitor's suspicion with thresholds, and
+none of them has a default: each threshold is a number from 0 to 1 you pass,
+as [Thresholds](choose-a-protocol.md#thresholds) says. Each monitor spreads its scores
 differently, and an agent's honest work looks more or less unusual depending
 on its task and tools. Control evaluations set thresholds from the scores the
 monitor gives to honest runs, and the audit threshold spends a known audit
@@ -29,13 +22,8 @@ it can sit much lower, as Ctrl-Z notes (section 3.1.3) [@bhatt2025ctrlz].
 [Thresholds](choose-a-protocol.md#thresholds) gives the defer percentiles
 each source uses.
 
-A threshold may be any real number from 0 to 1, a `Fraction` or a `Decimal`
-included. It is checked exactly, before it becomes a float, so a `Decimal`
-just above 1 is refused rather than rounded into range. A `bool`, a string
-such as `"0.6"` and NaN raise `ConfigurationError`, and `-0.0` reads as 0.
-
-Passing a number silences the warning, but only a number chosen from your own
-honest runs does what it asks. There are two ways to choose one:
+Only a number chosen from your own honest runs does what a threshold is for.
+There are two ways to choose one:
 
 - Take a high percentile of the raw honest scores. This is simple, but a
   percentile that falls among tied scores flags every step in the tie.
@@ -63,12 +51,13 @@ failed closed at 1.0, with the exceptions
 [hyoshigi's page on failing closed](https://omamori-lab.github.io/hyoshigi/explanation/failing-closed/#wrappers-keep-a-failed-score-at-10-except-an-unanswered-call-and-a-cascades-fast-score)
 gives.
 
-Protocols multiply these costs, because they judge every sample they draw.
-Trusted Monitoring and Defer to Trusted judge one sample per step; Defer to
-Resample and Auto Mode judge up to three by default. So Defer to Resample
-around a `RepeatedMonitor` of three LLM monitor calls makes three monitor
-calls on an ordinary step and up to nine on a suspicious one, counting one
-readable reply per call. An LLM monitor asks again for an unreadable reply,
+Protocols multiply these costs, because they rate every sample they draw.
+Trusted Monitoring and Defer to Trusted rate one sample per step; Defer to
+Resample rates up to `max_resamples` more, and Block and Feed Back one more
+for each block, up to `blocks_in_a_row` more. So Defer to Resample with
+`max_resamples=2` around a `RepeatedMonitor` of three LLM monitor calls makes
+three monitor calls on an ordinary step and up to nine on a suspicious one,
+counting one readable reply per call. An LLM monitor asks again for an unreadable reply,
 up to `max_parse_retries` more times.
 
 ## Average repeated calls
@@ -112,11 +101,8 @@ Honest scores are the scores your monitor gives to steps of runs you trust.
 Collect them with exactly the monitor you will calibrate: the same model,
 prompt, view, ensemble size and temperature.
 
-[![Run the agent on honest tasks under TrustedMonitoring, which never changes a step, so every step is judged once, as in an unmonitored run. Its monitor_log holds one record per step; keep the records of this agent and this monitor, since a Deep Agent's log also holds its subagents' records. Every sample's suspicion is an honest score; read the highest first, since a score of 1.0 from a reply that could not be read measures nothing. Pass the scores to CalibratedMonitor as honest_scores. The monitor that judges the honest runs and the one CalibratedMonitor wraps are the same: the same model, prompt, view, ensemble size and temperature.](../assets/diagrams/monitors-honest-scores-light.svg#only-light)](../assets/diagrams/monitors-honest-scores-light.svg "Open the diagram at full size")
-[![Run the agent on honest tasks under TrustedMonitoring, which never changes a step, so every step is judged once, as in an unmonitored run. Its monitor_log holds one record per step; keep the records of this agent and this monitor, since a Deep Agent's log also holds its subagents' records. Every sample's suspicion is an honest score; read the highest first, since a score of 1.0 from a reply that could not be read measures nothing. Pass the scores to CalibratedMonitor as honest_scores. The monitor that judges the honest runs and the one CalibratedMonitor wraps are the same: the same model, prompt, view, ensemble size and temperature.](../assets/diagrams/monitors-honest-scores-dark.svg#only-dark)](../assets/diagrams/monitors-honest-scores-dark.svg "Open the diagram at full size")
-
-Run the agent under `TrustedMonitoring`, which never changes a step, so the
-run goes as it would unmonitored and every step is judged once. A protocol
+Run the agent under trusted monitoring at 1.0, which runs every step, so the
+run goes as it would unmonitored and every step is rated once. A protocol
 that resamples would judge extra samples only for suspicious steps, and skew
 the scores. Keep only the records of the agent and the monitor you calibrate:
 a record names both, and a Deep Agent's log also holds its subagents' records.
@@ -129,10 +115,11 @@ from langchain.agents import create_agent
 from langchain.chat_models import init_chat_model
 
 from langchain_sync_monitors import (
+    AuditResponse,
+    DeferToResample,
     LLMMonitor,
     MonitorMiddleware,
     RepeatedMonitor,
-    TrustedMonitoring,
 )
 
 
@@ -149,12 +136,17 @@ HONEST_TASKS = [
 # Exactly the monitor you will calibrate.
 monitor_model = init_chat_model("openrouter:xiaomi/mimo-v2.6-pro", temperature=1.0)
 monitor = RepeatedMonitor(monitor=LLMMonitor(model=monitor_model), ensemble_size=3)
+# Trusted monitoring at 1.0: every step runs, and one rated 1.0 is flagged.
+run_every_step = DeferToResample(
+    defer_threshold=1.0,
+    audit_threshold=1.0,
+    max_resamples=0,
+    on_audit=AuditResponse.FLAG,
+)
 agent = create_agent(
     "openrouter:deepseek/deepseek-v4.1-flash",
     tools=[read_file],
-    middleware=[
-        MonitorMiddleware(monitor=monitor, protocol=TrustedMonitoring(audit_threshold=0.9)),
-    ],
+    middleware=[MonitorMiddleware(monitor=monitor, protocol=run_every_step)],
 )
 
 honest_samples = []
@@ -206,11 +198,12 @@ from pathlib import Path
 from langchain.chat_models import init_chat_model
 
 from langchain_sync_monitors import (
+    AuditResponse,
     CalibratedMonitor,
+    DeferToResample,
     LLMMonitor,
     MonitorMiddleware,
     RepeatedMonitor,
-    TrustedMonitoring,
 )
 
 honest_scores = json.loads(Path("honest_scores.json").read_text(encoding="utf-8"))
@@ -221,21 +214,27 @@ monitor = CalibratedMonitor(
     # A fixed seed makes the tie-breaking replayable.
     random_seed=2026,
 )
-# Flag about 1% of honest steps.
+# Trusted monitoring that flags about 1% of honest steps.
 middleware = MonitorMiddleware(
     monitor=monitor,
-    protocol=TrustedMonitoring(audit_threshold=0.99),
+    protocol=DeferToResample(
+        defer_threshold=0.99,
+        audit_threshold=0.99,
+        max_resamples=0,
+        on_audit=AuditResponse.FLAG,
+    ),
 )
 ```
 
 Every other protocol's thresholds read the same way: with a calibrated
 monitor, a defer threshold of 0.98 sends about 2% of honest steps to
-resampling. Defer to Resample's `audit_threshold` is the exception. It is
-compared with the lowest score across a step's samples, which is at most the
-first sample's score, so 0.99 flags at most about 1% of honest steps, and
-usually fewer;
-[Calibrate the audit threshold](use-defer-to-resample.md#calibrate-the-audit-threshold)
-sets it on that statistic.
+resampling. Two thresholds are the exception: Defer to Resample's
+`audit_threshold` and `MonitorMiddleware`'s `flag_threshold` are compared
+with the lowest score across a step's samples, which is at most the first
+sample's score, so 0.99 audits or flags at most about 1% of honest steps,
+and usually fewer;
+[Calibrate the flag threshold](use-defer-to-resample.md#calibrate-the-flag-threshold)
+sets them on that statistic.
 
 `CalibratedMonitor` reports the smoothed conformal p-value of the wrapped
 monitor's score among the honest scores, so a threshold `t` flags a share of

@@ -45,9 +45,9 @@ from typing import TypedDict
 from langchain_core.messages import AIMessage
 
 from langchain_sync_monitors._langchain import AgentStateUpdate
-from langchain_sync_monitors.contracts import StepDecision, StepRecord, SubagentHalt
-from langchain_sync_monitors.delegation import build_subagent_halt_decision, read_delegation_id
-from langchain_sync_monitors.feedback import build_halt_decision
+from langchain_sync_monitors.contracts import StepRecord, SubagentHalt
+from langchain_sync_monitors.delegation import build_subagent_halt_message, read_delegation_id
+from langchain_sync_monitors.feedback import build_halt_message
 from langchain_sync_monitors.records import find_monitor_records, read_step_records
 from langchain_sync_monitors.state_keys import INPUTS_AT_HALT_KEY, TASK_MESSAGES_KEY
 from langchain_sync_monitors.subagent_returns import SubagentReturn, find_halted_subagents
@@ -187,27 +187,18 @@ def is_halt_standing(
     return run_inputs_at_halt is None or run_inputs <= run_inputs_at_halt
 
 
-def build_standing_halt_decision() -> StepDecision:
-    """Return the decision that halts the run again, without a sample, while an earlier halt stands.
-
-    It is flagged, as every halt is: a hook tried to send a halted run back
-    to the model, which a person should see.
-    """
-    return build_halt_decision(STANDING_HALT_MESSAGE)
-
-
 def find_lost_write_halt(
     lost_writes: int,
     *,
     monitor: str,
     middleware_name: str,
-) -> StepDecision | None:
-    """Return the halt a step gets because its monitor's trajectory lost writes, else None.
+) -> AIMessage | None:
+    """Return the halt message of a step whose monitor's trajectory lost writes, else None.
 
     `trajectory_channel` counts a stale write the trajectory dropped outside the
-    stacked case as lost. The step halts without a sample, flagged, and a
-    warning names the monitor and the count; the step's write answers the
-    count, and the halt stands as any halt does.
+    stacked case as lost. The step halts without a sample, and a warning
+    names the monitor and the count; the step's write answers the count, and
+    the halt stands as any halt does.
     """
     if lost_writes == 0:
         return None
@@ -218,18 +209,18 @@ def find_lost_write_halt(
         lost_writes,
         monitor,
     )
-    return build_halt_decision(LOST_WRITE_HALT_MESSAGE)
+    return build_halt_message(LOST_WRITE_HALT_MESSAGE)
 
 
-def find_halt_decision(
+def find_halt_message(
     state: Mapping[str, object],
     *,
     previous_records: Sequence[StepRecord],
     returns: Sequence[SubagentReturn],
     middleware_name: str,
     when_subagent_halts: SubagentHalt,
-) -> StepDecision | None:
-    """Return the halt a step gets without a sample, or None when the protocol decides it.
+) -> AIMessage | None:
+    """Return the message of the halt a step gets without a sample, or None for the protocol.
 
     `returns` holds what this agent's tool calls returned since its last
     step. The step halts again while this monitor's own halt stands, and
@@ -241,10 +232,11 @@ def find_halt_decision(
         run_inputs=count_run_inputs(state),
         run_inputs_at_halt=read_run_inputs_at_halt(state, middleware_name=middleware_name),
     ):
-        return build_standing_halt_decision()
+        # A hook tried to send a halted run back to the model.
+        return build_halt_message(STANDING_HALT_MESSAGE)
     if when_subagent_halts is SubagentHalt.STOP_SUBAGENT_ONLY:
         return None
     halted_subagents = find_halted_subagents(returns)
     if not halted_subagents:
         return None
-    return build_subagent_halt_decision(subagent_names=halted_subagents)
+    return build_subagent_halt_message(subagent_names=halted_subagents)

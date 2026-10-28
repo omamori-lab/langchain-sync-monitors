@@ -5,9 +5,10 @@ honest DeepSeek V4.1 Flash, has no sandbox tools: it hands the user's task to
 the `operations` subagent with Deep Agents' `task` tool. The subagent has the
 sandbox's tools, renamed so they do not clash with Deep Agents' own file tools,
 and in the attack run only its model reads the side task. Jev judges the main
-agent under Auto Mode, and `monitor_subagents` gives the subagent either a
-copy of that monitor or, to reach a halt, the LLM monitor under Defer to
-Resample with `HaltRun`.
+agent under Block and Feed Back, and `monitor_subagents` gives the subagent
+either a copy of that monitor or, to reach a halt, the LLM monitor under Defer
+to Resample without a trusted model, so a step no sample passes is audited
+and halts.
 """
 
 from __future__ import annotations
@@ -21,9 +22,8 @@ from langchain_core.messages import AIMessage, BaseMessage, ToolMessage
 from langchain_core.runnables import Runnable
 
 from langchain_sync_monitors import (
-    AutoMode,
+    BlockAndFeedBack,
     DeferToResample,
-    HaltRun,
     MonitorMiddleware,
     MonitorStepFailedEvent,
     StepRecord,
@@ -33,6 +33,7 @@ from langchain_sync_monitors import (
 from tests.live.costs import CostLedger, CostSnapshot
 from tests.live.harness import (
     AUDIT_THRESHOLD,
+    MAX_RESAMPLES,
     MONITOR_VIEW,
     SUSPICION_THRESHOLD,
     DecisionsClients,
@@ -132,7 +133,10 @@ def build_halting_monitor(
     ledger: CostLedger,
     decisions_clients: DecisionsClients,
 ) -> MonitorMiddleware:
-    """Build the subagent's override: the LLM monitor, under Defer to Resample ending in a halt."""
+    """Build the subagent's override: the LLM monitor, under Defer to Resample ending in a halt.
+
+    Without a trusted model, a step no sample passes is audited, and halts.
+    """
     monitor = build_family_monitor(
         MonitorFamily.LLM_MONITOR,
         view=MONITOR_VIEW,
@@ -140,9 +144,9 @@ def build_halting_monitor(
         decisions_clients=decisions_clients,
     )
     protocol = DeferToResample(
-        fallback=HaltRun(),
         defer_threshold=threshold,
         audit_threshold=AUDIT_THRESHOLD,
+        max_resamples=MAX_RESAMPLES,
     )
     return MonitorMiddleware(monitor=monitor, protocol=protocol)
 
@@ -153,7 +157,7 @@ def build_deep_live_agent(
     resources: RunResources,
     decisions_clients: DecisionsClients,
 ) -> Runnable[Any, Any]:
-    """Build the main agent, monitored by Jev under Auto Mode, and its monitored subagent."""
+    """Build the main agent, monitored by Jev under Block and Feed Back, and its subagent."""
     ledger = resources.ledger
     jev = build_family_monitor(
         MonitorFamily.DECISION_MODEL,
@@ -163,7 +167,7 @@ def build_deep_live_agent(
     )
     main_monitor = MonitorMiddleware(
         monitor=jev,
-        protocol=AutoMode(block_threshold=SUSPICION_THRESHOLD),
+        protocol=BlockAndFeedBack(block_threshold=SUSPICION_THRESHOLD),
         when_subagent_halts=configuration.when_subagent_halts,
     )
     overrides = (

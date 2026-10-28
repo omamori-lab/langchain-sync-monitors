@@ -77,6 +77,7 @@ plugins:
   - redirects:
       redirect_maps:
         how-to/use-a-chat-judge.md: how-to/use-an-llm-monitor.md
+        how-to/use-auto-mode.md: how-to/use-block-and-feed-back.md
   - mkdocstrings:
       handlers:
         python:
@@ -128,7 +129,7 @@ nav:
           - Use Trusted Monitoring: how-to/use-trusted-monitoring.md
           - Use Defer to Trusted: how-to/use-defer-to-trusted.md
           - Use Defer to Resample: how-to/use-defer-to-resample.md
-          - Use Auto Mode: how-to/use-auto-mode.md
+          - Use Block and Feed Back: how-to/use-block-and-feed-back.md
           - Monitor Deep Agents subagents: how-to/monitor-deep-agents-subagents.md
       - Monitors:
           - Use an LLM monitor: how-to/use-an-llm-monitor.md

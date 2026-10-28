@@ -24,12 +24,12 @@ from langchain.agents.middleware.types import (
 )
 from langgraph.runtime import Runtime
 
+from langchain_sync_monitors import AuditResponse, DeferToResample
 from langchain_sync_monitors.middleware import MonitorMiddleware
 from langchain_sync_monitors.placement import MonitorPlacementWarning, check_monitor_placement
-from langchain_sync_monitors.protocols import TrustedMonitoring
 from tests.support.chat_models import ScriptedChatModel
 from tests.support.monitors import KeywordMonitor
-from tests.support.protocols import AcceptFirst
+from tests.support.protocols import RUN_EVERY_STEP
 
 
 class CommandingMiddleware(AgentMiddleware[Any, Any, Any]):
@@ -56,7 +56,7 @@ class UnsupportedContentMiddleware(CommandingMiddleware):
 
 @pytest.fixture
 def monitor_middleware() -> MonitorMiddleware:
-    return MonitorMiddleware(monitor=KeywordMonitor(), protocol=AcceptFirst())
+    return MonitorMiddleware(monitor=KeywordMonitor(), protocol=RUN_EVERY_STEP)
 
 
 def test_a_monitor_placed_last_raises_no_warning(monitor_middleware: MonitorMiddleware) -> None:
@@ -92,7 +92,7 @@ class TeamMonitorMiddleware(MonitorMiddleware):
 
 def test_a_model_call_wrapper_inside_a_monitor_subclass_is_named_in_a_warning() -> None:
     # Arrange
-    monitor = TeamMonitorMiddleware(monitor=KeywordMonitor(), protocol=AcceptFirst())
+    monitor = TeamMonitorMiddleware(monitor=KeywordMonitor(), protocol=RUN_EVERY_STEP)
     stack = [monitor, CommandingMiddleware()]
 
     # Act
@@ -120,14 +120,18 @@ def test_request_only_and_hook_only_middleware_are_safe_inside_the_monitor(
 
 
 def test_middleware_inside_a_monitor_that_calls_the_model_once_is_not_named() -> None:
-    # Arrange: Trusted Monitoring calls the rest of the stack once per step
-    outer = MonitorMiddleware(
-        monitor=KeywordMonitor(), protocol=TrustedMonitoring(audit_threshold=0.5), label="outer"
+    # Arrange: trusted monitoring calls the rest of the stack once per step
+    trusted_monitoring = DeferToResample(
+        defer_threshold=0.5,
+        audit_threshold=0.5,
+        max_resamples=0,
+        on_audit=AuditResponse.FLAG,
     )
+    outer = MonitorMiddleware(monitor=KeywordMonitor(), protocol=trusted_monitoring, label="outer")
     stack = [
         outer,
         CommandingMiddleware(),
-        MonitorMiddleware(monitor=KeywordMonitor(), protocol=AcceptFirst()),
+        MonitorMiddleware(monitor=KeywordMonitor(), protocol=RUN_EVERY_STEP),
     ]
 
     # Act
@@ -258,7 +262,7 @@ def test_a_middleware_that_handles_failed_tool_calls_is_named_in_a_warning(
 
     # Assert
     assert misplaced == [handling.name]
-    assert "Auto Mode's total" in str(caught[0].message)
+    assert "the run's total" in str(caught[0].message)
 
 
 def test_a_subclass_of_a_tool_retry_middleware_is_named_in_a_warning(

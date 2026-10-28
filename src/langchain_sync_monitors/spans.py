@@ -30,7 +30,7 @@ from types import MappingProxyType
 from uuid import UUID
 
 import hyoshigi
-from hyoshigi import Action, SuspicionScore, Trajectory
+from hyoshigi import Action, ProtocolDecision, SuspicionScore, Trajectory
 from langchain_core.utils.uuid import uuid7
 
 from langchain_sync_monitors._langchain import (
@@ -43,7 +43,7 @@ from langchain_sync_monitors._langchain import (
     open_traced_run_sync,
 )
 from langchain_sync_monitors.context_values import set_context_value
-from langchain_sync_monitors.contracts import SampleRecord, StepDecision, StepRecord
+from langchain_sync_monitors.contracts import SampleRecord, StepRecord
 from langchain_sync_monitors.monitors import MonitorConfiguration
 from langchain_sync_monitors.records import build_step_record
 
@@ -55,7 +55,7 @@ MONITOR_TAG = "monitor"
 """The tag on every monitor span, so a consumer can drop them all, as with `exclude_tags`."""
 
 FLAGGED_TAG = "monitor:flagged"
-"""The tag on the decision span of a step the protocol flagged for audit."""
+"""The tag on the decision span of a step flagged for a person to review."""
 
 MONITOR_WORK_METADATA: TraceValues = MappingProxyType({"ls_agent_type": "middleware"})
 """The metadata of the spans that hold only the monitor's own work."""
@@ -92,14 +92,20 @@ class StepIdentity:
             metadata["monitor_delegation_id"] = self.delegation_id
         return metadata
 
-    def build_record(self, decision: StepDecision) -> StepRecord:
+    def build_record(
+        self,
+        decisions: Sequence[ProtocolDecision],
+        *,
+        flag_threshold: float | None,
+    ) -> StepRecord:
         """Record the decided step, once, for `monitor_log`, the custom stream and the spans."""
         return build_step_record(
-            decision=decision,
+            decisions,
             agent=self.agent,
             monitor=self.monitor,
             step_number=self.step_number,
             delegation_id=self.delegation_id,
+            flag_threshold=flag_threshold,
         )
 
     def build_step_span(self) -> TraceSpan:

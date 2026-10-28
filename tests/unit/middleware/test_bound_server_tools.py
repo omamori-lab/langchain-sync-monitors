@@ -27,7 +27,7 @@ from pydantic import BaseModel, Field
 from langchain_sync_monitors.errors import ServerToolWarning
 from langchain_sync_monitors.middleware import MonitorMiddleware
 from tests.support.agents import RunMode, Workspace, build_keyword_monitor, run_agent
-from tests.support.protocols import AcceptFirst
+from tests.support.protocols import RUN_EVERY_STEP
 
 WEB_SEARCH = {"type": "web_search_20250305", "name": "web_search", "max_uses": 1}
 LOOKUP = {"type": "function", "function": {"name": "lookup", "parameters": {}}}
@@ -77,7 +77,7 @@ def run_and_read_warnings(
     mode: RunMode,
     **options: Any,
 ) -> list[str]:
-    monitor = MonitorMiddleware(monitor=build_keyword_monitor(), protocol=AcceptFirst())
+    monitor = MonitorMiddleware(monitor=build_keyword_monitor(), protocol=RUN_EVERY_STEP)
     # create_agent is typed for a chat model, but takes a model with tools bound at run time
     agent = create_agent(cast("BaseChatModel", model), middleware=[monitor], **options)
     with warnings.catch_warnings(record=True) as caught:

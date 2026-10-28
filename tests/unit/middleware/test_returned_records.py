@@ -86,7 +86,7 @@ def read_entry(command: Command) -> SubagentReturn:
     return entry
 
 
-def test_a_subagent_s_records_reach_the_log_and_its_halt_and_blocks_are_stored() -> None:
+def test_a_subagent_s_records_reach_the_log_and_its_halt_is_stored() -> None:
     # Arrange
     halted = build_record(outcome="halted", blocked_count=2)
     other_label = build_record(monitor="guard", blocked_count=1)
@@ -98,7 +98,6 @@ def test_a_subagent_s_records_reach_the_log_and_its_halt_and_blocks_are_stored()
     assert read_written(checked, key="monitor_log") == [[halted, other_label]]
     entry = read_entry(checked)
     assert entry["halted_subagents"] == ["worker"]
-    assert entry["blocks"] == {"monitor": 2, "guard": 1}
     assert (entry["delegation_id"], entry["tool_call_id"], entry["answered"]) == (
         None,
         "call-task",
@@ -106,12 +105,15 @@ def test_a_subagent_s_records_reach_the_log_and_its_halt_and_blocks_are_stored()
     )
 
 
-def test_records_with_no_halt_and_no_block_store_nothing() -> None:
+def test_records_with_no_halt_store_nothing_whatever_their_blocks() -> None:
+    # Arrange: the run's blocks are counted from the trajectories, not from here
+    blocked = build_record(outcome="steered", blocked_count=1)
+
     # Act
-    checked = check({"monitor_log": [build_record()]})
+    checked = check({"monitor_log": [blocked]})
 
     # Assert
-    assert read_written(checked, key="monitor_log") == [[build_record()]]
+    assert read_written(checked, key="monitor_log") == [[blocked]]
     assert read_written(checked, key="monitor_subagent_returns") == []
 
 
@@ -195,7 +197,6 @@ def test_an_unreadable_record_leaves_the_readable_ones_in_the_log() -> None:
     assert read_written(checked, key="monitor_log") == [[readable]]
     entry = read_entry(checked)
     assert entry["halted_subagents"] == ["that the task call call-task started"]
-    assert entry["blocks"] == {"monitor": 1}
 
 
 @pytest.mark.parametrize(
@@ -221,7 +222,6 @@ def test_a_halt_claiming_the_caller_s_own_step_is_kept_out_of_the_log_and_counts
     assert read_written(checked, key="monitor_log") == []
     entry = read_entry(checked)
     assert entry["halted_subagents"] == [halted_name]
-    assert entry["blocks"] == {}
     assert "claims to be a step of the agent 'main' itself" in caplog.text
 
 
@@ -312,11 +312,7 @@ def test_a_caller_whose_state_holds_no_log_has_every_written_record_checked(
     # Assert
     assert read_written(checked, key="monitor_log") == [[halted]]
     entry = read_entry(checked)
-    assert (entry["halted_subagents"], entry["blocks"], entry["delegation_id"]) == (
-        ["worker"],
-        {"monitor": 1},
-        None,
-    )
+    assert (entry["halted_subagents"], entry["delegation_id"]) == (["worker"], None)
 
 
 def test_a_whole_record_written_outside_a_list_reaches_the_log_in_one() -> None:
@@ -326,15 +322,14 @@ def test_a_whole_record_written_outside_a_list_reaches_the_log_in_one() -> None:
     # Act
     checked = check({"monitor_log": halted}, subagent_type="worker")
 
-    # Assert: its halt and its blocks count as those of a record in a list
+    # Assert: its halt counts as that of a record in a list
     assert read_written(checked, key="monitor_log") == [[halted]]
-    entry = read_entry(checked)
-    assert (entry["halted_subagents"], entry["blocks"]) == (["worker"], {"monitor": 1})
+    assert read_entry(checked)["halted_subagents"] == ["worker"]
 
 
 def test_a_step_answering_its_own_returns_leaves_another_delegation_s_in_the_store() -> None:
     # Arrange: a fork's store holds its parent's return and its own, each from a checked call
-    fork = Delegation(tool_call_id="call-fork", delegating_agent="main", blocks_before={}, runs={})
+    fork = Delegation(tool_call_id="call-fork", delegating_agent="main", runs={})
     parent_entry = read_entry(check({"monitor_log": [build_record(outcome="halted")]}))
     fork_entry = read_entry(
         check({"monitor_log": [build_record(outcome="halted")]}, state=build_state(delegation=fork))
@@ -363,9 +358,7 @@ def test_a_same_named_subagent_s_record_is_kept_and_named_by_the_call() -> None:
 
 def test_a_call_reusing_the_caller_s_delegation_id_with_its_own_records_raises() -> None:
     # Arrange: a subagent named main, started by a call that reuses the id of main's own
-    delegation = Delegation(
-        tool_call_id="call_0", delegating_agent="main", blocks_before={}, runs={}
-    )
+    delegation = Delegation(tool_call_id="call_0", delegating_agent="main", runs={})
     nested = build_record(agent="main", outcome="halted", delegation_id="call_0")
 
     # Act
@@ -387,9 +380,7 @@ def test_a_call_reusing_the_caller_s_delegation_id_with_its_own_records_raises()
 
 def test_a_call_reusing_the_caller_s_delegation_id_keeps_another_agent_s_records() -> None:
     # Arrange
-    delegation = Delegation(
-        tool_call_id="call_0", delegating_agent="main", blocks_before={}, runs={}
-    )
+    delegation = Delegation(tool_call_id="call_0", delegating_agent="main", runs={})
     nested = build_record(agent="inner", outcome="halted", delegation_id="call_0")
 
     # Act
@@ -418,7 +409,7 @@ def test_a_state_written_back_whole_adds_only_the_records_after_the_log(
 
     # Assert
     assert read_written(checked, key="monitor_log") == [[new]]
-    assert read_entry(checked)["halted_subagents"] == []
+    assert read_written(checked, key="monitor_subagent_returns") == []
     assert caplog.records == []
 
 
@@ -444,7 +435,7 @@ def test_an_overwrite_that_writes_the_log_back_adds_only_the_records_after_it() 
 
     # Assert: the earlier halt is not counted again
     assert read_written(checked, key="monitor_log") == [[new]]
-    assert read_entry(checked)["halted_subagents"] == []
+    assert read_written(checked, key="monitor_subagent_returns") == []
 
 
 def test_the_log_written_back_out_of_order_is_added_again_and_counts_twice() -> None:

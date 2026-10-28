@@ -44,12 +44,7 @@ pip install "langchain-sync-monitors[openrouter,deepagents]"
 from pathlib import Path
 
 from langchain.agents import create_agent
-from langchain_sync_monitors import (
-    DeferToResample,
-    DeferToTrustedModel,
-    LLMMonitor,
-    MonitorMiddleware,
-)
+from langchain_sync_monitors import DeferToResample, LLMMonitor, MonitorMiddleware
 
 
 def read_file(path: str) -> str:
@@ -60,15 +55,16 @@ def read_file(path: str) -> str:
 monitor = MonitorMiddleware(
     # The monitor: a chat model that judges every step the agent proposes.
     monitor=LLMMonitor(model="openrouter:xiaomi/mimo-v2.6-pro"),
-    # The protocol: sample a suspicious step again, and if every sample stays
-    # suspicious, have the trusted model write the step instead.
+    # The protocol: sample a suspicious step again, up to twice, and if every
+    # sample stays suspicious, have the trusted model write the step instead.
     protocol=DeferToResample(
-        fallback=DeferToTrustedModel(trusted_model="openrouter:xiaomi/mimo-v2.6-flash"),
-        # Resample a step that scores 0.6 or more, and flag it for review
-        # when even its least suspicious sample scores 0.9 or more.
+        # Resample a step that scores 0.6 or more, and hold it for a person,
+        # which halts the run, when even its least suspicious sample scores 0.9.
         defer_threshold=0.6,
         audit_threshold=0.9,
+        max_resamples=2,
     ),
+    trusted_model="openrouter:xiaomi/mimo-v2.6-flash",
 )
 # The untrusted model does the work, with the monitor last in the list.
 agent = create_agent(
@@ -83,20 +79,20 @@ for record in result["monitor_log"]:
 Three models play three roles: the untrusted agent does the work, the monitor
 judges each step, and the trusted model writes a step when every sample looks
 suspicious. Each is a parameter, and any LangChain chat model works; the
-library picks none for you. Thresholds share one scale from 0 to 1 and warn
-until you set them; calibrate them on honest runs of your own agent. Put the
+library picks none for you. Thresholds share one scale from 0 to 1, and none
+has a default; calibrate them on honest runs of your own agent. Put the
 monitor last in the middleware list. `check_monitor_placement(middleware=[...])`
 warns about placements known to undermine it, but does not look for the
 `before_agent` and `after_agent` hooks that can lift a halt.
 
 ## How it fits together
 
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="docs/assets/diagrams/protocols-dark.svg">
-  <img alt="What each protocol does with a step the monitor finds suspicious; a step below the threshold runs unchanged under every protocol. Trusted Monitoring lets the step run and flags it for a person to review. Defer to Trusted has the trusted model write the step instead. Defer to Resample draws up to two fresh samples; if one passes, the least suspicious runs, and if none passes, the fallback writes the step, usually the trusted model. Auto Mode blocks the step and tells the agent why, and the agent tries again; after three blocks in a row, or twenty in the thread with subagents' blocks included, the fallback takes over, which by default halts the run." src="docs/assets/diagrams/protocols-light.svg">
-</picture>
-
-Four control protocols, from watching to blocking: [Choose a protocol](docs/how-to/choose-a-protocol.md) compares them.
+Two control protocols, `DeferToResample` and `BlockAndFeedBack`, in four
+settings from watching to blocking: Trusted Monitoring, Defer to Trusted,
+Defer to Resample, and Block and Feed Back. Their decisions are
+[hyoshigi's](https://omamori-lab.github.io/hyoshigi/explanation/control-protocols/),
+and the middleware enforces them. [Choose a protocol](docs/how-to/choose-a-protocol.md)
+compares them.
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/assets/diagrams/monitors-dark.svg">
@@ -145,8 +141,8 @@ A monitor in every Deep Agents subagent: [Monitor Deep Agents subagents](docs/ho
   `subagents=monitor_subagents(middleware=monitor, subagents=[...])` to
   `create_deep_agent`.
   Subagents that run in parallel do not see each other's blocks, so together
-  they can pass Auto Mode's limit on blocks in the thread; their parent counts
-  every one of them at its next step. A subagent whose run raises returns no
+  they can pass Block and Feed Back's limit on blocks in the run; their parent
+  counts every one of them at its next step. A subagent whose run raises returns no
   records unless the run is resumed.
 - **Time and graph steps.** Each step waits for its verdict and streams whole
   once committed, not token by token. Each monitor adds two graph steps per
@@ -174,8 +170,8 @@ explains each of these.
 The protocols come from AI control research. Trusted Monitoring and Defer to
 Trusted come from [AI Control](https://arxiv.org/abs/2312.06942) (Greenblatt
 et al., 2023), Defer to Resample from
-[Ctrl-Z](https://arxiv.org/abs/2504.10374) (Bhatt et al., 2025), and Auto
-Mode follows
+[Ctrl-Z](https://arxiv.org/abs/2504.10374) (Bhatt et al., 2025), and Block
+and Feed Back follows
 [How we built Claude Code auto mode](https://www.anthropic.com/engineering/claude-code-auto-mode)
 (Hughes, Anthropic, 2026). [Where the ideas come from](docs/explanation/background.md)
 credits every source and what it contributed, and

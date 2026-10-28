@@ -1,4 +1,4 @@
-"""A draw that repeats an id the run already holds is read under a fresh one.
+"""A draw's reply is its last AI message, and one that repeats an id is read under a fresh one.
 
 A retry after a block may reuse the blocked call's id, as may a cached or
 scripted model. The trajectory refuses an id it holds, and LangGraph merges
@@ -9,17 +9,19 @@ it, and the action recorded for it alike.
 
 from __future__ import annotations
 
+from typing import Any
 from uuid import UUID
 
 import pytest
 from hyoshigi import Trajectory
 from langchain.agents import create_agent
+from langchain.agents.middleware.types import AgentMiddleware, ModelResponse
 from langchain.agents.structured_output import ToolStrategy
 from langchain_core.messages import AIMessage, ToolMessage
 from langgraph.checkpoint.memory import InMemorySaver
 from pydantic import BaseModel
 
-from langchain_sync_monitors import BlockAndFeedBack, MonitorMiddleware
+from langchain_sync_monitors import BlockAndFeedBack, MonitorError, MonitorMiddleware
 from tests.support.agents import (
     RunMode,
     Workspace,
@@ -38,7 +40,16 @@ class Report(BaseModel):
     summary: str
 
 
-@pytest.mark.xfail(strict=True, reason="PR 5 decides the retry and gives it a fresh call id")
+class EmptyResponseMiddleware(AgentMiddleware[Any, Any, Any]):
+    """Answers every model call inside the monitor with a response that holds no message."""
+
+    def wrap_model_call(self, request: Any, handler: Any) -> ModelResponse[Any]:
+        return ModelResponse(result=[])
+
+    async def awrap_model_call(self, request: Any, handler: Any) -> ModelResponse[Any]:
+        return ModelResponse(result=[])
+
+
 def test_a_retry_that_reuses_the_blocked_call_s_id_runs_under_a_fresh_one(
     run_mode: RunMode,
 ) -> None:
@@ -77,7 +88,6 @@ def test_a_retry_that_reuses_the_blocked_call_s_id_runs_under_a_fresh_one(
     assert [call.id for call in recorded.proposals[0].action.tool_calls] == [retried_call_id]
 
 
-@pytest.mark.xfail(strict=True, reason="PR 5 renames a reused call id with its tool message")
 def test_a_structured_answer_that_reuses_a_call_id_keeps_its_tool_message_paired(
     run_mode: RunMode,
 ) -> None:
@@ -105,3 +115,16 @@ def test_a_structured_answer_that_reuses_a_call_id_keeps_its_tool_message_paired
     assert isinstance(answer_result, ToolMessage)
     assert answer.tool_calls[0]["id"] != "call-report"
     assert answer_result.tool_call_id == answer.tool_calls[0]["id"]
+
+
+def test_a_draw_without_an_ai_message_fails_the_step(run_mode: RunMode) -> None:
+    # Arrange: a middleware inside the monitor answers with no message at all
+    stack: list[AgentMiddleware[Any, Any, Any]] = [
+        MonitorMiddleware(monitor=build_keyword_monitor(), protocol=RUN_EVERY_STEP),
+        EmptyResponseMiddleware(),
+    ]
+    agent = create_agent(ScriptedChatModel(responses=[]), middleware=stack)
+
+    # Act / Assert
+    with pytest.raises(MonitorError, match="no AI message"):
+        run_agent(agent, mode=run_mode)

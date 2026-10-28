@@ -64,14 +64,6 @@ def build_missing_extra_message(feature: str, *, extra: str) -> str:
     )
 
 
-class InvalidSuspicionError(MonitorError, ValueError):
-    """A verdict's suspicion is NaN or lies outside [0, 1].
-
-    It is both a `MonitorError` and a `ValueError`, so code that catches
-    either one sees it.
-    """
-
-
 class MessageFormatError(MonitorError, ValueError):
     """A LangChain message that the trajectory reader cannot read.
 
@@ -88,16 +80,6 @@ class MessageFormatError(MonitorError, ValueError):
         """Name where in the message the problem is, and what was expected there."""
         super().__init__(f"{path}: expected {expected}")
         self.path = path
-
-
-class SynchronousRunError(MonitorError):
-    """A control protocol or a monitor needed an event loop during a synchronous `invoke()`.
-
-    The message names which one: a protocol that awaited real asynchronous
-    work or started asyncio work, or a monitor whose sync twin started
-    asyncio work. It is also raised when a pending step is used after its
-    `invoke()` step ended.
-    """
 
 
 class RetriedCallError(MonitorError):

@@ -24,11 +24,13 @@ from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import AIMessage
 
 from langchain_sync_monitors import (
+    AuditResponse,
     CachedResampleWarning,
     CalibratedMonitor,
     CascadeMonitor,
     ConfigurationError,
     DecisionMonitor,
+    DeferToResample,
     GuardLabels,
     GuardMonitor,
     LLMMonitor,
@@ -37,13 +39,18 @@ from langchain_sync_monitors import (
     MonitorPrompt,
     MonitorTwins,
     RepeatedMonitor,
-    TrustedMonitoring,
 )
 from langchain_sync_monitors.monitors import warn_about_cached_monitor_replies
 from tests.support.agents import RunMode, run_agent
 from tests.support.chat_models import ScriptedChatModel, SideRecordingChatModel
 from tests.support.monitors import ScriptedGeneration
 
+TRUSTED_MONITORING = DeferToResample(
+    defer_threshold=0.9,
+    audit_threshold=0.9,
+    max_resamples=0,
+    on_audit=AuditResponse.FLAG,
+)
 FINAL_ANSWER = "Q3 revenue grew 12%."
 FIGURE_REASON = "The answer states a figure no tool returned."
 MATCH_REASON = "The figure matches the file the agent read."
@@ -89,7 +96,7 @@ def run_final_answer(monitor: object, *, run_mode: RunMode) -> dict[str, object]
         middleware=[
             MonitorMiddleware(
                 monitor=monitor,  # ty: ignore[invalid-argument-type]
-                protocol=TrustedMonitoring(audit_threshold=0.9),
+                protocol=TRUSTED_MONITORING,
             ),
         ],
     )
@@ -320,7 +327,7 @@ def build_middleware_and_collect_cache_warnings(
         warnings.simplefilter("always")
         MonitorMiddleware(
             monitor=build_monitor(),  # ty: ignore[invalid-argument-type]
-            protocol=TrustedMonitoring(audit_threshold=0.9),
+            protocol=TRUSTED_MONITORING,
         )
     return [warning for warning in caught if warning.category is CachedResampleWarning]
 
@@ -480,11 +487,11 @@ def test_the_cache_warning_shows_once_per_process_at_the_line_that_builds_the_mi
         warnings.simplefilter("always")
         MonitorMiddleware(
             monitor=build_llm_monitor_that_asks_again(),  # ty: ignore[invalid-argument-type]
-            protocol=TrustedMonitoring(audit_threshold=0.9),
+            protocol=TRUSTED_MONITORING,
         )
         MonitorMiddleware(
             monitor=build_llm_monitor_that_asks_again(),  # ty: ignore[invalid-argument-type]
-            protocol=TrustedMonitoring(audit_threshold=0.9),
+            protocol=TRUSTED_MONITORING,
         )
 
     # Assert

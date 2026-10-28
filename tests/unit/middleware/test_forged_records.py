@@ -16,10 +16,10 @@ from langgraph.checkpoint.memory import InMemorySaver
 from langgraph.graph.state import CompiledStateGraph
 from langgraph.types import Command, Overwrite
 
+from langchain_sync_monitors import AuditResponse, BlockAndFeedBack, DeferToResample
 from langchain_sync_monitors.contracts import SubagentHalt
 from langchain_sync_monitors.errors import MonitorError
 from langchain_sync_monitors.middleware import MonitorMiddleware
-from langchain_sync_monitors.protocols import AutoMode, HaltRun, TrustedMonitoring
 from tests.support.agents import (
     RunMode,
     Workspace,
@@ -31,6 +31,12 @@ from tests.support.agents import (
 from tests.support.chat_models import ScriptedChatModel, build_tool_call_message
 
 LOGGER = "langchain_sync_monitors.returned_records"
+TRUSTED_MONITORING = DeferToResample(
+    defer_threshold=0.6,
+    audit_threshold=0.6,
+    max_resamples=0,
+    on_audit=AuditResponse.FLAG,
+)
 
 
 def build_record(**fields: Any) -> dict[str, Any]:
@@ -85,7 +91,8 @@ def test_a_tool_s_records_leave_the_thread_total_and_the_audit_evidence_whole(
     run_mode: RunMode,
     written: Any,
 ) -> None:
-    # Arrange: two blocks, then the tool, then a third block that reaches the total of 3
+    # Arrange: two blocks, the tool, then a third block that reaches the total of 3, so the
+    # proposal after it is audited
     model = ScriptedChatModel(
         responses=[
             build_exfiltration_step(call_id="call-post-1"),
@@ -97,12 +104,7 @@ def test_a_tool_s_records_leave_the_thread_total_and_the_audit_evidence_whole(
             AIMessage("Done."),
         ],
     )
-    protocol = AutoMode(
-        block_threshold=0.5,
-        max_consecutive_blocks=5,
-        max_total_blocks=3,
-        when_limit_reached=HaltRun(),
-    )
+    protocol = BlockAndFeedBack(block_threshold=0.5, blocks_in_a_row=5, blocks_in_total=3)
     agent = create_agent(
         model,
         tools=[build_tidy_tool(written), *Workspace().build_tools()],
@@ -121,7 +123,7 @@ def test_a_tool_s_records_leave_the_thread_total_and_the_audit_evidence_whole(
         ("main", "halted", 1),
     ]
     assert [record["step_number"] for record in log] == [1, 2, 3]
-    assert sum(record["flagged"] for record in log) == 2
+    assert [record["flagged"] for record in log] == [False, False, True]
 
 
 def build_tidying_agent(
@@ -140,7 +142,7 @@ def build_tidying_agent(
     )
     monitor = MonitorMiddleware(
         monitor=build_keyword_monitor(),
-        protocol=TrustedMonitoring(audit_threshold=0.6),
+        protocol=TRUSTED_MONITORING,
         when_subagent_halts=when_subagent_halts,
     )
     agent = create_agent(
@@ -304,12 +306,12 @@ def test_an_unreadable_record_halts_an_inner_monitor_behind_a_middleware_that_co
     )
     outer = MonitorMiddleware(
         monitor=build_keyword_monitor(),
-        protocol=TrustedMonitoring(audit_threshold=0.6),
+        protocol=TRUSTED_MONITORING,
         label="outer",
     )
     inner = MonitorMiddleware(
         monitor=build_keyword_monitor(),
-        protocol=TrustedMonitoring(audit_threshold=0.6),
+        protocol=TRUSTED_MONITORING,
         when_subagent_halts=SubagentHalt.STOP_WHOLE_RUN,
     )
     copier = CopyingToolCallMiddleware(copied=copied)

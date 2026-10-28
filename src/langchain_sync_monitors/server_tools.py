@@ -50,7 +50,7 @@ from langchain_sync_monitors._langchain import (
     read_bound_tools,
 )
 from langchain_sync_monitors.errors import ServerToolWarning
-from langchain_sync_monitors.thresholds import LIBRARY_DIRECTORY
+from langchain_sync_monitors.options import LIBRARY_DIRECTORY
 
 SERVER_TOOL_TYPES: Final = frozenset(
     {"web_search", "file_search", "code_interpreter", "image_generation", "mcp"},

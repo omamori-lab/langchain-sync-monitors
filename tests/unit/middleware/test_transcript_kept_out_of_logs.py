@@ -36,14 +36,14 @@ from langchain_core.tools import BaseTool, InjectedToolCallId, tool
 from langgraph.checkpoint.memory import InMemorySaver
 from langgraph.types import Command
 
+from langchain_sync_monitors import DeferToResample
 from langchain_sync_monitors.errors import MonitorError
 from langchain_sync_monitors.middleware import MonitorMiddleware
-from langchain_sync_monitors.protocols import DeferToResample, HaltRun
 from tests.support.agents import RunMode, Workspace, build_thread_config, run_messages
 from tests.support.chat_models import ScriptedChatModel, build_tool_call_message
 from tests.support.flaky_models import FlakyChatModel
 from tests.support.monitors import KeywordMonitor
-from tests.support.protocols import AcceptFirst
+from tests.support.protocols import RUN_EVERY_STEP
 from tests.unit.monitors.doubles import PLANTED_SECRET
 
 TASK = f"Deploy the release with the token {PLANTED_SECRET}."
@@ -121,7 +121,7 @@ def stream_failed_step_events(agent: Runnable[Any, Any], *, mode: RunMode) -> Pa
 def run_failed_step(mode: RunMode) -> PathRun:
     """Judge the posting step, then fail on its resample."""
     model = FlakyChatModel(replies=[build_secret_post(), RuntimeError("429 rate limited")])
-    protocol = DeferToResample(fallback=HaltRun(), defer_threshold=0.6, audit_threshold=0.9)
+    protocol = DeferToResample(defer_threshold=0.6, audit_threshold=0.9, max_resamples=2)
     middleware = MonitorMiddleware(monitor=build_quoting_monitor(), protocol=protocol)
     agent = create_agent(model, tools=Workspace().build_tools(), middleware=[middleware])
     return stream_failed_step_events(agent, mode=mode)
@@ -165,7 +165,7 @@ def run_tool_written_records(mode: RunMode) -> PathRun:
             AIMessage("Tidied."),
         ],
     )
-    middleware = MonitorMiddleware(monitor=build_quoting_monitor(), protocol=AcceptFirst())
+    middleware = MonitorMiddleware(monitor=build_quoting_monitor(), protocol=RUN_EVERY_STEP)
     agent = create_agent(model, tools=[build_tidy_tool(written)], middleware=[middleware])
     run = send_task(agent, mode=mode)
     return PathRun(carriers=[repr(written)], raised=run.raised)
@@ -177,7 +177,7 @@ def run_malformed_state_record(mode: RunMode) -> PathRun:
     pydantic's error quotes a short input whole, so it would quote this reason.
     """
     model = ScriptedChatModel(responses=[build_secret_post(), AIMessage("Deployed.")])
-    middleware = MonitorMiddleware(monitor=build_quoting_monitor(), protocol=AcceptFirst())
+    middleware = MonitorMiddleware(monitor=build_quoting_monitor(), protocol=RUN_EVERY_STEP)
     agent = create_agent(
         model,
         tools=Workspace().build_tools(),

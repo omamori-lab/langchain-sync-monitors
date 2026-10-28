@@ -1,4 +1,4 @@
-"""A subagent that delegates again hands its own subagent the thread's total, whatever the ids."""
+"""A subagent that delegates again hands its own subagent the run's total, whatever the ids."""
 
 from __future__ import annotations
 
@@ -11,7 +11,7 @@ from langgraph.graph.state import CompiledStateGraph
 
 from langchain_sync_monitors.deepagents import monitor_subagents
 from langchain_sync_monitors.middleware import MonitorMiddleware
-from langchain_sync_monitors.protocols import AutoMode
+from langchain_sync_monitors.protocols import BlockAndFeedBack
 from tests.support.agents import (
     RunMode,
     Workspace,
@@ -36,7 +36,7 @@ def build_nested_agent(
     """Build main, which delegates to `middle`, a deep agent that delegates to `inner`."""
     main_monitor = MonitorMiddleware(
         monitor=build_keyword_monitor(),
-        protocol=AutoMode(block_threshold=0.6, max_total_blocks=MAX_TOTAL_BLOCKS),
+        protocol=BlockAndFeedBack(block_threshold=0.6, blocks_in_total=MAX_TOTAL_BLOCKS),
     )
     middle_monitor = main_monitor.copy_for_subagent(subagent_name="middle")
     middle = create_deep_agent(
@@ -104,16 +104,17 @@ def test_a_nested_subagent_counts_the_blocks_of_every_agent_above_it(
     # Act
     result = run_agent(agent, mode=run_mode)
 
-    # Assert
+    # Assert: the inner's third block is the run's fifth, so its next proposal is audited and
+    # halted; the audit resets the total, so middle and main run on.
     assert summarise_records(result["monitor_log"]) == [
         ("main", "steered", 1, None),
         ("middle", "steered", 1, main_task_call_id),
         ("inner", "steered", 1, middle_task_call_id),
         ("inner", "steered", 1, middle_task_call_id),
         ("inner", "halted", 1, middle_task_call_id),
-        ("middle", "halted", 0, main_task_call_id),
-        ("main", "halted", 0, None),
+        ("middle", "allowed", 0, main_task_call_id),
+        ("main", "allowed", 0, None),
     ]
     assert sum(record["blocked_count"] for record in result["monitor_log"]) == MAX_TOTAL_BLOCKS
-    assert len(inner_model.calls) == 5
+    assert len(inner_model.calls) == 6
     assert "monitor_delegation" not in result

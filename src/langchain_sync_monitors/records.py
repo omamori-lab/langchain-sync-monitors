@@ -1,9 +1,10 @@
 """Build the step records that go into the agent state's `monitor_log`, and read them back.
 
+A step's record projects the decisions its trajectory recorded for it
+[@hyoshigi2026], read back from the trajectory, so they carry its redaction.
 Records pass through checkpointers, so they hold plain values only: outcomes
 are strings, sequences are lists, and each sample's proposal is the action
-the monitor rated, as hyoshigi stores an action in a trajectory
-[@hyoshigi2026].
+the monitor rated, as hyoshigi stores an action in a trajectory.
 
 A record is this agent's own when it names this agent and this agent's
 delegation, the tool call that started it, or no delegation in an agent no
@@ -20,24 +21,27 @@ elsewhere, such as `update_state` or an older checkpoint, and raises
 
 from __future__ import annotations
 
-from collections import Counter
-from collections.abc import Iterable, Mapping, Sized
+from collections.abc import Iterable, Mapping, Sequence, Sized
 
-from hyoshigi import JSON, Action, Trajectory
+from hyoshigi import (
+    JSON,
+    Action,
+    Block,
+    Flag,
+    Halt,
+    Policy,
+    ProtocolDecision,
+    ProtocolRequest,
+    Replace,
+    Run,
+    Trajectory,
+)
 from pydantic import TypeAdapter, ValidationError
 
 from langchain_sync_monitors._langchain import MONITOR_LOG_KEY
-from langchain_sync_monitors.contracts import (
-    Outcome,
-    OutcomeName,
-    Sample,
-    SampleRecord,
-    StepDecision,
-    StepRecord,
-)
+from langchain_sync_monitors.contracts import Outcome, OutcomeName, SampleRecord, StepRecord
 from langchain_sync_monitors.errors import MonitorError
 from langchain_sync_monitors.options import name_type
-from langchain_sync_monitors.trajectory_events import read_proposed_action
 
 STEP_RECORD_ADAPTER = TypeAdapter(StepRecord)
 """Checks the shape of a record read from the state or returned by a tool."""
@@ -78,48 +82,105 @@ def dump_action(action: Action) -> dict[str, JSON]:
             raise MonitorError(message)
 
 
-def build_sample_record(sample: Sample, *, executed: bool) -> SampleRecord:
-    """Record one judged sample, with its proposal as the action the monitor rated.
+def build_sample_records(
+    weighed: Sequence[ProtocolDecision | ProtocolRequest],
+    *,
+    executed_id: str | None,
+) -> list[SampleRecord]:
+    """Record each rated proposal the decisions or requests hold, once, in the order rated.
 
-    The suspicion is stored as a plain `float`, since a protocol may compare
-    and keep a number of another type, such as numpy's `float32`, which a
-    checkpointer may not store and a strict read refuses.
+    A trusted step is not rated, so it has no record. `executed` is true for
+    the proposal whose action has `executed_id`, the id of the action that
+    ran. The suspicion is stored as a plain `float`.
     """
-    return SampleRecord(
-        suspicion=float(sample.verdict.suspicion),
-        reason=sample.verdict.reason,
-        proposal=dump_action(read_proposed_action(sample.proposal)),
-        executed=executed,
-    )
+    rated = {
+        proposal.action.id: (proposal.action, proposal.score)
+        for each in weighed
+        for proposal in each.proposals
+    }
+    return [
+        SampleRecord(
+            suspicion=float(score.value),
+            reason=score.explanation,
+            proposal=dump_action(action),
+            executed=action.id == executed_id,
+        )
+        for action, score in rated.values()
+        if score is not None
+    ]
+
+
+def read_executed_id(decisions: Sequence[ProtocolDecision]) -> str | None:
+    """Return the id of the action the step ran, or None when its last decision ran none."""
+    match decisions:
+        case [*_, Run(action=action) | Flag(action=action) | Replace(action=action)]:
+            return action.id
+        case _:
+            return None
+
+
+def read_outcome(decisions: Sequence[ProtocolDecision]) -> Outcome:
+    """Name how a step's decisions end it; a step with none halted without a sample.
+
+    A run after a block steered the agent, and a replace ran a resample or
+    the trusted model's step, as the policy of its action's proposal says.
+    """
+    match decisions:
+        case [] | [*_, Halt()]:
+            return Outcome.HALTED
+        case [*_, Replace(action=action, proposals=proposals)]:
+            is_trusted = any(
+                proposal.policy is Policy.TRUSTED and proposal.action.id == action.id
+                for proposal in proposals
+            )
+            return Outcome.DEFERRED_TO_TRUSTED if is_trusted else Outcome.RESAMPLED
+        case _ if any(isinstance(decision, Block) for decision in decisions):
+            return Outcome.STEERED
+        case _:
+            return Outcome.ALLOWED
+
+
+def is_flagged(
+    decisions: Sequence[ProtocolDecision],
+    *,
+    samples: Sequence[SampleRecord],
+    flag_threshold: float | None,
+) -> bool:
+    """Tell whether a person should review the step.
+
+    It is flagged when a decision is a `Flag`, when it ends in a halt, and,
+    with a `flag_threshold`, when its lowest sample is at or above it.
+    """
+    is_halt = read_outcome(decisions) is Outcome.HALTED
+    has_flag = any(isinstance(decision, Flag) for decision in decisions)
+    lowest = min((sample["suspicion"] for sample in samples), default=None)
+    reaches = flag_threshold is not None and lowest is not None and lowest >= flag_threshold
+    return is_halt or has_flag or reaches
 
 
 def build_step_record(
+    decisions: Sequence[ProtocolDecision],
     *,
-    decision: StepDecision,
     agent: str,
     monitor: str,
     step_number: int,
-    delegation_id: str | None = None,
+    delegation_id: str | None,
+    flag_threshold: float | None,
 ) -> StepRecord:
-    """Record one decided step, keeping every sample the monitor judged as audit evidence.
+    """Record one step from the decisions its trajectory recorded for it, in order.
 
-    A sample is marked executed only when it is the very sample the decision
-    runs, so a rejected sample that happens to equal it is not. A subagent's
-    record also names its delegation, the tool call that started it. The
-    flag is stored as a plain `bool`: a protocol that compares a numpy score
-    with its threshold gets numpy's `bool`, which is not one.
+    A step its monitor halted without a sample recorded none. A subagent's
+    record also names its delegation, the tool call that started it.
     """
+    samples = build_sample_records(decisions, executed_id=read_executed_id(decisions))
     record = StepRecord(
         agent=agent,
         monitor=monitor,
         step_number=step_number,
-        outcome=OUTCOME_NAMES[decision.outcome],
-        flagged=bool(decision.flagged),
-        blocked_count=len(decision.blocked_attempts),
-        samples=[
-            build_sample_record(sample, executed=sample is decision.executed_sample)
-            for sample in decision.samples
-        ],
+        outcome=OUTCOME_NAMES[read_outcome(decisions)],
+        flagged=is_flagged(decisions, samples=samples, flag_threshold=flag_threshold),
+        blocked_count=sum(isinstance(decision, Block) for decision in decisions),
+        samples=samples,
     )
     if delegation_id is not None:
         record["delegation_id"] = delegation_id
@@ -157,8 +218,7 @@ def validate_step_record(value: object) -> StepRecord:
     """Return the value as a `StepRecord`, raising `ValueError` unless it is a whole one.
 
     The check is strict, so a count given as a bool, a float or a string is
-    refused rather than converted, and both counts must be zero or more: a
-    negative block count would lower Auto Mode's total.
+    refused rather than converted, and both counts must be zero or more.
     """
     record = STEP_RECORD_ADAPTER.validate_python(value, strict=True)
     if record["step_number"] < 0 or record["blocked_count"] < 0:
@@ -232,7 +292,7 @@ def read_step_records(state: object) -> list[StepRecord]:
     """Return the records in an agent state, raising `MonitorError` for one that is malformed.
 
     A record that is not a whole `StepRecord` is never skipped: skipping a
-    halt, or a block that Auto Mode counts, would fail open. The error names
+    halt would fail open. The error names
     the record, as `render_value` does, and its position.
     """
     value = state.get(MONITOR_LOG_KEY) if isinstance(state, Mapping) else None
@@ -260,23 +320,6 @@ def read_stored_record(item: object, *, position: int) -> StepRecord:
             "record, since that could hide a halt; repair or remove it, with update_state."
         )
         raise MonitorError(message) from None
-
-
-def count_blocks(records: Iterable[StepRecord], *, monitor: str) -> int:
-    """Return how many attempts one monitor blocked across the records."""
-    return sum(record["blocked_count"] for record in records if record["monitor"] == monitor)
-
-
-def count_blocks_by_monitor(
-    records: Iterable[StepRecord],
-    *,
-    earlier_blocks: Mapping[str, int],
-) -> dict[str, int]:
-    """Return the blocks each monitor recorded, by label, adding the records to `earlier_blocks`."""
-    blocks = Counter(earlier_blocks)
-    for record in records:
-        blocks[record["monitor"]] += record["blocked_count"]
-    return dict(blocks)
 
 
 def describe_record_error(error: ValueError) -> str:

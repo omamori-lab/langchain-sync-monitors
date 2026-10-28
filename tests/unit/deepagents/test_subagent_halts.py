@@ -13,7 +13,7 @@ from tests.support.agents import RunMode, run_agent
 from tests.support.chat_models import ScriptedChatModel
 from tests.support.deep_agents import build_deep_agent, build_delegation_step
 from tests.support.monitors import KeywordMonitor
-from tests.support.protocols import AcceptFirst, HaltAfterOneSample
+from tests.support.protocols import HALT_EVERY_STEP, RUN_EVERY_STEP
 
 
 def test_a_subagent_halted_in_one_delegation_is_sampled_in_the_next(run_mode: RunMode) -> None:
@@ -31,8 +31,8 @@ def test_a_subagent_halted_in_one_delegation_is_sampled_in_the_next(run_mode: Ru
     agent = build_deep_agent(
         main_model=main_model,
         worker_model=worker_model,
-        main_monitor=MonitorMiddleware(monitor=KeywordMonitor(), protocol=AcceptFirst()),
-        worker_monitor=MonitorMiddleware(monitor=KeywordMonitor(), protocol=HaltAfterOneSample()),
+        main_monitor=MonitorMiddleware(monitor=KeywordMonitor(), protocol=RUN_EVERY_STEP),
+        worker_monitor=MonitorMiddleware(monitor=KeywordMonitor(), protocol=HALT_EVERY_STEP),
     )
 
     # Act

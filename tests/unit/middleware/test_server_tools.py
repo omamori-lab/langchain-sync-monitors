@@ -22,15 +22,15 @@ from langchain_core.messages import AIMessage, ToolMessage
 from langchain_core.runnables import Runnable
 from langchain_core.tools import BaseTool
 
-from langchain_sync_monitors.contracts import ControlProtocol
+from langchain_sync_monitors import BlockAndFeedBack, DeferToResample
 from langchain_sync_monitors.errors import ServerToolWarning
 from langchain_sync_monitors.middleware import MonitorMiddleware
-from langchain_sync_monitors.protocols import AutoMode, DeferToResample, HaltRun
+from langchain_sync_monitors.options import LIBRARY_DIRECTORY
+from langchain_sync_monitors.protocols import ProtocolConfiguration
 from langchain_sync_monitors.server_tools import is_server_tool
-from langchain_sync_monitors.thresholds import LIBRARY_DIRECTORY
 from tests.support.agents import RunMode, Workspace, build_keyword_monitor, run_agent
 from tests.support.chat_models import ScriptedChatModel, build_tool_call_message
-from tests.support.protocols import AcceptFirst
+from tests.support.protocols import RUN_EVERY_STEP
 
 WEB_FETCH = {"type": "web_fetch_20250910", "name": "web_fetch", "max_uses": 3}
 WEB_SEARCH = {"type": "web_search"}
@@ -64,7 +64,7 @@ def build_agent(
 ) -> Runnable[Any, Any]:
     monitor = middleware or MonitorMiddleware(
         monitor=build_keyword_monitor(),
-        protocol=AcceptFirst(),
+        protocol=RUN_EVERY_STEP,
     )
     tools: list[BaseTool | dict[str, Any]] = [*Workspace().build_tools(), *server_tools]
     return create_agent(model, tools=tools, middleware=[monitor])
@@ -90,7 +90,7 @@ def test_server_tools_are_named_in_one_warning(run_mode: RunMode) -> None:
 
 def test_the_warning_is_shown_once_per_middleware_instance(run_mode: RunMode) -> None:
     # Arrange
-    middleware = MonitorMiddleware(monitor=build_keyword_monitor(), protocol=AcceptFirst())
+    middleware = MonitorMiddleware(monitor=build_keyword_monitor(), protocol=RUN_EVERY_STEP)
     model = ServerToolChatModel(responses=[AIMessage("First."), AIMessage("Second.")])
     agent = build_agent(model, server_tools=[WEB_SEARCH], middleware=middleware)
     subagent_copy = middleware.copy_for_subagent(subagent_name="worker")
@@ -148,7 +148,7 @@ def test_the_editor_that_langchain_anthropic_hands_the_model_gets_no_warning(
         arguments={"command": "view", "path": "/notes.md"},
     )
     model = ServerToolChatModel(responses=[view_call, AIMessage("Done.")])
-    monitor = MonitorMiddleware(monitor=build_keyword_monitor(), protocol=AcceptFirst())
+    monitor = MonitorMiddleware(monitor=build_keyword_monitor(), protocol=RUN_EVERY_STEP)
     stack: list[AgentMiddleware[Any, Any, Any]] = [editor, monitor]
     agent = create_agent(model, middleware=stack)
 
@@ -168,15 +168,15 @@ def test_the_editor_that_langchain_anthropic_hands_the_model_gets_no_warning(
 @pytest.mark.parametrize(
     "protocol",
     [
-        AcceptFirst(),
-        AutoMode(block_threshold=0.6),
-        DeferToResample(fallback=HaltRun(), defer_threshold=0.6, audit_threshold=0.9),
+        RUN_EVERY_STEP,
+        BlockAndFeedBack(block_threshold=0.6),
+        DeferToResample(defer_threshold=0.6, audit_threshold=0.9, max_resamples=2),
     ],
-    ids=["accept-first", "auto-mode", "defer-to-resample"],
+    ids=["run-every-step", "block-and-feed-back", "defer-to-resample"],
 )
 def test_a_middleware_that_has_warned_can_still_be_copied_and_pickled(
     run_mode: RunMode,
-    protocol: ControlProtocol,
+    protocol: ProtocolConfiguration,
 ) -> None:
     # Arrange
     middleware = MonitorMiddleware(monitor=build_keyword_monitor(), protocol=protocol)
@@ -200,7 +200,7 @@ def test_a_middleware_that_has_warned_can_still_be_copied_and_pickled(
 
 def test_a_copy_warns_once_of_its_own_and_the_original_stays_quiet(run_mode: RunMode) -> None:
     # Arrange
-    middleware = MonitorMiddleware(monitor=build_keyword_monitor(), protocol=AcceptFirst())
+    middleware = MonitorMiddleware(monitor=build_keyword_monitor(), protocol=RUN_EVERY_STEP)
     first_model = ServerToolChatModel(responses=[AIMessage("First.")])
     with pytest.warns(ServerToolWarning):
         run_agent(

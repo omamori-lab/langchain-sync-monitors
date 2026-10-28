@@ -11,16 +11,17 @@ from langchain_core.language_models import BaseChatModel
 from langchain_core.language_models.fake_chat_models import FakeListChatModel
 
 from langchain_sync_monitors import (
+    DeferToResample,
     GuardLabels,
     GuardMonitor,
     LLMMonitor,
+    MonitorMiddleware,
     MonitorPrompt,
     model_calls,
     spans,
 )
 from langchain_sync_monitors.errors import ConfigurationError
 from langchain_sync_monitors.model_calls import build_internal_call_config, resolve_chat_model
-from langchain_sync_monitors.protocols import DeferToTrustedModel
 
 GUARD_POLICY = MonitorPrompt(system="", request="{trajectory}\n{proposed_action}")
 MONITOR_RUN_NAMES = frozenset(
@@ -86,15 +87,19 @@ def build_guard_monitor(model: BaseChatModel) -> object:
     )
 
 
-def build_trusted_fallback(model: BaseChatModel) -> object:
-    """Build the fallback that hands the step to `model`."""
-    return DeferToTrustedModel(trusted_model=model)
+def build_trusted_model_middleware(model: BaseChatModel) -> object:
+    """Build a middleware that hands a suspicious step to `model`."""
+    return MonitorMiddleware(
+        monitor=LLMMonitor(model=FakeListChatModel(responses=["unused"])),
+        protocol=DeferToResample(defer_threshold=0.5, audit_threshold=1.0, max_resamples=0),
+        trusted_model=model,
+    )
 
 
 @pytest.mark.parametrize(
     "build",
-    [resolve_chat_model, build_llm_monitor, build_guard_monitor, build_trusted_fallback],
-    ids=["resolve_chat_model", "LLMMonitor", "GuardMonitor", "DeferToTrustedModel"],
+    [resolve_chat_model, build_llm_monitor, build_guard_monitor, build_trusted_model_middleware],
+    ids=["resolve_chat_model", "LLMMonitor", "GuardMonitor", "trusted_model"],
 )
 @pytest.mark.parametrize(
     "wrap",

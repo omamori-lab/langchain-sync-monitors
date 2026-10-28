@@ -7,13 +7,14 @@ from hyoshigi import Author
 from langchain_core.messages import AIMessage, ToolMessage
 from langgraph.checkpoint.memory import InMemorySaver
 
+from langchain_sync_monitors import DEFAULT_HALT_MESSAGE
 from langchain_sync_monitors.contracts import SubagentHalt
 from langchain_sync_monitors.middleware import MonitorMiddleware
 from tests.support.agents import RunMode, build_thread_config, read_texts, run_agent
 from tests.support.chat_models import ScriptedChatModel
 from tests.support.deep_agents import build_deep_agent, build_delegation_step
 from tests.support.monitors import KeywordMonitor
-from tests.support.protocols import HALT_MESSAGE, AcceptFirst, HaltAfterOneSample
+from tests.support.protocols import HALT_EVERY_STEP, RUN_EVERY_STEP
 
 WORKER_REPORT = "Three sources found."
 MAIN_ANSWER = "Here is the summary."
@@ -26,7 +27,7 @@ def monitor() -> KeywordMonitor:
 
 @pytest.fixture
 def halting_worker_monitor(monitor: KeywordMonitor) -> MonitorMiddleware:
-    return MonitorMiddleware(monitor=monitor, protocol=HaltAfterOneSample())
+    return MonitorMiddleware(monitor=monitor, protocol=HALT_EVERY_STEP)
 
 
 def test_the_main_agent_and_its_subagent_both_record_their_steps(
@@ -36,7 +37,7 @@ def test_the_main_agent_and_its_subagent_both_record_their_steps(
     # Arrange
     main_model = ScriptedChatModel(responses=[build_delegation_step(), AIMessage(MAIN_ANSWER)])
     worker_model = ScriptedChatModel(responses=[AIMessage(WORKER_REPORT)])
-    main_monitor = MonitorMiddleware(monitor=monitor, protocol=AcceptFirst())
+    main_monitor = MonitorMiddleware(monitor=monitor, protocol=RUN_EVERY_STEP)
     agent = build_deep_agent(
         main_model=main_model,
         worker_model=worker_model,
@@ -67,7 +68,7 @@ def test_a_subagent_halt_stops_the_whole_run_when_asked(
     main_model = ScriptedChatModel(responses=[build_delegation_step(), AIMessage("never drawn")])
     main_monitor = MonitorMiddleware(
         monitor=monitor,
-        protocol=AcceptFirst(),
+        protocol=RUN_EVERY_STEP,
         when_subagent_halts=SubagentHalt.STOP_WHOLE_RUN,
     )
     agent = build_deep_agent(
@@ -97,7 +98,7 @@ def test_a_subagent_halt_only_ends_the_subagent_by_default(
     agent = build_deep_agent(
         main_model=main_model,
         worker_model=ScriptedChatModel(responses=[AIMessage(WORKER_REPORT)]),
-        main_monitor=MonitorMiddleware(monitor=monitor, protocol=AcceptFirst()),
+        main_monitor=MonitorMiddleware(monitor=monitor, protocol=RUN_EVERY_STEP),
         worker_monitor=halting_worker_monitor,
     )
 
@@ -107,7 +108,7 @@ def test_a_subagent_halt_only_ends_the_subagent_by_default(
     # Assert
     assert read_texts(result["messages"])[-1] == MAIN_ANSWER
     reports = [message for message in result["messages"] if isinstance(message, ToolMessage)]
-    assert [report.text for report in reports] == [HALT_MESSAGE]
+    assert [report.text for report in reports] == [DEFAULT_HALT_MESSAGE]
     assert [record["outcome"] for record in result["monitor_log"]] == [
         "allowed",
         "halted",
@@ -123,7 +124,7 @@ def test_subagent_records_reach_the_checkpointed_parent_state(
     agent = build_deep_agent(
         main_model=ScriptedChatModel(responses=[build_delegation_step(), AIMessage(MAIN_ANSWER)]),
         worker_model=ScriptedChatModel(responses=[AIMessage(WORKER_REPORT)]),
-        main_monitor=MonitorMiddleware(monitor=monitor, protocol=AcceptFirst()),
+        main_monitor=MonitorMiddleware(monitor=monitor, protocol=RUN_EVERY_STEP),
         checkpointer=InMemorySaver(),
     )
     config = build_thread_config(f"deep-{run_mode}")

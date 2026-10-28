@@ -25,7 +25,6 @@ from tests.support.agents import (
 from tests.support.chat_models import ScriptedChatModel
 
 
-@pytest.mark.xfail(strict=True, reason="PR 5 audits the proposal after the third block")
 @pytest.mark.parametrize(
     "protocol",
     [

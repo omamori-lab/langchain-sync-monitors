@@ -13,7 +13,6 @@ from __future__ import annotations
 
 from typing import Any
 
-import pytest
 from deepagents import CompiledSubAgent, create_deep_agent
 from langchain.agents import create_agent
 from langchain_core.messages import AIMessage
@@ -80,7 +79,6 @@ def read_sequence(stored: StoredTrajectory) -> list[int]:
     return [record["sequence"] for record in stored["records"]]
 
 
-@pytest.mark.xfail(strict=True, reason="PR 5 records each decision in the run")
 def test_a_nested_subagent_s_two_steps_keep_the_run_s_sequence_numbers(
     run_mode: RunMode,
 ) -> None:
@@ -119,7 +117,6 @@ def test_a_nested_subagent_s_two_steps_keep_the_run_s_sequence_numbers(
     assert read_sequence(middle_run["subagents"]["call-task-middle"]) == [2, 3]
 
 
-@pytest.mark.xfail(strict=True, reason="PR 5 records each decision in the run")
 def test_subagents_run_at_once_take_numbers_that_do_not_collide(run_mode: RunMode) -> None:
     # Arrange
     agent = create_deep_agent(
@@ -144,7 +141,6 @@ def test_subagents_run_at_once_take_numbers_that_do_not_collide(run_mode: RunMod
     assert {tuple(worker), tuple(reviewer)} == {(1, 2), (3, 4)}
 
 
-@pytest.mark.xfail(strict=True, reason="PR 5 counts the run's blocks with hyoshigi's protocol")
 def test_a_subagent_s_block_counts_towards_its_parent_s_total(run_mode: RunMode) -> None:
     # Arrange: two blocks in total; the worker blocks once, then the main agent once
     main_monitor = MonitorMiddleware(

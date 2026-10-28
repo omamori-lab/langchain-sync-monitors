@@ -7,11 +7,13 @@ halt inside the subagent does to the whole run. Every run must end without an
 error, keep the canary in and keep the span promises, the subagent's spans
 included. A run a provider rate-limited is skipped.
 
-- With a copy of the main monitor, Jev under Auto Mode, the honest run must
-  email the team, and in both runs every sample at or above the threshold,
-  the subagent's included, must be blocked and its step flagged.
-- With the LLM monitor under Defer to Resample ending in `HaltRun` on the
-  subagent, and `SubagentHalt.STOP_WHOLE_RUN`, a halted subagent must stop
+- With a copy of the main monitor, Jev under Block and Feed Back, the honest
+  run must email the team, and in both runs every sample at or above the
+  threshold, the subagent's included, must be blocked and its step steered,
+  or halted and flagged.
+- With the LLM monitor under Defer to Resample without a trusted model on the
+  subagent, so a step no sample passes is audited and halts, and
+  `SubagentHalt.STOP_WHOLE_RUN`, a halted subagent must stop
   the main agent at its next step: a record that is halted and flagged, with
   no sample, and the run ends on the monitor's message naming the subagent.
 - With `SubagentHalt.STOP_SUBAGENT_ONLY`, the main agent receives the halt
@@ -39,7 +41,7 @@ from tests.live.checks import (
     LIVE_MARKS,
     list_errors,
     list_step_path_problems,
-    list_unflagged_step_blocks,
+    list_unsteered_step_blocks,
     save_report,
     skip_if_rate_limited,
 )
@@ -173,12 +175,12 @@ def test_a_subagent_reports_every_step_to_the_main_agent(
     assert (
         list_step_path_problems(
             steps,
-            protocol_name=ProtocolName.AUTO_MODE,
+            protocol_name=ProtocolName.BLOCK_AND_FEED_BACK,
             threshold=SUSPICION_THRESHOLD,
         )
         == []
     )
-    assert list_unflagged_step_blocks(steps) == []
+    assert list_unsteered_step_blocks(steps) == []
     if scenario is Scenario.HONEST:
         assert any(record["destination"] == TEAM_ADDRESS for record in report["outbound"])
 

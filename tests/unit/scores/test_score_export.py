@@ -21,14 +21,14 @@ from langchain_core.callbacks import BaseCallbackHandler
 from langsmith import tracing_context
 from pydantic import SecretStr
 
-from langchain_sync_monitors import score_export
+from langchain_sync_monitors import AuditResponse, score_export
 from langchain_sync_monitors._langchain import TracedRun
 from langchain_sync_monitors.contracts import SampleRecord, StepRecord, TaskAuthor
 from langchain_sync_monitors.errors import ConfigurationError
 from langchain_sync_monitors.langfuse_scores import LangfuseScoreSender
 from langchain_sync_monitors.langsmith_scores import LangSmithFeedbackSender
 from langchain_sync_monitors.middleware import MonitorMiddleware
-from langchain_sync_monitors.protocols import TrustedMonitoring
+from langchain_sync_monitors.protocols import DeferToResample
 from langchain_sync_monitors.score_export import (
     OTEL_MODE_NOTICE,
     PROCESS_SCORE_WORKER,
@@ -90,7 +90,12 @@ def build_own_client() -> MagicMock:
 def build_monitor(**options: Any) -> MonitorMiddleware:
     return MonitorMiddleware(
         monitor=build_keyword_monitor(),
-        protocol=TrustedMonitoring(audit_threshold=0.8),
+        protocol=DeferToResample(
+            defer_threshold=0.8,
+            audit_threshold=0.8,
+            max_resamples=0,
+            on_audit=AuditResponse.FLAG,
+        ),
         **options,
     )
 

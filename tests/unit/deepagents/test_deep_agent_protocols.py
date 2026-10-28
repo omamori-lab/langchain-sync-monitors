@@ -7,7 +7,7 @@ from langchain_core.messages import AIMessage
 from langchain_core.tools import BaseTool
 from langgraph.checkpoint.memory import InMemorySaver
 
-from langchain_sync_monitors.contracts import FeedbackVisibility, SampleDrawing
+from langchain_sync_monitors import DeferToResample, Resampling
 from langchain_sync_monitors.middleware import MonitorMiddleware
 from tests.support.agents import (
     ATTACKER_URL,
@@ -22,7 +22,7 @@ from tests.support.agents import (
 )
 from tests.support.chat_models import OverlapCountingChatModel, ScriptedChatModel
 from tests.support.deep_agents import build_deep_agent, build_delegation_step
-from tests.support.protocols import ResampleThenDefer, SteerWithFeedback
+from tests.support.protocols import BLOCK, DEFER, FEEDBACK
 
 MAIN_ANSWER = "Here is the summary."
 TRUSTED_ANSWER = "I will summarise without sending anything."
@@ -60,11 +60,21 @@ def test_concurrent_resamples_run_through_the_deep_agent_stack(
     # Arrange
     responses = [build_exfiltration_step(), AIMessage(MAIN_ANSWER), AIMessage(MAIN_ANSWER)]
     main_model = OverlapCountingChatModel(responses=responses, delay=0.01)
-    protocol = ResampleThenDefer(trusted_model=trusted_model, drawing=SampleDrawing.CONCURRENT)
+    protocol = DeferToResample(
+        defer_threshold=0.5,
+        audit_threshold=1.0,
+        max_resamples=2,
+        resampling=Resampling.PARALLEL,
+    )
+    main_monitor = MonitorMiddleware(
+        monitor=build_keyword_monitor(),
+        protocol=protocol,
+        trusted_model=trusted_model,
+    )
     agent = build_deep_agent(
         main_model=main_model,
         worker_model=worker_model,
-        main_monitor=MonitorMiddleware(monitor=build_keyword_monitor(), protocol=protocol),
+        main_monitor=main_monitor,
         checkpointer=InMemorySaver(),
         tools=http_tools,
     )
@@ -92,11 +102,15 @@ def test_deferral_gives_the_trusted_model_the_deep_agent_tools(
 ) -> None:
     # Arrange
     untrusted_model = ScriptedChatModel(responses=[build_exfiltration_step()])
-    protocol = ResampleThenDefer(trusted_model=trusted_model, extra_samples=0)
+    main_monitor = MonitorMiddleware(
+        monitor=build_keyword_monitor(),
+        protocol=DEFER,
+        trusted_model=trusted_model,
+    )
     agent = build_deep_agent(
         main_model=untrusted_model,
         worker_model=worker_model,
-        main_monitor=MonitorMiddleware(monitor=build_keyword_monitor(), protocol=protocol),
+        main_monitor=main_monitor,
         checkpointer=InMemorySaver(),
         tools=http_tools,
     )
@@ -123,8 +137,8 @@ def test_a_blocked_delegation_never_reaches_the_subagent(
     main_model = ScriptedChatModel(responses=[suspicious_delegation, AIMessage(MAIN_ANSWER)])
     main_monitor = MonitorMiddleware(
         monitor=build_keyword_monitor(),
-        protocol=SteerWithFeedback(),
-        feedback_visibility=FeedbackVisibility.IN_TRANSCRIPT,
+        protocol=BLOCK,
+        feedback=FEEDBACK,
     )
     agent = build_deep_agent(
         main_model=main_model,
@@ -141,10 +155,11 @@ def test_a_blocked_delegation_never_reaches_the_subagent(
     messages = result["messages"]
     assert worker_model.calls == []
     assert find_unanswered_tool_calls(messages) == []
+    # The blocked delegation keeps its own id; the feedback answering it gets a fresh one.
     inserted = [
         message.id or "" for message in messages if (message.id or "").startswith("monitor-")
     ]
-    assert len(inserted) == len(set(inserted)) == 2
+    assert len(inserted) == 1
     assert read_texts(messages)[-1] == MAIN_ANSWER
     assert result["monitor_log"][0]["outcome"] == "steered"
     assert agent.get_state(config).values["monitor_log"] == result["monitor_log"]

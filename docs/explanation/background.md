@@ -11,10 +11,10 @@ with the same keys.
 
 | Part of the library | What it takes | From |
 |---|---|---|
-| `TrustedMonitoring`, `DeferToTrusted` | A trusted model rates each output, and a suspicious one is audited or replaced | AI Control [@greenblatt2023aicontrol] |
+| `DeferToResample` with no resamples: trusted monitoring and defer to trusted | A trusted model rates each output, and a suspicious one is audited or replaced | AI Control [@greenblatt2023aicontrol] |
 | `DeferToResample` | A suspicious step is sampled again, and the least suspicious sample runs | Ctrl-Z [@bhatt2025ctrlz] |
-| `AutoMode`, the default view, `CascadeMonitor` | Block and continue, the limits of three and twenty, a classifier that does not read the agent's own messages, two stages | Claude Code's auto mode [@hughes2026automode] |
-| Every monitor, view, prompt and wrapper | The sync and async monitors each monitor class builds, the rendering of the trajectory, and the rules for failing closed | hyoshigi [@hyoshigi2026] |
+| `BlockAndFeedBack`, the default view, `CascadeMonitor` | Block and continue, the limits of three and twenty, a classifier that does not read the agent's own messages, two stages | Claude Code's auto mode [@hughes2026automode] |
+| Every monitor, protocol, view, prompt and wrapper | The sync and async monitors and protocols each class builds, the rendering of the trajectory, the protocols' decisions, and the rules for failing closed | hyoshigi [@hyoshigi2026] |
 | `DEFAULT_PROMPT` | Reasoning before the score, on an anchored scale | Apollo Research [@apollo2026monitoringprompt] |
 | Verdicts read only where the format puts them | The threat of prompt injections aimed at the monitor | Terekhov et al. [@terekhov2025adaptive] |
 | `RepeatedMonitor`, `CalibratedMonitor` | Averaged calls, smoothed conformal p-values and random tie-breaking | [Thresholds and scores](#thresholds-and-scores) |
@@ -27,7 +27,7 @@ Trusted Monitoring and Defer to Trusted come from the original AI control
 paper (sections 3.2 and 3.3) [@greenblatt2023aicontrol]: an untrusted model
 does the work, a trusted model rates how suspicious each output is, and
 suspicious outputs are either audited or replaced by the trusted model's own
-output.
+output. In the library both are `DeferToResample` with no resamples.
 
 Defer to Resample comes from Ctrl-Z (section 3.2) [@bhatt2025ctrlz]. When a
 step looks suspicious, the protocol draws up to two more samples of it, runs
@@ -72,13 +72,15 @@ library takes four things from Hughes's account of it:
 - **Deny and continue.** A denied action comes back to the agent with the
   reason and an instruction to find a safer path rather than route around
   the block (section "Deny-and-continue"; figure 4) [@hughes2026automode].
-  `AutoMode` does the same with its `FeedbackTemplate`.
+  `BlockAndFeedBack` does the same, with the middleware's `FeedbackTemplate`.
 - **The limits.** After three consecutive denials or twenty in all within a
   session, Claude Code stops the model and escalates to a person, or ends the
   process when there is no one to ask (section "Deny-and-continue")
-  [@hughes2026automode]. `AutoMode` uses the same numbers; here the three
-  count within one step, a session is a conversation thread, and the twenty
-  include the blocks inside its subagents.
+  [@hughes2026automode]. `BlockAndFeedBack` uses the same numbers; here a
+  session is the monitor's trajectory of the conversation thread, the twenty
+  include the blocks inside its subagents, and at either limit the next
+  proposal is audited, which halts the run, since no person can answer inside
+  the model node.
 - **Two stages.** A fast single-token filter runs first, and reasoning
   follows only when it flags the action (section "Two-stage classification:
   efficiency and recall") [@hughes2026automode]. `CascadeMonitor` runs a
@@ -257,7 +259,7 @@ blocks, prompts and the response cache come from langchain-core
 [@langchaincore2026]. LangGraph [@langgraph2026] runs the agent graph: its
 reducers merge `monitor_log` across subagents, its `nostream` tag keeps
 unvetted samples out of `stream_mode="messages"`, and its rerun of a node on
-resume is why a fallback must not interrupt. Deep Agents [@deepagents2026]
+resume is why nothing in the model node may interrupt. Deep Agents [@deepagents2026]
 contributes the subagent model, and its `RubricMiddleware` the convention of
 tagging injected messages. TypeSafe's `AutoModeMiddleware`
 [@typesafe2026langchain] was the starting point for the tool-call classifier.

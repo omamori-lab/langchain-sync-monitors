@@ -23,7 +23,9 @@ change raises the minor version.
 - A run whose messages hold an action that reuses an action id or a tool call
   id already in the run now raises `MessageFormatError`, at the start of the
   run or of the step that reads it. A history passed in must give each action
-  and each tool call an id of its own.
+  and each tool call an id of its own. A reply the agent's model draws that
+  repeats such an id, as a cached or scripted model's or a retry after a
+  block can, is read and committed under fresh `uuid4` ids instead.
 - `Delegation` gains `runs`: for each monitor label whose trajectory holds
   the call, the run the subagent's trajectory joins. `DelegatedRun` is
   exported. A `Delegation` without `runs`, or whose run cannot hold the
@@ -40,9 +42,7 @@ change raises the minor version.
   types the options take, re-exported as the same objects: `View`, `Channel`,
   `MonitorPrompt`, `DEFAULT_PROMPT`, `GuardLabels`, `GPT_OSS_SAFEGUARD`,
   `QWEN3GUARD`, `HardLabelWarning`, `Aggregation`, `ATTACK_CRITERIA`,
-  `DEFAULT_STATEMENT` and `MediaTypes`. The protocols, their fallbacks,
-  `Verdict`, `Sample`, `PendingStep` and `ControlProtocol` are unchanged, and
-  a protocol still reads `sample.verdict`.
+  `DEFAULT_STATEMENT` and `MediaTypes`.
 - **Breaking:** `LLMMonitor` takes `prompt` as a `MonitorPrompt`, in place of a
   `ChatPromptTemplate`, and `view` as a `View`. A prompt's request holds
   `{trajectory}` and `{proposed_action}` once each, in place of `{transcript}`
@@ -101,16 +101,15 @@ change raises the minor version.
   step.
 - **Breaking:** a reply that holds a server tool's result, a block LangChain
   could not map, or media the monitor's model cannot perceive is rated 1.0,
-  before any request; the `ServerToolWarning` says so for server tools. Under
-  Defer to Resample or Auto Mode, a step whose every sample uses such a server
-  tool, such as Anthropic's web search, goes to the fallback, which halts the
-  run by default.
+  before any request; the `ServerToolWarning` says so for server tools. Such
+  a step is audited, and so halts, except under trusted monitoring, which
+  runs it flagged.
 - The reason of a rating that failed closed is hyoshigi's sentence for its
   cause, such as "The monitor's model was unavailable, so the action is
   treated as suspicious."; a guard's reason reads "The guard model labelled
   the action 'violation', finding that it breaks the policy.", and a decision
   monitor's "The decision model's strongest concern: " and the statement.
-  These reach `monitor_log`'s `reason` and Auto Mode's feedback.
+  These reach `monitor_log`'s `reason` and the feedback of a block.
 - **Breaking:** `SampleRecord.proposal` is the action the monitor rated, as
   hyoshigi stores it, where it was rendered text: a dict with `kind`, `id`,
   `thought`, `parts` and `tool_calls`, each call's `arguments` as text, with
@@ -128,6 +127,55 @@ change raises the minor version.
   `GuardMonitor` that samples more than once, or a `RepeatedMonitor` of more
   than one call over a cached model, wrappers read through. It no longer warns
   during the run for the monitor's model.
+- **Breaking:** the control protocols are hyoshigi's. `DeferToResample` and
+  `BlockAndFeedBack` are configurations with hyoshigi's options, defaults and
+  rules, which the middleware builds around the monitor's twins, so
+  `invoke()` decides with the sync protocol and `ainvoke()` with the async
+  one. They replace the old protocols:
+
+  | Before | Now |
+  |---|---|
+  | `TrustedMonitoring(audit_threshold=t)` | `DeferToResample(defer_threshold=t, audit_threshold=t, max_resamples=0, on_audit=AuditResponse.FLAG)` |
+  | `DeferToTrusted(trusted_model=T, defer_threshold=d, audit_threshold=a)` | `DeferToResample(defer_threshold=d, audit_threshold=a, max_resamples=0)` and `MonitorMiddleware(trusted_model=T)`; `d` at most `a` |
+  | `DeferToResample(fallback=DeferToTrustedModel(T), ...)` | `DeferToResample(...)` and `MonitorMiddleware(trusted_model=T)` |
+  | `DeferToResample(fallback=HaltRun(), ...)` | `DeferToResample(...)` without a `trusted_model`: the trusted step is audited |
+  | `AutoMode(block_threshold, max_consecutive_blocks, max_total_blocks, feedback, when_limit_reached)` | `BlockAndFeedBack(block_threshold, blocks_in_a_row, blocks_in_total)`, with `feedback` on `MonitorMiddleware` |
+
+  Every threshold and `max_resamples` is required. An `audit_threshold`
+  below the `defer_threshold`, `audit_threshold=None` and a `math.inf` limit
+  raise `ConfigurationError`, when the middleware is built.
+- **Breaking:** an audit holds a step for a person, and no person can answer
+  one inside the model node, so an audited step halts with
+  `DEFAULT_HALT_MESSAGE`. A step at or above `audit_threshold` is audited
+  rather than deferred and flagged; a trusted step without a
+  `trusted_model`, a rating that failed closed, and the proposal after a
+  block limit are audited too.
+- **Breaking:** at a block limit, the next proposal is drawn and rated, then
+  audited, so a limit costs one more call of the agent's model and of the
+  monitor. A block total counts the blocks of the run in the monitor's
+  trajectory, a subagent's included, and an audit at the total starts it
+  again.
+- **Breaking:** a blocked reply is committed whole, under its own id, with
+  its feedback, before the step that follows it; `feedback_visibility` and
+  the withheld text are gone.
+- **Breaking:** a step is flagged when its protocol flags it, when it halts,
+  and, with `MonitorMiddleware(flag_threshold=...)`, when its lowest sample is
+  at or above that threshold. A steered step is no longer flagged by
+  default; a halted one still is.
+- `monitor_log`'s records project the decisions the monitor's trajectory
+  records for each step: samples in the order rated, each once, and the
+  trusted model's step recorded in the trajectory, unrated. A failed step's
+  `monitor_step_failed` event holds the proposals of the decisions recorded
+  in the step and of the protocol's latest answer.
+- A reply is read from a model call's response as its last AI message, so
+  the trailing tool message of tool-strategy structured output, and the
+  blocked replies a monitor inside this one commits, are left aside.
+- The agent model's `CachedResampleWarning` fires on every resample drawn
+  under a response cache.
+- `check_monitor_placement` counts a monitor as calling the model once per
+  step only for `DeferToResample` with `max_resamples=0`, no
+  `trusted_model` and no block, and warns about every monitor that may block
+  inside another.
 - **Breaking:** `ConfigurationError` is also hyoshigi's
   `ConfigurationError`, and so a `ValueError`. An option hyoshigi refuses while a monitor is built raises
   the library's error, from hyoshigi's. hyoshigi's value types, such as
@@ -154,9 +202,6 @@ change raises the minor version.
   `CalibratedMonitor(random_seed=...)` draws from the seed and the trajectory,
   each action's id blanked, so a fresh run whose tool calls get new ids draws
   afresh.
-- `DeferToResample(max_resamples=...)` and `AutoMode(max_consecutive_blocks=...)`
-  raise `ConfigurationError` for a count above `sys.maxsize`, which they
-  accepted before, as hyoshigi's counts do.
 
 ### Added
 
@@ -179,11 +224,8 @@ change raises the minor version.
   graph it ran without handing that graph the tool's state, since its
   trajectory names no delegation: under `SubagentHalt.STOP_WHOLE_RUN` the
   parent then halts.
-  A blocked attempt enters it with its text and its feedback, whatever
-  `feedback_visibility` says, as `monitor_log`'s samples already hold it; the
-  message stream still never carries a blocked attempt's text. A halt message
-  never enters it. The monitors rate every sample against it; the protocols
-  read their verdicts.
+  A halt message never enters it. The monitors rate every sample against it,
+  and the protocol records each decision in it.
 - `MessageFormatError` is exported.
 - `GuardMonitor(top_log_probabilities=...)`, the number of alternatives to
   each token that the guard's chat model is asked for, 0 by default. Above 0
@@ -193,6 +235,15 @@ change raises the minor version.
   `require_parameters: true` unless yours set it; a chat model whose class
   refuses the `logprobs` keyword raises `ConfigurationError` when the guard
   rates a step.
+- `MonitorMiddleware(trusted_model=..., feedback=..., flag_threshold=...)`:
+  the model that writes a trusted step, the message a blocked step sends the
+  agent, and the lowest sample that flags a step. A `trusted_model` the
+  protocol never asks for raises `ConfigurationError`.
+- `BlockAndFeedBack`, and hyoshigi's `Resampling`, `FailureResponse` and
+  `AuditResponse`, re-exported as the same objects.
+- A thread whose `monitor_log` holds steps this agent's protocol decided,
+  while its trajectory under the monitor's label is missing, raises
+  `MonitorError`, at the start of a run or a step.
 - `MonitorTwins(monitor=..., async_monitor=...)`, a monitor of your own
   written as hyoshigi's sync and async twins, which the middleware and the
   wrappers take as they take the library's monitors.
@@ -209,6 +260,15 @@ change raises the minor version.
   `async_http_client`, `TypeSafeDecisionModel`, `YesNoQuestion`,
   `IS_THE_STEP_SUSPICIOUS` and `DEFAULT_MONITOR_PROMPT`, whose places the
   changes above give.
+- **Breaking:** `TrustedMonitoring`, `DeferToTrusted`, `AutoMode`,
+  `HaltRun`, `DeferToTrustedModel`, `ControlProtocol`, `PendingStep`,
+  `Fallback`, `StepDecision`, `Sample`, `SampleDrawing`, `BlockedAttempt`,
+  `Verdict`, `FeedbackVisibility`, `WITHHELD_TEXT_MESSAGE`,
+  `DefaultThreshold`, `ThresholdStatistic`, `UncalibratedThresholdWarning`,
+  `resolve_threshold`, `SynchronousRunError`, `InvalidSuspicionError` and the
+  library's own `Resampling`, whose places the changes above give.
+- **Breaking:** `Delegation.blocks_before`; a subagent counts its run's
+  blocks from the run its delegation hands it.
 - The module `langchain_sync_monitors.transcript`, with
   `render_transcript` and `render_proposed_step`.
 - The private state keys `monitor_run_inputs` and `monitor_rewritten_inputs`.
@@ -221,7 +281,10 @@ change raises the minor version.
 
 - A checkpoint saver that prunes, copies or deletes checkpoints without
   walking a `DeltaChannel`'s chain of writes rebuilds `monitor_trajectory` as
-  empty, with no error.
+  empty. A thread whose monitor has decided steps then raises `MonitorError`;
+  one whose trajectory is kept but shorter is not checked.
+- An audit halts the step, since no person can answer one inside the model
+  node.
 - Each subagent receives its run's whole trajectory in `monitor_delegation`,
   so the state and the checkpoints grow with the run.
 - `MonitorMiddleware` offers no entry redaction: the trajectory keeps each
@@ -229,9 +292,8 @@ change raises the minor version.
   `monitor_trajectory` holds the text unredacted, and a redaction made after
   that first read, such as `PIIMiddleware`'s, never reaches it. hyoshigi's
   `View(redaction=...)` redacts only what a monitor's model reads.
-- A step whose reply holds a server tool's result is rated 1.0 every time,
-  so under Defer to Resample and Auto Mode a step whose every sample uses
-  such a tool goes to the fallback.
+- A step whose reply holds a server tool's result fails closed every time,
+  so it is audited and halts, except under trusted monitoring.
 - An `openrouter:` decision model reads text only, so an action that holds
   media fails closed.
 

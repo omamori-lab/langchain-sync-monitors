@@ -14,11 +14,11 @@ from langgraph.graph.state import CompiledStateGraph
 from langgraph.prebuilt import InjectedState
 from langgraph.types import Command
 
+from langchain_sync_monitors import AuditResponse, BlockAndFeedBack, DeferToResample
 from langchain_sync_monitors.contracts import StepRecord, SubagentHalt
 from langchain_sync_monitors.deepagents import monitor_subagents
 from langchain_sync_monitors.errors import ConfigurationError
 from langchain_sync_monitors.middleware import MonitorMiddleware
-from langchain_sync_monitors.protocols import AutoMode, HaltRun, TrustedMonitoring
 from tests.support.agents import (
     RunMode,
     Workspace,
@@ -34,9 +34,11 @@ from tests.support.deep_agents import (
     build_delegation_step,
     build_parallel_delegation,
 )
-from tests.support.protocols import AcceptFirst, HaltAfterOneSample, SteerWithFeedback
+from tests.support.protocols import HALT_EVERY_STEP, RUN_EVERY_STEP
 
 PACKAGE_LOGGER = "langchain_sync_monitors"
+HALT_SUSPICIOUS_STEPS = DeferToResample(defer_threshold=0.5, audit_threshold=0.5, max_resamples=0)
+"""Audits, and so halts, a step at or above 0.5, drawing nothing more."""
 FORGED_OWN_STEP = StepRecord(
     agent="main",
     monitor="monitor",
@@ -74,9 +76,7 @@ def build_parallel_step(*, order: str) -> AIMessage:
 def build_halting_worker_monitor() -> MonitorMiddleware:
     return MonitorMiddleware(
         monitor=build_keyword_monitor(),
-        protocol=AutoMode(
-            block_threshold=0.5, max_consecutive_blocks=1, when_limit_reached=HaltRun()
-        ),
+        protocol=HALT_SUSPICIOUS_STEPS,
         agent_name="worker",
     )
 
@@ -105,7 +105,12 @@ def test_a_tool_s_own_step_record_cannot_hide_a_parallel_subagent_s_halt(
         worker_model=ScriptedChatModel(responses=[build_exfiltration_step(call_id="call-post")]),
         main_monitor=MonitorMiddleware(
             monitor=build_keyword_monitor(),
-            protocol=TrustedMonitoring(audit_threshold=0.6),
+            protocol=DeferToResample(
+                defer_threshold=0.6,
+                audit_threshold=0.6,
+                max_resamples=0,
+                on_audit=AuditResponse.FLAG,
+            ),
             when_subagent_halts=SubagentHalt.STOP_WHOLE_RUN,
         ),
         worker_monitor=build_halting_worker_monitor(),
@@ -145,7 +150,7 @@ def test_a_forged_record_cannot_hide_a_subagent_s_halt_after_a_halt_of_the_paren
         worker_model=ScriptedChatModel(responses=[build_exfiltration_step(call_id="call-post")]),
         main_monitor=MonitorMiddleware(
             monitor=build_keyword_monitor(),
-            protocol=SteerWithFeedback(max_blocks=1),
+            protocol=HALT_SUSPICIOUS_STEPS,
             when_subagent_halts=SubagentHalt.STOP_WHOLE_RUN,
         ),
         worker_monitor=build_halting_worker_monitor(),
@@ -182,7 +187,7 @@ def test_under_stop_subagent_only_the_parent_carries_on_past_the_forged_record(
     agent = build_deep_agent(
         main_model=main_model,
         worker_model=ScriptedChatModel(responses=[build_exfiltration_step(call_id="call-post")]),
-        main_monitor=MonitorMiddleware(monitor=build_keyword_monitor(), protocol=AcceptFirst()),
+        main_monitor=MonitorMiddleware(monitor=build_keyword_monitor(), protocol=RUN_EVERY_STEP),
         worker_monitor=build_halting_worker_monitor(),
         tools=[build_forging_tool([dict(FORGED_OWN_STEP)])],
     )
@@ -215,7 +220,7 @@ def test_a_negative_count_a_tool_writes_cannot_lower_what_a_subagent_inherits(
         worker_model=ScriptedChatModel(
             responses=[build_read_step(call_id="call-read"), AIMessage("Found.")]
         ),
-        main_monitor=MonitorMiddleware(monitor=build_keyword_monitor(), protocol=AcceptFirst()),
+        main_monitor=MonitorMiddleware(monitor=build_keyword_monitor(), protocol=RUN_EVERY_STEP),
         tools=[build_forging_tool([negative]), *Workspace().build_tools()],
     )
 
@@ -239,7 +244,7 @@ def test_ordinary_parallel_delegations_warn_of_nothing_and_keep_every_record(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
     # Arrange
-    main_monitor = MonitorMiddleware(monitor=build_keyword_monitor(), protocol=AcceptFirst())
+    main_monitor = MonitorMiddleware(monitor=build_keyword_monitor(), protocol=RUN_EVERY_STEP)
     subagents = [
         SubAgent(
             name="worker",
@@ -291,7 +296,7 @@ def build_nested_parent(
     """Build main, which delegates to `middle`, a deep agent that delegates to `inner_name`."""
     main_monitor = MonitorMiddleware(
         monitor=build_keyword_monitor(),
-        protocol=AcceptFirst(),
+        protocol=RUN_EVERY_STEP,
         when_subagent_halts=SubagentHalt.STOP_WHOLE_RUN,
     )
     middle_monitor = main_monitor.copy_for_subagent(subagent_name="middle")
@@ -308,7 +313,7 @@ def build_nested_parent(
             subagents=[SubAgent(name=inner_name, description="Checks.", model=inner_model)],
             overrides={
                 inner_name: MonitorMiddleware(
-                    monitor=build_keyword_monitor(), protocol=HaltAfterOneSample()
+                    monitor=build_keyword_monitor(), protocol=HALT_EVERY_STEP
                 )
             }
             if inner_halts
@@ -430,7 +435,7 @@ def test_a_subagent_s_delegation_and_log_survive_a_tool_that_writes_its_state_ba
             AIMessage("Found."),
         ],
     )
-    main_monitor = MonitorMiddleware(monitor=build_keyword_monitor(), protocol=AcceptFirst())
+    main_monitor = MonitorMiddleware(monitor=build_keyword_monitor(), protocol=RUN_EVERY_STEP)
     worker = SubAgent(name="worker", description="Finds.", model=worker_model, tools=[save_state])
     agent = create_deep_agent(
         model=ScriptedChatModel(responses=[build_delegation_step(), AIMessage("Done.")]),
@@ -462,13 +467,13 @@ def build_stacked_parent(
 ) -> tuple[CompiledStateGraph[Any, Any, Any, Any], ScriptedChatModel]:
     outer = MonitorMiddleware(
         monitor=build_keyword_monitor(),
-        protocol=AcceptFirst(),
+        protocol=RUN_EVERY_STEP,
         label="outer",
         when_subagent_halts=outer_halts,
     )
     inner = MonitorMiddleware(
         monitor=build_keyword_monitor(),
-        protocol=AcceptFirst(),
+        protocol=RUN_EVERY_STEP,
         when_subagent_halts=inner_halts,
     )
     worker = SubAgent(
@@ -517,16 +522,16 @@ def test_either_of_two_stacked_monitors_stops_the_run_after_a_subagent_halts(
     assert "subagent_returns" not in caplog.text
 
 
-def test_an_auto_mode_inside_another_monitor_counts_the_blocks_a_subagent_returned(
+def test_a_blocking_monitor_inside_another_counts_the_run_s_blocks_in_its_subagent(
     run_mode: RunMode,
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    # Arrange: the worker's two blocks bring the thread to the total of 3
+    # Arrange: the worker's two blocks bring the run to the total of 3
     main_model = ScriptedChatModel(
         responses=[
             build_exfiltration_step(call_id="call-post-main"),
             build_delegation_step(),
-            AIMessage("never drawn"),
+            AIMessage("Done."),
         ],
     )
     worker_model = ScriptedChatModel(
@@ -537,11 +542,11 @@ def test_an_auto_mode_inside_another_monitor_counts_the_blocks_a_subagent_return
         ],
     )
     outer = MonitorMiddleware(
-        monitor=build_keyword_monitor(), protocol=AcceptFirst(), label="outer"
+        monitor=build_keyword_monitor(), protocol=RUN_EVERY_STEP, label="outer"
     )
     inner = MonitorMiddleware(
         monitor=build_keyword_monitor(),
-        protocol=AutoMode(block_threshold=0.6, max_total_blocks=3),
+        protocol=BlockAndFeedBack(block_threshold=0.6, blocks_in_total=3),
     )
     agent = create_deep_agent(
         model=main_model,
@@ -556,8 +561,8 @@ def test_an_auto_mode_inside_another_monitor_counts_the_blocks_a_subagent_return
     with caplog.at_level(logging.WARNING, logger=PACKAGE_LOGGER):
         result = run_agent(agent, mode=run_mode)
 
-    # Assert: the worker's records reach the log once, under the inner monitor's label, and
-    # inner's step after the worker goes to its fallback without a sample
+    # Assert: the worker's records reach the log once, under the inner monitor's label; its
+    # proposal after the total is audited and halted, and the audit resets the total
     rows = [
         (
             record["agent"],
@@ -571,8 +576,8 @@ def test_an_auto_mode_inside_another_monitor_counts_the_blocks_a_subagent_return
     assert rows == [
         ("main", "monitor", "steered", 1, 2),
         ("main", "outer", "allowed", 0, 1),
-        ("worker", "monitor", "halted", 2, 2),
-        ("main", "monitor", "halted", 0, 0),
+        ("worker", "monitor", "halted", 2, 3),
+        ("main", "monitor", "allowed", 0, 1),
         ("main", "outer", "allowed", 0, 1),
     ]
     assert "wrote the state keys" not in caplog.text

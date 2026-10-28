@@ -41,7 +41,7 @@ from tests.support.agents import (
 from tests.support.chat_models import ScriptedChatModel
 from tests.support.deep_agents import build_delegation_step, build_parallel_delegation
 from tests.support.monitors import KeywordMonitor
-from tests.support.protocols import AcceptFirst
+from tests.support.protocols import RUN_EVERY_STEP
 
 type Agent = CompiledStateGraph[Any, Any, Any, Any]
 
@@ -54,13 +54,13 @@ READ_RESULT = ToolObservation(call_id="call-read", parts=(TextPart(text="content
 
 
 def build_main_monitor() -> MonitorMiddleware:
-    return MonitorMiddleware(monitor=KeywordMonitor(), protocol=AcceptFirst())
+    return MonitorMiddleware(monitor=KeywordMonitor(), protocol=RUN_EVERY_STEP)
 
 
 def build_subagent_monitor(agent_name: str, *, label: str = LABEL) -> MonitorMiddleware:
     return MonitorMiddleware(
         monitor=KeywordMonitor(),
-        protocol=AcceptFirst(),
+        protocol=RUN_EVERY_STEP,
         label=label,
         agent_name=agent_name,
         task_author=TaskAuthor.PARENT_AGENT,
@@ -183,7 +183,7 @@ def test_a_trajectory_under_a_label_the_parent_lacks_is_dropped_with_a_warning_a
     )
     main_monitor = MonitorMiddleware(
         monitor=KeywordMonitor(),
-        protocol=AcceptFirst(),
+        protocol=RUN_EVERY_STEP,
         when_subagent_halts=SubagentHalt.STOP_WHOLE_RUN,
     )
     agent = create_deep_agent(

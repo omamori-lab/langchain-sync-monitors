@@ -100,9 +100,10 @@ RESERVED_SOURCES = frozenset({MONITOR_FEEDBACK_SOURCE, UNCONFIRMED_INPUT_SOURCE}
 """The sources only the monitor writes: its feedback, and input it cannot confirm."""
 
 
-def merge_message_ids(  # lanorme: ignore[KWARG-001]
+def merge_message_ids(
     recorded: list[str],
     new: list[str],
+    /,
 ) -> list[str]:
     """Add newly recorded message ids to the recorded ones, keeping each id once, in order.
 
@@ -112,7 +113,7 @@ def merge_message_ids(  # lanorme: ignore[KWARG-001]
     return list(dict.fromkeys([*recorded, *new]))
 
 
-def keep_latest[ValueT](earlier: ValueT, latest: ValueT) -> ValueT:  # lanorme: ignore[KWARG-001]
+def keep_latest[ValueT](earlier: ValueT, latest: ValueT, /) -> ValueT:
     """Keep the latest of two values, such as a flag stacked monitors write in the same node."""
     del earlier
     return latest

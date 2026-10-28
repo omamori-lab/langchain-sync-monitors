@@ -48,9 +48,10 @@ RETURNS_ADAPTER = TypeAdapter(list[SubagentReturn])
 """Checks the entries read from the state, which only the monitor writes."""
 
 
-def merge_subagent_returns(  # lanorme: ignore[KWARG-001]
+def merge_subagent_returns(
     recorded: list[SubagentReturn],
     new: list[SubagentReturn],
+    /,
 ) -> list[SubagentReturn]:
     """Add the new entries, and remove every entry a step marks answered.
 

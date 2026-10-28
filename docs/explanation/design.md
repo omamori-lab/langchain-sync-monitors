@@ -876,7 +876,7 @@ the observations that reached it, each with its author [@hyoshigi2026]. The
 protocols do not read it yet; they decide from the model request.
 
 Each message enters the trajectory once, by its key: its id, or a hash of its
-type and content when it has none.
+type and content when it has none, with the call it answers for a tool result.
 
 - `before_agent` reads the run's input, as the run's own update leaves it,
   before a summariser can remove it.
@@ -1357,15 +1357,15 @@ limit is linked from where it arises above.
   in the model request first, without an id, then in the state under a new
   id [@langchain2026]. The trajectory reads that answer twice.
 - **Messages without an id.** An id-less message whose type and text match
-  one already read is not read in its step. It enters the trajectory once, in
-  the next run, under the id it is given. Where a message with an id and the
-  same text comes before the message the trajectory read, the id given to the
-  read message is not marked read, and the trajectory reads it again under that
-  id. A message that lacks an id when Deep Agents'
-  `PatchToolCallsMiddleware` writes the history back, at the start of a run
-  after one that stopped with a tool call unanswered, gets its id from
-  LangGraph there, not from the monitor, so the trajectory reads it again under
-  that id [@deepagents2026; @langgraph2026].
+  one already read, and for a tool result whose answered call matches too, is
+  not read in its step. It enters the trajectory once, in the next run, under
+  the id it is given. Where a message with an id and the same text comes
+  before the message the trajectory read, the id given to the read message is
+  not marked read, and the trajectory reads it again under that id. A message
+  that lacks an id when Deep Agents' `PatchToolCallsMiddleware` writes the
+  history back, at the start of a run after one that stopped with a tool call
+  unanswered, gets its id from LangGraph there, not from the monitor, so the
+  trajectory reads it again under that id [@deepagents2026; @langgraph2026].
 - **Ids in a history passed in.** Each action and each tool call needs an id
   of its own: a message whose action reuses an id already in the trajectory
   raises `MessageFormatError`. Anthropic's Messages API describes a tool use

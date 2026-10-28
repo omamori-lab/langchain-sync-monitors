@@ -329,7 +329,6 @@ def test_a_message_another_middleware_adds_to_the_request_enters_once_as_a_note(
     assert history == (TASK_OBSERVATION, REMINDER_NOTE, READ_ACTION, READ_RESULT, ANSWER_ACTION)
 
 
-@pytest.mark.xfail(strict=True)
 def test_tool_results_with_the_same_text_for_different_calls_each_enter_once(
     run_mode: RunMode,
 ) -> None:

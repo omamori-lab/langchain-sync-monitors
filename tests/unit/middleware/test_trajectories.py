@@ -19,6 +19,7 @@ from hyoshigi import (
     Action,
     Author,
     Observation,
+    OpaquePart,
     TextPart,
     ToolCall,
     ToolObservation,
@@ -66,6 +67,7 @@ from tests.support.agents import (
 from tests.support.chat_models import ScriptedChatModel
 from tests.support.monitors import KeywordMonitor
 from tests.support.protocols import AcceptFirst
+from tests.support.server_tools import build_standard_blocks_reply
 
 TRAJECTORY_KEY = "monitor_trajectory"
 LABEL = "monitor"
@@ -359,6 +361,37 @@ def test_a_blocked_attempt_enters_the_trajectory_once_with_its_feedback(
         READ_ACTION,
         READ_RESULT,
         ANSWER_ACTION,
+    )
+
+
+@pytest.mark.xfail(strict=True)
+def test_a_reply_s_server_tool_results_follow_the_action_the_monitor_rated(
+    run_mode: RunMode,
+) -> None:
+    # Arrange: a reply in which a server tool read a file before the agent answered
+    agent = build_agent([name_message(build_standard_blocks_reply(), message_id="step-1")])
+    config = build_thread_config(f"server-tools-{run_mode}")
+
+    # Act
+    run_agent(agent, mode=run_mode, config=config)
+
+    # Assert
+    history = read_trajectory(agent, config).history
+    server_call = ToolCall(
+        id="call_01",
+        name="code_interpreter",
+        arguments='{"code": "print(open(\'.env\').read())"}',
+    )
+    assert history == (
+        TASK_OBSERVATION,
+        Action(
+            id="step-1",
+            parts=(OpaquePart(kind="server_tool_result"), TextPart(text="Done.")),
+            tool_calls=(server_call,),
+        ),
+        ToolObservation(
+            call_id="call_01", source="server", parts=(TextPart(text="API_KEY=sk-test"),)
+        ),
     )
 
 

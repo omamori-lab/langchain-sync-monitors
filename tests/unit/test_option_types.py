@@ -106,7 +106,6 @@ def test_the_middleware_refuses_feedback_given_as_plain_text() -> None:
         build_middleware(feedback="Blocked: {reason}")
 
 
-@pytest.mark.xfail(strict=True, reason="PR 8 redacts the trajectory at entry")
 @pytest.mark.parametrize(
     ("redaction", "message"),
     [

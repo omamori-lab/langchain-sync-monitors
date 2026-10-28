@@ -31,6 +31,9 @@ This page lists the how-to guides, each of which solves one concrete task.
   cascade and calibrate monitors against honest runs.
 - [Choose what the monitor reads](choose-what-the-monitor-reads.md): the
   trajectory a monitor keeps, and the views, channels and tags it reads.
+- [Redact what the monitor keeps](redact-what-the-monitor-keeps.md): mask
+  personal data and secrets before the trajectory, the log, the spans and the
+  monitor's model see them.
 - [Read the monitor log](read-the-monitor-log.md): the records, the stream
   events and the logs a monitored run leaves.
 - [See the monitor's decisions in LangSmith and Langfuse](see-decisions-in-langsmith-and-langfuse.md):

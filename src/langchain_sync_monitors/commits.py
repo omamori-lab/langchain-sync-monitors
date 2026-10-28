@@ -33,7 +33,7 @@ from langchain_sync_monitors.contracts import SampleRecord, StepRecord
 from langchain_sync_monitors.feedback import build_halt_message
 from langchain_sync_monitors.halts import build_halt_inputs_update
 from langchain_sync_monitors.protocols import DEFAULT_HALT_MESSAGE
-from langchain_sync_monitors.records import build_sample_records
+from langchain_sync_monitors.records import build_sample_records, redact_failed_samples
 from langchain_sync_monitors.spans import StepIdentity, build_step_span_inputs
 from langchain_sync_monitors.steps import Step, StepResult, find_reply, find_reply_position
 from langchain_sync_monitors.subagent_returns import build_answered_update
@@ -54,6 +54,22 @@ def render_sample_suspicions(samples: Sequence[SampleRecord]) -> str:
     return ", ".join(f"{sample['suspicion']:.3f}" for sample in samples)
 
 
+def describe_failure(step: Step, *, error: BaseException) -> tuple[str, list[SampleRecord]]:
+    """Return the error as text, and the samples the failed step had rated.
+
+    The samples are those of the decisions recorded in the step and of the
+    protocol's latest answer. With the trajectory's redaction, the error and
+    each sample's reason pass through its text function, and the proposals are
+    left out, since the latest answer was not recorded.
+    """
+    samples = build_sample_records([*step.decisions, *step.outcomes[-1:]], executed_id=None)
+    description = f"{type(error).__name__}: {error}"
+    redaction = step.trajectory.trajectory.redaction
+    if redaction is None:
+        return description, samples
+    return redaction.text(description), redact_failed_samples(samples, redaction=redaction)
+
+
 @contextmanager
 def report_failed_step(
     step: Step,
@@ -72,8 +88,9 @@ def report_failed_step(
     gives the error's type and each sample's suspicion, and says the event
     holds the samples. It quotes no proposal, reason or error message,
     since any of them can hold the transcript. `identity` names the step as
-    its span does. LangGraph's own control flow, such as an interrupt, is
-    not a failed step, and passes through unreported.
+    its span does. A redaction on the trajectory redacts the event, as
+    `describe_failure` says. LangGraph's own control flow, such as an
+    interrupt, is not a failed step, and passes through unreported.
     """
     try:
         yield
@@ -81,14 +98,14 @@ def report_failed_step(
         raise
     except BaseException as error:
         step_number = identity.step_number
-        samples = build_sample_records([*step.decisions, *step.outcomes[-1:]], executed_id=None)
+        description, samples = describe_failure(step, error=error)
         traced_step.inputs_at_end = build_step_span_inputs(step_number=step_number, samples=samples)
         event = MonitorStepFailedEvent(
             type="monitor_step_failed",
             agent=identity.agent,
             monitor=identity.monitor,
             step_number=step_number,
-            error=f"{type(error).__name__}: {error}",
+            error=description,
             samples=samples,
         )
         if identity.delegation_id is not None:

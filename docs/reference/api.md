@@ -7,9 +7,9 @@ heading_numbers: false
 This reference is generated from the docstrings of the public package, every
 name `langchain_sync_monitors` exports, grouped by what it is for. The value
 types the monitors and protocols take, such as `View`, `MonitorPrompt`,
-`Resampling`, `FailureResponse` and `AuditResponse`, and `HardLabelWarning`,
-are hyoshigi's own objects, which the package re-exports under the same
-names, as in
+`Resampling`, `FailureResponse`, `AuditResponse` and `Redaction`, and
+`HardLabelWarning`, are hyoshigi's own objects, which the package re-exports
+under the same names, as in
 [hyoshigi's API reference](https://omamori-lab.github.io/hyoshigi/reference/api/).
 
 ## Middleware
@@ -43,6 +43,12 @@ names, as in
       members:
         - LANGSMITH
         - LANGFUSE
+
+::: langchain_sync_monitors.Redaction
+    options:
+      members:
+        - text
+        - media
 
 ## Protocols
 

@@ -1225,11 +1225,12 @@ limit is linked from where it arises above.
   message as the monitor first read it, so a redaction made after that, such
   as `PIIMiddleware`'s in its `before_model` hook, an `update_state` edit or a
   tool's write under the same id, reaches the agent and not the monitor. Every
-  checkpoint of `monitor_trajectory` stores the unredacted text, and the
-  monitor's model receives it unless the monitor's view redacts it with
+  checkpoint of `monitor_trajectory` stores the text as the monitor read it,
+  and the monitor's model receives it, unless the middleware's `redaction`
+  redacted each entry before the trajectory kept it
+  ([Redact what the monitor keeps](../how-to/redact-what-the-monitor-keeps.md)),
+  or the monitor's view redacts what its model reads with
   [hyoshigi's `View(redaction=...)`](https://omamori-lab.github.io/hyoshigi/how-to/redacting-what-leaves-the-process/#a-view-redacts-what-the-monitors-model-reads).
-  `MonitorMiddleware` offers no redaction of an entry before the trajectory
-  keeps it.
 - **Rewrites in the model request alone.** A middleware that rewrites a
   message in the request but not in the state is not followed: the monitor
   reads the state's message under that id.

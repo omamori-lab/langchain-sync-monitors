@@ -175,14 +175,18 @@ class GuardOptions(TypedDict):
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class GuardMonitor:
-    """A guard model that labels an action against a policy, scored by its sampled labels.
+    """A guard model that labels an action against a policy, scored by its labels.
 
     `model` is a chat model or a provider string. The other options are
     hyoshigi's `GuardMonitor`'s: `prompt` states the policy, `labels` names
     the guard's labels, and the score is the share of `samples` replies
     labelled suspicious. One sample warns `HardLabelWarning` once, at the
-    line that builds the monitor. Its calls carry the `lc_source`
-    `guard_model_monitor`.
+    line that builds the monitor. `top_log_probabilities` is the number of
+    alternatives to each token that the chat model is asked for, a whole
+    number of at least 0. Above 0 the monitor asks once, and hyoshigi's guard
+    scores the label from the alternatives [@hyoshigi2026choosing]. A chat
+    model that rejects the request raises `ConfigurationError` when it is
+    called. Its calls carry the `lc_source` `guard_model_monitor`.
     """
 
     model: str | BaseChatModel
@@ -196,7 +200,11 @@ class GuardMonitor:
 
     def __post_init__(self) -> None:
         """Build both twins on one chat model."""
-        adapter = ChatModelAdapter(self.model, source=GUARD_CALL_SOURCE)
+        adapter = ChatModelAdapter(
+            self.model,
+            source=GUARD_CALL_SOURCE,
+            top_log_probabilities=self.top_log_probabilities,
+        )
         object.__setattr__(self, "chat_model", adapter.chat_model)
         options = GuardOptions(
             prompt=self.prompt,
@@ -460,9 +468,9 @@ def repeats_prompts_to_cached_model(monitor: MonitorConfiguration) -> bool:
     """Tell whether the monitor asks a cached chat model the same prompt more than once.
 
     An LLM monitor with parse retries asks again after an unreadable reply,
-    a guard of more than one sample asks for each, and a repeated monitor of
-    more than one call rates the same action again with a monitor that calls
-    a cached model. Wrappers are read through. A user's own twins and a
+    a guard that samples more than once asks for each, and a repeated monitor
+    of more than one call rates the same action again with a monitor that
+    calls a cached model. Wrappers are read through. A user's own twins and a
     decision monitor call no LangChain model the library can see.
     """
     match monitor:
@@ -486,8 +494,8 @@ def repeats_own_prompt(monitor: LLMMonitor | GuardMonitor) -> bool:
         case LLMMonitor():
             repeats = monitor.max_parse_retries > 0
         case GuardMonitor():
-            # Every sample of the guard asks its model the same prompt.
-            repeats = monitor.samples > 1
+            # A guard asks once to score log-probabilities, else once per sample.
+            repeats = monitor.top_log_probabilities == 0 and monitor.samples > 1
         case unreachable:
             assert_never(unreachable)
     return repeats and is_response_cache_active(monitor.chat_model)

@@ -17,11 +17,12 @@ class MonitorError(Exception):
 class ConfigurationError(MonitorError, hyoshigi.ConfigurationError):
     """A monitor, protocol or middleware was built with settings that cannot work.
 
-    Most are raised when the object is built. One setting can only be checked
+    Most are raised when the object is built. Two settings can only be checked
     during a run, so the same error is raised then: a `monitor_delegation` in
-    an agent's input that is not a valid `Delegation`. It is also hyoshigi's
-    `ConfigurationError`, and so a `ValueError`, so code that catches any of
-    the three sees it.
+    an agent's input that is not a valid `Delegation`, and a
+    `top_log_probabilities` above 0 for a chat model that rejects the request
+    for log-probabilities. It is also hyoshigi's `ConfigurationError`, and so a
+    `ValueError`, so code that catches any of the three sees it.
     """
 
 

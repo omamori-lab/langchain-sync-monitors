@@ -49,13 +49,14 @@ change raises the minor version.
   and `{proposed_step}`, and may hold `{lowest_score}` and `{highest_score}`;
   text that `partial` filled in goes into the template's string.
 - **Breaking:** `GuardModelMonitor` is now
-  `GuardMonitor(model=..., prompt=MonitorPrompt(...), labels=GuardLabels(suspicious=..., safe=...), samples=5, view=View())`,
-  and it always samples: suspicion is the share of its sampled replies
-  labelled suspicious. A sample with no readable label, an ambiguous one, a
-  reply cut off, a refusal or a rejection fails the whole rating closed at
-  1.0, where an unreadable reply counted as one suspicious label; a sample
-  the model left unanswered is set aside while more than half answered. One
-  sample warns `HardLabelWarning` once, at the line that builds the monitor.
+  `GuardMonitor(model=..., prompt=MonitorPrompt(...), labels=GuardLabels(suspicious=..., safe=...), samples=5, top_log_probabilities=0, view=View())`,
+  and it samples unless `top_log_probabilities` is above 0: suspicion is the
+  share of its sampled replies labelled suspicious. A sample with no readable
+  label, an ambiguous one, a reply cut off, a refusal or a rejection fails the
+  whole rating closed at 1.0, where an unreadable reply counted as one
+  suspicious label; a sample the model left unanswered is set aside while
+  more than half answered. One sample warns `HardLabelWarning` once, at the
+  line that builds the monitor.
 - **Breaking:** `DecisionModelMonitor` is now
   `DecisionMonitor(model="openrouter:<model id>" | "typesafe:<model id>", view=..., statements=(DEFAULT_STATEMENT,), aggregation=Aggregation.MAX, perceives=MediaTypes())`.
   It asks statements that hold or not, each in a request of its own, in place
@@ -124,8 +125,8 @@ change raises the minor version.
 - `MonitorMiddleware` warns `CachedResampleWarning` once per process, when it
   is built, for a monitor that asks a cached chat model the same prompt more
   than once: an `LLMMonitor` with `max_parse_retries` above 0, a
-  `GuardMonitor` of more than one sample, or a `RepeatedMonitor` of more than
-  one call over a cached model, wrappers read through. It no longer warns
+  `GuardMonitor` that samples more than once, or a `RepeatedMonitor` of more
+  than one call over a cached model, wrappers read through. It no longer warns
   during the run for the monitor's model.
 - **Breaking:** `ConfigurationError` is also hyoshigi's
   `ConfigurationError`, and so a `ValueError`. An option hyoshigi refuses while a monitor is built raises
@@ -181,6 +182,26 @@ change raises the minor version.
   never enters it. The monitors rate every sample against it; the protocols
   read their verdicts.
 - `MessageFormatError` is exported.
+- `GuardMonitor(top_log_probabilities=...)`, the number of alternatives to
+  each token that the guard's chat model is asked for, 0 by default. Above 0
+  the monitor asks once, and hyoshigi's guard scores the label from the
+  alternatives; `samples` is not used. A reply with no log-probabilities, or
+  with some it cannot read, fails the rating closed at 1.0. A number that is
+  not a whole number of at least 0 raises `ConfigurationError` when the
+  monitor is built.
+- For a `ChatOpenRouter` and a `top_log_probabilities` above 0, the request's
+  `provider` preferences gain `require_parameters: true`, so that OpenRouter
+  routes the request only to providers that support every parameter in it.
+  The preferences are `openrouter_provider` when set, else the `provider`
+  among `model_kwargs`; their other keys stay, and a `require_parameters` you
+  set wins, even `False`.
+- A chat model whose class refuses the `logprobs` keyword raises
+  `ConfigurationError` when a guard with a `top_log_probabilities` above 0
+  rates a step, naming the model and advising `top_log_probabilities=0`.
+- OpenRouter answers with HTTP 404 when no provider of the model supports
+  the request for log-probabilities, and the error is raised as it is. Set
+  `top_log_probabilities` only for a model whose every provider returns
+  them.
 - `MonitorTwins(monitor=..., async_monitor=...)`, a monitor of your own
   written as hyoshigi's sync and async twins, which the middleware and the
   wrappers take as they take the library's monitors.
@@ -197,7 +218,6 @@ change raises the minor version.
   `async_http_client`, `TypeSafeDecisionModel`, `YesNoQuestion`,
   `IS_THE_STEP_SUSPICIOUS` and `DEFAULT_MONITOR_PROMPT`, whose places the
   changes above give.
-- Scoring a guard from log-probabilities.
 - The module `langchain_sync_monitors.transcript`, with
   `render_transcript` and `render_proposed_step`.
 - The private state keys `monitor_run_inputs` and `monitor_rewritten_inputs`.

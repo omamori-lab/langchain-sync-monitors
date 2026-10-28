@@ -1144,7 +1144,7 @@ to catch both.
 | `RetriedCallError` | Handed to stamina's retry hooks, logged and counted in place of an error the library retries, naming its type and HTTP status alone ([Turn on log messages](../how-to/read-the-monitor-log.md#turn-on-log-messages)); never raised to the caller, who gets the error itself after the last attempt. |
 | `InvalidSuspicionError` | A `Verdict` is built with a suspicion that is NaN or outside 0 to 1. |
 | `UncalibratedThresholdWarning` | A protocol is built with a default threshold. |
-| `CachedResampleWarning` | A step is resampled under a response cache, or a middleware is built with a monitor that asks a cached chat model the same prompt more than once: an `LLMMonitor` with parse retries, a `GuardMonitor` of more than one sample, or a `RepeatedMonitor` of more than one call; once per process for each. |
+| `CachedResampleWarning` | A step is resampled under a response cache, or a middleware is built with a monitor that asks a cached chat model the same prompt more than once: an `LLMMonitor` with parse retries, a `GuardMonitor` that samples more than once, or a `RepeatedMonitor` of more than one call; once per process for each. |
 | `ServerToolWarning` | A model call receives a server tool; once per middleware instance. |
 | `MonitorPlacementWarning` | `check_monitor_placement` finds a middleware placed where it undermines the monitor, a stacked monitor that loses or misjudges records included, or `monitor_subagents` builds such a stack in a subagent. |
 | `HardLabelWarning` | hyoshigi's: a `GuardMonitor` is built with one sample, once, at the line that builds it. |

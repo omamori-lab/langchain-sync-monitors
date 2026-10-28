@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1000" height="822" viewBox="0 0 1000 822" role="img" aria-labelledby="title desc">
   <title id="title">Three kinds of monitor model, one scale</title>
-  <desc id="desc">Three monitor classes cover three kinds of model, each drawn as the charm. LLMMonitor asks a chat model to reason and then score the step, from 0 to 10 by default. GuardModelMonitor has a guard model label the step against a policy you write, and suspicion is the probability of the unsafe label. DecisionModelMonitor asks a decision model yes or no questions, and suspicion is the probability of yes. Each returns the same Verdict, a suspicion from 0 to 1 and a reason, so any monitor works with any control protocol. Three wrappers nest around any monitor: RepeatedMonitor averages several calls, CalibratedMonitor reports the score&#x27;s smoothed conformal p-value against the scores of honest runs, and CascadeMonitor runs a fast monitor on every step and, when the fast one finds the step suspicious, a careful one whose verdict replaces the fast one&#x27;s.</desc>
+  <desc id="desc">Three monitor classes cover three kinds of model, each drawn as the charm. LLMMonitor asks a chat model to reason and then score the step, from 0 to 10 by default. GuardMonitor has a guard model label the step against a policy you write, several times, and suspicion is the share of its replies labelled suspicious. DecisionMonitor asks a decision model whether statements about the step hold, and suspicion is the highest of their probabilities by default. Each builds hyoshigi&#x27;s sync and async monitors and gives the same verdict, a suspicion from 0 to 1 and a reason, so any monitor works with any control protocol. Three wrappers nest around any monitor: RepeatedMonitor averages several calls, CalibratedMonitor reports the score&#x27;s smoothed conformal p-value against the scores of honest runs, and CascadeMonitor runs a fast monitor on every step and, when the fast one finds the step suspicious, a careful one whose verdict replaces the fast one&#x27;s.</desc>
   <!-- Colours come from the brand tokens: diagrams/render.py fills this style block. -->
   <style>
     svg { color-scheme: light; }
@@ -25,6 +25,8 @@
     .frame { fill: none; stroke: #9A9A94; stroke-width: 1.2; stroke-dasharray: 6 4; }
     .edge { fill: none; stroke: #2B2B2B; stroke-width: 1.5; }
     .loop { fill: none; stroke: #2B2B2B; stroke-width: 1.5; stroke-dasharray: 5 4; }
+    .bold { stroke-width: 2.75; }
+    .lifeline { fill: none; stroke: #5B5B57; stroke-width: 1.2; stroke-dasharray: 6 4; }
     .head { fill: #2B2B2B; }
     .brush { fill: #111111; }
   </style>
@@ -41,16 +43,16 @@
   <path class="charm" d="M48.0,259.0 H346.0 L362.0,275.0 V376.0 Q362.0,382.0 356.0,382.0 H38.0 Q32.0,382.0 32.0,376.0 V275.0 Z"/>
   <rect class="seal" x="41.0" y="364.0" width="9" height="9" rx="1"/>
   <text x="197.0" y="290.0" text-anchor="middle" class="title on-charm">Guard model</text>
-  <text x="197.0" y="312.0" text-anchor="middle" class="mono on-charm">GuardModelMonitor</text>
+  <text x="197.0" y="312.0" text-anchor="middle" class="mono on-charm">GuardMonitor</text>
   <text x="197.0" y="333.0" text-anchor="middle" class="small on-charm">labels the step against your policy;</text>
-  <text x="197.0" y="354.0" text-anchor="middle" class="small on-charm">suspicion: the probability it is unsafe</text>
+  <text x="197.0" y="354.0" text-anchor="middle" class="small on-charm">samples at 0, or scores alternatives</text>
   <path class="charm-cord" d="M191.0,423.0 C187.0,406.0 207.0,406.0 203.0,423.0"/>
   <path class="charm" d="M48.0,422.0 H346.0 L362.0,438.0 V539.0 Q362.0,545.0 356.0,545.0 H38.0 Q32.0,545.0 32.0,539.0 V438.0 Z"/>
   <rect class="seal" x="41.0" y="527.0" width="9" height="9" rx="1"/>
   <text x="197.0" y="453.0" text-anchor="middle" class="title on-charm">Decision model</text>
-  <text x="197.0" y="475.0" text-anchor="middle" class="mono on-charm">DecisionModelMonitor</text>
-  <text x="197.0" y="496.0" text-anchor="middle" class="small on-charm">answers yes or no questions;</text>
-  <text x="197.0" y="517.0" text-anchor="middle" class="small on-charm">suspicion: the probability of yes</text>
+  <text x="197.0" y="475.0" text-anchor="middle" class="mono on-charm">DecisionMonitor</text>
+  <text x="197.0" y="496.0" text-anchor="middle" class="small on-charm">whether statements about the step hold;</text>
+  <text x="197.0" y="517.0" text-anchor="middle" class="small on-charm">the highest of their probabilities</text>
   <rect class="box" x="460.0" y="269.5" width="210.0" height="102.0" rx="6"/>
   <text x="565.0" y="300.5" text-anchor="middle" class="title">Verdict</text>
   <text x="565.0" y="322.5" text-anchor="middle" class="small">suspicion from 0 to 1,</text>

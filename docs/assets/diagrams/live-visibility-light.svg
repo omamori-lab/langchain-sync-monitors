@@ -25,6 +25,8 @@
     .frame { fill: none; stroke: #9A9A94; stroke-width: 1.2; stroke-dasharray: 6 4; }
     .edge { fill: none; stroke: #2B2B2B; stroke-width: 1.5; }
     .loop { fill: none; stroke: #2B2B2B; stroke-width: 1.5; stroke-dasharray: 5 4; }
+    .bold { stroke-width: 2.75; }
+    .lifeline { fill: none; stroke: #5B5B57; stroke-width: 1.2; stroke-dasharray: 6 4; }
     .head { fill: #2B2B2B; }
     .brush { fill: #111111; }
   </style>
@@ -44,7 +46,7 @@
   <rect class="seal" x="767.7" y="200.0" width="9" height="9" rx="1"/>
   <text x="863.3" y="147.0" text-anchor="middle" class="title on-charm">Monitor</text>
   <text x="863.3" y="169.0" text-anchor="middle" class="small on-charm">its default view,</text>
-  <text x="863.3" y="190.0" text-anchor="middle"><tspan class="mono on-charm">Channel.ACTIONS</tspan></text>
+  <text x="863.3" y="190.0" text-anchor="middle"><tspan class="mono on-charm">Channel.DEFAULT</tspan></text>
   <text x="32.0" y="268.0" text-anchor="start" class="body">The side task&#x27;s text</text>
   <rect class="box" x="292.0" y="246.0" width="209.3" height="34.0" rx="6"/>
   <text x="396.7" y="268.0" text-anchor="middle" class="body">attack run only</text>

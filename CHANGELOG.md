@@ -309,14 +309,16 @@ change raises the minor version.
   judgement span's reason, and the reasons and error of a `monitor_step_failed`
   event, pass through the text function, since they are built before a record
   exists, and that event leaves the proposals out. The function must return its
-  own output unchanged: a subagent's trajectory is redacted again when it
-  joins its parent's. A subagent whose own monitor has no `redaction` joins
-  its parent's `monitor_trajectory` with the original text. The redaction
-  does not reach `messages`, LangChain's
-  own traces of model calls (LangChain's `PIIMiddleware`, LangSmith's
-  `anonymizer` and Langfuse's `mask` cover those), or the text a thread
-  stored before the redaction was set; a view-only redaction stays
-  `View(redaction=...)`. Any other value raises `ConfigurationError`.
+  own output unchanged: a subagent's trajectory is redacted again where it
+  joins the run. The parent redacts what a subagent returns before the run
+  joins it, whatever the subagent's own monitor kept, and
+  `monitor_subagents` raises `ConfigurationError` for an entry of `overrides`
+  whose redaction differs from `middleware`'s. The redaction does not reach
+  `messages`, a subagent's own checkpoint, LangChain's own traces of model
+  calls (LangChain's `PIIMiddleware`, LangSmith's `anonymizer` and Langfuse's
+  `mask` cover those), or the text a thread stored before the redaction was
+  set; a view-only redaction stays `View(redaction=...)`. Any other value
+  raises `ConfigurationError`.
 - `MonitorTwins(monitor=..., async_monitor=...)`, a monitor of your own
   written as hyoshigi's sync and async twins, which the middleware and the
   wrappers take as they take the library's monitors.

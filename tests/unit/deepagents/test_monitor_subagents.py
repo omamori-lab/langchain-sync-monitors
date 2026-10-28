@@ -17,7 +17,7 @@ from tests.support.chat_models import ScriptedChatModel
 from tests.support.deep_agents import read_monitor
 from tests.support.monitors import KeywordMonitor
 from tests.support.protocols import HALT_EVERY_STEP, RUN_EVERY_STEP
-from tests.support.redaction import COUNT_PASSES, MASK_SECRET
+from tests.support.redaction import COUNT_PASSES, MASK_SECRET, keep_media, mask_secret
 
 
 @pytest.fixture
@@ -201,7 +201,6 @@ def test_an_override_with_another_label_is_rejected(
         )
 
 
-@pytest.mark.xfail(strict=True, reason="the parent redacts what joins its run")
 @pytest.mark.parametrize(
     ("main_redaction", "override_redaction"),
     [(MASK_SECRET, None), (None, MASK_SECRET), (MASK_SECRET, COUNT_PASSES)],
@@ -241,10 +240,11 @@ def test_an_override_with_the_middleware_s_redaction_is_accepted(researcher: Sub
         protocol=RUN_EVERY_STEP,
         redaction=MASK_SECRET,
     )
+    # Built apart from the middleware's, and equal to it
     override = MonitorMiddleware(
         monitor=KeywordMonitor(),
         protocol=HALT_EVERY_STEP,
-        redaction=MASK_SECRET,
+        redaction=Redaction(text=mask_secret, media=keep_media),
     )
 
     # Act
@@ -253,7 +253,7 @@ def test_an_override_with_the_middleware_s_redaction_is_accepted(researcher: Sub
     )
 
     # Assert
-    assert read_monitor(specs[0]).redaction is MASK_SECRET
+    assert read_monitor(specs[0]).redaction == MASK_SECRET
 
 
 def test_existing_middleware_is_kept_and_the_given_specs_are_not_changed(

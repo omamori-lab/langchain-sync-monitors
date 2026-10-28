@@ -34,7 +34,10 @@ checked as follows:
 A write to `monitor_trajectory` is kept, for `trajectory_channel` to join
 under the call, only as a mapping of one or more monitor labels to the
 trajectory states of a subagent the call itself started, each once, with no
-lost write, and whose trajectory loads. Anything else, an `Overwrite`, a delta
+lost write, and whose trajectory loads. With a redaction, the calling agent's,
+the trajectory is loaded through it as raw content before it is kept, so the
+trajectory the run joins holds redacted content whatever the subagent's own
+monitor kept [@hyoshigi2026]. Anything else, an `Overwrite`, a delta
 or an empty mapping included, is dropped with a warning and counts as a
 halted subagent, since the subagent's steps would otherwise be missing from
 the run. A state under a label the calling agent has no trajectory for, as a
@@ -55,7 +58,7 @@ from dataclasses import dataclass, field
 from typing import cast
 from uuid import uuid4
 
-from hyoshigi import FormatError, Trajectory
+from hyoshigi import FormatError, Redaction, Trajectory
 from langchain_core.messages import ToolCall
 from langgraph.errors import ParentCommand
 from langgraph.types import Command
@@ -95,7 +98,8 @@ class ToolCaller:
 
     `agent` is the agent's name and `delegation_id` its own delegation,
     `state` the agent's state the call ran in, `log` its `monitor_log` as it
-    held it, and `tool_call` the call itself.
+    held it, `tool_call` the call itself, and `redaction` the redaction of
+    the agent's monitor, if any.
     """
 
     agent: str
@@ -103,6 +107,7 @@ class ToolCaller:
     state: object
     log: Sequence[object]
     tool_call: ToolCall
+    redaction: Redaction | None
 
     def describe_subagent(self) -> str:
         """Name the subagent the call started: by Deep Agents' `subagent_type`, else by the call.
@@ -183,7 +188,13 @@ class ReturnedRecords:
         )
 
 
-def read_tool_caller(state: object, *, agent: str, tool_call: ToolCall) -> ToolCaller:
+def read_tool_caller(
+    state: object,
+    *,
+    agent: str,
+    tool_call: ToolCall,
+    redaction: Redaction | None,
+) -> ToolCaller:
     """Return the calling agent as the state its tool call ran in describes it."""
     delegation = read_delegation(state)
     log = state.get(MONITOR_LOG_KEY) if isinstance(state, Mapping) else None
@@ -193,6 +204,7 @@ def read_tool_caller(state: object, *, agent: str, tool_call: ToolCall) -> ToolC
         state=state,
         log=log if isinstance(log, list) else [],
         tool_call=tool_call,
+        redaction=redaction,
     )
 
 
@@ -330,7 +342,11 @@ def check_written_trajectory(
     problem = find_trajectory_problem(label, value=value, caller=caller, returned=returned)
     if problem is None:
         # With no problem found, the label is text and the value a trajectory state.
-        returned.trajectories[cast("str", label)] = cast("TrajectoryState", value)
+        state = cast("TrajectoryState", value)
+        returned.trajectories[cast("str", label)] = redact_returned_state(
+            state,
+            redaction=caller.redaction,
+        )
     else:
         drop_trajectory(caller=caller, returned=returned, problem=problem)
 
@@ -362,6 +378,20 @@ def find_state_problem(state: TrajectoryState, *, label: str) -> str | None:
     except FormatError:
         return f"a trajectory for the monitor {label!r} that does not load"
     return None
+
+
+def redact_returned_state(
+    state: TrajectoryState,
+    *,
+    redaction: Redaction | None,
+) -> TrajectoryState:
+    """Return a subagent's state with its trajectory loaded as raw content through the redaction.
+
+    Without a redaction the state is returned as it is.
+    """
+    if redaction is None:
+        return state
+    return {**state, "trajectory": Trajectory.load(state["trajectory"], redaction=redaction).dump()}
 
 
 def drop_trajectory(*, caller: ToolCaller, returned: ReturnedRecords, problem: str) -> None:

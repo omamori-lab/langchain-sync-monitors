@@ -11,13 +11,23 @@ from __future__ import annotations
 import os
 import signal
 import threading
+from collections import OrderedDict
 from collections.abc import Callable, Sequence
 from typing import NoReturn
 
 import pytest
 
+from langchain_sync_monitors import score_export
 from langchain_sync_monitors.request_pool import PROCESS_POOL
-from langchain_sync_monitors.score_export import PROCESS_NOTICES
+from langchain_sync_monitors.score_export import PROCESS_NOTICES, read_project_id
+from tests.support.score_backends import (
+    PROJECT_ID,
+    PROJECT_NAME,
+    LangSmithServer,
+    build_langsmith_tracer,
+)
+from tests.support.score_backends import langsmith as langsmith
+from tests.support.score_backends import langsmith_server as langsmith_server
 
 pytestmark = [
     pytest.mark.skipif(not hasattr(os, "fork"), reason="needs os.fork"),
@@ -103,4 +113,39 @@ def test_a_forked_child_runs_calls_on_a_pool_of_its_own_though_the_parents_locks
         holder.join(timeout=5.0)
 
     # Assert: exit 10 means the child's pool did not run the call in time, 11 the notices' lock
+    assert ending == "exit 0"
+
+
+@pytest.mark.xfail(strict=True, reason="PR 7 review: the project ids' lock is not reset")
+def test_a_forked_child_reads_a_remembered_project_id_though_the_parents_lock_was_held(
+    langsmith: LangSmithServer,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Arrange: the parent has looked the project up, and another thread holds the lock of the
+    # remembered ids at the fork
+    monkeypatch.setattr(score_export, "LANGSMITH_PROJECT_IDS", OrderedDict())
+    client = build_langsmith_tracer(langsmith).client
+    read_project_id(client, project_name=PROJECT_NAME)
+    held, release = threading.Event(), threading.Event()
+
+    def hold_the_lock() -> None:
+        with score_export.LANGSMITH_PROJECT_IDS_LOCK:
+            held.set()
+            release.wait(timeout=CHILD_ALARM_SECONDS)
+
+    holder = threading.Thread(target=hold_the_lock, daemon=True)
+    holder.start()
+    assert held.wait(timeout=5.0)
+
+    def is_project_id_read() -> bool:
+        return read_project_id(client, project_name=PROJECT_NAME) == PROJECT_ID
+
+    # Act
+    try:
+        ending = fork_and_check([is_project_id_read])
+    finally:
+        release.set()
+        holder.join(timeout=5.0)
+
+    # Assert: exit 10 means the child waited for a lock no thread of its own holds
     assert ending == "exit 0"

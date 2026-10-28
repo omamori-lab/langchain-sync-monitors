@@ -142,9 +142,6 @@ def test_a_draw_without_an_ai_message_fails_the_step(run_mode: RunMode) -> None:
         run_agent(agent, mode=run_mode)
 
 
-@pytest.mark.xfail(
-    strict=True, reason="PR 5 gives a call that repeats an earlier call's id one of its own"
-)
 @pytest.mark.parametrize(
     ("responses", "keeps_first_id"),
     [

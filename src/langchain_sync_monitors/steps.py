@@ -15,17 +15,21 @@ message of the model call's response, so the trailing tool message of
 tool-strategy structured output, and the blocked attempts a monitor inside
 this one commits ahead of its step, are left aside. A reply whose id, or a
 call's id, the run already holds, as a cached or scripted model's, or a retry
-after a block, can give, is read under fresh `uuid4` ids, set wherever the
-reply carries the old one and in the tool messages of its response that
-answer the call. The trajectory refuses an id it holds, and LangGraph merges
-messages that share one.
+after a block, can give, is read under fresh `uuid4` ids, and so is each call
+after the first with an id another call of the reply has. The new ids are set
+by position wherever the reply carries the old one, and in the tool messages
+of its response, which keep answering the call they answered first. The
+trajectory refuses an id it holds, and LangGraph merges messages that share
+one.
 """
 
 from __future__ import annotations
 
 import functools
 import warnings
-from collections.abc import Generator, Mapping
+from collections import Counter
+from collections.abc import Generator, Sequence
+from collections.abc import Set as AbstractSet
 from dataclasses import dataclass, field, replace
 from typing import NamedTuple, assert_never, cast
 from uuid import uuid4
@@ -66,6 +70,9 @@ from langchain_sync_monitors.trajectory_events import read_proposed_action
 
 CALL_ID_KEYS = frozenset({"id", "call_id", "tool_call_id", "tool_use_id"})
 """The keys under which a content block carries a call's id, in the formats LangChain reads."""
+
+type Renamed = dict[str, tuple[str, ...]]
+"""Each id a reply carries that is renamed, with the id each of its occurrences takes, in order."""
 
 type ProtocolOutcome = ProtocolDecision | ProtocolRequest
 """What a protocol returns: a decision, or a request for more proposals."""
@@ -246,13 +253,14 @@ def read_draw(response: AgentModelResponse, *, step: Step) -> Action:
     return action
 
 
-def find_repeated_ids(reply: AIMessage, *, step: Step) -> dict[str, str]:
-    """Map each id of the reply that the run already holds to a fresh `uuid4`.
+def find_repeated_ids(reply: AIMessage, *, step: Step) -> Renamed:
+    """Map each id of the reply that the run holds, or the reply repeats, to the ids it takes.
 
-    The reply's id is taken when the monitor's trajectory read or wrote a
-    message under it, or holds an action or a draw of this step with it; a
-    call's id, when an action of the trajectory or a draw of this step made
-    a call with it.
+    The reply's id takes a fresh `uuid4` when the monitor's trajectory read or
+    wrote a message under it, or holds an action or a draw of this step with
+    it. A call's first occurrence keeps its id unless an action of the
+    trajectory or a draw of this step made a call with it, and then takes a
+    fresh one; each later occurrence in the reply takes a fresh one.
     """
     actions = [
         *(event for event in step.trajectory.trajectory.history if isinstance(event, Action)),
@@ -261,23 +269,57 @@ def find_repeated_ids(reply: AIMessage, *, step: Step) -> dict[str, str]:
     taken_ids = step.trajectory.seen | {action.id for action in actions}
     taken_call_ids = {call.id for action in actions for call in action.tool_calls}
     proposed = read_proposed_action(reply)
-    renamed = {proposed.id: str(uuid4())} if proposed.id in taken_ids else {}
-    return renamed | {
-        call.id: str(uuid4()) for call in proposed.tool_calls if call.id in taken_call_ids
-    }
+    renamed: Renamed = {proposed.id: (str(uuid4()),)} if proposed.id in taken_ids else {}
+    call_ids = [call.id for call in proposed.tool_calls]
+    return renamed | plan_call_ids(call_ids, taken=taken_call_ids)
 
 
-def rename_id(value: str | None, *, renamed: Mapping[str, str]) -> str | None:
-    """Return the fresh id of a renamed id, any other id as it is, and None for none."""
-    return None if value is None else renamed.get(value, value)
+def plan_call_ids(call_ids: Sequence[str], *, taken: AbstractSet[str]) -> Renamed:
+    """Map each call id that is taken or repeated to the ids its occurrences take, in order.
+
+    The first occurrence keeps its id unless it is taken; each later one takes a fresh `uuid4`.
+    """
+    renamed: Renamed = {}
+    for call_id, count in Counter(call_ids).items():
+        first = str(uuid4()) if call_id in taken else call_id
+        occurrences = (first, *(str(uuid4()) for _ in range(count - 1)))
+        if occurrences != (call_id,):
+            renamed[call_id] = occurrences
+    return renamed
 
 
-def rename_message_ids(message: BaseMessage, *, renamed: Mapping[str, str]) -> BaseMessage:
-    """Return a reply, or a tool message, with each renamed id it carries replaced."""
+@dataclass(slots=True)
+class Renaming:
+    """Hands out a message's new ids: the next occurrence of an id in one place takes the next."""
+
+    renamed: Renamed
+    taken: Counter[tuple[str, str]] = field(default_factory=Counter)
+
+    def take(self, value: str | None, *, place: str) -> str | None:
+        """Return the id the next occurrence of `value` in `place` takes, or `value` itself.
+
+        Occurrences past the reply's count take its last id, and None stays None.
+        """
+        if value is None or value not in self.renamed:
+            return value
+        occurrences = self.renamed[value]
+        index = min(self.taken[place, value], len(occurrences) - 1)
+        self.taken[place, value] += 1
+        return occurrences[index]
+
+
+def rename_message_ids(message: BaseMessage, *, renamed: Renamed) -> BaseMessage:
+    """Return a reply, or a tool message, with each renamed id it carries replaced.
+
+    A reply's calls and malformed calls are renamed in order, and its content
+    blocks by the order of each key that carries a call's id. A tool message
+    answers the first occurrence of its call's id.
+    """
     if not renamed:
         return message
+    renaming = Renaming(renamed=renamed)
     if isinstance(message, ToolMessage):
-        call_id = rename_id(message.tool_call_id, renamed=renamed)
+        call_id = renaming.take(message.tool_call_id, place="answer")
         return message.model_copy(update={"tool_call_id": call_id})
     if not isinstance(message, AIMessage):
         return message
@@ -285,25 +327,23 @@ def rename_message_ids(message: BaseMessage, *, renamed: Mapping[str, str]) -> B
     blocks = (
         content
         if isinstance(content, str)
-        else [rename_block_ids(block, renamed=renamed) for block in content]
+        else [rename_block_ids(block, renaming=renaming) for block in content]
     )
+    calls = [
+        {**call, "id": renaming.take(call["id"], place="call")}
+        for call in (*message.tool_calls, *message.invalid_tool_calls)
+    ]
     return message.model_copy(
         update={
-            "id": rename_id(message.id, renamed=renamed),
+            "id": renaming.take(message.id, place="message"),
             "content": blocks,
-            "tool_calls": [
-                {**call, "id": rename_id(call["id"], renamed=renamed)}
-                for call in message.tool_calls
-            ],
-            "invalid_tool_calls": [
-                {**call, "id": rename_id(call["id"], renamed=renamed)}
-                for call in message.invalid_tool_calls
-            ],
+            "tool_calls": calls[: len(message.tool_calls)],
+            "invalid_tool_calls": calls[len(message.tool_calls) :],
         },
     )
 
 
-def rename_block_ids(block: str | dict[str, object], *, renamed: Mapping[str, str]) -> object:
+def rename_block_ids(block: str | dict[str, object], *, renaming: Renaming) -> object:
     """Return a content block with each renamed call id it carries replaced.
 
     The id sits under one of `CALL_ID_KEYS`, at the top of the block, or in
@@ -312,14 +352,14 @@ def rename_block_ids(block: str | dict[str, object], *, renamed: Mapping[str, st
     if not isinstance(block, dict):
         return block
     renamed_block = {
-        key: rename_id(value, renamed=renamed)
+        key: renaming.take(value, place=key)
         if key in CALL_ID_KEYS and isinstance(value, str)
         else value
         for key, value in block.items()
     }
     payload = block.get("value")
     if isinstance(payload, dict):
-        renamed_block["value"] = rename_block_ids(payload, renamed=renamed)
+        renamed_block["value"] = rename_block_ids(payload, renaming=renaming)
     return renamed_block
 
 

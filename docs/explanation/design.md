@@ -897,7 +897,9 @@ type and content when it has none.
   read in that trajectory, in the update that gives it. The end of a run does
   this for every monitor that read the message. The start of a run does it
   after a run that stopped early, since only then can a message read under its
-  hash still lack an id. The message is not read again under its new id.
+  hash still lack an id. The message is not read again under its new id. Only
+  the first message in the history with that type and text is marked, since the
+  trajectory read one message under the hash.
 
 The key is a LangGraph `DeltaChannel`: each hook writes a delta, the entries
 beyond the lengths it loaded, a checkpoint stores the deltas, and LangGraph
@@ -1355,8 +1357,11 @@ limit is linked from where it arises above.
   in the model request first, without an id, then in the state under a new
   id [@langchain2026]. The trajectory reads that answer twice.
 - **Messages without an id.** An id-less message whose type and text match
-  one already read enters the trajectory once, so its text is kept and its
-  repetition is not. A message that lacks an id when Deep Agents'
+  one already read is not read in its step. It enters the trajectory once, in
+  the next run, under the id it is given. Where a message with an id and the
+  same text comes before the message the trajectory read, the id given to the
+  read message is not marked read, and the trajectory reads it again under that
+  id. A message that lacks an id when Deep Agents'
   `PatchToolCallsMiddleware` writes the history back, at the start of a run
   after one that stopped with a tool call unanswered, gets its id from
   LangGraph there, not from the monitor, so the trajectory reads it again under

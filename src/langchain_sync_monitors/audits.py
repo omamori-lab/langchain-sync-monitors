@@ -57,6 +57,7 @@ from langchain_sync_monitors._langchain import (
     write_stream_event,
 )
 from langchain_sync_monitors.contracts import SampleRecord, StepRecord
+from langchain_sync_monitors.errors import MonitorError
 from langchain_sync_monitors.feedback import build_feedback_messages, build_halt_message
 from langchain_sync_monitors.given_ids import build_run_start_trajectories_update
 from langchain_sync_monitors.halts import build_halt_inputs_update
@@ -229,8 +230,11 @@ def find_held_step(
     *,
     middleware: MonitorMiddleware,
 ) -> HeldStep | None:
-    """Return this monitor's held step, or None when its last record is no audit or its reply is
-    gone.
+    """Return this monitor's held step, or None when its last record is no audit.
+
+    An audit whose held reply is gone from the messages, as `update_state`
+    can remove it, can be neither answered nor stopped, so it raises
+    `MonitorError`, which names the monitor and quotes nothing of the reply.
     """
     stored = read_trajectory_state(state, label=middleware.label)
     if stored is None or not is_audit_last(stored["trajectory"]):
@@ -244,7 +248,12 @@ def find_held_step(
         case _:
             return None
     if reply is None:
-        return None
+        message = (
+            f"The monitor {middleware.label!r} holds a step for a person to audit, but the "
+            "held reply is no longer in messages, so the audit can be neither answered nor "
+            "stopped. Put the held reply back with update_state, or start a new thread."
+        )
+        raise MonitorError(message)
     return HeldStep(
         loaded=loaded,
         audit=audit,
@@ -264,7 +273,7 @@ def build_audit_request(held: HeldStep) -> AuditRequest:
         step_number=identity.step_number,
         tool_calls=list(held.reply.tool_calls),
         samples=build_sample_records(held.decisions, executed_id=None),
-        answers=ANSWERS_TO_CALLS if held.reply.tool_calls else ANSWERS_TO_A_FINAL_ANSWER,
+        answers=list(ANSWERS_TO_CALLS if held.reply.tool_calls else ANSWERS_TO_A_FINAL_ANSWER),
     )
     if identity.delegation_id is not None:
         request["delegation_id"] = identity.delegation_id

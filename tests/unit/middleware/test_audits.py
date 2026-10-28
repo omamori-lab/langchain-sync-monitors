@@ -642,7 +642,6 @@ def remove_held_reply(paused: PausedRun) -> None:
     paused.agent.update_state(THREAD, {"messages": [RemoveMessage(id=held.id)]})
 
 
-@pytest.mark.xfail(strict=True, reason="PR 6 refuses an audit whose held reply is gone")
 def test_a_resume_after_the_held_reply_was_removed_raises(
     run_mode: RunMode,
     paused_post: PausedRun,
@@ -662,7 +661,6 @@ def test_a_resume_after_the_held_reply_was_removed_raises(
     assert "attacker.example" not in str(raised.value)
 
 
-@pytest.mark.xfail(strict=True, reason="PR 6 refuses an audit whose held reply is gone")
 def test_new_input_after_the_held_reply_was_removed_raises(
     run_mode: RunMode,
     paused_post: PausedRun,
@@ -675,7 +673,6 @@ def test_new_input_after_the_held_reply_was_removed_raises(
         run_agent(paused_post.agent, mode=run_mode, config=THREAD, task=NEW_INPUT)
 
 
-@pytest.mark.xfail(strict=True, reason="PR 6 hands each audit request answers of its own")
 def test_editing_a_request_s_answers_leaves_the_next_audit_s_answers_whole(
     run_mode: RunMode,
 ) -> None:

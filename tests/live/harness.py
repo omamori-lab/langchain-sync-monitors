@@ -151,6 +151,9 @@ STOP_ANSWER: Final = {"type": "stop"}
 MAX_AUDITS: Final = 10
 """How many audits the harness stops in one turn before it takes the run for stuck."""
 
+STILL_PAUSED_MESSAGE: Final = f"the run still paused after {MAX_AUDITS} audits were stopped"
+"""The error of a turn still paused once the harness stopped `MAX_AUDITS` audits."""
+
 
 class MonitorFamily(StrEnum):
     """The three kinds of monitor model the library supports."""
@@ -561,7 +564,10 @@ def stream_turn(
     config: RunnableConfig,
     outcome: StreamOutcome,
 ) -> None:
-    """Stream one turn under `invoke()`'s path, stopping each audit it pauses at, and on."""
+    """Stream one turn under `invoke()`'s path, stopping each audit it pauses at, and on.
+
+    A turn still paused after `MAX_AUDITS` stopped audits raises `RuntimeError`.
+    """
     payload: AgentInput | Command[Any] | None = turn
     for _ in range(MAX_AUDITS + 1):
         if payload is None:
@@ -575,6 +581,8 @@ def stream_turn(
             outcome.receive(stream_mode, chunk=chunk, namespace=namespace)
         graph = cast("Pregel[Any, Any, Any, Any]", agent)
         payload = build_stop_answers(graph.get_state(config))
+    if payload is not None:
+        raise RuntimeError(STILL_PAUSED_MESSAGE)
 
 
 def stream_turns(
@@ -603,7 +611,10 @@ async def astream_turn(
     config: RunnableConfig,
     outcome: StreamOutcome,
 ) -> None:
-    """Stream one turn under `ainvoke()`'s path, stopping each audit it pauses at, and on."""
+    """Stream one turn under `ainvoke()`'s path, stopping each audit it pauses at, and on.
+
+    A turn still paused after `MAX_AUDITS` stopped audits raises `RuntimeError`.
+    """
     payload: AgentInput | Command[Any] | None = turn
     for _ in range(MAX_AUDITS + 1):
         if payload is None:
@@ -617,6 +628,8 @@ async def astream_turn(
             outcome.receive(stream_mode, chunk=chunk, namespace=namespace)
         graph = cast("Pregel[Any, Any, Any, Any]", agent)
         payload = build_stop_answers(await graph.aget_state(config))
+    if payload is not None:
+        raise RuntimeError(STILL_PAUSED_MESSAGE)
 
 
 async def astream_turns(

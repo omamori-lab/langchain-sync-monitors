@@ -24,6 +24,9 @@ step, whose `value` is an `AuditRequest` and whose `id` an answer names. The
 held step writes its record to `monitor_log` once it is answered. Without a
 checkpointer the run stops at the pause, with the held reply in `messages`,
 and the step writes no record: LangGraph cannot resume a run it did not save.
+A held reply removed from `messages`, as `update_state` can remove it, leaves
+an audit that can be neither answered nor stopped, so the next resume or
+input raises `MonitorError`.
 
 ## A complete example
 

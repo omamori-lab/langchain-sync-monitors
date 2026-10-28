@@ -74,7 +74,7 @@ from langchain_sync_monitors.contracts import TaskAuthor
 from langchain_sync_monitors.delegation import read_delegation_id
 from langchain_sync_monitors.errors import MessageFormatError, MonitorError
 from langchain_sync_monitors.message_keys import build_message_key
-from langchain_sync_monitors.records import find_monitor_records, read_step_records
+from langchain_sync_monitors.records import find_monitor_records, read_step_records, redact_text
 from langchain_sync_monitors.state_keys import TASK_MESSAGES_KEY, TRAJECTORY_KEY
 from langchain_sync_monitors.task_authorship import (
     read_message_ids,
@@ -242,12 +242,17 @@ def add_unread_messages(
 
 
 def find_latest_system_observation(trajectory: Trajectory) -> Observation | None:
-    """Return the latest observation a system or developer message added, if any."""
+    """Return the latest observation a system or developer message added, if any.
+
+    A redaction reaches an observation's source as it does its text, so the
+    sources are looked for as the trajectory's redaction leaves them.
+    """
+    sources = {redact_text(source, redaction=trajectory.redaction) for source in SYSTEM_SOURCES}
     for event in reversed(trajectory.history):
         if (
             isinstance(event, Observation)
             and event.author is Author.SCAFFOLD
-            and event.source in SYSTEM_SOURCES
+            and event.source in sources
         ):
             return event
     return None

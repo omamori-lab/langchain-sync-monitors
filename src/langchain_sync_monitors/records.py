@@ -44,7 +44,7 @@ from pydantic import TypeAdapter, ValidationError
 
 from langchain_sync_monitors._langchain import MONITOR_LOG_KEY
 from langchain_sync_monitors.contracts import Outcome, OutcomeName, SampleRecord, StepRecord
-from langchain_sync_monitors.errors import MonitorError
+from langchain_sync_monitors.errors import ConfigurationError, MonitorError
 from langchain_sync_monitors.options import name_type
 
 STEP_RECORD_ADAPTER = TypeAdapter(StepRecord)
@@ -134,6 +134,21 @@ def build_sample_records(
     ]
 
 
+def redact_text(text: str, *, redaction: Redaction | None) -> str:
+    """Return the text through the redaction's text function, or as it is without a redaction.
+
+    A function that returns anything but a str raises `ConfigurationError`, as
+    hyoshigi's raises where it applies a redaction [@hyoshigi2026].
+    """
+    if redaction is None:
+        return text
+    redacted = redaction.text(text)
+    if not isinstance(redacted, str):
+        message = f"the redaction's text function must return a str, got {describe_type(redacted)}"
+        raise ConfigurationError(message)
+    return redacted
+
+
 def redact_failed_samples(
     samples: Sequence[SampleRecord],
     *,
@@ -149,7 +164,7 @@ def redact_failed_samples(
     return [
         SampleRecord(
             suspicion=sample["suspicion"],
-            reason=redaction.text(sample["reason"]),
+            reason=redact_text(sample["reason"], redaction=redaction),
             proposal={},
             executed=sample["executed"],
         )

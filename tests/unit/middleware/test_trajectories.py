@@ -201,7 +201,6 @@ def build_stale_delta(*, nested: bool) -> TrajectoryDelta:
     )
 
 
-@pytest.mark.xfail(strict=True)
 def test_each_message_enters_the_trajectory_once(run_mode: RunMode) -> None:
     # Arrange
     agent = build_agent(build_read_then_answer())
@@ -215,7 +214,6 @@ def test_each_message_enters_the_trajectory_once(run_mode: RunMode) -> None:
     assert history == (TASK_OBSERVATION, READ_ACTION, READ_RESULT, ANSWER_ACTION)
 
 
-@pytest.mark.xfail(strict=True)
 def test_an_unchanged_system_prompt_enters_the_trajectory_once(run_mode: RunMode) -> None:
     # Arrange
     agent = build_agent(build_read_then_answer(), system_prompt=SYSTEM_PROMPT)
@@ -235,7 +233,6 @@ def test_an_unchanged_system_prompt_enters_the_trajectory_once(run_mode: RunMode
     )
 
 
-@pytest.mark.xfail(strict=True)
 def test_a_system_prompt_enters_the_trajectory_again_each_time_it_changes(
     run_mode: RunMode,
 ) -> None:
@@ -272,7 +269,6 @@ def test_a_system_prompt_enters_the_trajectory_again_each_time_it_changes(
     )
 
 
-@pytest.mark.xfail(strict=True)
 def test_a_summarised_turn_stays_in_the_trajectory(run_mode: RunMode) -> None:
     # Arrange: before the third step the summariser replaces all but the last two messages
     summariser = ScriptedChatModel(responses=[AIMessage(SUMMARY)])
@@ -305,7 +301,6 @@ def test_a_summarised_turn_stays_in_the_trajectory(run_mode: RunMode) -> None:
     )
 
 
-@pytest.mark.xfail(strict=True)
 def test_a_message_another_middleware_adds_to_the_request_enters_once_as_a_note(
     run_mode: RunMode,
 ) -> None:
@@ -330,7 +325,6 @@ def test_a_message_another_middleware_adds_to_the_request_enters_once_as_a_note(
     assert history == (TASK_OBSERVATION, REMINDER_NOTE, READ_ACTION, READ_RESULT, ANSWER_ACTION)
 
 
-@pytest.mark.xfail(strict=True)
 @pytest.mark.parametrize("visibility", list(FeedbackVisibility))
 def test_a_blocked_attempt_enters_the_trajectory_once_with_its_feedback(
     run_mode: RunMode,
@@ -364,7 +358,6 @@ def test_a_blocked_attempt_enters_the_trajectory_once_with_its_feedback(
     )
 
 
-@pytest.mark.xfail(strict=True)
 def test_a_reply_s_server_tool_results_follow_the_action_the_monitor_rated(
     run_mode: RunMode,
 ) -> None:
@@ -395,7 +388,6 @@ def test_a_reply_s_server_tool_results_follow_the_action_the_monitor_rated(
     )
 
 
-@pytest.mark.xfail(strict=True)
 def test_a_halt_message_never_enters_the_trajectory(run_mode: RunMode) -> None:
     # Arrange: the first run halts at its exfiltration step, and a second run brings new input
     replies = [
@@ -414,7 +406,6 @@ def test_a_halt_message_never_enters_the_trajectory(run_mode: RunMode) -> None:
     assert history == (TASK_OBSERVATION, FOLLOW_UP_OBSERVATION, ANSWER_ACTION)
 
 
-@pytest.mark.xfail(strict=True)
 def test_the_trajectory_rebuilds_across_runs_on_an_in_memory_saver(run_mode: RunMode) -> None:
     # Arrange
     replies = [AIMessage("Done.", id="step-1"), AIMessage("Done.", id="step-2")]
@@ -435,7 +426,6 @@ def test_the_trajectory_rebuilds_across_runs_on_an_in_memory_saver(run_mode: Run
     )
 
 
-@pytest.mark.xfail(strict=True)
 def test_a_stacked_monitor_s_piled_up_write_costs_no_lost_write(run_mode: RunMode) -> None:
     # Arrange: the outer monitor resamples a rejected draft twice at once. Only ainvoke()
     # draws them at once, so only there does the inner monitor pile up a stale write.
@@ -474,7 +464,6 @@ def test_a_stacked_monitor_s_piled_up_write_costs_no_lost_write(run_mode: RunMod
     assert read_stored(agent, config, label="inner").get("lost_writes") == 0
 
 
-@pytest.mark.xfail(strict=True)
 def test_a_stale_write_outside_the_stacked_case_halts_the_next_step_without_a_sample(
     run_mode: RunMode,
 ) -> None:
@@ -497,7 +486,6 @@ def test_a_stale_write_outside_the_stacked_case_halts_the_next_step_without_a_sa
     assert len(model.calls) == 1
 
 
-@pytest.mark.xfail(strict=True)
 def test_a_stale_write_outside_the_stacked_case_is_logged_once(
     run_mode: RunMode,
     caplog: pytest.LogCaptureFixture,
@@ -516,7 +504,6 @@ def test_a_stale_write_outside_the_stacked_case_is_logged_once(
     assert len([record for record in caplog.records if "stale" in record.getMessage()]) == 1
 
 
-@pytest.mark.xfail(strict=True)
 def test_new_input_lifts_the_halt_a_stale_write_caused(run_mode: RunMode) -> None:
     # Arrange
     replies = [AIMessage("Done.", id="step-1"), AIMessage("Done."), AIMessage("Done.")]
@@ -534,7 +521,6 @@ def test_new_input_lifts_the_halt_a_stale_write_caused(run_mode: RunMode) -> Non
     assert outcomes == ["allowed", "halted", "allowed"]
 
 
-@pytest.mark.xfail(strict=True)
 def test_an_input_that_repeats_a_tool_call_id_raises_a_message_format_error(
     run_mode: RunMode,
 ) -> None:
@@ -555,7 +541,6 @@ def test_an_input_that_repeats_a_tool_call_id_raises_a_message_format_error(
         run_messages(agent, history, mode=run_mode, config=config)
 
 
-@pytest.mark.xfail(strict=True)
 def test_a_reply_that_repeats_a_tool_call_id_raises_a_message_format_error(
     run_mode: RunMode,
 ) -> None:
@@ -589,7 +574,6 @@ STALE_WRITES: dict[str, tuple[Any, int]] = {
 """Each write against a label that holds one event and one seen key, and the lost writes it adds."""
 
 
-@pytest.mark.xfail(strict=True)
 @pytest.mark.parametrize(("write", "lost_writes"), STALE_WRITES.values(), ids=STALE_WRITES)
 def test_only_a_nested_write_behind_the_trajectory_is_dropped_without_a_lost_write(
     write: Any,

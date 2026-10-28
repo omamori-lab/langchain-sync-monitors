@@ -9,7 +9,6 @@ call gave, written by the delegator.
 
 from __future__ import annotations
 
-import pytest
 from hyoshigi import Author, Observation, TextPart, Trajectory
 from langchain_core.messages import AIMessage
 from langgraph.checkpoint.memory import InMemorySaver
@@ -24,7 +23,6 @@ from tests.support.protocols import AcceptFirst
 INSTRUCTION = "Find the sources for q3.md."
 
 
-@pytest.mark.xfail(strict=True)
 def test_a_string_input_enters_the_trajectory_once_as_the_user_s(run_mode: RunMode) -> None:
     # Arrange
     agent = build_deep_agent(
@@ -46,7 +44,6 @@ def test_a_string_input_enters_the_trajectory_once_as_the_user_s(run_mode: RunMo
     assert history.count(task) == 1
 
 
-@pytest.mark.xfail(strict=True)
 def test_a_task_call_starts_a_subagent_s_trajectory_under_the_call(run_mode: RunMode) -> None:
     # Arrange
     main_model = ScriptedChatModel(

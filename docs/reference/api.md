@@ -33,6 +33,7 @@ name `langchain_sync_monitors` exports, grouped by what it is for.
         - monitor_run_open
         - monitor_inputs_at_halt
         - monitor_subagent_returns
+        - monitor_trajectory
 
 ::: langchain_sync_monitors.Tracer
     options:
@@ -362,6 +363,10 @@ name `langchain_sync_monitors` exports, grouped by what it is for.
       members: false
 
 ::: langchain_sync_monitors.MissingExtraError
+    options:
+      members: false
+
+::: langchain_sync_monitors.MessageFormatError
     options:
       members: false
 

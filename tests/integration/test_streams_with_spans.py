@@ -49,11 +49,13 @@ RUN_SPECIFIC_KEYS = frozenset(
         "langgraph_checkpoint_ns",
         "monitor_task_messages",
         "monitor_seen_human_messages",
+        "seen",
     },
 )
 """Keys whose values differ between any two runs: random message ids and checkpoint names.
 
-The monitor's lists of message ids, which `stream_mode="updates"` carries, hold ids too.
+The monitor's lists of message ids, which `stream_mode="updates"` carries, hold ids too, and
+so does the `seen` list of each write to its trajectory.
 """
 
 MONITOR_SPAN_NAMES = {"monitor step", "monitor judgement", "monitor decision"}

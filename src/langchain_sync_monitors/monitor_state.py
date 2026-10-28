@@ -4,8 +4,8 @@
 agent's state [@langchain2026]. It holds the log of every monitored step, the
 delegation a subagent was started with, the record of which human messages
 were a run's input and their text, how many of those the thread had at each
-monitor's latest halt, and the subagent halts and blocks the agent's next
-step has to answer.
+monitor's latest halt, the subagent halts and blocks the agent's next step
+has to answer, and each monitor's trajectory of the run.
 """
 
 import operator
@@ -17,12 +17,14 @@ from langchain.agents.middleware.types import (
     OmitFromOutput,
     PrivateStateAttr,
 )
+from langgraph.channels.delta import DeltaChannel
 
 from langchain_sync_monitors.contracts import Delegation, StepRecord
 from langchain_sync_monitors.halts import InputsAtHalt, merge_inputs_at_halt
 from langchain_sync_monitors.run_inputs import RunInput, merge_run_inputs
 from langchain_sync_monitors.subagent_returns import SubagentReturn, merge_subagent_returns
 from langchain_sync_monitors.task_authorship import keep_latest, merge_message_ids
+from langchain_sync_monitors.trajectories import TrajectoryState, merge_trajectories
 
 
 class MonitorState(AgentState):
@@ -65,7 +67,12 @@ class MonitorState(AgentState):
     agent's next step answers them and removes them. `returned_records` and
     `subagent_returns` have the rules.
 
-    These seven are private, so a run's result leaves them out, though
+    `monitor_trajectory` holds each monitor's trajectory of the run, by
+    monitor label, as `trajectories` describes. It is a `DeltaChannel`, which
+    LangGraph marks as beta: a checkpoint stores each write, and the value is
+    rebuilt from them [@langgraph2026].
+
+    These eight are private, so a run's result leaves them out, though
     `stream_mode="values"`, `stream_mode="updates"` and `get_state` show
     them, and a subagent returns none of its own. An isolated subagent
     starts without its parent's; a forked one starts with them
@@ -88,4 +95,7 @@ class MonitorState(AgentState):
     ]
     monitor_subagent_returns: NotRequired[
         Annotated[list[SubagentReturn], PrivateStateAttr, merge_subagent_returns]
+    ]
+    monitor_trajectory: NotRequired[
+        Annotated[dict[str, TrajectoryState], PrivateStateAttr, DeltaChannel(merge_trajectories)]
     ]

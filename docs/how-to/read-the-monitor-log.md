@@ -113,7 +113,7 @@ Records hold plain values only, so they pass through checkpointers and
 | `resampled` | Defer to Resample | The least suspicious acceptable resample | That sample |
 | `steered` | Auto Mode | The first acceptable sample after one or more blocks | That sample |
 | `deferred_to_trusted` | Defer to Trusted, and any protocol whose fallback is `DeferToTrustedModel` | The trusted model's step | None |
-| `halted` | The `HaltRun` fallback, a subagent's halt under `SubagentHalt.STOP_WHOLE_RUN`, Auto Mode's thread total reached inside subagents, or an earlier halt that still stands | A final message that ends the run | None |
+| `halted` | The `HaltRun` fallback, a subagent's halt under `SubagentHalt.STOP_WHOLE_RUN`, Auto Mode's thread total reached inside subagents, a write the monitor's trajectory lost, or an earlier halt that still stands | A final message that ends the run | None |
 
 A halt stands until a later run brings new input from the user, so every
 further step halts again without a sample. Two paths through a middleware
@@ -122,12 +122,13 @@ listed before the monitor can lift it early; see
 
 ### Tell apart the records without samples
 
-Most records hold samples. Four kinds hold none, because the step was decided
+Most records hold samples. Five kinds hold none, because the step was decided
 before any sample was drawn. Check the rows in order: the first that matches
 is the kind.
 
 | Kind | `outcome` | How to tell it | The step's message |
 |---|---|---|---|
+| A lost write | `halted` | A `langchain_sync_monitors.middleware` warning says that stale writes to this monitor's trajectory were dropped, so the step halts | `LOST_WRITE_HALT_MESSAGE` |
 | A standing halt | `halted` | This monitor's previous record for this agent is `halted` too | `STANDING_HALT_MESSAGE` |
 | A subagent's halt | `halted` | The parent's monitor uses `SubagentHalt.STOP_WHOLE_RUN`, and a tool call since the agent's previous step returned a subagent's `halted` record, or a record the monitor could not read, which stays out of the log: a `langchain_sync_monitors.returned_records` warning names it | Names the subagent, such as "[Safety monitor] Stopped: the safety monitor halted the subagent researcher, so this agent stops too."; a subagent that shares the parent's name is named by the task's `subagent_type`, and one nested deeper by its name and the call that started it, as in "the subagent main that the call call-middle started" |
 | Auto Mode's thread total | `halted` | Neither: the subagents' records after the agent's own previous record carry the blocks that took the thread to `max_total_blocks` | The fallback's message: `DEFAULT_HALT_MESSAGE` for `HaltRun()` |
@@ -286,13 +287,15 @@ not append them. With `FeedbackVisibility.IN_TRANSCRIPT`, a blocked attempt,
 its text withheld, and its feedback are committed as part of the
 conversation, so they stream with the step that follows them.
 
-The monitor keeps seven private keys in the state: `monitor_task_messages`,
+The monitor keeps eight private keys in the state: `monitor_task_messages`,
 `monitor_seen_human_messages`, `monitor_run_inputs`,
-`monitor_rewritten_inputs`, `monitor_run_open`, `monitor_inputs_at_halt` and
-`monitor_subagent_returns`. They record which human messages were a run's input
-and the text of each, the inputs a tool wrote over, how many inputs the thread
-had at a halt, and the subagent halts and blocks a tool call returned, until
-the next step. So `monitor_run_inputs` holds the text of the user's turns. They
+`monitor_rewritten_inputs`, `monitor_run_open`, `monitor_inputs_at_halt`,
+`monitor_subagent_returns` and `monitor_trajectory`. They record which human
+messages were a run's input and the text of each, the inputs a tool wrote
+over, how many inputs the thread had at a halt, the subagent halts and blocks
+a tool call returned, until the next step, and each monitor's trajectory of
+the run, by label. So `monitor_run_inputs` and `monitor_trajectory` hold the
+text of the user's turns. They
 never enter a run's input or the result of `invoke()` and `ainvoke()`, but
 `values`, `updates` and `agent.get_state(config)` show them. One more key,
 `monitor_delegation`, is part of every monitored agent's input: the monitor
@@ -344,6 +347,7 @@ The library logs through Python's `logging`, under `langchain_sync_monitors`:
 |---|---|---|
 | `langchain_sync_monitors.middleware` | `DEBUG` | Every committed step, with its outcome |
 | `langchain_sync_monitors.middleware` | `WARNING` | A step failed before it was committed after the monitor had judged a sample; the message gives the error's type and each sample's suspicion, and the step's `monitor_step_failed` event holds the samples |
+| `langchain_sync_monitors.middleware` | `WARNING` | A stale write to a monitor's trajectory was dropped outside a stack of monitors, so its step halts without a sample; the message names the monitor and the count of lost writes |
 | `langchain_sync_monitors.monitors.chat` | `DEBUG` | An LLM monitor's reply was unreadable, or cut off at a length limit |
 | `langchain_sync_monitors.monitors.chat` | `WARNING` | No reply from an LLM monitor was readable, so the step is treated as suspicious |
 | `langchain_sync_monitors.monitors.guard` | `DEBUG` | A guard model returned log-probabilities in a format the monitor cannot read; the message names their type |

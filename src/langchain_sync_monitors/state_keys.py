@@ -29,6 +29,9 @@ REWRITTEN_INPUTS_KEY = "monitor_rewritten_inputs"
 INPUTS_AT_HALT_KEY = "monitor_inputs_at_halt"
 """The state key that holds, for each monitor, how many run inputs the thread had at its halt."""
 
+TRAJECTORY_KEY = "monitor_trajectory"
+"""The state key that holds each monitor's trajectory of the run, by monitor label."""
+
 SUBAGENT_RETURNS_KEY = "monitor_subagent_returns"
 """The state key that holds the halts and blocks the agent's tool calls returned, until its next
 step answers them."""
@@ -42,6 +45,7 @@ MONITOR_STATE_KEYS = frozenset(
         REWRITTEN_INPUTS_KEY,
         INPUTS_AT_HALT_KEY,
         SUBAGENT_RETURNS_KEY,
+        TRAJECTORY_KEY,
         MONITOR_DELEGATION_KEY,
     },
 )

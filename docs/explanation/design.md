@@ -818,19 +818,23 @@ back the subagent's `monitor_trajectory` with its records
 [@deepagents2026], and the parent's reducer joins each label's trajectory
 under the call. One that cannot join counts as a lost write, so the parent's
 next step halts ([the trajectory](#the-trajectory)): the call is not in the
-parent's trajectory, the call already holds a subagent with fewer records,
-or the trajectory does not load. A trajectory under a label the parent has
+parent's trajectory, the call already holds a subagent and the returned
+trajectory holds more history, ratings or records than it, or the trajectory
+does not load. A trajectory returned again for a call that holds a subagent
+is kept out without a lost write when it holds no more of each than the held
+one, the subagents below counted. A trajectory under a label the parent has
 none for, as a compiled subagent's monitor of a label of its own returns, is
 dropped with a warning, and its records still reach `monitor_log`; so
 `monitor_subagents` gives each override the main monitor's label.
 
 A tool may write `monitor_trajectory` only as a subagent's monitors return
-it: a mapping of labels to the trajectory states of a subagent the call
-itself started, each once, with no lost write, and whose trajectory loads.
-Anything else, an `Overwrite` or a delta included, is dropped with a warning
-and counts as a halted subagent, which `when_subagent_halts` answers. So does
-the whole state of a monitored graph a tool runs without handing it the
-tool's state, since that graph's trajectory names no delegation.
+it: a mapping of one or more labels to the trajectory states of a subagent
+the call itself started, each once, with no lost write, and whose trajectory
+loads. Anything else, an `Overwrite`, a delta or an empty mapping included,
+is dropped with a warning and counts as a halted subagent, which
+`when_subagent_halts` answers. So does the whole state of a monitored graph a
+tool runs without handing it the tool's state, since that graph's trajectory
+names no delegation.
 
 Only the outermost monitor of an agent hands on the delegation and checks
 what a tool call writes; a monitor stacked inside it knows the call by the

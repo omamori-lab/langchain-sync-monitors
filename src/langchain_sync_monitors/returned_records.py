@@ -32,14 +32,14 @@ checked as follows:
   `ConfigurationError`.
 
 A write to `monitor_trajectory` is kept, for `trajectory_channel` to join
-under the call, only as a mapping of monitor labels to the trajectory states
-of a subagent the call itself started, each once, with no lost write, and
-whose trajectory loads. Anything else, an `Overwrite` or a delta included,
-is dropped with a warning and counts as a halted subagent, since the
-subagent's steps would otherwise be missing from the run. A state under a
-label the calling agent has no trajectory for, as a compiled subagent's
-monitor of another label returns, is dropped with a warning alone; its
-steps stay in `monitor_log`.
+under the call, only as a mapping of one or more monitor labels to the
+trajectory states of a subagent the call itself started, each once, with no
+lost write, and whose trajectory loads. Anything else, an `Overwrite`, a delta
+or an empty mapping included, is dropped with a warning and counts as a
+halted subagent, since the subagent's steps would otherwise be missing from
+the run. A state under a label the calling agent has no trajectory for, as a
+compiled subagent's monitor of another label returns, is dropped with a
+warning alone; its steps stay in `monitor_log`.
 
 The halts in the records kept, with a halt for each record the monitor could
 not read or kept out as the caller's own and for each trajectory dropped as
@@ -305,7 +305,7 @@ def check_written_trajectories(
 ) -> None:
     """Check one value a command writes to `monitor_trajectory`, label by label."""
     is_overwrite, _ = read_overwrite(value)
-    if is_overwrite or not isinstance(value, Mapping):
+    if is_overwrite or not isinstance(value, Mapping) or not value:
         drop_trajectory(caller=caller, returned=returned, problem="a value that maps no labels")
         return
     for label, state in value.items():

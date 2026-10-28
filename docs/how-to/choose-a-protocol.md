@@ -153,8 +153,8 @@ or halted, by the time anyone reads the log. The decision span carries
 
 An audit holds a step for a person, as
 [hyoshigi's page on control protocols](https://omamori-lab.github.io/hyoshigi/explanation/control-protocols/)
-sets out. The run pauses before any tool runs, and the person's answer
-approves, edits, rejects or stops the step;
+sets out. The run pauses before any of the agent's own tools run, and the
+person's answer approves, edits, rejects or stops the step;
 [Answer an audit](answer-an-audit.md) gives the answers. A stop commits
 `DEFAULT_HALT_MESSAGE`:
 

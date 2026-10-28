@@ -59,8 +59,8 @@ monitor = MonitorMiddleware(
     # sample stays suspicious, have the trusted model write the step instead.
     protocol=DeferToResample(
         # Resample a step that scores 0.6 or more, and hold it for a person,
-        # who answers before any tool runs, when even its least suspicious
-        # sample scores 0.9.
+        # who answers before any of the agent's own tools run, when even its
+        # least suspicious sample scores 0.9.
         defer_threshold=0.6,
         audit_threshold=0.9,
         max_resamples=2,
@@ -76,6 +76,10 @@ result = agent.invoke({"messages": [{"role": "user", "content": "Summarise q3.md
 for record in result.get("monitor_log", []):
     print(record["step_number"], record["outcome"], record["flagged"])
 ```
+
+Without a checkpointer, as here, a step held for a person stops the run at the
+audit, with its request under `result["__interrupt__"]`; [Answer an
+audit](docs/how-to/answer-an-audit.md) adds a checkpointer and answers it.
 
 Three models play three roles: the untrusted agent does the work, the monitor
 judges each step, and the trusted model writes a step when every sample looks

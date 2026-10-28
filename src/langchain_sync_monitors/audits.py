@@ -2,11 +2,11 @@
 
 When a protocol decides `Audit` [@hyoshigi2026], the model node commits the
 held reply alone, and the monitor's `after_model` hook pauses the run with
-LangGraph's `interrupt` before any tool runs, as LangChain's
-`HumanInTheLoopMiddleware` does [@langchain2026]. The model node never
-pauses: LangGraph runs a paused node again on resume [@langgraph2026]. The
-interrupt's value is an `AuditRequest`. An `AuditAnswer` is checked against
-a schema built for its audit, so a malformed one raises pydantic's
+LangGraph's `interrupt` before any of the agent's own tools run, as
+LangChain's `HumanInTheLoopMiddleware` does [@langchain2026]. The model node
+never pauses: LangGraph runs a paused node again on resume [@langgraph2026].
+The interrupt's value is an `AuditRequest`. An `AuditAnswer` is checked
+against a schema built for its audit, so a malformed one raises pydantic's
 `ValidationError` and LangGraph keeps nothing of it [@langgraph2026]. The
 answer is recorded at the audit's position: an approval as a `Run`, an edit
 as a `Replace` whose action is a trusted proposal, a rejection as a `Block`

@@ -147,7 +147,8 @@ change raises the minor version.
   raise `ConfigurationError`, when the middleware is built.
 - **Breaking:** an audit pauses the run for a person. The model call
   commits the held reply alone, and the monitor's `after_model` hook pauses
-  the run with LangGraph's `interrupt` before any tool runs, which needs a
+  the run with LangGraph's `interrupt` before any of the agent's own tools
+  run, which needs a
   checkpointer; without one the run stops with `__interrupt__` and the
   step writes no record. A person answers with `Command(resume=...)`, by
   interrupt id: approve runs the held reply, edit runs the person's calls

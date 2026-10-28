@@ -126,7 +126,10 @@ values.
 `monitor_step_id` is the same on every monitor span of a step, so one filter
 on it gathers the step's spans. In LangSmith it is also the step span's own
 id; Langfuse does not keep LangChain's run ids, and gives each observation an
-id of its own [@langfuse2026].
+id of its own [@langfuse2026]. The decision span of a person's answer to an
+audit has no `monitor_step_id`, so filter it by `monitor_label`,
+`monitor_agent` and `monitor_step_number`, and `monitor_delegation_id` in a
+subagent.
 
 The model calls the library's monitors make carry `ls_message_view_exclude`,
 which keeps them out of LangSmith's Trajectory view too

@@ -67,6 +67,10 @@ for record in result.get("monitor_log", []):
     print(record["step_number"], record["outcome"], record["flagged"], sample["suspicion"])
 ```
 
+Without a checkpointer, as here, a step held for a person stops the run at the
+audit, with its request under `result["__interrupt__"]`; [Answer an
+audit](answer-an-audit.md) adds a checkpointer and answers it.
+
 The model strings are examples, and `openrouter:` strings need the
 [`openrouter` extra](../index.md#install). Any LangChain chat model works in
 each of the three places: pass a provider string, or a chat model object you

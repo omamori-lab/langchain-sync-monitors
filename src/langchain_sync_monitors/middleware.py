@@ -150,9 +150,9 @@ class MonitorMiddleware(AgentMiddleware[MonitorState, AgentContext, StructuredOu
     flagged for a person to review when its protocol flags it, when it halts,
     and, with `flag_threshold`, a number from 0 to 1, when its lowest sample
     is at or above it. A step the protocol audits is held: the middleware's
-    `after_model` hook pauses the run before any tool runs, for a person's
-    answer, and new input in place of an answer stops the step; `audits` has
-    the rules.
+    `after_model` hook pauses the run before any of the agent's own tools
+    run, for a person's answer, and new input in place of an answer stops
+    the step; `audits` has the rules.
 
     Before each tool call, the middleware adds a `Delegation` to the state the
     tool sees: the call's id, `agent_name`, and the run each monitor's

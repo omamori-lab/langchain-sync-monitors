@@ -292,8 +292,8 @@ its decision span, and stops nothing.
 
 An audit holds the agent's proposal for a person. The model node commits
 the held reply alone, and the trajectory records the `Audit`; the monitor's
-`after_model` hook then pauses the run before any tool runs
-([asking a person](#asking-a-person)). The answer is recorded at the
+`after_model` hook then pauses the run before any of the agent's own tools
+run ([asking a person](#asking-a-person)). The answer is recorded at the
 audit's position, since an audit adds nothing to the history;
 [Answer an audit](../how-to/answer-an-audit.md) gives the answers.
 
@@ -719,9 +719,10 @@ Nothing inside the model node may escalate to a person by calling LangGraph's
 again [@langgraph2026], so the step would be drawn afresh, and the person's
 answer would apply to steps they never saw. So the model node commits an
 audited step's held reply alone, and the monitor's `after_model` hook pauses
-the run with `interrupt()` before any tool runs, as
-`HumanInTheLoopMiddleware` does for tool calls [@langchain2026]. On resume only that hook runs again, and it applies the
-person's answer to the reply they saw. Each answer is checked against a
+the run with `interrupt()` before any of the agent's own tools run, as
+`HumanInTheLoopMiddleware` does for tool calls [@langchain2026]. On resume
+only that hook runs again, and it applies the person's answer to the reply
+they saw. Each answer is checked against a
 schema built for its audit inside `interrupt()`, so a malformed one is never
 kept and can be given again; [Answer an audit](../how-to/answer-an-audit.md)
 gives the request, the answers and what each one commits. The middleware

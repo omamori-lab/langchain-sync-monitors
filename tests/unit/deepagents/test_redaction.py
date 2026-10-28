@@ -8,12 +8,16 @@ included, holds the redacted text when the parent's channel joins it.
 from __future__ import annotations
 
 import json
+from typing import Any
 
+import pytest
 from deepagents import CompiledSubAgent, create_deep_agent
 from hyoshigi import Action, Author, Observation, TextPart, ToolCall, ToolObservation, Trajectory
 from langchain.agents import create_agent
 from langchain_core.messages import AIMessage
+from langgraph.graph.state import CompiledStateGraph
 
+from langchain_sync_monitors import Redaction
 from langchain_sync_monitors.contracts import TaskAuthor
 from langchain_sync_monitors.middleware import MonitorMiddleware
 from tests.support.agents import RunMode, read_stored_trajectory, run_agent
@@ -34,32 +38,48 @@ from tests.support.redaction import (
     build_secret_tools,
 )
 
+type Agent = CompiledStateGraph[Any, Any, Any, Any]
+
 INSTRUCTION_WITH_SECRET = f"Find the sources, key {SECRET}."
 READ_CALL = ToolCall(id="call-read", name="read_file", arguments='{"path": "q3.md"}')
 
 
-def build_monitor(agent_name: str, *, task_author: TaskAuthor) -> MonitorMiddleware:
+def build_monitor(
+    agent_name: str,
+    *,
+    task_author: TaskAuthor,
+    redaction: Redaction | None = MASK_SECRET,
+) -> MonitorMiddleware:
     return MonitorMiddleware(
         monitor=KeywordMonitor(),
         protocol=RUN_EVERY_STEP,
         agent_name=agent_name,
         task_author=task_author,
-        redaction=MASK_SECRET,
+        redaction=redaction,
     )
 
 
-def test_a_subagent_s_joined_trajectory_holds_what_the_redaction_leaves(run_mode: RunMode) -> None:
-    # Arrange: the worker's instruction, tool result and replies all hold the token
+def build_agent_with_worker(*, worker_redaction: Redaction | None) -> Agent:
+    """Build a monitored main agent that delegates to a compiled, monitored worker.
+
+    The instruction, the worker's tool result and its replies all hold the token.
+    """
     worker = CompiledSubAgent(
         name="worker",
         description="Finds sources.",
         runnable=create_agent(
             ScriptedChatModel(responses=build_secret_steps()),
             tools=build_secret_tools(),
-            middleware=[build_monitor("worker", task_author=TaskAuthor.PARENT_AGENT)],
+            middleware=[
+                build_monitor(
+                    "worker",
+                    task_author=TaskAuthor.PARENT_AGENT,
+                    redaction=worker_redaction,
+                ),
+            ],
         ),
     )
-    agent = create_deep_agent(
+    return create_deep_agent(
         model=ScriptedChatModel(
             responses=[
                 build_delegation_step(
@@ -74,21 +94,46 @@ def test_a_subagent_s_joined_trajectory_holds_what_the_redaction_leaves(run_mode
         subagents=[worker],
     )
 
+
+MASKED_WORKER_HISTORY = (
+    Observation(
+        author=Author.DELEGATOR,
+        parts=(TextPart(text=f"Find the sources, key {MASK}."),),
+    ),
+    Action(id="step-1", parts=(TextPart(text=MASKED_FIRST_REPLY),), tool_calls=(READ_CALL,)),
+    ToolObservation(call_id="call-read", parts=(TextPart(text=MASKED_READ_RESULT),)),
+    Action(id="step-2", parts=(TextPart(text=MASKED_LAST_REPLY),)),
+)
+"""The worker's trajectory as the mask leaves it."""
+
+
+def test_a_subagent_s_joined_trajectory_holds_what_the_redaction_leaves(run_mode: RunMode) -> None:
+    # Arrange
+    agent = build_agent_with_worker(worker_redaction=MASK_SECRET)
+
     # Act
     result = run_agent(agent, mode=run_mode, task=TASK_WITH_SECRET)
 
     # Assert
     stored = read_stored_trajectory(result)
     assert SECRET not in json.dumps(stored)
-    assert Trajectory.load(stored).subagents["call-task"].history == (
-        Observation(
-            author=Author.DELEGATOR,
-            parts=(TextPart(text=f"Find the sources, key {MASK}."),),
-        ),
-        Action(id="step-1", parts=(TextPart(text=MASKED_FIRST_REPLY),), tool_calls=(READ_CALL,)),
-        ToolObservation(call_id="call-read", parts=(TextPart(text=MASKED_READ_RESULT),)),
-        Action(id="step-2", parts=(TextPart(text=MASKED_LAST_REPLY),)),
-    )
+    assert Trajectory.load(stored).subagents["call-task"].history == MASKED_WORKER_HISTORY
+
+
+@pytest.mark.xfail(strict=True, reason="the parent redacts what joins its run")
+def test_a_parent_redacts_the_trajectory_of_a_subagent_whose_monitor_has_no_redaction(
+    run_mode: RunMode,
+) -> None:
+    # Arrange: the worker's own monitor keeps its trajectory as it read it
+    agent = build_agent_with_worker(worker_redaction=None)
+
+    # Act
+    result = run_agent(agent, mode=run_mode, task=TASK_WITH_SECRET)
+
+    # Assert
+    stored = read_stored_trajectory(result)
+    assert SECRET not in json.dumps(stored)
+    assert Trajectory.load(stored).subagents["call-task"].history == MASKED_WORKER_HISTORY
 
 
 def test_a_subagent_monitored_by_monitor_subagents_takes_the_redaction_of_its_parent(

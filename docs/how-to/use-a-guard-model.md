@@ -107,7 +107,7 @@ known guards: `GPT_OSS_SAFEGUARD` and `QWEN3GUARD`. The policy above asks for
 [A guard monitor scores the share of its samples labelled suspicious](https://omamori-lab.github.io/hyoshigi/how-to/choosing-a-monitor/#a-guard-monitor-scores-the-share-of-its-samples-labelled-suspicious)
 gives the scoring and the evidence for five samples, and
 [hyoshigi's page on failing closed](https://omamori-lab.github.io/hyoshigi/explanation/failing-closed/)
-the rules for a sample without a label. The middleware draws the samples one
+the rules for a sample without a label. The monitor draws its samples one
 after another under `invoke()` and at once under `ainvoke()`. Guard models are
 overconfident, so honest steps tend to tie at 0: set thresholds with
 `CalibratedMonitor`, as [Combine and calibrate

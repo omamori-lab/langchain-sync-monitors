@@ -58,11 +58,12 @@ Keep to these patterns; reviewers check them.
   `Outcome` of a step, and the records `StepRecord`, `SampleRecord`,
   `Delegation` and `DelegatedRun`. The interfaces between a monitor, a
   protocol and a model are hyoshigi's: `Monitor`, `AsyncMonitor`, its
-  protocols and its models. The middleware drives the twins that a monitor
-  class and a protocol class build, `MonitorTwins` and `ProtocolTwins`, and
-  not the classes themselves, so any monitor works with any protocol; only
-  `placement.py` recognises the library's own protocols by class, to give
-  advice. Change a contract only in a dedicated pull request.
+  protocols and its models. The middleware drives the `ProtocolTwins` a
+  protocol class builds, whose protocols rate each step through the
+  `MonitorTwins` a monitor class builds, so any monitor works with any
+  protocol. Outside `protocols.py`, only `placement.py`, to give advice, and
+  `steps.py`, to resume a trusted step, name hyoshigi's protocol classes.
+  Change a contract only in a dedicated pull request.
 - **A strategy for every choice.** Behaviour that varies is an object or an
   enum passed to the constructor, or to the method whose behaviour it
   chooses, never a bool or a plain string: a protocol (`DeferToResample`,

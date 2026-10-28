@@ -18,7 +18,7 @@ change raises the minor version.
 
 - langchain-sync-monitors depends on `hyoshigi>=0.4.0`, the framework-free
   control core extracted from it.
-- langgraph's floor rises to 1.2.12. Each monitor's trajectory is kept in a
+- langgraph's floor rises to 1.2.15. Each monitor's trajectory is kept in a
   LangGraph `DeltaChannel`, which LangGraph marks as beta.
 - A run whose messages hold an action that reuses an action id or a tool call
   id already in the run now raises `MessageFormatError`, at the start of the

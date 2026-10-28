@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Any, Literal, cast
 
@@ -12,6 +12,7 @@ from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, ToolMe
 from langchain_core.runnables import Runnable, RunnableConfig
 from langchain_core.tools import BaseTool, tool
 from langgraph.pregel import Pregel
+from langgraph.types import Command
 
 from langchain_sync_monitors import AuditResponse, DeferToResample
 from langchain_sync_monitors.contracts import StepRecord
@@ -122,6 +123,34 @@ def run_payload(
     if mode == "invoke":
         return cast("dict[str, Any]", agent.invoke(payload, config))
     return cast("dict[str, Any]", asyncio.run(agent.ainvoke(payload, config)))
+
+
+def send_audit_answer(
+    agent: Runnable[Any, Any],
+    paused: dict[str, Any],
+    *,
+    answer: object,
+    mode: RunMode,
+    config: RunnableConfig,
+) -> dict[str, Any]:
+    """Resume a paused run, giving every audit it holds `answer`, by interrupt id."""
+    interrupts = paused.get("__interrupt__", ())
+    resume = Command(resume={item.id: answer for item in interrupts})
+    return run_payload(agent, resume, mode=mode, config=config)
+
+
+def send_audit_answers_by_agent(
+    agent: Runnable[Any, Any],
+    paused: dict[str, Any],
+    *,
+    answers: Mapping[str, object],
+    mode: RunMode,
+    config: RunnableConfig,
+) -> dict[str, Any]:
+    """Resume a paused run, answering each audit with the answer for the agent it names."""
+    interrupts = paused.get("__interrupt__", ())
+    resume = Command(resume={item.id: answers[item.value["agent"]] for item in interrupts})
+    return run_payload(agent, resume, mode=mode, config=config)
 
 
 def run_agent(

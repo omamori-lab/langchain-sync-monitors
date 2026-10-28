@@ -70,7 +70,6 @@ PROMPT_WITH_IMAGE = Prompt(
     ),
 )
 FINE = AIMessage("The step reads the file the user named.")
-UNFIXED = pytest.mark.xfail(strict=True, reason="a finding of the review is not fixed yet")
 
 
 @pytest.fixture(params=["async", "sync"])
@@ -574,7 +573,7 @@ async def test_a_reply_both_refused_and_cut_off_is_refused(call_path: CallPath) 
     assert outcome == Refused(explanation="No.")
 
 
-GEMINI_BLOCKS = [
+GEMINI_REPLIES = [
     pytest.param(
         "SAFETY",
         "Blocked by safety filters",
@@ -586,16 +585,23 @@ GEMINI_BLOCKS = [
     pytest.param("OTHER", None, Refused(), id="other"),
     pytest.param("BLOCKLIST", None, Refused(), id="blocklist"),
     pytest.param("PROHIBITED_CONTENT", None, Refused(), id="prohibited-content"),
+    pytest.param(None, None, Generation(text=""), id="no-reason"),
+    pytest.param("BLOCKED_REASON_UNSPECIFIED", None, Generation(text=""), id="unspecified-reason"),
+    pytest.param(
+        "BLOCKED_REASON_UNSPECIFIED",
+        "Unused message.",
+        Generation(text=""),
+        id="message-without-reason",
+    ),
 ]
 
 
-@UNFIXED
-@pytest.mark.parametrize(("block_reason", "message", "expected"), GEMINI_BLOCKS)
-async def test_a_prompt_that_gemini_blocks_is_refused_with_its_message_if_given(
+@pytest.mark.parametrize(("block_reason", "message", "expected"), GEMINI_REPLIES)
+async def test_an_empty_gemini_reply_is_refused_with_its_message_only_when_a_reason_blocks_it(
     call_path: CallPath,
-    block_reason: str,
+    block_reason: str | None,
     message: str | None,
-    expected: Refused,
+    expected: Refused | Generation,
 ) -> None:
     # Arrange
     reply = build_gemini_block_reply(block_reason=block_reason, message=message)
@@ -608,14 +614,20 @@ async def test_a_prompt_that_gemini_blocks_is_refused_with_its_message_if_given(
     assert outcome == expected
 
 
-@pytest.mark.parametrize("block_reason", [None, "BLOCKED_REASON_UNSPECIFIED"])
-async def test_an_empty_gemini_reply_with_no_block_reason_is_an_empty_generation(
+@pytest.mark.parametrize(
+    "metadata",
+    [
+        pytest.param({"prompt_feedback": {"block_reason": 1}}, id="reason-as-a-number"),
+        pytest.param({"prompt_feedback": {"block_reason": ""}}, id="empty-reason"),
+        pytest.param({"prompt_feedback": "blocked"}, id="feedback-as-text"),
+    ],
+)
+async def test_prompt_feedback_without_a_text_block_reason_is_not_a_block(
     call_path: CallPath,
-    block_reason: str | None,
+    metadata: dict[str, Any],
 ) -> None:
     # Arrange
-    reply = build_gemini_block_reply(block_reason=block_reason, message=None)
-    model = ScriptedChatModel(responses=[reply])
+    model = ScriptedChatModel(responses=[AIMessage("", response_metadata=metadata)])
 
     # Act
     outcome = await generate_on_path(model, PROMPT, call_path=call_path)

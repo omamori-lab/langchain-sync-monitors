@@ -18,6 +18,8 @@ from hyoshigi import (
     Action,
     Author,
     Observation,
+    Rationale,
+    SuspicionScore,
     TextPart,
     ToolCall,
     ToolObservation,
@@ -36,6 +38,7 @@ from langchain_sync_monitors import (
     View,
 )
 from langchain_sync_monitors.middleware import MonitorMiddleware
+from langchain_sync_monitors.spans import build_score_outputs
 from tests.support.agents import (
     RunMode,
     build_task_input,
@@ -418,3 +421,17 @@ def test_a_failed_step_s_error_that_the_text_function_returns_no_str_for_raises(
     # Assert
     assert isinstance(error, ConfigurationError)
     assert "text function must return a str, got None" in str(error)
+
+
+@pytest.mark.xfail(strict=True, reason="PR 8 checks the text function's result where lsm calls it")
+def test_a_judgement_span_s_reason_that_the_text_function_returns_no_str_for_raises() -> None:
+    # Arrange: the span ends before the trajectory records the score and applies the function
+    score = SuspicionScore(
+        value=0.9,
+        explanation=f"mentions {SECRET}",
+        evidence=Rationale(model="keyword"),
+    )
+
+    # Act / Assert
+    with pytest.raises(ConfigurationError, match="text function must return a str, got None"):
+        build_score_outputs(score, redaction=RETURN_NONE_FOR_REASONS)

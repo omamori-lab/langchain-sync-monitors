@@ -224,6 +224,15 @@ def fresh_notices(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(PROCESS_NOTICES, "said", set())
 
 
+class FakeLangfuseHandler(RecordingTracer):
+    """A handler from a `langfuse` module that keeps neither the client nor the runs a handler of
+    Langfuse's SDK keeps.
+    """
+
+
+FakeLangfuseHandler.__module__ = "langfuse.langchain.CallbackHandler"
+
+
 class LangfuseWire:
     """Langfuse's end of the wire: records each request's path and JSON body, accepts them all."""
 

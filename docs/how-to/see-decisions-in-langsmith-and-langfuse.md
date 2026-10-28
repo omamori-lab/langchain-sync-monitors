@@ -116,7 +116,8 @@ Every monitor span of a step carries flat metadata keys that name the step:
 | `monitor_step_id` | The step span's run id | Every monitor span but the decision span of a person's answer, which opens after the step span ended |
 | `monitor_delegation_id` | The id of the `task` call that started the subagent | Every monitor span inside a subagent that a monitored agent started |
 | `monitor_outcome`, `monitor_flagged` | The decision | `monitor decision` |
-| `monitor_max_suspicion` | The highest suspicion among the step's samples | `monitor decision`, when the step judged a sample |
+| `monitor_max_suspicion`, `monitor_min_suspicion` | The highest and the lowest suspicion among the step's samples | `monitor decision`, when the step judged a sample |
+| `monitor_suspicions` | Each sample's suspicion, in the order the samples were rated | `monitor decision`, when the step judged a sample |
 | `ls_agent_type`, set to `middleware` | Keeps the span out of LangSmith's Trajectory view, except inside a Deep Agents subagent; see [Limits](#limits) | `monitor judgement` and `monitor decision` |
 
 `monitor_label`, `monitor_agent`, `monitor_step_number` and, inside a subagent,
@@ -203,12 +204,12 @@ Without `LANGSMITH_PROJECT`, the traces go to the `default` project.
 ## Attach Langfuse
 
 Langfuse's LangChain integration is a callback handler that you pass to each
-run. The library does not depend on Langfuse's SDK, so install it and set its
+run. Langfuse's SDK is the library's `langfuse` extra. Install it and set its
 keys:
 
 ```console
 # Langfuse's SDK, and the keys of your Langfuse project.
-uv add langfuse  # or: pip install langfuse
+uv add "langchain-sync-monitors[langfuse]"  # or: pip install "langchain-sync-monitors[langfuse]"
 export LANGFUSE_PUBLIC_KEY="your public key"
 export LANGFUSE_SECRET_KEY="your secret key"
 # Your project's region: https://cloud.langfuse.com in the EU, https://us.cloud.langfuse.com in the US.
@@ -353,8 +354,8 @@ a query.
 ## Send suspicion as a score
 
 Neither tool charts or aggregates metadata, and Langfuse's metadata filters
-compare strings only. With `export_scores`, each committed step's highest
-suspicion also becomes a score, which both tools can filter, sort and chart
+compare strings only. With `export_scores`, each committed step that judged a
+sample also sends scores, which both tools can filter, sort and chart
 [@langsmith2026dashboards; @langfuse2026scores]. It is off by default. Name
 the tools the run is traced to:
 
@@ -364,135 +365,70 @@ from langchain_sync_monitors import LLMMonitor, MonitorMiddleware, Tracer
 monitor = MonitorMiddleware(
     monitor=LLMMonitor(model="openrouter:xiaomi/mimo-v2.6-pro"),
     protocol=trusted_monitoring,
-    # Off by default; each tool named here also gets every step's suspicion.
+    # Off by default; each tool named here also gets every step's scores.
     export_scores={Tracer.LANGSMITH, Tracer.LANGFUSE},
 )
 ```
 
-The score is named after the monitor's label, `<label>_suspicion`, so
-`monitor_suspicion` by default, and sits on the step's `monitor step` span:
+hyoshigi's reports send the scores: what a report sends, its comment and
+metadata, its review flag and a failed send are
+[hyoshigi's](https://omamori-lab.github.io/hyoshigi/how-to/reporting-scores-to-langfuse-and-langsmith/).
+Each score is a step's recorded `SuspicionScore`, and its explanation is the
+comment, so the monitor's explanation leaves the process with it.
 
-| | LangSmith | Langfuse |
-|---|---|---|
-| What the score is | Feedback on the step span's run, whose id is the step's `monitor_step_id` | A `NUMERIC` score on the step's observation, found by its `monitor_step_id` |
-| Where it goes | The tracer's project, through its client's endpoint, key and workspace | The project that `LANGFUSE_PUBLIC_KEY` and `LANGFUSE_SECRET_KEY` reach, at `LANGFUSE_BASE_URL` or `LANGFUSE_HOST` |
-| What building the monitor needs | `LANGSMITH_API_KEY` (or `LANGCHAIN_API_KEY`) in the environment, even when the tracer's own `Client` holds a key | Both Langfuse keys and the `langfuse` package |
-| When it lands | Within about 10 seconds of the step | Once Langfuse has ingested the step, usually 10 to 25 seconds after it in our checks, at times more than 30 |
-| The requests it makes | One `POST /feedback` per score, up to 6 at once, and one project lookup per project | Up to two step lookups a window, of up to 3 pages each: one for the fresh steps, and once a minute one for the stale ones. Then one ingestion request for the steps found. [Know what it costs](#know-what-it-costs) has the rate limits |
+| Score | Holds |
+|---|---|
+| `<label>_suspicion` | The step's highest suspicion. `monitor_suspicion` under the default label |
+| `<label>_lowest_suspicion` | The step's lowest suspicion |
+| `flagged` | A boolean on a flagged step, with no comment |
 
-A monitor whose tool lacks its credentials or package raises
-`ConfigurationError` when it is built. A step with no sample, such as a
-standing halt, gets no score, and two monitors with different labels each
-send their own. `Tracer` in the [API reference](../reference/api.md) has the
-full rules, forked processes included.
+Each sits on the step's `monitor step` span: feedback on its run in
+LangSmith, a score on its observation in Langfuse. A step
+[flagged for review](read-the-monitor-log.md#find-the-steps-flagged-for-review)
+is marked once.
+A step with no sample, such as a standing halt, gets no suspicion score, and
+a halted one still gets the mark. A step held for a person is the exception:
+it sends its scores when the run pauses, before the answer. The answer sends
+no score, and a stop is flagged on the `monitor decision` span the answer
+opens, unless the pause flagged the step already. Two monitors with different
+labels each send their own.
 
-### Know what it costs
-
-- **No text leaves the process.** Only the score's name, value and ids are
-  sent, never the monitor's reason.
-- **LangSmith's retention is unchanged.** The feedback is sent with
-  `extend_trace_retention` false. Feedback sent with it true moves the whole
-  trace to extended retention, which costs more, and the endpoint's default
-  is true [@langsmith2026retention].
-- **Rate limits.** Each LangSmith feedback is one request. Langfuse's lookups
-  spend its general API rate limit, which every project and key of an
-  organisation shares (the "General API" row of the table under "Rate
-  Limits", and section "How rate limits are calculated")
-  [@langfuse2026apilimits]. One process looks up the
-  fresh steps every 10 seconds and the stale ones once a minute, up to 3
-  pages each: at most 21 requests a minute, and 7 when each lookup fits one
-  page of 1,000 observations. A minute that holds the 30-second exit drain,
-  which looks every 5 seconds, takes about half as many again, up to 33. A
-  page that meets a server error or a network failure is sent once more, so
-  up to twice as many in all. The scores go in through the ingestion API,
-  which has a limit of its own (the "Tracing" row of the same table)
-  [@langfuse2026apilimits]. A `429` holds every call to that tool until
-  its `Retry-After`, for at most 5 minutes.
-- **The agent never waits.** One background thread per process sends the
-  scores, every 10 seconds. A failure never reaches the run. The library's
-  own loggers, mostly `langchain_sync_monitors.score_worker`, log it with the
-  tool, the error's type and any HTTP status, but never the error's text or
-  traceback. A request sent again is logged by stamina's logger, `stamina`,
-  at `WARNING`, as `stamina.retry_scheduled` (module
-  `stamina/instrumentation/_logging.py`) [@schlawack2026stamina], with the
-  wait and the repr of a stand-in for httpx's error (section "Standard
-  library's `logging`") [@schlawack2026instrumentation], which names the
-  error's type and HTTP status alone, never the request, its headers or the
-  reply. httpx's own `HTTP Request` line at INFO quotes the request's URL,
-  which holds no key and no text of a run: the
-  tool's endpoint, without any user name or password, the path, and a
-  lookup's query. The query names the LangSmith project, or asks Langfuse for
-  the `monitor step` observations that started in a time window, a page at a
-  time. When structlog is installed, stamina logs the retry through structlog
-  instead (section "Defaults"), at `WARNING` too, with the same fields, the
-  error's repr as `caused_by` included (section "structlog")
-  [@schlawack2026instrumentation], as
-  [Turn on log messages](read-the-monitor-log.md#turn-on-log-messages) says.
-
-### Know what happens at exit
-
-At exit, the worker keeps sending what waits, every 5 seconds, for up to 30
-seconds, then logs and drops what is left. A script that ends right after its
-last step so waits for its last Langfuse scores, usually 7 to 20 seconds in
-our checks. Two things can make it drop them instead:
-
-- **Spans still buffered.** A Langfuse client registers its own exit hook,
-  which sends the spans it still buffers, when it is built [@langfuse2026],
-  so before the first score is queued, and Python runs exit hooks last in,
-  first out [@cpython2026]. The drain therefore runs before that flush, and
-  the last steps reach Langfuse during the drain only if the client's flush
-  interval sends them: `LANGFUSE_FLUSH_INTERVAL`, 5 seconds by default
-  [@langfuse2026]. At 25 seconds or more, it can send them too late, and
-  the drain then drops their scores after its full 30 seconds. Call
-  `get_client().flush()` before the script ends, as
-  [Attach Langfuse](#attach-langfuse) does, or keep the interval well under
-  30 seconds. With an interval of 60 seconds, a script that flushed wrote
-  both of its steps' scores and exited 7 to 13 seconds after its run;
-  without the flush, it dropped both after 31 to 32 seconds.
-- **Slow ingestion.** Langfuse's ingestion time varies, and its SDK says
-  flushed data may not be queryable for 15 to 30 seconds [@langfuse2026].
-  When it passes the drain's 30 seconds, as it did for every run, flushed or
-  not, in one stretch of our checks, the last steps' scores are dropped at
-  exit. A program that must keep them should keep running, as a server
-  does, or accept the loss.
-
-The drain also spends its whole 30 seconds when a step is never found in the
-project the writer looks in. That happens when:
-
-- the Langfuse handler was built with other keys, or another host, than the
-  environment's, so its steps sit in a project the writer cannot see, and
-  their scores go nowhere;
-- Langfuse sampled the trace out, at a sample rate between 0 and 1;
-- the spans never reached Langfuse, as after a network failure.
-
-Outside the drain, such a score is given up after 5 minutes, and the warning
-names these causes once per process. Scores still waiting are lost when the
-process ends without running `atexit`: on `os._exit`, which a
-`multiprocessing` child started by fork calls, on SIGKILL, on SIGTERM without
-a handler, and when a Jupyter kernel is killed.
+- **Where it goes.** To the tools the run is traced to, through the tracer's
+  own client. For a `LangChainTracer`, the feedback goes to the tracer's
+  project, looked up once per client and project. For Langfuse's LangChain
+  handler, the scores go through the handler's client. No key is read from the
+  environment, and Langfuse needs the `langfuse` extra: without it, building
+  the monitor raises `MissingExtraError`.
+- **When it lands.** The agent never waits. LangSmith's lookup and posts run
+  on up to 4 daemon threads, and Langfuse's client queues its scores.
+- **At exit.** The threads keep running what was submitted for up to 30
+  seconds. Langfuse's client sends what it queued when the script ends, or
+  when you call `get_client().flush()`, as [Attach Langfuse](#attach-langfuse)
+  does.
+- **When a send fails.** Nothing raises into the run. A failed LangSmith call
+  is logged by `langchain_sync_monitors.request_pool` with the error's type
+  alone, and Langfuse's client logs its own.
 
 ### Know when nothing is sent
 
 A run traced to neither tool sends nothing, and says nothing. Neither do:
 
 - a run with LangSmith tracing turned off by `tracing_context(enabled=False)`;
+- a Langfuse handler whose client's tracing is off, whose client drops the
+  score [@langfuse2026];
 - a LangSmith client in OpenTelemetry mode, whose run ids are not the steps'
   ids, which is warned once per process [@langsmithsdk2026];
-- a Langfuse handler whose tracing is off, by `LANGFUSE_TRACING_ENABLED=false`,
-  or by a client built with `tracing_enabled=False` or `sample_rate=0`.
+- a held step that new input stops, which opens no span to flag.
 
-Langfuse keeps the last two settings private, so the library reads them from
-private attributes of the handler's client: `_tracing_enabled`, and the rate
-of its tracer provider's sampler [@langfuse2026]. Each read has a default that
-counts the handler as tracing, so a handler of another shape still sends. The
-reads let a program with Langfuse tracing off exit at once, rather than spend
-the 30-second drain on steps that never reach Langfuse. LangSmith accepts
-feedback on a run it never ingested, such as one its sampling dropped, so
-such a score is lost without a sign.
+A Langfuse handler that does not keep its client and open observations where
+Langfuse's does gets no score, with one warning. The library reads the
+observation of the step from the handler's `_runs`, and the client from its
+`_langfuse_client`, in one function [@langfuse2026].
 
 ### Find steps by suspicion
 
-In LangSmith, filter the runs on the feedback key and score:
+In LangSmith, filter the runs on the feedback key and score; use
+`monitor_lowest_suspicion` for the lowest:
 
 ```python
 from langsmith import Client
@@ -572,8 +508,8 @@ explains.
 
 - **What is confirmed live.** The test suite checks the spans and their nesting
   offline, with a recording handler and with LangSmith's tracer on a mock
-  client, where it also checks the parent of each span LangSmith receives. No
-  test runs Langfuse's handler. Read back through their APIs, LangSmith and
+  client, where it also checks the parent of each span LangSmith receives. Only
+  the score export's tests run Langfuse's handler. Read back through their APIs, LangSmith and
   Langfuse Cloud show the trees, fields and filters on this page as described,
   with langsmith 0.14.1 and langfuse 4.15.6, under `invoke()` and `ainvoke()`.
   That covers allowed, steered, resampled, deferred and halted steps, a step
@@ -587,17 +523,10 @@ explains.
   own `traceable` code, a decision monitor's judgement, the judgement's
   `failed_closed` output and its twin's class, and what each tool's UI shows,
   its Trajectory view included, rest on the tests and the tools' source
-  alone. The score export was confirmed live with langsmith 0.14.1 and
-  langfuse 4.16.0, under `invoke()` and `ainvoke()`, with a scripted agent and
-  with real OpenRouter models: each step got one score, with its highest
-  suspicion, on its own `monitor step` run and observation, and the two
-  queries in [Find steps by suspicion](#find-steps-by-suspicion) found the
-  steps at 0.5 or more and no other. A program whose Langfuse client was built
-  with `tracing_enabled=False` or `sample_rate=0` exited about a second after
-  its run, where the full 30-second drain ran once the private read was
-  bypassed. What each tool's UI shows for the scores rests on their APIs
   alone. The spans of an audited step and of its answer rest on the tests
-  alone.
+  alone. The score export is tested offline: LangSmith's through a client on
+  a stand-in server, and Langfuse's through Langfuse's own handler and a
+  client on a stand-in wire. It has not been run against either service.
 - **Two tracers together can split a trace.** The monitor opens its spans
   from the model node's own callback manager, so they nest under `model` for
   every handler. With LangSmith and a second tracer attached together, other
@@ -620,8 +549,8 @@ explains.
   tool charts or aggregates steps by suspicion. LangSmith keeps
   `monitor_max_suspicion` as a number, so its filters can compare it with a
   threshold, as the table above shows; Langfuse's metadata filters compare
-  strings only. The score holds only each step's highest suspicion; read
-  every sample's from `monitor_log`, as
+  strings only. The scores hold only each step's highest and lowest
+  suspicion; read every sample's from `monitor_log`, as
   [Collect honest scores for calibration](read-the-monitor-log.md#collect-honest-scores-for-calibration)
   shows.
 

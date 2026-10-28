@@ -1063,9 +1063,9 @@ span ends with the `GraphInterrupt` when a middleware inside the monitor
 calls `interrupt()`.
 [See the monitor's decisions in LangSmith and Langfuse](../how-to/see-decisions-in-langsmith-and-langfuse.md)
 shows how to attach either tool and find the halted and flagged steps.
-With `export_scores`, the monitor also queues each step's highest suspicion
-for a background worker, one per process, which writes it to either tool as
-a score through the tool's public HTTP API, so the agent never waits for it;
+With `export_scores`, the monitor also sends each step's highest and lowest
+suspicion to either tool as scores, through hyoshigi's reports
+[@hyoshigi2026], so the agent never waits for them;
 [Send suspicion as a score](../how-to/see-decisions-in-langsmith-and-langfuse.md#send-suspicion-as-a-score)
 says how. Three tracing limits remain ([what the records and streams miss](#what-the-records-and-streams-miss)).
 

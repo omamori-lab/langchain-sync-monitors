@@ -80,7 +80,7 @@ from langchain_sync_monitors.protocols import (
     DeferToResample,
     FeedbackTemplate,
 )
-from langchain_sync_monitors.scores import Tracer
+from langchain_sync_monitors.score_export import Tracer
 
 __version__ = "0.1.6.dev0"
 

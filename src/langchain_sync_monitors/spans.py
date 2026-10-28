@@ -174,8 +174,8 @@ def report_step_to_span(traced_step: TracedRun, *, record: StepRecord) -> None:
 def build_decision_span(record: StepRecord) -> TraceSpan:
     """Return the decision span, tagged with the outcome, and `monitor:flagged` when flagged.
 
-    Its metadata repeats the outcome for filtering, and the highest
-    suspicion when the step judged any sample.
+    Its metadata repeats the outcome for filtering, and, when the step judged
+    any sample, its highest and lowest suspicion and each sample's.
     """
     tags = [MONITOR_TAG, f"{MONITOR_TAG}:{record['outcome']}"]
     if record["flagged"]:
@@ -185,9 +185,11 @@ def build_decision_span(record: StepRecord) -> TraceSpan:
         "monitor_outcome": record["outcome"],
         "monitor_flagged": record["flagged"],
     }
-    max_suspicion = find_max_suspicion(record["samples"])
-    if max_suspicion is not None:
-        metadata["monitor_max_suspicion"] = max_suspicion
+    suspicions = [sample["suspicion"] for sample in record["samples"]]
+    if suspicions:
+        metadata["monitor_max_suspicion"] = max(suspicions)
+        metadata["monitor_min_suspicion"] = min(suspicions)
+        metadata["monitor_suspicions"] = suspicions
     return TraceSpan(name=DECISION_SPAN_NAME, metadata=metadata, tags=tags)
 
 
@@ -324,22 +326,34 @@ async def trace_decision(traced_step: TracedRun, *, record: StepRecord) -> None:
     report_step_to_span(traced_step, record=record)
 
 
-def trace_answer_sync(identity: StepIdentity, *, record: StepRecord) -> None:
-    """Trace a person's answer to an audit for `invoke()`, as a decision span of its own.
+@contextmanager
+def open_answer_span_sync(
+    identity: StepIdentity,
+    *,
+    record: StepRecord,
+) -> Generator[TracedRun, None, None]:
+    """Open a person's answer to an audit for `invoke()` as a decision span of its own.
 
-    The span opens and closes at once, under the hook that applied the
-    answer. It carries the step's names but not its step span's id, which
-    belongs to the model call that held the step.
+    The span is under the hook that applied the answer. It carries the
+    step's names but not its step span's id, which belongs to the model call
+    that held the step.
     """
     with (
         add_step_metadata_to_spans(identity.build_name_metadata()),
         open_traced_run_sync(build_decision_span(record)) as traced_decision,
     ):
         traced_decision.outputs = build_decision_span_outputs(record)
+        yield traced_decision
 
 
-async def trace_answer(identity: StepIdentity, *, record: StepRecord) -> None:
-    """Trace a person's answer to an audit for `ainvoke()`, as `trace_answer_sync` does."""
+@asynccontextmanager
+async def open_answer_span(
+    identity: StepIdentity,
+    *,
+    record: StepRecord,
+) -> AsyncGenerator[TracedRun, None]:
+    """Open a person's answer to an audit for `ainvoke()`, as `open_answer_span_sync` does."""
     with add_step_metadata_to_spans(identity.build_name_metadata()):
         async with open_traced_run(build_decision_span(record)) as traced_decision:
             traced_decision.outputs = build_decision_span_outputs(record)
+            yield traced_decision

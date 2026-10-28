@@ -5,7 +5,9 @@ The two models call `invoke` and `ainvoke`. Each test runs once per path.
 
 from __future__ import annotations
 
+import json
 import logging
+import re
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass
 from types import SimpleNamespace
@@ -15,6 +17,7 @@ import httpx
 import pytest
 import stamina
 from hyoshigi import (
+    AlternativeToken,
     Generation,
     GenerationOutcome,
     MediaPart,
@@ -23,6 +26,7 @@ from hyoshigi import (
     Refused,
     Rejected,
     TextPart,
+    TokenLogProbability,
     Truncated,
     Unavailable,
 )
@@ -41,6 +45,7 @@ from langchain_core.exceptions import (
 from langchain_core.language_models import BaseChatModel, LangSmithParams, ModelProfile
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage
 from langchain_core.outputs import ChatGeneration, ChatResult
+from pydantic import Field
 
 from langchain_sync_monitors.chat_model_adapter import ChatModelAdapter
 from langchain_sync_monitors.errors import ConfigurationError
@@ -91,9 +96,14 @@ async def generate_on_path(
     prompt: Prompt,
     *,
     call_path: CallPath,
+    top_log_probabilities: int = 0,
 ) -> GenerationOutcome:
     """Adapt the chat model and generate through `generate` of the model for the path."""
-    adapter = ChatModelAdapter(model, source=SOURCE)
+    adapter = ChatModelAdapter(
+        model,
+        source=SOURCE,
+        top_log_probabilities=top_log_probabilities,
+    )
     if call_path == "async":
         return await adapter.async_generative_model.generate(prompt)
     return adapter.generative_model.generate(prompt)
@@ -1142,3 +1152,601 @@ def test_a_source_that_is_not_text_is_a_configuration_error() -> None:
     # Act and Assert
     with pytest.raises(ConfigurationError, match="source must be a str"):
         ChatModelAdapter(model, source=7)  # ty: ignore[invalid-argument-type]
+
+
+PLANTED_TOKEN = "planted-token-7b21f0"
+"""A token the guard's reply holds, which no log line may repeat."""
+
+# The chat completions "Logprobs" example of OpenAI's API reference, cut to three positions.
+COMPLETION_LOG_PROBABILITIES = {
+    "content": [
+        {
+            "token": "Hello",
+            "logprob": -0.31725305,
+            "bytes": [72, 101, 108, 108, 111],
+            "top_logprobs": [
+                {"token": "Hello", "logprob": -0.31725305, "bytes": [72, 101, 108, 108, 111]},
+                {"token": "Hi", "logprob": -1.3190403, "bytes": [72, 105]},
+            ],
+        },
+        {
+            "token": "!",
+            "logprob": -0.02380986,
+            "bytes": [33],
+            "top_logprobs": [
+                {"token": "!", "logprob": -0.02380986, "bytes": [33]},
+                {"token": " there", "logprob": -3.787621, "bytes": [32, 116, 104, 101, 114, 101]},
+            ],
+        },
+        {
+            "token": " How",
+            "logprob": -0.000054669687,
+            "bytes": [32, 72, 111, 119],
+            "top_logprobs": [
+                {"token": " How", "logprob": -0.000054669687, "bytes": [32, 72, 111, 119]},
+                {"token": "<|end|>", "logprob": -10.953937, "bytes": None},
+            ],
+        },
+    ],
+    "refusal": None,
+}
+HELLO_HOW = Generation(
+    text="Hello! How",
+    log_probabilities=(
+        TokenLogProbability(
+            token="Hello",
+            log_probability=-0.31725305,
+            alternatives=(
+                AlternativeToken(token="Hello", log_probability=-0.31725305),
+                AlternativeToken(token="Hi", log_probability=-1.3190403),
+            ),
+        ),
+        TokenLogProbability(
+            token="!",
+            log_probability=-0.02380986,
+            alternatives=(
+                AlternativeToken(token="!", log_probability=-0.02380986),
+                AlternativeToken(token=" there", log_probability=-3.787621),
+            ),
+        ),
+        TokenLogProbability(
+            token=" How",
+            log_probability=-0.000054669687,
+            alternatives=(
+                AlternativeToken(token=" How", log_probability=-0.000054669687),
+                AlternativeToken(token="<|end|>", log_probability=-10.953937),
+            ),
+        ),
+    ),
+)
+HELLO_HOW_WITHOUT_LOG_PROBABILITIES = Generation(text="Hello! How")
+OPENROUTER_RESPONSE = {
+    "id": "chatcmpl-123",
+    "object": "chat.completion",
+    "created": 1702685778,
+    "model": "openai/gpt-oss-20b",
+    "system_fingerprint": None,
+    "choices": [
+        {
+            "index": 0,
+            "finish_reason": "stop",
+            "message": {"role": "assistant", "content": "Hello! How"},
+            "logprobs": COMPLETION_LOG_PROBABILITIES,
+        },
+    ],
+    "usage": {"prompt_tokens": 9, "completion_tokens": 3, "total_tokens": 12},
+}
+
+
+def build_scripted_model_with_log_probabilities() -> BaseChatModel:
+    """Build a scripted chat model whose reply holds the example's log-probabilities."""
+    reply = AIMessage("Hello! How", response_metadata={"logprobs": COMPLETION_LOG_PROBABILITIES})
+    return ScriptedChatModel(responses=[reply])
+
+
+def build_chat_openrouter(
+    respond: Callable[[httpx.Request], httpx.Response],
+    **settings: Any,
+) -> BaseChatModel:
+    """Build `ChatOpenRouter` over the OpenRouter SDK, with every request going to `respond`."""
+    openrouter = pytest.importorskip("openrouter")
+    langchain_openrouter = pytest.importorskip("langchain_openrouter")
+    transport = httpx.MockTransport(respond)
+    client = openrouter.OpenRouter(
+        api_key="offline-placeholder",
+        server_url="https://openrouter.test/api/v1",
+        client=httpx.Client(transport=transport),
+        async_client=httpx.AsyncClient(transport=transport),
+    )
+    model: BaseChatModel = langchain_openrouter.ChatOpenRouter(
+        model="openai/gpt-oss-20b",
+        api_key="offline-placeholder",
+        client=client,
+        **settings,
+    )
+    return model
+
+
+def build_openrouter_model_with_log_probabilities() -> BaseChatModel:
+    """Build `ChatOpenRouter` whose response holds the example's log-probabilities."""
+    return build_chat_openrouter(lambda request: httpx.Response(200, json=OPENROUTER_RESPONSE))
+
+
+class OptionRecordingChatModel(ScriptedChatModel):
+    """A scripted model that keeps the keyword options of each call it gets."""
+
+    options: list[dict[str, Any]] = Field(default_factory=list)
+
+    def _generate(
+        self,
+        messages: list[BaseMessage],
+        stop: list[str] | None = None,
+        run_manager: CallbackManagerForLLMRun | None = None,
+        **kwargs: Any,
+    ) -> ChatResult:
+        self.options.append(kwargs)
+        return super()._generate(messages, stop, run_manager, **kwargs)
+
+    async def _agenerate(
+        self,
+        messages: list[BaseMessage],
+        stop: list[str] | None = None,
+        run_manager: AsyncCallbackManagerForLLMRun | None = None,
+        **kwargs: Any,
+    ) -> ChatResult:
+        self.options.append(kwargs)
+        return await super()._agenerate(messages, stop, run_manager, **kwargs)
+
+
+class KeywordRejectingChatModel(ScriptedChatModel):
+    """Raises `TypeError(rejection)` on a call that passes `logprobs`, or on every call.
+
+    langchain-anthropic passes bound keywords on to the Anthropic SDK, whose
+    `Messages.create()` takes no `logprobs`, so Python raises before any
+    request is sent.
+    """
+
+    rejection: str
+    rejects_every_call: bool = False
+
+    def _generate(
+        self,
+        messages: list[BaseMessage],
+        stop: list[str] | None = None,
+        run_manager: CallbackManagerForLLMRun | None = None,
+        **kwargs: Any,
+    ) -> ChatResult:
+        if self.rejects_every_call or "logprobs" in kwargs:
+            raise TypeError(self.rejection)
+        return super()._generate(messages, stop, run_manager, **kwargs)
+
+    async def _agenerate(
+        self,
+        messages: list[BaseMessage],
+        stop: list[str] | None = None,
+        run_manager: AsyncCallbackManagerForLLMRun | None = None,
+        **kwargs: Any,
+    ) -> ChatResult:
+        if self.rejects_every_call or "logprobs" in kwargs:
+            raise TypeError(self.rejection)
+        return await super()._agenerate(messages, stop, run_manager, **kwargs)
+
+
+@pytest.mark.xfail(strict=True)
+@pytest.mark.parametrize(
+    "build_model",
+    [
+        pytest.param(build_scripted_model_with_log_probabilities, id="scripted-chat-model"),
+        pytest.param(build_openrouter_model_with_log_probabilities, id="chat-openrouter"),
+    ],
+)
+async def test_a_reply_with_log_probabilities_is_a_generation_that_holds_them(
+    call_path: CallPath,
+    build_model: Callable[[], BaseChatModel],
+) -> None:
+    # Arrange
+    model = build_model()
+
+    # Act
+    outcome = await generate_on_path(model, PROMPT, call_path=call_path, top_log_probabilities=2)
+
+    # Assert
+    assert outcome == HELLO_HOW
+
+
+@pytest.mark.parametrize(
+    ("count", "expected"),
+    [
+        pytest.param(0, {}, id="zero"),
+        pytest.param(
+            2,
+            {"logprobs": True, "top_logprobs": 2},
+            id="two",
+            marks=pytest.mark.xfail(strict=True),
+        ),
+        pytest.param(
+            7,
+            {"logprobs": True, "top_logprobs": 7},
+            id="seven",
+            marks=pytest.mark.xfail(strict=True),
+        ),
+    ],
+)
+async def test_the_chat_model_is_asked_for_the_alternatives_the_count_names(
+    call_path: CallPath,
+    count: int,
+    expected: dict[str, object],
+) -> None:
+    # Arrange
+    model = OptionRecordingChatModel(responses=[FINE])
+
+    # Act
+    await generate_on_path(model, PROMPT, call_path=call_path, top_log_probabilities=count)
+
+    # Assert
+    assert model.options == [expected]
+
+
+@pytest.mark.parametrize(
+    "count",
+    [
+        pytest.param(0, id="zero"),
+        pytest.param(2, id="two", marks=pytest.mark.xfail(strict=True)),
+        pytest.param(7, id="seven", marks=pytest.mark.xfail(strict=True)),
+    ],
+)
+def test_both_models_declare_the_count_of_alternatives_the_chat_model_is_asked_for(
+    count: int,
+) -> None:
+    # Arrange
+    model = ScriptedChatModel(responses=[])
+
+    # Act
+    adapter = ChatModelAdapter(model, source=SOURCE, top_log_probabilities=count)
+
+    # Assert
+    assert adapter.generative_model.top_log_probabilities == count
+    assert adapter.async_generative_model.top_log_probabilities == count
+
+
+@pytest.mark.xfail(strict=True)
+@pytest.mark.parametrize("count", [-1, True, 2.0, "2"])
+def test_a_count_that_is_not_a_whole_number_of_at_least_zero_is_a_configuration_error(
+    count: object,
+) -> None:
+    # Arrange
+    model = ScriptedChatModel(responses=[])
+
+    # Act and Assert
+    with pytest.raises(ConfigurationError, match="top_log_probabilities must be"):
+        ChatModelAdapter(model, source=SOURCE, top_log_probabilities=count)  # ty: ignore[invalid-argument-type]
+
+
+async def test_a_count_of_zero_reads_no_log_probabilities_from_a_reply_that_holds_them(
+    call_path: CallPath,
+) -> None:
+    # Arrange
+    model = build_scripted_model_with_log_probabilities()
+
+    # Act
+    outcome = await generate_on_path(model, PROMPT, call_path=call_path)
+
+    # Assert
+    assert outcome == HELLO_HOW_WITHOUT_LOG_PROBABILITIES
+
+
+REPLIES_WITHOUT_LOG_PROBABILITIES = [
+    pytest.param({}, id="no-logprobs-key"),
+    pytest.param({"logprobs": None}, id="logprobs-null"),
+    pytest.param({"logprobs": {"content": None}}, id="content-null"),
+    pytest.param({"logprobs": {"content": []}}, id="content-empty"),
+]
+
+
+@pytest.mark.parametrize("metadata", REPLIES_WITHOUT_LOG_PROBABILITIES)
+async def test_a_reply_without_log_probabilities_is_a_generation_with_none(
+    call_path: CallPath,
+    metadata: dict[str, object],
+) -> None:
+    # Arrange
+    model = ScriptedChatModel(responses=[AIMessage("Hello! How", response_metadata=metadata)])
+
+    # Act
+    outcome = await generate_on_path(model, PROMPT, call_path=call_path, top_log_probabilities=2)
+
+    # Assert
+    assert outcome == HELLO_HOW_WITHOUT_LOG_PROBABILITIES
+
+
+UNREADABLE_LOG_PROBABILITIES = [
+    pytest.param("not log-probabilities", id="a-string"),
+    pytest.param({}, id="no-content"),
+    pytest.param(
+        {"content": [{"logprob": -0.1, "top_logprobs": []}]},
+        id="a-position-without-a-token",
+    ),
+    pytest.param(
+        {"content": [{"token": "Hello", "top_logprobs": []}]},
+        id="a-position-without-a-logprob",
+    ),
+    pytest.param(
+        {"content": [{"token": "Hello", "logprob": -0.1}]},
+        id="a-position-without-top_logprobs",
+    ),
+    pytest.param(
+        {"content": [{"token": "Hello", "logprob": False, "top_logprobs": []}]},
+        id="a-bool-logprob",
+    ),
+    pytest.param(
+        {"content": [{"token": "Hello", "logprob": "-0.5", "top_logprobs": []}]},
+        id="a-string-logprob",
+    ),
+    pytest.param(
+        {"content": [{"token": "Hello", "logprob": 0.5, "top_logprobs": []}]},
+        id="a-positive-logprob",
+    ),
+    pytest.param(
+        {"content": [{"token": "Hello", "logprob": float("nan"), "top_logprobs": []}]},
+        id="a-nan-logprob",
+    ),
+    pytest.param(
+        {"content": [{"token": "Hello", "logprob": -0.1, "top_logprobs": [{"token": "Hi"}]}]},
+        id="an-alternative-without-a-logprob",
+    ),
+    pytest.param(
+        {
+            "content": [
+                *COMPLETION_LOG_PROBABILITIES["content"],
+                {"token": "?", "logprob": 0.5, "top_logprobs": []},
+            ],
+        },
+        id="a-bad-position-after-good-ones",
+    ),
+]
+
+
+@pytest.mark.xfail(strict=True)
+@pytest.mark.parametrize("payload", UNREADABLE_LOG_PROBABILITIES)
+async def test_log_probabilities_not_in_the_documented_shape_make_the_reply_unavailable(
+    call_path: CallPath,
+    payload: object,
+) -> None:
+    # Arrange
+    reply = AIMessage("Hello! How", response_metadata={"logprobs": payload})
+    model = ScriptedChatModel(responses=[reply])
+
+    # Act
+    outcome = await generate_on_path(model, PROMPT, call_path=call_path, top_log_probabilities=2)
+
+    # Assert
+    assert outcome == Unavailable()
+
+
+@pytest.mark.xfail(strict=True)
+@pytest.mark.parametrize("alternatives", [[], None], ids=["empty-list", "null"])
+async def test_a_position_with_no_alternatives_is_kept_with_none(
+    call_path: CallPath,
+    alternatives: list[object] | None,
+) -> None:
+    # Arrange
+    position = {"token": "Hello", "logprob": -0.31725305, "top_logprobs": alternatives}
+    reply = AIMessage("Hello", response_metadata={"logprobs": {"content": [position]}})
+    model = ScriptedChatModel(responses=[reply])
+
+    # Act
+    outcome = await generate_on_path(model, PROMPT, call_path=call_path, top_log_probabilities=2)
+
+    # Assert
+    expected = Generation(
+        text="Hello",
+        log_probabilities=(TokenLogProbability(token="Hello", log_probability=-0.31725305),),
+    )
+    assert outcome == expected
+
+
+@pytest.mark.parametrize("length_stop", ["length", "max_tokens"])
+async def test_a_reply_cut_off_at_a_length_limit_stays_truncated_at_a_count_above_zero(
+    call_path: CallPath,
+    length_stop: str,
+) -> None:
+    # Arrange
+    metadata = {"finish_reason": length_stop, "logprobs": COMPLETION_LOG_PROBABILITIES}
+    model = ScriptedChatModel(responses=[AIMessage("Hello! How", response_metadata=metadata)])
+
+    # Act
+    outcome = await generate_on_path(model, PROMPT, call_path=call_path, top_log_probabilities=2)
+
+    # Assert
+    assert outcome == Truncated(text="Hello! How")
+
+
+UNREADABLE_PAYLOADS_BY_REJECTER = [
+    pytest.param(
+        {"content": [{"token": PLANTED_TOKEN, "logprob": False, "top_logprobs": []}]},
+        id="rejected-by-the-payload-model",
+    ),
+    pytest.param(
+        {"content": [{"token": PLANTED_TOKEN, "logprob": 0.5, "top_logprobs": []}]},
+        id="rejected-by-hyoshigi",
+    ),
+]
+
+
+@pytest.mark.xfail(strict=True)
+@pytest.mark.parametrize("payload", UNREADABLE_PAYLOADS_BY_REJECTER)
+async def test_unreadable_log_probabilities_are_warned_of_by_their_type_alone(
+    call_path: CallPath,
+    every_log_record: list[logging.LogRecord],
+    payload: object,
+) -> None:
+    # Arrange: the payload's tokens are the guard's reply, which quotes the transcript
+    reply = AIMessage("Hello", response_metadata={"logprobs": payload})
+    model = ScriptedChatModel(responses=[reply])
+
+    # Act
+    await generate_on_path(model, PROMPT, call_path=call_path, top_log_probabilities=2)
+
+    # Assert
+    lines = [
+        (record.levelname, record.getMessage())
+        for record in every_log_record
+        if record.name == ADAPTER_LOGGER
+    ]
+    expected = (
+        "WARNING",
+        "The log-probabilities of a chat model's reply (a dict) are not in the chat completions "
+        "format; the reply is reported as unavailable.",
+    )
+    assert lines == [expected]
+    assert find_logged_leaks(every_log_record, secrets=[PLANTED_TOKEN]) == []
+
+
+@pytest.mark.xfail(strict=True)
+@pytest.mark.parametrize(
+    "rejection",
+    [
+        "Messages.create() got an unexpected keyword argument 'logprobs'",
+        "ChatBedrockConverse._converse_params() got an unexpected keyword argument 'logprobs'",
+    ],
+    ids=["anthropic", "bedrock-converse"],
+)
+async def test_a_chat_model_that_rejects_the_request_for_log_probabilities_is_a_configuration_error(
+    call_path: CallPath,
+    rejection: str,
+) -> None:
+    # Arrange
+    model = KeywordRejectingChatModel(responses=[FINE], rejection=rejection)
+    message = (
+        "KeywordRejectingChatModel does not accept the request for log-probabilities that "
+        "top_log_probabilities makes; use top_log_probabilities=0 with this model"
+    )
+
+    # Act and Assert
+    with pytest.raises(ConfigurationError, match=re.escape(message)) as raised:
+        await generate_on_path(model, PROMPT, call_path=call_path, top_log_probabilities=2)
+    assert isinstance(raised.value.__cause__, TypeError)
+
+
+@pytest.mark.parametrize(
+    ("rejection", "rejects_every_call", "count"),
+    [
+        pytest.param(
+            "unsupported operand type(s) for +: 'int' and 'str'",
+            False,
+            2,
+            id="another-type-error",
+            marks=pytest.mark.xfail(strict=True),
+        ),
+        pytest.param(
+            "Additional kwargs key logprobs already exists in left dict and value has "
+            "unsupported type <class 'dict'>.",
+            False,
+            2,
+            id="a-merge-error-naming-logprobs",
+            marks=pytest.mark.xfail(strict=True),
+        ),
+        pytest.param(
+            "Messages.create() got an unexpected keyword argument 'logprobs'",
+            True,
+            0,
+            id="no-log-probabilities-requested",
+        ),
+    ],
+)
+async def test_any_other_type_error_passes_through_unchanged(
+    call_path: CallPath,
+    rejection: str,
+    rejects_every_call: bool,
+    count: int,
+) -> None:
+    # Arrange
+    model = KeywordRejectingChatModel(
+        responses=[FINE],
+        rejection=rejection,
+        rejects_every_call=rejects_every_call,
+    )
+
+    # Act and Assert
+    with pytest.raises(TypeError, match=re.escape(rejection)):
+        await generate_on_path(model, PROMPT, call_path=call_path, top_log_probabilities=count)
+
+
+def respond_and_keep_bodies(
+    bodies: list[dict[str, Any]],
+) -> Callable[[httpx.Request], httpx.Response]:
+    """Answer every request with the example response, and keep each request's JSON body."""
+
+    def respond(request: httpx.Request) -> httpx.Response:
+        bodies.append(json.loads(request.content))
+        return httpx.Response(200, json=OPENROUTER_RESPONSE)
+
+    return respond
+
+
+@pytest.mark.xfail(strict=True)
+@pytest.mark.parametrize(
+    ("settings", "expected"),
+    [
+        pytest.param({}, {"require_parameters": True}, id="no-provider-settings"),
+        pytest.param(
+            {"openrouter_provider": {"order": ["AkashML"]}},
+            {"order": ["AkashML"], "require_parameters": True},
+            id="a-provider-through-openrouter_provider",
+        ),
+        pytest.param(
+            {"model_kwargs": {"provider": {"order": ["AkashML"]}}},
+            {"order": ["AkashML"], "require_parameters": True},
+            id="a-provider-through-model_kwargs",
+        ),
+        pytest.param(
+            {"openrouter_provider": {"require_parameters": False}},
+            {"require_parameters": False},
+            id="the-users-require_parameters",
+        ),
+    ],
+)
+async def test_a_chat_openrouter_is_asked_for_log_probabilities_from_providers_that_return_them(
+    call_path: CallPath,
+    settings: dict[str, object],
+    expected: dict[str, object],
+) -> None:
+    # Arrange
+    bodies: list[dict[str, Any]] = []
+    model = build_chat_openrouter(respond_and_keep_bodies(bodies), **settings)
+
+    # Act
+    await generate_on_path(model, PROMPT, call_path=call_path, top_log_probabilities=2)
+
+    # Assert
+    assert bodies[0].get("logprobs") is True
+    assert bodies[0].get("top_logprobs") == 2
+    assert bodies[0].get("provider") == expected
+
+
+@pytest.mark.parametrize(
+    ("settings", "expected"),
+    [
+        pytest.param({}, None, id="no-provider-settings"),
+        pytest.param(
+            {"openrouter_provider": {"order": ["AkashML"]}},
+            {"order": ["AkashML"]},
+            id="a-provider-through-openrouter_provider",
+        ),
+    ],
+)
+async def test_a_chat_openrouter_gets_no_request_for_log_probabilities_at_a_count_of_zero(
+    call_path: CallPath,
+    settings: dict[str, object],
+    expected: dict[str, object] | None,
+) -> None:
+    # Arrange
+    bodies: list[dict[str, Any]] = []
+    model = build_chat_openrouter(respond_and_keep_bodies(bodies), **settings)
+
+    # Act
+    await generate_on_path(model, PROMPT, call_path=call_path)
+
+    # Assert
+    assert "logprobs" not in bodies[0]
+    assert "top_logprobs" not in bodies[0]
+    assert bodies[0].get("provider") == expected

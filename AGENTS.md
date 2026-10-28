@@ -35,7 +35,7 @@ ignores within the `max_total` budget there.
 - Python 3.12 or newer. Setup: `uv sync --group dev --group docs --all-extras`,
   then `uvx pre-commit install`.
 - Core dependencies: `langchain`, `langchain-core`, `langgraph`, `pydantic`,
-  `httpx`, `stamina`. Providers sit behind extras: `deepagents`, `openrouter`,
+  `httpx`, `stamina`, `hyoshigi`. Providers sit behind extras: `deepagents`, `openrouter`,
   `typesafe`.
 - Plans live in `docs/plans/<feature>/`, one directory per feature: the plan
   (diagrams and pseudocode) and the research behind its decisions. The first

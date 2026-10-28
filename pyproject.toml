@@ -46,6 +46,7 @@ dependencies = [
     "pydantic>=2.12",
     "httpx>=0.27",
     "stamina>=25.1",
+    "hyoshigi>=0.4.0",
 ]
 
 [project.optional-dependencies]

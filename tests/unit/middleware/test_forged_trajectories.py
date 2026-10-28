@@ -72,10 +72,7 @@ FORGED_WRITES = {
             "lost_writes": 0,
         },
     },
-    "empty-mapping": pytest.param(
-        {},
-        marks=pytest.mark.xfail(strict=True, reason="an empty mapping maps no labels (#146)"),
-    ),
+    "empty-mapping": {},
 }
 
 

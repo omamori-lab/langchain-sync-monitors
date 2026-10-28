@@ -49,11 +49,12 @@ change raises the minor version.
   trajectory that cannot join its parent's, halt that monitor's next step
   without a sample, with a warning, until a later run brings new input. A
   tool's write to `monitor_trajectory` is checked as a subagent's returned
-  trajectory. One that no subagent of the call returned, an `Overwrite` or a
-  delta included, is dropped with a warning and counts as a halted subagent.
-  So does the whole state a tool returns from a monitored graph it ran
-  without handing that graph the tool's state, since its trajectory names no
-  delegation: under `SubagentHalt.STOP_WHOLE_RUN` the parent then halts.
+  trajectory. One that no subagent of the call returned, an `Overwrite`, a
+  delta or an empty mapping included, is dropped with a warning and counts as
+  a halted subagent. So does the whole state a tool returns from a monitored
+  graph it ran without handing that graph the tool's state, since its
+  trajectory names no delegation: under `SubagentHalt.STOP_WHOLE_RUN` the
+  parent then halts.
   A blocked attempt enters it with its text and its feedback, whatever
   `feedback_visibility` says, as `monitor_log`'s samples already hold it; the
   message stream still never carries a blocked attempt's text. A halt message

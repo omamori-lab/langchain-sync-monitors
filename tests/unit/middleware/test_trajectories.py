@@ -830,34 +830,30 @@ RETURNED_WRITES = {
         build_returned(SUBAGENT_DUMP),
         build_held(join_under_call(LONGER_SUBAGENT_DUMP)),
     ),
-    "again-with-more-history": pytest.param(
+    "again-with-more-history": (
         build_held(JOINED_DUMP),
         build_returned(LONGER_SUBAGENT_DUMP),
         build_held(JOINED_DUMP, lost_writes=1),
-        marks=pytest.mark.xfail(strict=True, reason="a fuller returned subtree is lost (#146)"),
     ),
-    "again-with-more-ratings": pytest.param(
+    "again-with-more-ratings": (
         build_held(join_under_call(LONGER_SUBAGENT_DUMP)),
         build_returned(RATED_SUBAGENT_DUMP),
         build_held(join_under_call(LONGER_SUBAGENT_DUMP), lost_writes=1),
-        marks=pytest.mark.xfail(strict=True, reason="a fuller returned subtree is lost (#146)"),
     ),
     "again-with-more-records": (
         build_held(JOINED_DUMP),
         build_returned(HALTED_SUBAGENT_DUMP),
         build_held(JOINED_DUMP, lost_writes=1),
     ),
-    "again-with-more-history-below": pytest.param(
+    "again-with-more-history-below": (
         build_held(join_under_call(CALLING_SUBAGENT_DUMP)),
         build_returned(CALLING_LONGER_DUMP),
         build_held(join_under_call(CALLING_SUBAGENT_DUMP), lost_writes=1),
-        marks=pytest.mark.xfail(strict=True, reason="a fuller returned subtree is lost (#146)"),
     ),
-    "again-with-more-history-and-fewer-records": pytest.param(
+    "again-with-more-history-and-fewer-records": (
         build_held(join_under_call(HALTED_SUBAGENT_DUMP)),
         build_returned(LONGER_SUBAGENT_DUMP),
         build_held(join_under_call(HALTED_SUBAGENT_DUMP), lost_writes=1),
-        marks=pytest.mark.xfail(strict=True, reason="a fuller returned subtree is lost (#146)"),
     ),
     "under-a-label-without-one": (
         {},

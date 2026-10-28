@@ -12,8 +12,9 @@ stores the writes and rebuilds the value from them [@langgraph2026].
 
 from __future__ import annotations
 
+import operator
 from collections.abc import Iterator, Mapping, Sequence
-from typing import TypedDict, cast
+from typing import NamedTuple, TypedDict, cast
 
 from hyoshigi import JSON, ConfigurationError, FormatError, Trajectory
 
@@ -181,8 +182,9 @@ def join_returned_state(held: TrajectoryState, *, returned: TrajectoryState) -> 
 
     `Trajectory.join` renumbers the subagent's records after the run's
     [@hyoshigi2026]. When the call already holds a subagent, the held one is
-    kept if the returned one holds no more records, and otherwise the write
-    counts as lost. So does a trajectory that does not load, and a join that
+    kept if the returned one holds no more history, ratings or records, each
+    counted through the subagents below, and otherwise the write counts as
+    lost. So does a trajectory that does not load, and a join that
     `Trajectory.join` refuses: the call is not in the held trajectory, or the
     subagents nest too deep.
     """
@@ -194,7 +196,7 @@ def join_returned_state(held: TrajectoryState, *, returned: TrajectoryState) -> 
         return count_lost_write(held)
     kept = parent.subagents.get(call_id)
     if kept is not None:
-        return held if count_records(subagent) <= count_records(kept) else count_lost_write(held)
+        return count_lost_write(held) if adds_entries(subagent, to=kept) else held
     try:
         parent.join(subagent, call_id=call_id)
     except ConfigurationError:
@@ -202,9 +204,26 @@ def join_returned_state(held: TrajectoryState, *, returned: TrajectoryState) -> 
     return {**held, "trajectory": parent.dump()}
 
 
-def count_records(trajectory: Trajectory) -> int:
-    """Return the records of a trajectory and of every subagent below it."""
-    return len(trajectory.records) + sum(map(count_records, trajectory.subagents.values()))
+class Entries(NamedTuple):
+    """The history, ratings and records a trajectory and its subagents hold."""
+
+    history: int
+    ratings: int
+    records: int
+
+
+def count_entries(trajectory: Trajectory) -> Entries:
+    """Return the entries of a trajectory and of every subagent below it."""
+    entries = Entries(len(trajectory.history), len(trajectory.ratings), len(trajectory.records))
+    for subagent in trajectory.subagents.values():
+        entries = Entries(*map(operator.add, entries, count_entries(subagent)))
+    return entries
+
+
+def adds_entries(trajectory: Trajectory, *, to: Trajectory) -> bool:
+    """Tell whether a trajectory holds more history, ratings or records than `to`, subagents too."""
+    pairs = zip(count_entries(trajectory), count_entries(to), strict=True)
+    return any(returned > held for returned, held in pairs)
 
 
 def merge_delta(held: TrajectoryState, *, delta: TrajectoryDelta) -> TrajectoryState:

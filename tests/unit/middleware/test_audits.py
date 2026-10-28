@@ -602,6 +602,10 @@ def test_a_final_answer_held_after_an_earlier_halt_pauses(run_mode: RunMode) -> 
     assert read_texts(result["messages"])[-1] == HELD_ANSWER
 
 
+@pytest.mark.xfail(
+    strict=True,
+    reason="PR 7: the decision span gains monitor_min_suspicion and monitor_suspicions",
+)
 def test_a_held_step_and_its_answer_each_trace_a_decision(run_mode: RunMode) -> None:
     # Arrange
     tracer = RecordingTracer()
@@ -633,6 +637,8 @@ def test_a_held_step_and_its_answer_each_trace_a_decision(run_mode: RunMode) -> 
         "monitor_outcome": "approved",
         "monitor_flagged": False,
         "monitor_max_suspicion": 0.9,
+        "monitor_min_suspicion": 0.9,
+        "monitor_suspicions": [0.9],
     }
 
 

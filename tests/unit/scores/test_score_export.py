@@ -24,7 +24,7 @@ from pydantic import SecretStr
 from langchain_sync_monitors import AuditResponse, score_export
 from langchain_sync_monitors._langchain import TracedRun
 from langchain_sync_monitors.contracts import SampleRecord, StepRecord, TaskAuthor
-from langchain_sync_monitors.errors import ConfigurationError
+from langchain_sync_monitors.errors import ConfigurationError, MissingExtraError
 from langchain_sync_monitors.langfuse_scores import LangfuseScoreSender
 from langchain_sync_monitors.langsmith_scores import LangSmithFeedbackSender
 from langchain_sync_monitors.middleware import MonitorMiddleware
@@ -730,3 +730,44 @@ def test_queueing_a_score_never_takes_the_lock_once_the_worker_runs(
     # Assert
     assert not still_waiting
     assert score_services.worker.waiting.count() == 1
+
+
+@pytest.mark.xfail(strict=True, reason="PR 7: the export reads its credentials from the tracers")
+def test_a_monitor_exports_to_langsmith_with_no_key_in_the_environment(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Arrange
+    clear_credentials(monkeypatch)
+
+    # Act
+    monitor = build_monitor(export_scores={Tracer.LANGSMITH})
+
+    # Assert
+    assert monitor.export_scores == frozenset({Tracer.LANGSMITH})
+
+
+@pytest.mark.xfail(strict=True, reason="PR 7: the export reads its credentials from the tracers")
+def test_a_monitor_exports_to_langfuse_with_no_key_in_the_environment(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Arrange
+    clear_credentials(monkeypatch)
+    monkeypatch.setattr(score_export, "is_package_installed", lambda name: True)
+
+    # Act
+    monitor = build_monitor(export_scores={Tracer.LANGFUSE})
+
+    # Assert
+    assert monitor.export_scores == frozenset({Tracer.LANGFUSE})
+
+
+@pytest.mark.xfail(strict=True, reason="PR 7: the langfuse extra has a name")
+def test_langfuse_without_its_package_raises_the_missing_extra_error_naming_the_extra(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Arrange
+    monkeypatch.setattr(score_export, "is_package_installed", lambda name: False)
+
+    # Act, Assert
+    with pytest.raises(MissingExtraError, match=r'needs the langfuse extra.*\[langfuse\]"'):
+        build_monitor(export_scores={Tracer.LANGFUSE})

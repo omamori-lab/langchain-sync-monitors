@@ -50,6 +50,7 @@ import atexit
 import logging
 import os
 import threading
+from collections import OrderedDict
 from collections.abc import Callable, Sequence
 from collections.abc import Set as AbstractSet
 from dataclasses import dataclass, field
@@ -58,6 +59,7 @@ from uuid import UUID
 
 from langchain_core.callbacks import BaseCallbackHandler
 from langchain_core.tracers.langchain import LangChainTracer
+from langsmith import Client
 from langsmith.run_helpers import get_tracing_context
 
 from langchain_sync_monitors._langchain import TracedRun
@@ -114,6 +116,15 @@ class ProcessNotices:
 
 PROCESS_NOTICES = ProcessNotices()
 """The warnings this process has said."""
+
+
+LANGSMITH_PROJECT_IDS: OrderedDict[tuple[Client, str], str] = OrderedDict()
+"""Stub: the ids of the projects looked up, by client and name, which nothing fills yet."""
+
+
+def read_project_id(client: Client, *, project_name: str) -> str:
+    """Stub: ask LangSmith for the project's id every time, and remember nothing."""
+    return str(client.read_project(project_name=project_name).id)
 
 
 def build_score_name(label: str) -> str:

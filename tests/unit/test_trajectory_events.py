@@ -868,8 +868,63 @@ MALFORMED_REPLIES: dict[str, tuple[AIMessage, str]] = {
         ),
         "AIMessage.content_blocks[0]: expected a server tool result with its call id",
     ),
+    "reasoning-details-not-a-list": (
+        AIMessage(id="msg_12", content="", additional_kwargs={"reasoning_details": "hidden"}),
+        "AIMessage.additional_kwargs.reasoning_details: expected a list of reasoning details",
+    ),
+    "reasoning-detail-without-a-type": (
+        AIMessage(
+            id="msg_13",
+            content="",
+            additional_kwargs={"reasoning_details": [{"text": "t"}]},
+        ),
+        "AIMessage.additional_kwargs.reasoning_details[0]: expected a reasoning detail with a type",
+    ),
+    "reasoning-text-that-is-not-text": (
+        AIMessage(
+            id="msg_14",
+            content=[{"type": "reasoning", "reasoning": 7}],
+            response_metadata={"output_version": "v1"},
+        ),
+        "AIMessage.content_blocks[0]: expected a reasoning block with its text",
+    ),
+    "server-call-without-its-arguments": (
+        AIMessage(
+            id="msg_15",
+            content=[
+                {
+                    "type": "server_tool_call",
+                    "id": "srvtoolu_02",
+                    "name": "web_search",
+                    "args": "q3",
+                }
+            ],
+            response_metadata={"output_version": "v1"},
+        ),
+        "AIMessage.content_blocks[0]: "
+        "expected a server tool call with an id, a name and its arguments",
+    ),
 }
 """Replies the reader cannot read, and the error each one raises under either reader."""
+
+EMPTY_MEDIA_TYPE_MESSAGE = HumanMessage(
+    [{"type": "image", "url": "https://example.com/a.png", "mime_type": ""}],
+)
+# langchain-core's Gemini translator fails on such metadata when it reads the blocks.
+GROUNDING_NOT_A_MAPPING_REPLY = AIMessage(
+    "Q3 revenue grew 4%.",
+    id="gem_07",
+    response_metadata={"model_provider": "google_genai", "grounding_metadata": "search ran"},
+)
+UNTRANSLATED_GROUNDING_NOT_A_MAPPING_REPLY = AIMessage(
+    "Q3 revenue grew 4%.",
+    id="gem_08",
+    response_metadata={"grounding_metadata": "search ran"},
+)
+UNHASHABLE_CALL_ID_REPLY = AIMessage(
+    id="msg_25",
+    content=[{"type": "tool_call", "id": ["call_x"], "name": "bash", "args": {}}],
+)
 
 UNMATCHED_CALL_REPLIES: dict[str, tuple[AIMessage, Action]] = {
     # The shape convert_to_messages gives an assistant message holding a standard block.
@@ -1256,8 +1311,15 @@ def test_media_becomes_media_parts_by_url_or_bytes_and_media_without_either_is_o
 
 @pytest.mark.parametrize(
     ("message", "error"),
-    MALFORMED_MESSAGES.values(),
-    ids=MALFORMED_MESSAGES.keys(),
+    [
+        *MALFORMED_MESSAGES.values(),
+        pytest.param(
+            EMPTY_MEDIA_TYPE_MESSAGE,
+            "HumanMessage.content_blocks[0]: expected an IANA media type",
+            marks=pytest.mark.xfail(strict=True),
+        ),
+    ],
+    ids=[*MALFORMED_MESSAGES.keys(), "empty-media-type"],
 )
 def test_a_malformed_message_raises_naming_where_and_quoting_nothing(
     message: BaseMessage,
@@ -1273,7 +1335,27 @@ def test_a_malformed_message_raises_naming_where_and_quoting_nothing(
 
 @pytest.mark.parametrize("read", READERS.values(), ids=READERS.keys())
 @pytest.mark.parametrize(
-    ("reply", "error"), MALFORMED_REPLIES.values(), ids=MALFORMED_REPLIES.keys()
+    ("reply", "error"),
+    [
+        *MALFORMED_REPLIES.values(),
+        pytest.param(
+            GROUNDING_NOT_A_MAPPING_REPLY,
+            "AIMessage.response_metadata.grounding_metadata: "
+            "expected a mapping of grounding metadata",
+            marks=pytest.mark.xfail(strict=True),
+        ),
+        pytest.param(
+            UNTRANSLATED_GROUNDING_NOT_A_MAPPING_REPLY,
+            "AIMessage.response_metadata.grounding_metadata: "
+            "expected a mapping of grounding metadata",
+            marks=pytest.mark.xfail(strict=True),
+        ),
+    ],
+    ids=[
+        *MALFORMED_REPLIES.keys(),
+        "grounding-metadata-not-a-mapping",
+        "grounding-metadata-not-a-mapping-without-model-provider",
+    ],
 )
 def test_a_malformed_reply_raises_the_same_error_under_either_reader(
     read: Callable[[AIMessage], list[Event]],
@@ -1291,8 +1373,15 @@ def test_a_malformed_reply_raises_the_same_error_under_either_reader(
 @pytest.mark.parametrize("read", READERS.values(), ids=READERS.keys())
 @pytest.mark.parametrize(
     ("reply", "action"),
-    UNMATCHED_CALL_REPLIES.values(),
-    ids=UNMATCHED_CALL_REPLIES.keys(),
+    [
+        *UNMATCHED_CALL_REPLIES.values(),
+        pytest.param(
+            UNHASHABLE_CALL_ID_REPLY,
+            Action(id="msg_25", parts=(OpaquePart(kind="tool_call"),)),
+            marks=pytest.mark.xfail(strict=True),
+        ),
+    ],
+    ids=[*UNMATCHED_CALL_REPLIES.keys(), "call-block-with-an-id-that-is-not-text"],
 )
 def test_a_call_block_whose_call_the_message_lacks_is_opaque_under_either_reader(
     read: Callable[[AIMessage], list[Event]],

@@ -187,24 +187,12 @@ change raises the minor version.
 - `MessageFormatError` is exported.
 - `GuardMonitor(top_log_probabilities=...)`, the number of alternatives to
   each token that the guard's chat model is asked for, 0 by default. Above 0
-  the monitor asks once, and hyoshigi's guard scores the label from the
-  alternatives; `samples` is not used. A reply with no log-probabilities, or
-  with some it cannot read, fails the rating closed at 1.0. A number that is
-  not a whole number of at least 0 raises `ConfigurationError` when the
-  monitor is built.
-- For a `ChatOpenRouter` and a `top_log_probabilities` above 0, the request's
-  `provider` preferences gain `require_parameters: true`, so that OpenRouter
-  routes the request only to providers that support every parameter in it.
-  The preferences are `openrouter_provider` when set, else the `provider`
-  among `model_kwargs`; their other keys stay, and a `require_parameters` you
-  set wins, even `False`.
-- A chat model whose class refuses the `logprobs` keyword raises
-  `ConfigurationError` when a guard with a `top_log_probabilities` above 0
-  rates a step, naming the model and advising `top_log_probabilities=0`.
-- OpenRouter answers with HTTP 404 when no provider of the model supports
-  the request for log-probabilities, and the error is raised as it is. Set
-  `top_log_probabilities` only for a model whose every provider returns
-  them.
+  the monitor asks once instead of sampling, and a reply with no
+  log-probabilities, or with some it cannot read, fails the rating closed at
+  1.0. For a `ChatOpenRouter`, the request's `provider` preferences gain
+  `require_parameters: true` unless yours set it; a chat model whose class
+  refuses the `logprobs` keyword raises `ConfigurationError` when the guard
+  rates a step.
 - `MonitorTwins(monitor=..., async_monitor=...)`, a monitor of your own
   written as hyoshigi's sync and async twins, which the middleware and the
   wrappers take as they take the library's monitors.

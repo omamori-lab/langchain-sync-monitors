@@ -39,7 +39,10 @@ middleware = MonitorMiddleware(
 
 The subagents that `monitor_subagents` monitors take the redaction of the
 middleware they are copied from. A subagent monitored by a middleware of its
-own is redacted only if that middleware has a `redaction`.
+own, a compiled subagent's or an override's, keeps its trajectory as that
+middleware's `redaction` leaves it, and its parent's `monitor_trajectory`
+takes the subtree as it comes: without a `redaction` there, the subtree holds
+the original text. Give each such middleware the same `redaction`.
 
 ## Know what a redaction reaches
 
@@ -49,7 +52,7 @@ recorded, redacted decisions:
 
 | Where | What it holds |
 |---|---|
-| `monitor_trajectory` | Every entry, rating and record of the root's trajectory, and of each subagent's trajectory joined under its call |
+| `monitor_trajectory` | Every entry, rating and record of the root's trajectory, and of each subagent's trajectory joined under its call, when the subagent's monitor has the redaction |
 | `monitor_log` and the `monitor_step` events | Each sample's `reason` and `proposal` |
 | The `monitor step` span | The proposed step and the samples' reasons |
 | The `monitor judgement` spans | Each rating's `reason`, which the span ends with before the trajectory records the score, so the text function redacts it there |

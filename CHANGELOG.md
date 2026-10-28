@@ -310,7 +310,9 @@ change raises the minor version.
   event, pass through the text function, since they are built before a record
   exists, and that event leaves the proposals out. The function must return its
   own output unchanged: a subagent's trajectory is redacted again when it
-  joins its parent's. The redaction does not reach `messages`, LangChain's
+  joins its parent's. A subagent whose own monitor has no `redaction` joins
+  its parent's `monitor_trajectory` with the original text. The redaction
+  does not reach `messages`, LangChain's
   own traces of model calls (LangChain's `PIIMiddleware`, LangSmith's
   `anonymizer` and Langfuse's `mask` cover those), or the text a thread
   stored before the redaction was set; a view-only redaction stays

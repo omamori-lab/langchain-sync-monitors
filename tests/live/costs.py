@@ -251,8 +251,8 @@ def build_async_decisions_client(
 ) -> httpx.AsyncClient:
     """Return the async counterpart of `build_decisions_client`.
 
-    `OpenRouterDecisionModel` opens a fresh async client per request unless it
-    is given one, so without this client the hooks would never run under
+    `DecisionsClient` opens a fresh async client per request unless it is
+    given one, so without this client the hooks would never run under
     `ainvoke()`. Build it inside the event loop that uses it.
     """
 

@@ -55,7 +55,6 @@ from langchain_sync_monitors.contracts import (
     ControlProtocol,
     Fallback,
     FeedbackVisibility,
-    Monitor,
     SubagentHalt,
     TaskAuthor,
 )
@@ -65,8 +64,14 @@ from langchain_sync_monitors.given_ids import (
     build_run_start_trajectories_update,
 )
 from langchain_sync_monitors.halts import build_jump_to_end_update, has_just_halted
-from langchain_sync_monitors.message_ids import build_run_end_update
+from langchain_sync_monitors.message_ids import build_run_end_update, build_run_start_update
 from langchain_sync_monitors.monitor_state import MonitorState
+from langchain_sync_monitors.monitors import (
+    MonitorConfiguration,
+    check_monitor_option,
+    repeats_prompts_to_cached_model,
+    warn_about_cached_monitor_replies,
+)
 from langchain_sync_monitors.options import (
     check_enum_option,
     check_instance_option,
@@ -77,9 +82,9 @@ from langchain_sync_monitors.pending_steps import (
     SyncPendingStep,
     run_synchronously,
 )
-from langchain_sync_monitors.run_inputs import build_refresh_update, build_run_start_update
 from langchain_sync_monitors.score_export import Tracer, check_score_export, queue_step_score
 from langchain_sync_monitors.spans import (
+    counting_judgements,
     open_step_span,
     open_step_span_sync,
     trace_decision,
@@ -88,20 +93,21 @@ from langchain_sync_monitors.spans import (
 from langchain_sync_monitors.step_preparation import prepare_step
 from langchain_sync_monitors.task_authorship import build_step_start_update
 from langchain_sync_monitors.tool_calls import run_tool_call, run_tool_call_sync
-from langchain_sync_monitors.trajectories import (
-    add_step_events,
-    monitor_step_open,
-)
+from langchain_sync_monitors.trajectories import add_step_events, monitor_step_open
 
 
 @dataclass(frozen=True, kw_only=True, eq=False)
 class MonitorMiddleware(AgentMiddleware[MonitorState, AgentContext, StructuredOutput]):
     """Puts a monitor and a control protocol around every model call of an agent.
 
-    The monitor judges each proposed step before any of the agent's own tools
+    The monitor rates each proposed step before any of the agent's own tools
     run, and the protocol decides what the agent state receives. Only the
     decision is committed, with one record that keeps every judged sample for
-    audit. Server-side tools, such as Anthropic's `web_fetch` or OpenAI's
+    audit. `monitor` is one of the library's monitors or a `MonitorTwins`:
+    under `invoke()` its sync twin rates, and under `ainvoke()` its async
+    twin. A monitor that asks a cached chat model one prompt more than once
+    warns `CachedResampleWarning` once per process, when the middleware is
+    built. Server-side tools, such as Anthropic's `web_fetch` or OpenAI's
     `web_search`, run inside the model call, before the monitor judges the
     step and again for every sample, so no monitor can stop them; the
     middleware emits a `ServerToolWarning`, once per instance, when the model
@@ -124,8 +130,8 @@ class MonitorMiddleware(AgentMiddleware[MonitorState, AgentContext, StructuredOu
     either way. `when_subagent_halts=SubagentHalt.STOP_WHOLE_RUN` halts
     this agent before its next model call once a subagent was halted. Each
     option must be a member of its enum; a plain string raises
-    `ConfigurationError`, as do a `monitor` that is not a `Monitor` and a
-    `protocol` that is not a `ControlProtocol`, such as the fallback
+    `ConfigurationError`, as do a `monitor` that is not one of the monitors
+    and a `protocol` that is not a `ControlProtocol`, such as the fallback
     `DeferToTrustedModel` in place of the protocol `DeferToTrusted`.
 
     Before each tool call, the middleware adds a `Delegation` to the state the
@@ -144,13 +150,14 @@ class MonitorMiddleware(AgentMiddleware[MonitorState, AgentContext, StructuredOu
 
     Only the untagged human messages a run receives as its input are read as
     the task author's. The middleware's `before_agent` hook records them in
-    the graph state and keeps their text, so the monitor reads each one
-    verbatim even after summarisation or a tool took it out of the model
-    request; `run_inputs` has the rule. Its `before_model` and `after_agent`
-    hooks, and each commit, tag every other untagged human message in the
-    state as a context note, and a human message a tool writes is tagged
-    where it is written. A tool's writes to the state keys only the monitor
-    writes are dropped.
+    the graph state, and adds them to the monitor's trajectory as they first
+    arrive, so the monitor reads each one even after summarisation or a tool
+    took it out of the model request; a later rewrite of a message the
+    trajectory holds does not reach the monitor. Its `before_model` and
+    `after_agent` hooks, and each commit, tag every other untagged human
+    message in the state as a context note, and a human message a tool writes
+    is tagged where it is written. A tool's writes to the state keys only the
+    monitor writes are dropped.
     After a run that stopped before reaching `after_agent`, the next run's
     new messages are notes too, since the monitor cannot tell them from what
     the stopped run left; `task_authorship` has the rule and its limits.
@@ -201,10 +208,10 @@ class MonitorMiddleware(AgentMiddleware[MonitorState, AgentContext, StructuredOu
     subagents through shared middleware instances, so every piece of run state
     lives in the graph state, and one instance serves parallel runs. It can be
     copied or pickled only when its monitor, protocol and models can; OpenRouter
-    chat models and `OpenRouterDecisionModel` hold HTTP clients that cannot.
+    chat models and TypeSafe's clients hold HTTP clients that cannot.
     """
 
-    monitor: Monitor
+    monitor: MonitorConfiguration
     protocol: ControlProtocol
     label: str = "monitor"
     agent_name: str = "main"
@@ -230,7 +237,9 @@ class MonitorMiddleware(AgentMiddleware[MonitorState, AgentContext, StructuredOu
                 "monitor its own label instead."
             )
             raise ConfigurationError(message)
-        check_instance_option(self.monitor, option_type=Monitor, parameter_name="monitor")
+        check_monitor_option(self.monitor, parameter_name="monitor")
+        if repeats_prompts_to_cached_model(self.monitor):
+            warn_about_cached_monitor_replies()
         protocol_hint = "Use a protocol such as AutoMode, DeferToResample or DeferToTrusted."
         if isinstance(self.protocol, Fallback):
             protocol_hint = (
@@ -290,10 +299,11 @@ class MonitorMiddleware(AgentMiddleware[MonitorState, AgentContext, StructuredOu
                         with (
                             hide_model_calls_from_message_stream(),
                             set_context_value(monitor_step_open, value=True),
+                            counting_judgements(),
                         ):
                             decided = run_synchronously(self.protocol.decide(step))
                         decision = check_step_decision(decided, protocol=self.protocol)
-                        add_step_events(prepared.trajectory, decision=decision)
+                        add_step_events(prepared.options["trajectory"], decision=decision)
                 finally:
                     # A task the protocol left on a running loop may run after the step.
                     # Once closed, the step refuses it the model.
@@ -306,7 +316,7 @@ class MonitorMiddleware(AgentMiddleware[MonitorState, AgentContext, StructuredOu
                 record=record,
                 middleware_name=self.name,
                 feedback_visibility=self.feedback_visibility,
-                trajectory=prepared.trajectory,
+                trajectory=prepared.options["trajectory"],
             )
             # Only a committed step, one in monitor_log, gets a score in the tracing tools.
             queue_step_score(traced_step, record=record, monitor=self)
@@ -335,10 +345,11 @@ class MonitorMiddleware(AgentMiddleware[MonitorState, AgentContext, StructuredOu
                         with (
                             hide_model_calls_from_message_stream(),
                             set_context_value(monitor_step_open, value=True),
+                            counting_judgements(),
                         ):
                             decided = await self.protocol.decide(step)
                         decision = check_step_decision(decided, protocol=self.protocol)
-                        add_step_events(prepared.trajectory, decision=decision)
+                        add_step_events(prepared.options["trajectory"], decision=decision)
                 finally:
                     # A task the protocol started and left running may outlast the step.
                     # Once closed, the step refuses it the model and the monitor.
@@ -351,7 +362,7 @@ class MonitorMiddleware(AgentMiddleware[MonitorState, AgentContext, StructuredOu
                 record=record,
                 middleware_name=self.name,
                 feedback_visibility=self.feedback_visibility,
-                trajectory=prepared.trajectory,
+                trajectory=prepared.options["trajectory"],
             )
             # Only a committed step, one in monitor_log, gets a score in the tracing tools.
             queue_step_score(traced_step, record=record, monitor=self)
@@ -401,7 +412,7 @@ class MonitorMiddleware(AgentMiddleware[MonitorState, AgentContext, StructuredOu
     @override
     def before_model(self, state: MonitorState, runtime: AgentRuntime) -> AgentStateUpdate | None:
         """Record and tag the human messages so far, and open a step, under `invoke()`."""
-        return {**build_step_start_update(state), **build_refresh_update(state)}
+        return build_step_start_update(state)
 
     @override
     async def abefore_model(  # lanorme: ignore[NAMING-011]
@@ -410,7 +421,7 @@ class MonitorMiddleware(AgentMiddleware[MonitorState, AgentContext, StructuredOu
         runtime: AgentRuntime,
     ) -> AgentStateUpdate | None:
         """Record and tag the human messages so far, and open a step, under `ainvoke()`."""
-        return {**build_step_start_update(state), **build_refresh_update(state)}
+        return build_step_start_update(state)
 
     # Without `can_jump_to`, `create_agent` gives the hook a plain edge and ignores `jump_to`.
     @hook_config(can_jump_to=["end"])

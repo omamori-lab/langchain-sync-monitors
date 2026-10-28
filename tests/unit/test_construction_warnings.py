@@ -14,36 +14,30 @@ import sys
 from pathlib import Path
 
 BUILDS_EVERY_OPTION_THAT_WARNS = """
+from langchain_core.caches import InMemoryCache
 from langchain_core.language_models.fake_chat_models import FakeListChatModel
-from langchain_core.prompts import ChatPromptTemplate
 
-from langchain_sync_monitors.monitors import (
-    Aggregation,
-    DecisionModel,
-    DecisionModelMonitor,
-    GuardModelMonitor,
-    GuardScoring,
+from langchain_sync_monitors import (
+    GuardLabels,
+    GuardMonitor,
+    LLMMonitor,
+    MonitorMiddleware,
+    MonitorPrompt,
+    TrustedMonitoring,
 )
 from langchain_sync_monitors.protocols import AutoMode
 
-
-class UnusedDecisionModel(DecisionModel):
-    async def estimate_probabilities(self, *, context, questions):
-        return {}
-
-    def estimate_probabilities_sync(self, *, context, questions):
-        return {}
-
-
 AutoMode()
-GuardModelMonitor(
+GuardMonitor(
     model=FakeListChatModel(responses=["violation"]),
-    policy_prompt=ChatPromptTemplate.from_messages([("human", "{transcript}{proposed_step}")]),
-    suspicious_labels={"violation"},
-    safe_labels={"no_violation"},
-    scoring=GuardScoring.HARD_LABEL,
+    prompt=MonitorPrompt(system="", request="{trajectory}{proposed_action}"),
+    labels=GuardLabels(suspicious=frozenset({"violation"}), safe=frozenset({"no_violation"})),
+    samples=1,
 )
-DecisionModelMonitor(decision_model=UnusedDecisionModel(), aggregation=Aggregation.MEAN)
+MonitorMiddleware(
+    monitor=LLMMonitor(model=FakeListChatModel(responses=["unused"], cache=InMemoryCache())),
+    protocol=TrustedMonitoring(audit_threshold=0.5),
+)
 """
 
 
@@ -69,5 +63,7 @@ def test_every_construction_warning_shows_under_the_default_filters(tmp_path: Pa
     # Assert
     assert finished.returncode == 0, finished.stderr
     assert "UncalibratedThresholdWarning: block_threshold uses the uncalibrated" in finished.stderr
-    assert "HardLabelWarning: GuardScoring.HARD_LABEL gives every step" in finished.stderr
-    assert "UserWarning: Aggregation.MEAN dilutes a single strong hit" in finished.stderr
+    assert "HardLabelWarning: samples=1 gives every action a suspicion of 0 or 1" in finished.stderr
+    assert "CachedResampleWarning: A LangChain response cache is active for a monitor" in (
+        finished.stderr
+    )

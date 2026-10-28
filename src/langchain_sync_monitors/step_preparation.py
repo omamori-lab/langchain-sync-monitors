@@ -13,12 +13,9 @@ from langchain_sync_monitors.delegation import count_blocks_in_thread, read_dele
 from langchain_sync_monitors.halts import find_halt_decision, find_lost_write_halt
 from langchain_sync_monitors.pending_steps import PendingStepOptions, PreparedStep
 from langchain_sync_monitors.records import find_monitor_records, read_step_records
-from langchain_sync_monitors.run_inputs import read_current_run_inputs
 from langchain_sync_monitors.server_tools import warn_about_server_tools
-from langchain_sync_monitors.spans import StepIdentity
-from langchain_sync_monitors.state_keys import REWRITTEN_INPUTS_KEY, TASK_MESSAGES_KEY
+from langchain_sync_monitors.spans import StepIdentity, trace_monitors
 from langchain_sync_monitors.subagent_returns import count_returned_blocks, read_subagent_returns
-from langchain_sync_monitors.task_authorship import read_message_ids
 from langchain_sync_monitors.trajectories import load_step_trajectory
 
 if TYPE_CHECKING:
@@ -62,13 +59,10 @@ def prepare_step(request: AgentModelRequest, *, middleware: MonitorMiddleware) -
     )
     options = PendingStepOptions(
         request=request,
-        monitor=middleware.monitor,
-        task_author=middleware.task_author,
-        task_message_ids=read_message_ids(request.state, key=TASK_MESSAGES_KEY),
-        run_inputs=read_current_run_inputs(request.state),
-        rewritten_input_ids=read_message_ids(request.state, key=REWRITTEN_INPUTS_KEY),
+        monitors=trace_monitors(middleware.monitor),
+        trajectory=trajectory,
         previous_records=previous_records,
         blocks_in_thread=count_blocks_in_thread(request.state, monitor=middleware.label),
         new_subagent_blocks=count_returned_blocks(returns, monitor=middleware.label),
     )
-    return PreparedStep(identity=identity, halt=halt, options=options, trajectory=trajectory)
+    return PreparedStep(identity=identity, halt=halt, options=options)

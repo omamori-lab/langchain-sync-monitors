@@ -1,23 +1,29 @@
 """The step an agent is about to take, as a control protocol reaches it.
 
 A protocol is written once, as a coroutine that talks to a `PendingStep`.
-`AsyncPendingStep` serves `ainvoke()` and awaits the model and the monitor.
-`SyncPendingStep` serves `invoke()`: its methods are coroutines too, but they
-call the synchronous model and monitor without awaiting anything, so
-`run_synchronously` can finish the protocol with a single `send(None)`.
+`AsyncPendingStep` serves `ainvoke()` and awaits the model and the monitor's
+async twin. `SyncPendingStep` serves `invoke()`: its methods are coroutines
+too, but they call the synchronous model and the monitor's sync twin without
+awaiting anything, so `run_synchronously` can finish the protocol with a
+single `send(None)`.
+
+The monitor rates each sample's proposal, read as an action, against the
+monitor's trajectory as the step loaded it. A sample drawn after blocked
+attempts is rated against a copy of that trajectory with each attempt and
+its feedback added, as the step will record them.
 """
 
 from __future__ import annotations
 
 import asyncio
 import functools
-import itertools
 import threading
 import warnings
-from collections.abc import Coroutine, Iterator
-from dataclasses import dataclass, field
+from collections.abc import Coroutine
+from dataclasses import dataclass, field, replace
 from typing import ClassVar, TypedDict, override
 
+from hyoshigi import Action, SuspicionScore, Trajectory
 from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import AIMessage, BaseMessage
 
@@ -27,35 +33,25 @@ from langchain_sync_monitors._langchain import (
     AsyncModelCallHandler,
     ModelCallHandler,
     build_request_with_messages,
-    open_traced_run,
-    open_traced_run_sync,
 )
 from langchain_sync_monitors.concurrency import run_concurrently
 from langchain_sync_monitors.contracts import (
     BlockedAttempt,
-    Monitor,
-    MonitorInput,
     PendingStep,
     Sample,
     SampleDrawing,
     StepDecision,
     StepRecord,
-    TaskAuthor,
     Verdict,
 )
 from langchain_sync_monitors.errors import MonitorError, SynchronousRunError
 from langchain_sync_monitors.feedback import build_blocked_attempt_messages
 from langchain_sync_monitors.model_calls import CachedResampleWarning, is_response_cache_active
 from langchain_sync_monitors.options import check_enum_option
-from langchain_sync_monitors.run_inputs import RunInput, restore_run_inputs
-from langchain_sync_monitors.spans import (
-    StepIdentity,
-    build_judgement_span,
-    build_verdict_outputs,
-)
-from langchain_sync_monitors.task_authorship import tag_context_notes
+from langchain_sync_monitors.spans import StepIdentity, TracedTwins
 from langchain_sync_monitors.thresholds import LIBRARY_DIRECTORY
-from langchain_sync_monitors.trajectories import LoadedTrajectory
+from langchain_sync_monitors.trajectories import LoadedTrajectory, add_blocked_attempt
+from langchain_sync_monitors.trajectory_events import read_proposed_action
 
 SYNCHRONOUS_RUN_MESSAGE = (
     "A control protocol awaited real asynchronous work during a synchronous invoke(). "
@@ -63,9 +59,9 @@ SYNCHRONOUS_RUN_MESSAGE = (
     "run the agent with ainvoke() to use anything else."
 )
 MONITOR_EVENT_LOOP_MESSAGE = (
-    "The monitor {monitor_class} started asynchronous work in evaluate_sync, where no event "
-    "loop can run it, during a synchronous invoke(). A monitor's evaluate_sync must finish "
-    "without an event loop; run the agent with ainvoke() to use asyncio."
+    "The monitor {monitor_class} started asynchronous work in its sync twin's rate, where no "
+    "event loop can run it, during a synchronous invoke(). A sync twin must rate without an "
+    "event loop; run the agent with ainvoke() to use asyncio."
 )
 MISSING_EVENT_LOOP_MESSAGES = ("no running event loop", "no current event loop")
 """Parts of asyncio's errors for work started where no event loop can run it."""
@@ -120,7 +116,7 @@ def run_synchronously[ResultT](coroutine: Coroutine[object, object, ResultT]) ->
     asyncio's own errors for work started where no loop can run it, such as
     `gather` or `ensure_future` outside a running loop, become the same error;
     the pending step names the monitor instead when the error came from the
-    monitor's `evaluate_sync`. Inside a running loop, as in a notebook, a call
+    monitor's sync twin. Inside a running loop, as in a notebook, a call
     that ends in `SynchronousRunError` cancels every task the protocol
     scheduled before it starts. A call that returns, or raises another error,
     leaves such a task scheduled: `MonitoredStep.close()`, which the
@@ -184,11 +180,8 @@ class PendingStepOptions(TypedDict):
     """The keywords a pending step is built with, whether the run awaits or not."""
 
     request: AgentModelRequest
-    monitor: Monitor
-    task_author: TaskAuthor
-    task_message_ids: frozenset[str]
-    run_inputs: tuple[RunInput, ...]
-    rewritten_input_ids: frozenset[str]
+    monitors: TracedTwins
+    trajectory: LoadedTrajectory
     previous_records: tuple[StepRecord, ...]
     blocks_in_thread: int
     new_subagent_blocks: int
@@ -199,39 +192,32 @@ class PreparedStep:
     """A step as the middleware reads it before drawing any sample.
 
     `identity` names the step, `halt` is the halt it gets without a sample, if
-    any, `options` are the keywords of its pending step, and `trajectory` is
-    the monitor's trajectory, synced with the step's request.
+    any, and `options` are the keywords of its pending step, the monitor's
+    trajectory among them, synced with the step's request.
     """
 
     identity: StepIdentity
     halt: StepDecision | None
     options: PendingStepOptions
-    trajectory: LoadedTrajectory
 
 
 @dataclass(frozen=True, kw_only=True, eq=False)
 class MonitoredStep(PendingStep):
     """The parts of a pending step that do not depend on whether the run awaits.
 
-    `request` is the step's model request, `monitor` judges each sample, and
-    `previous_records` holds this monitor's records for this agent from
-    earlier steps of the thread, every turn of a checkpointed thread included,
-    or, inside a subagent, from earlier steps of its current delegation.
-    `task_message_ids` holds the ids of the human messages that arrived as a
-    run's input; the monitor reads its own feedback as monitor feedback and
-    every other human message as a context note. `run_inputs` holds the text
-    of each of them, and of input a run could not confirm, which the monitor
-    reads even once the request no longer holds it, the latter as a note;
-    `rewritten_input_ids` holds the ones a tool wrote a message under. The
-    middleware counts
+    `request` is the step's model request, `monitors` are the monitor's
+    twins, which rate each sample, and `trajectory` is the monitor's
+    trajectory as the step loaded it. `previous_records` holds this monitor's
+    records for this agent from earlier steps of the thread, every turn of a
+    checkpointed thread included, or, inside a subagent, from earlier steps
+    of its current delegation. The middleware counts
     `blocks_in_thread` from the log and the agent's `Delegation`, and
     `new_subagent_blocks` from what its tool calls returned since its last
     step, which `subagent_returns` keeps.
     `judged_samples` collects every sample the monitor has judged so far, in
     the order the verdicts arrived, so the middleware can report them if the
-    step fails before it is committed. `sample_numbers` numbers the samples
-    in the order their draws start, for the judgement spans. A pending step
-    lives for one step only, so this is not state shared between runs.
+    step fails before it is committed. A pending step lives for one step
+    only, so this is not state shared between runs.
 
     Once the middleware has finished the step, under either entry point, it
     calls `close`, and from then on the step refuses to call a model or the
@@ -244,18 +230,14 @@ class MonitoredStep(PendingStep):
     closed_step_message: ClassVar[str] = CLOSED_ASYNC_STEP_MESSAGE
 
     request: AgentModelRequest
-    monitor: Monitor
-    task_author: TaskAuthor
-    task_message_ids: frozenset[str] = frozenset()
-    run_inputs: tuple[RunInput, ...] = ()
-    rewritten_input_ids: frozenset[str] = frozenset()
+    monitors: TracedTwins
+    trajectory: LoadedTrajectory
     previous_records: tuple[StepRecord, ...] = ()
     blocks_in_thread: int = 0
     new_subagent_blocks: int = 0
     judged_samples: list[Sample] = field(default_factory=list)
     # The blocked attempts each draw of this step was shown, so a repeated request is spotted.
     sampled_attempts: list[tuple[BlockedAttempt, ...]] = field(default_factory=list)
-    sample_numbers: Iterator[int] = field(default_factory=lambda: itertools.count(1))
     closed: threading.Event = field(default_factory=threading.Event)
 
     def close(self) -> None:
@@ -286,31 +268,34 @@ class MonitoredStep(PendingStep):
         """Return this step's request, with the same conversation and tools, for another model."""
         return self.request.override(model=trusted_model)
 
-    def build_monitor_input(
+    def build_rating_trajectory(
+        self,
+        blocked_attempts: tuple[BlockedAttempt, ...],
+    ) -> Trajectory:
+        """Return the trajectory a sample's proposal is rated against.
+
+        It is the step's trajectory, or, after blocked attempts, a copy of it
+        with each attempt's proposal and feedback added, as the step records
+        them when it is committed; the step's own trajectory is left as it is.
+        """
+        loaded = self.trajectory
+        if not blocked_attempts:
+            return loaded.trajectory
+        copy = replace(loaded, trajectory=Trajectory.load(loaded.trajectory.dump()))
+        for attempt in blocked_attempts:
+            add_blocked_attempt(copy, attempt=attempt)
+        return copy.trajectory
+
+    def keep_judged_sample(
         self,
         *,
-        conversation: tuple[BaseMessage, ...],
+        response: AgentModelResponse,
         proposal: AIMessage,
-    ) -> MonitorInput:
-        """Return what the monitor judges: the conversation the sample saw and its proposal.
-
-        In the monitor's copy of the conversation, every untagged human
-        message that did not arrive as a run's input is tagged as a context
-        note, so it cannot speak as the task author, and every run's input is
-        there verbatim, even one the request no longer holds. A turn put back
-        carries its text alone, without any image it held.
-        """
-        tagged = tag_context_notes(conversation, task_message_ids=self.task_message_ids)
-        history = restore_run_inputs(
-            tagged,
-            run_inputs=self.run_inputs,
-            task_message_ids=self.task_message_ids,
-            rewritten_input_ids=self.rewritten_input_ids,
-        )
-        return MonitorInput(history=history, proposal=proposal, task_author=self.task_author)
-
-    def keep_judged_sample(self, sample: Sample) -> Sample:
-        """Remember a judged sample as evidence, and return it."""
+        score: SuspicionScore,
+    ) -> Sample:
+        """Keep a rated sample as evidence, its score as the protocol's verdict, and return it."""
+        verdict = Verdict(suspicion=score.value, reason=score.explanation)
+        sample = Sample(response=response, proposal=proposal, verdict=verdict)
         self.judged_samples.append(sample)
         return sample
 
@@ -333,6 +318,11 @@ class MonitoredStep(PendingStep):
         check_enum_option(drawing, option_type=SampleDrawing, parameter_name="drawing")
         self.warn_when_resamples_are_cached(count=count, blocked_attempts=blocked_attempts)
         return self.build_conversation(blocked_attempts)
+
+    def read_draw(self, response: AgentModelResponse) -> tuple[AIMessage, Action]:
+        """Return a draw's proposal, and the action the monitor rates."""
+        proposal = find_proposal(response)
+        return proposal, read_proposed_action(proposal)
 
     def warn_when_resamples_are_cached(
         self,
@@ -378,32 +368,31 @@ class AsyncPendingStep(MonitoredStep):
             blocked_attempts=blocked_attempts,
             drawing=drawing,
         )
+        trajectory = self.build_rating_trajectory(blocked_attempts)
         if drawing is SampleDrawing.CONCURRENT:
-            draws = (self.draw_sample(conversation) for _ in range(count))
+            draws = (self.draw_sample(conversation, trajectory=trajectory) for _ in range(count))
             return tuple(await run_concurrently(draws))
-        return tuple([await self.draw_sample(conversation) for _ in range(count)])
+        return tuple(
+            [await self.draw_sample(conversation, trajectory=trajectory) for _ in range(count)],
+        )
 
-    async def draw_sample(self, conversation: tuple[BaseMessage, ...]) -> Sample:
-        """Call the untrusted model once on the conversation and judge its proposal.
+    async def draw_sample(
+        self,
+        conversation: tuple[BaseMessage, ...],
+        *,
+        trajectory: Trajectory,
+    ) -> Sample:
+        """Call the untrusted model once on the conversation and rate its proposal.
 
-        The sample's number is taken before the first await, so samples drawn
-        at once are numbered in the order their draws were started. The step
-        is checked open before the model call and again before the monitor's,
-        since either await can outlast the step.
+        The step is checked open before the model call and again before the
+        monitor's, since either await can outlast the step.
         """
-        sample_number = next(self.sample_numbers)
         self.check_open()
         response = await self.handler(self.build_sample_request(conversation))
         self.check_open()
-        proposal = find_proposal(response)
-        monitor_input = self.build_monitor_input(conversation=conversation, proposal=proposal)
-        judgement_span = build_judgement_span(sample_number=sample_number, monitor=self.monitor)
-        async with open_traced_run(judgement_span) as traced_judgement:
-            verdict = await self.monitor.evaluate(monitor_input)
-            traced_judgement.outputs = build_verdict_outputs(verdict)
-        return self.keep_judged_sample(
-            Sample(response=response, proposal=proposal, verdict=verdict),
-        )
+        proposal, action = self.read_draw(response)
+        score = await self.monitors.async_monitor.rate(action, trajectory=trajectory)
+        return self.keep_judged_sample(response=response, proposal=proposal, score=score)
 
     @override
     async def request_trusted_step(self, *, trusted_model: BaseChatModel) -> AgentModelResponse:
@@ -416,7 +405,7 @@ class AsyncPendingStep(MonitoredStep):
 class SyncPendingStep(MonitoredStep):
     """A pending step under `invoke()`, whose coroutines never suspend.
 
-    Its methods call the synchronous `handler` and `Monitor.evaluate_sync`
+    Its methods call the synchronous `handler` and the monitor's sync twin
     directly, so `run_synchronously` can drive any protocol written against
     `PendingStep`. A closed step raises `SynchronousRunError`: only a task a
     protocol scheduled on an event loop, as in a notebook, can run after it.
@@ -445,35 +434,35 @@ class SyncPendingStep(MonitoredStep):
             blocked_attempts=blocked_attempts,
             drawing=drawing,
         )
-        return tuple(self.draw_sample(conversation) for _ in range(count))
+        trajectory = self.build_rating_trajectory(blocked_attempts)
+        return tuple(self.draw_sample(conversation, trajectory=trajectory) for _ in range(count))
 
-    def draw_sample(self, conversation: tuple[BaseMessage, ...]) -> Sample:
-        """Call the untrusted model once on the conversation and judge its proposal."""
-        sample_number = next(self.sample_numbers)
+    def draw_sample(
+        self,
+        conversation: tuple[BaseMessage, ...],
+        *,
+        trajectory: Trajectory,
+    ) -> Sample:
+        """Call the untrusted model once on the conversation and rate its proposal."""
         response = self.handler(self.build_sample_request(conversation))
-        proposal = find_proposal(response)
-        monitor_input = self.build_monitor_input(conversation=conversation, proposal=proposal)
-        judgement_span = build_judgement_span(sample_number=sample_number, monitor=self.monitor)
-        with open_traced_run_sync(judgement_span) as traced_judgement:
-            verdict = self.evaluate_without_event_loop(monitor_input)
-            traced_judgement.outputs = build_verdict_outputs(verdict)
-        return self.keep_judged_sample(
-            Sample(response=response, proposal=proposal, verdict=verdict),
-        )
+        proposal, action = self.read_draw(response)
+        score = self.rate_without_event_loop(action, trajectory=trajectory)
+        return self.keep_judged_sample(response=response, proposal=proposal, score=score)
 
-    def evaluate_without_event_loop(self, monitor_input: MonitorInput) -> Verdict:
-        """Have the monitor judge a proposal through `evaluate_sync`.
+    def rate_without_event_loop(self, action: Action, *, trajectory: Trajectory) -> SuspicionScore:
+        """Have the monitor's sync twin rate an action.
 
-        asyncio's error for work the monitor started where no event loop can
-        run it becomes `SynchronousRunError` naming the monitor, so that
+        asyncio's error for work the twin started where no event loop can run
+        it becomes `SynchronousRunError` naming the twin's class, so that
         `run_synchronously` does not blame the protocol for it.
         """
+        monitor = self.monitors.monitor
         try:
-            return self.monitor.evaluate_sync(monitor_input)
+            return monitor.rate(action, trajectory=trajectory)
         except RuntimeError as error:
             if not is_missing_event_loop_error(error):
                 raise
-            monitor_class_name = type(self.monitor).__name__
+            monitor_class_name = type(monitor.inner).__name__
             message = MONITOR_EVENT_LOOP_MESSAGE.format(monitor_class=monitor_class_name)
             raise SynchronousRunError(message) from error
 

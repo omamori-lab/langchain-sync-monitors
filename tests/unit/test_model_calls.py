@@ -9,20 +9,24 @@ from pathlib import Path
 import pytest
 from langchain_core.language_models import BaseChatModel
 from langchain_core.language_models.fake_chat_models import FakeListChatModel
-from langchain_core.prompts import ChatPromptTemplate
 
-from langchain_sync_monitors import model_calls, spans
+from langchain_sync_monitors import (
+    GuardLabels,
+    GuardMonitor,
+    LLMMonitor,
+    MonitorPrompt,
+    model_calls,
+    spans,
+)
 from langchain_sync_monitors.errors import ConfigurationError
 from langchain_sync_monitors.model_calls import build_internal_call_config, resolve_chat_model
-from langchain_sync_monitors.monitors import GuardModelMonitor, LLMMonitor
 from langchain_sync_monitors.protocols import DeferToTrustedModel
 
-GUARD_POLICY = ChatPromptTemplate.from_messages([("human", "{transcript}\n{proposed_step}")])
+GUARD_POLICY = MonitorPrompt(system="", request="{trajectory}\n{proposed_action}")
 MONITOR_RUN_NAMES = frozenset(
     {
         "monitor step",
         "monitor judgement",
-        "monitor classifier",
         "monitor decision",
         "monitor call",
     },
@@ -37,18 +41,16 @@ TRACING_GUIDE = (
 SPANS_FILTER_ROW = (
     "Everything but the monitor's spans",
     '`and(neq(name, "monitor step"), neq(name, "monitor judgement"), '
-    'neq(name, "monitor classifier"), neq(name, "monitor decision"))`',
-    "Name none of `monitor step`, `monitor judgement`, `monitor classifier` and `monitor decision`",
+    'neq(name, "monitor decision"))`',
+    "Name none of `monitor step`, `monitor judgement` and `monitor decision`",
 )
 """The tracing guide's filter-table row, cell by cell, that leaves out the monitor's spans."""
 SPANS_AND_CALLS_FILTER_ROW = (
     "Everything but the monitor's spans and model calls",
     '`and(neq(name, "monitor step"), neq(name, "monitor judgement"), '
-    'neq(name, "monitor classifier"), neq(name, "monitor decision"), '
-    'neq(name, "monitor call"), neq(metadata_key, "ls_message_view_exclude"))`',
-    "Name none of `monitor step`, `monitor judgement`, `monitor classifier`, "
-    "`monitor decision` and `monitor call`, which misses the attempts inside a classifier "
-    "wrapped in `with_retry()`",
+    'neq(name, "monitor decision"), neq(name, "monitor call"), '
+    'neq(metadata_key, "ls_message_view_exclude"))`',
+    "Name none of `monitor step`, `monitor judgement`, `monitor decision` and `monitor call`",
 )
 """The row that also leaves out the monitor's calls.
 
@@ -77,11 +79,10 @@ def build_llm_monitor(model: BaseChatModel) -> object:
 
 def build_guard_monitor(model: BaseChatModel) -> object:
     """Build a guard monitor over `model`."""
-    return GuardModelMonitor(
+    return GuardMonitor(
         model=model,
-        policy_prompt=GUARD_POLICY,
-        suspicious_labels={"violation"},
-        safe_labels={"no_violation"},
+        prompt=GUARD_POLICY,
+        labels=GuardLabels(suspicious=frozenset({"violation"}), safe=frozenset({"no_violation"})),
     )
 
 
@@ -93,7 +94,7 @@ def build_trusted_fallback(model: BaseChatModel) -> object:
 @pytest.mark.parametrize(
     "build",
     [resolve_chat_model, build_llm_monitor, build_guard_monitor, build_trusted_fallback],
-    ids=["resolve_chat_model", "LLMMonitor", "GuardModelMonitor", "DeferToTrustedModel"],
+    ids=["resolve_chat_model", "LLMMonitor", "GuardMonitor", "DeferToTrustedModel"],
 )
 @pytest.mark.parametrize(
     "wrap",
@@ -149,7 +150,7 @@ def read_table_rows(page: str) -> list[tuple[str, ...]]:
     ]
 
 
-def test_the_monitor_s_runs_have_exactly_five_fixed_names() -> None:
+def test_the_monitor_s_runs_have_exactly_four_fixed_names() -> None:
     # Act: every fixed run name the library defines, span or model call.
     names = {
         value

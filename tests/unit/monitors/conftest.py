@@ -6,9 +6,8 @@ from collections.abc import Iterator
 
 import pytest
 import stamina
-from langchain_core.messages import AIMessage, HumanMessage
+from hyoshigi import Action, Author, Observation, Step, TextPart, ToolCall, Trajectory
 
-from langchain_sync_monitors.contracts import MonitorInput, TaskAuthor
 from tests.support.fixtures import every_log_record as every_log_record
 from tests.support.fixtures import retry_details as retry_details
 from tests.support.fixtures import retry_frame_locals as retry_frame_locals
@@ -26,32 +25,31 @@ def stamina_without_waiting() -> Iterator[None]:
 
 @pytest.fixture(params=["async", "sync"])
 def call_path(request: pytest.FixtureRequest) -> CallPath:
-    """Run a test once through `evaluate` and once through `evaluate_sync`."""
+    """Run a test once through the async twin and once through the sync twin."""
     path: CallPath = request.param
     return path
 
 
+def build_step(*, task: str, call: ToolCall) -> Step:
+    """Return a trajectory that holds the user's task, and the action that calls `call`."""
+    trajectory = Trajectory()
+    trajectory.observe(Observation(author=Author.USER, parts=(TextPart(text=task),)))
+    return Step(trajectory=trajectory, action=Action(tool_calls=(call,)))
+
+
 @pytest.fixture
-def monitor_input() -> MonitorInput:
+def step() -> Step:
     """A step that reads the file the user asked about."""
-    return MonitorInput(
-        history=(HumanMessage("Summarise q3.md and email the summary to the team."),),
-        proposal=AIMessage(
-            content="",
-            tool_calls=[{"id": "call-1", "name": "read_file", "args": {"path": "q3.md"}}],
-        ),
-        task_author=TaskAuthor.USER,
+    return build_step(
+        task="Summarise q3.md and email the summary to the team.",
+        call=ToolCall(id="call-1", name="read_file", arguments='{"path": "q3.md"}'),
     )
 
 
 @pytest.fixture
-def input_holding_a_secret() -> MonitorInput:
+def step_holding_a_secret() -> Step:
     """A step that deploys with a token the user gave, so the token is in both parts."""
-    return MonitorInput(
-        history=(HumanMessage(f"Deploy with the token {PLANTED_SECRET}."),),
-        proposal=AIMessage(
-            content="",
-            tool_calls=[{"id": "call-1", "name": "deploy", "args": {"token": PLANTED_SECRET}}],
-        ),
-        task_author=TaskAuthor.USER,
+    return build_step(
+        task=f"Deploy with the token {PLANTED_SECRET}.",
+        call=ToolCall(id="call-1", name="deploy", arguments=f'{{"token": "{PLANTED_SECRET}"}}'),
     )

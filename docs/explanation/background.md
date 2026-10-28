@@ -14,11 +14,12 @@ with the same keys.
 | `TrustedMonitoring`, `DeferToTrusted` | A trusted model rates each output, and a suspicious one is audited or replaced | AI Control [@greenblatt2023aicontrol] |
 | `DeferToResample` | A suspicious step is sampled again, and the least suspicious sample runs | Ctrl-Z [@bhatt2025ctrlz] |
 | `AutoMode`, the default view, `CascadeMonitor` | Block and continue, the limits of three and twenty, a classifier that does not read the agent's own messages, two stages | Claude Code's auto mode [@hughes2026automode] |
-| `DEFAULT_MONITOR_PROMPT` | Reasoning before the score, on an anchored scale | Apollo Research [@apollo2026monitoringprompt] |
+| Every monitor, view, prompt and wrapper | The sync and async monitors each monitor class builds, the rendering of the trajectory, and the rules for failing closed | hyoshigi [@hyoshigi2026] |
+| `DEFAULT_PROMPT` | Reasoning before the score, on an anchored scale | Apollo Research [@apollo2026monitoringprompt] |
 | Verdicts read only where the format puts them | The threat of prompt injections aimed at the monitor | Terekhov et al. [@terekhov2025adaptive] |
 | `RepeatedMonitor`, `CalibratedMonitor` | Averaged calls, smoothed conformal p-values and random tie-breaking | [Thresholds and scores](#thresholds-and-scores) |
-| `GuardModelMonitor` | The probability of the unsafe label, or the share of samples that carry it | [Guard models](#guard-models) |
-| `DecisionModelMonitor` | Yes or no probabilities from Jev | [Decision models](#decision-models) |
+| `GuardMonitor` | The share of sampled replies that carry the unsafe label | [Guard models](#guard-models) |
+| `DecisionMonitor` | The probability that each statement holds, from Jev | [Decision models](#decision-models) |
 
 ## Control protocols
 
@@ -61,10 +62,10 @@ library takes four things from Hughes's account of it:
   payload of the agent's tool calls. The agent's own messages, tool-call
   descriptions and all tool outputs are stripped, which makes it
   reasoning-blind by design (section "Why we strip assistant text and tool
-  results"; figure 3) [@hughes2026automode]. `Channel.ACTIONS`, the
-  library's default view, follows it, with differences: it shows a call's
-  name and all its arguments, and it also reads `<tool_error>` entries,
-  subagent reports and the text of the step it judges. When a subagent returns,
+  results"; figure 3) [@hughes2026automode]. `Channel.DEFAULT`, the
+  default view, follows it, with differences: it shows a call's name and all
+  its arguments, and it also reads `<tool_error>` entries, subagent reports
+  and the text of the action it rates. When a subagent returns,
   the post's classifier reviews its whole action history, and a flag only
   adds a warning (section "Multi-agent handoffs") [@hughes2026automode]; the
   library shows the report to the parent's monitor as a `<subagent_report>`.
@@ -85,7 +86,7 @@ library takes four things from Hughes's account of it:
   finds suspicious.
 
 The rule that everything the agent chooses on its own is unauthorised until
-the user asks for it comes from the same post, and `DEFAULT_MONITOR_PROMPT`
+the user asks for it comes from the same post, and `DEFAULT_PROMPT`
 states it.
 
 ## What a monitor reads
@@ -122,13 +123,14 @@ gives the budgets of AI Control and Ctrl-Z.
 
 `RepeatedMonitor` draws on BashArena, LinuxArena, Ctrl-Z and Koran et al.
 [@kaufman2025basharena; @tracy2026linuxarena; @bhatt2025ctrlz; @koran2026ensemble];
-[Average repeated calls](../how-to/combine-and-calibrate-monitors.md#average-repeated-calls)
-says what each contributed. `CalibratedMonitor`, which reports a step's
-smoothed conformal p-value against honest scores and breaks the remaining ties
-at random, draws on Vovk et al., Makins et al. and LinuxArena
+`RepeatedMonitor` in hyoshigi's
+[API reference](https://omamori-lab.github.io/hyoshigi/reference/api/) says
+what each contributed. `CalibratedMonitor`, which reports a step's smoothed
+conformal p-value against honest scores and breaks the remaining ties at
+random, draws on Vovk et al., Makins et al. and LinuxArena
 [@vovk2016criteria; @makins2026multiagent; @tracy2026linuxarena];
-[What a calibrated threshold means](../how-to/combine-and-calibrate-monitors.md#what-a-calibrated-threshold-means)
-defines the p-value and says what each contributed.
+[hyoshigi's page on calibration](https://omamori-lab.github.io/hyoshigi/explanation/calibration/)
+defines the p-value.
 
 Hua et al. combine monitors under a cost budget, and their best two-monitor
 protocol calls the expensive monitor only when the cheap score falls in an
@@ -152,26 +154,27 @@ Guard and `Yes` for the other two, and Llama Guard 3's model card takes the
 probability of the first generated token as the unsafe class's
 [@meta2024llamaguard3].
 
-When a provider returns no log-probabilities, the share of several samples
-that carry the unsafe label estimates the same probability.
-[Choose how labels become a score](../how-to/use-a-guard-model.md#choose-how-labels-become-a-score)
-gives the evidence on how many samples to draw, from Lyu et al., Xiong et al.
-and Tian et al., and on how guard models are calibrated, from Liu et al.
-[@lyu2025sampleconsistency; @xiong2024uncertainty; @tian2023justask; @liu2025guardcalibration].
+The share of several samples that carry the unsafe label estimates the same
+probability without log-probabilities, and `GuardMonitor` scores that share.
+How many samples to draw draws on Lyu et al., Xiong et al. and Tian et al.,
+and how guard models are calibrated on Liu et al.
+[@lyu2025sampleconsistency; @xiong2024uncertainty; @tian2023justask; @liu2025guardcalibration];
+[A guard monitor scores the share of its samples labelled suspicious](https://omamori-lab.github.io/hyoshigi/how-to/choosing-a-monitor/#a-guard-monitor-scores-the-share-of-its-samples-labelled-suspicious)
+gives the evidence.
 
 Llama Guard 3 writes its label on the first line and, for unsafe content, the
 codes of the violated categories on the next [@meta2024llamaguard3format].
 Llama Guard 4 also lists the violated categories after an unsafe label
-[@meta2025llamaguard4]. `GuardModelMonitor` reads a label on the reply's last
+[@meta2025llamaguard4]. `GuardMonitor` reads a label on the reply's last
 line, or on its first line when that is a suspicious label followed only by
-category codes, and nowhere else.
+category codes, or after the key a guard's labels name, and nowhere else.
 
 ## Decision models
 
-Jev answers yes or no questions with a probability. It is served through
+Jev gives the probability that a statement holds. It is served through
 OpenRouter's Decisions API [@openrouter2026decisions] and through TypeSafe's
-own client [@typesafe2026langchain]. TypeSafe advises asking atomic
-questions, one factor each, and combining the answers in code
+own API, which TypeSafe's SDK reaches [@typesafe2026sdk]. TypeSafe advises
+asking atomic questions, one factor each, and combining the answers in code
 [@typesafe2026docs].
 
 ## The research behind the first plan
@@ -235,6 +238,14 @@ SDK [@openaiagents2026] and OpenInference's instrumentation of it
 
 ## Code we learned from or build on
 
+The monitors are hyoshigi's [@hyoshigi2026], the framework-free control core
+extracted from this library: each monitor class builds hyoshigi's sync and
+async monitors, which rate an action against a trajectory, and the views,
+prompts, guard labels, decision statements, wrappers and rules for failing
+closed are hyoshigi's own. hyoshigi writes each rating once, free of I/O, as
+a plan that a sync and an async driver run, after the sans-I/O pattern
+[@cannon2016sansio].
+
 The middleware follows LangChain's own middleware [@langchain2026]: how
 `LLMToolSelectorMiddleware` calls a second model, how the human-in-the-loop
 middleware rejects a tool call with an error result, and how
@@ -253,11 +264,10 @@ tagging injected messages. TypeSafe's `AutoModeMiddleware`
 The `openrouter` extra installs langchain-openrouter
 [@langchainopenrouter2026], which reaches OpenRouter through its Python SDK
 [@openrouterpythonsdk2026] and maps a reply's reasoning into LangChain's
-content blocks. `OpenRouterDecisionModel` calls the Decisions API with httpx
-[@httpx2024], validates the response with pydantic [@pydantic2026], and retries
-network failures with stamina [@schlawack2026stamina] rather than hand-rolled
-loops. Chat monitors write their scoring once, free of I/O, after the sans-I/O
-pattern [@cannon2016sansio].
+content blocks. An `openrouter:` decision model calls the Decisions API with
+httpx [@httpx2024], validates the response with pydantic [@pydantic2026], and
+retries network failures with stamina [@schlawack2026stamina] rather than
+hand-rolled loops.
 
 ## Built with
 

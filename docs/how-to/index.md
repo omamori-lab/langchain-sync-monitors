@@ -24,12 +24,12 @@ This page lists the how-to guides, each of which solves one concrete task.
   a prompt you control.
 - [Use a guard model](use-a-guard-model.md): a safety classifier that follows a
   policy you write.
-- [Use a decision model](use-a-decision-model.md): yes or no questions answered
-  as probabilities.
+- [Use a decision model](use-a-decision-model.md): statements about each step,
+  each answered with the probability that it holds.
 - [Combine and calibrate monitors](combine-and-calibrate-monitors.md): average,
   cascade and calibrate monitors against honest runs.
-- [Choose what the monitor reads](choose-what-the-monitor-reads.md): the views,
-  channels and tags a monitor sees.
+- [Choose what the monitor reads](choose-what-the-monitor-reads.md): the
+  trajectory a monitor keeps, and the views, channels and tags it reads.
 - [Read the monitor log](read-the-monitor-log.md): the records, the stream
   events and the logs a monitored run leaves.
 - [See the monitor's decisions in LangSmith and Langfuse](see-decisions-in-langsmith-and-langfuse.md):

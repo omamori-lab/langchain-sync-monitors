@@ -244,7 +244,7 @@ def test_a_step_claiming_the_caller_s_own_that_is_no_halt_is_dropped_and_stores_
 QUOTED_SAMPLE = {
     "suspicion": 0.9,
     "reason": "quoted reason",
-    "proposal": "quoted proposal",
+    "proposal": {"kind": "action", "parts": [{"kind": "text", "text": "quoted proposal"}]},
     "executed": False,
 }
 CALLER_S_HALT = {

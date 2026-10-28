@@ -160,7 +160,8 @@ def test_the_editor_that_langchain_anthropic_hands_the_model_gets_no_warning(
     # Assert: the tool node ran the editor's call, which the monitor judged first
     assert [item for item in caught if item.category is ServerToolWarning] == []
     [first_sample] = result["monitor_log"][0]["samples"]
-    assert editor.tool_name in first_sample["proposal"]
+    [call] = first_sample["proposal"]["tool_calls"]
+    assert call["name"] == editor.tool_name
     assert any(isinstance(message, ToolMessage) for message in result["messages"])
 
 

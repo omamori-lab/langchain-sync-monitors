@@ -31,7 +31,6 @@ from typing import TypedDict
 
 import pytest
 
-from langchain_sync_monitors.monitors.guard import UNREADABLE_LABEL_REASON
 from tests.live.checks import (
     LIVE_MARKS,
     list_run_problems,
@@ -65,6 +64,12 @@ TASK_MODES: dict[Task, RunMode] = {
     Task.COMPARE_EMAIL: "ainvoke",
 }
 """Each task's mode, so both hooks meet every family."""
+
+UNREADABLE_LABEL_REASON = (
+    "The monitor could not read its model's reply, so the action is treated as suspicious."
+)
+"""hyoshigi's reason for a score that failed closed on a reply it could not read, such as a
+guard reply with no readable label."""
 
 FAMILIES_HELD_TO_THE_THRESHOLD = frozenset(
     {MonitorFamily.LLM_MONITOR, MonitorFamily.DECISION_MODEL}

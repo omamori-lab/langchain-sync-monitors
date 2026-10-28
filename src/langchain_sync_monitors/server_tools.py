@@ -111,8 +111,9 @@ def render_server_tool_warning(*, middleware_name: str, server_tools: Sequence[s
         f"{middleware_name}: the agent's model is given server tools, which its provider "
         f"runs itself: {', '.join(server_tools)}. The provider runs them inside the model "
         "call: before the monitor judges the step, and again for every sample the protocol "
-        "draws, so the monitor cannot stop them. Give the agent tools of its own for any "
-        "action that must be judged before it runs."
+        "draws, so the monitor cannot stop them. A step that carries a server tool's result "
+        "is rated 1.0, since the monitor cannot read what the tool did. Give the agent tools "
+        "of its own for any action that must be judged before it runs."
     )
 
 

@@ -6,19 +6,19 @@ import asyncio
 from dataclasses import dataclass, field
 from typing import Any, Literal
 
+import hyoshigi
 import pytest
+from hyoshigi import Action, SuspicionScore, Trajectory
 from langchain.agents import create_agent
 from langchain.agents.middleware.types import ExtendedModelResponse, ModelRequest, ModelResponse
 from langchain_core.messages import AIMessage, HumanMessage
 
+from langchain_sync_monitors import MonitorTwins
 from langchain_sync_monitors.contracts import (
     ControlProtocol,
-    Monitor,
-    MonitorInput,
     Outcome,
     PendingStep,
     StepDecision,
-    Verdict,
 )
 from langchain_sync_monitors.errors import SynchronousRunError
 from langchain_sync_monitors.middleware import MonitorMiddleware
@@ -30,6 +30,7 @@ from tests.support.agents import (
     run_agent,
 )
 from tests.support.chat_models import ScriptedChatModel
+from tests.support.monitors import score_by_keyword
 from tests.support.protocols import AcceptFirst, AwaitsEventLoop
 
 ANSWER = "Q3 revenue grew 12%."
@@ -198,27 +199,38 @@ async def test_a_model_call_left_behind_by_invoke_never_reaches_a_model(
     assert isinstance(left_behind.exception(), SynchronousRunError)
 
 
-@dataclass(kw_only=True)
-class EventLoopMonitor(Monitor):
-    """A monitor whose `evaluate_sync` reaches for an event loop, which invoke() does not run."""
+@dataclass(frozen=True, kw_only=True)
+class EventLoopRater(hyoshigi.Monitor):
+    """A sync twin that reaches for an event loop, which invoke() does not run."""
 
     error_text: str | None = None
 
-    async def evaluate(self, monitor_input: MonitorInput) -> Verdict:
-        return Verdict(suspicion=0.0, reason="Looks fine.")
-
-    def evaluate_sync(self, monitor_input: MonitorInput) -> Verdict:
+    def rate(self, action: Action, *, trajectory: Trajectory) -> SuspicionScore:
         if self.error_text is not None:
             raise RuntimeError(self.error_text)
         asyncio.get_running_loop()
-        return Verdict(suspicion=0.0, reason="unreachable")
+        return score_by_keyword("", suspicion_by_keyword={})
+
+
+@dataclass(frozen=True, kw_only=True)
+class CalmAsyncRater(hyoshigi.AsyncMonitor):
+    """An async twin that rates every action as benign."""
+
+    async def rate(self, action: Action, *, trajectory: Trajectory) -> SuspicionScore:
+        return score_by_keyword("", suspicion_by_keyword={})
+
+
+def build_event_loop_monitor(*, error_text: str | None = None) -> MonitorTwins:
+    return MonitorTwins(
+        monitor=EventLoopRater(error_text=error_text), async_monitor=CalmAsyncRater()
+    )
 
 
 def test_invoke_names_a_monitor_that_needs_an_event_loop(
     answering_model: ScriptedChatModel,
 ) -> None:
     # Arrange
-    middleware = MonitorMiddleware(monitor=EventLoopMonitor(), protocol=AcceptFirst())
+    middleware = MonitorMiddleware(monitor=build_event_loop_monitor(), protocol=AcceptFirst())
     agent = create_agent(answering_model, middleware=[middleware])
 
     # Act
@@ -227,8 +239,8 @@ def test_invoke_names_a_monitor_that_needs_an_event_loop(
 
     # Assert
     message = str(raised.value)
-    assert "The monitor EventLoopMonitor" in message
-    assert "evaluate_sync" in message
+    assert "The monitor EventLoopRater" in message
+    assert "sync twin" in message
     assert "control protocol" not in message
 
 
@@ -236,7 +248,7 @@ def test_ainvoke_runs_the_monitor_that_needs_an_event_loop(
     answering_model: ScriptedChatModel,
 ) -> None:
     # Arrange
-    middleware = MonitorMiddleware(monitor=EventLoopMonitor(), protocol=AcceptFirst())
+    middleware = MonitorMiddleware(monitor=build_event_loop_monitor(), protocol=AcceptFirst())
     agent = create_agent(answering_model, middleware=[middleware])
 
     # Act
@@ -250,7 +262,7 @@ def test_invoke_passes_on_a_monitor_error_that_is_not_about_an_event_loop(
     answering_model: ScriptedChatModel,
 ) -> None:
     # Arrange
-    monitor = EventLoopMonitor(error_text="the monitor is misconfigured")
+    monitor = build_event_loop_monitor(error_text="the monitor is misconfigured")
     middleware = MonitorMiddleware(monitor=monitor, protocol=AcceptFirst())
     agent = create_agent(answering_model, middleware=[middleware])
 

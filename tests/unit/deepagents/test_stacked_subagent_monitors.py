@@ -97,7 +97,7 @@ def test_a_monitor_added_inside_a_spec_s_resampling_monitor_is_named(
         for record in result["monitor_log"]
         if (record["agent"], record["monitor"]) == ("worker", "monitor")
     ]
-    assert len(inner_monitor.inputs) == 2
+    assert len(inner_monitor.ratings) == 2
     assert len(inner_record["samples"]) == 1
 
 
@@ -192,7 +192,7 @@ def test_subagent_blocks_at_the_total_leave_a_monitor_inside_auto_mode_sound(
     assert outcomes == [("inner", "allowed"), ("outer", "allowed"), ("outer", "halted")]
     assert len(main_model.calls) == 1
     inner_records = [record for record in main_records if record["monitor"] == "inner"]
-    assert sum(len(record["samples"]) for record in inner_records) == len(inner_monitor.inputs)
+    assert sum(len(record["samples"]) for record in inner_records) == len(inner_monitor.ratings)
     assert check_monitor_placement(middleware=[outer, inner]) == []
 
 
@@ -256,7 +256,6 @@ def test_an_added_monitor_that_shows_its_blocks_inside_a_spec_s_monitor_is_named
         for record in result["monitor_log"]
         if (record["agent"], record["monitor"]) == ("worker", "guard")
     ]
-    assert "attacker.example" in guard_record["samples"][0]["proposal"]
-    assert [
-        monitor_input.proposal.tool_calls[0]["name"] for monitor_input in guard_monitor.inputs
-    ] == ["http_post"]
+    [call] = guard_record["samples"][0]["proposal"]["tool_calls"]
+    assert "attacker.example" in call["arguments"]
+    assert [rating.action.tool_calls[0].name for rating in guard_monitor.ratings] == ["http_post"]

@@ -19,14 +19,16 @@ from dataclasses import dataclass
 from typing import Any
 from unittest.mock import MagicMock
 
+import hyoshigi
 import pytest
+from hyoshigi import Action, SuspicionScore, Trajectory
 from langchain.agents import create_agent
 from langchain_core.messages import AIMessage
 from langchain_core.runnables import Runnable, RunnableConfig
 from langchain_core.tracers.langchain import LangChainTracer
 from langsmith import traceable, tracing_context
 
-from langchain_sync_monitors.contracts import Monitor, MonitorInput, Verdict
+from langchain_sync_monitors import MonitorTwins
 from langchain_sync_monitors.middleware import MonitorMiddleware
 from langchain_sync_monitors.protocols import DeferToResample, HaltRun, TrustedMonitoring
 from tests.support.agents import (
@@ -38,7 +40,7 @@ from tests.support.agents import (
     run_agent,
 )
 from tests.support.chat_models import ScriptedChatModel
-from tests.support.monitors import KeywordMonitor
+from tests.support.monitors import KeywordMonitor, score_by_keyword
 from tests.support.tracing import MONITOR_MODEL_NAME, RecordingTracer, build_monitor_model
 
 MONITOR_SPAN_NAMES = {"monitor step", "monitor judgement", "monitor decision"}
@@ -57,17 +59,26 @@ async def arun_traced_check() -> str:
     return "fine"
 
 
-@dataclass(kw_only=True)
-class TracedMonitor(Monitor):
-    """Traces part of its own work with LangSmith's `traceable`, and finds every step benign."""
+@dataclass(frozen=True, kw_only=True)
+class TraceableRater(hyoshigi.Monitor):
+    """Traces part of its own work with LangSmith's `traceable`, and finds every action benign."""
 
-    async def evaluate(self, monitor_input: MonitorInput) -> Verdict:
-        await arun_traced_check()
-        return Verdict(suspicion=0.1, reason="nothing suspicious")
-
-    def evaluate_sync(self, monitor_input: MonitorInput) -> Verdict:
+    def rate(self, action: Action, *, trajectory: Trajectory) -> SuspicionScore:
         run_traced_check()
-        return Verdict(suspicion=0.1, reason="nothing suspicious")
+        return score_by_keyword("", suspicion_by_keyword={})
+
+
+@dataclass(frozen=True, kw_only=True)
+class AsyncTraceableRater(hyoshigi.AsyncMonitor):
+    """Traces part of its own work with LangSmith's `traceable`, and finds every action benign."""
+
+    async def rate(self, action: Action, *, trajectory: Trajectory) -> SuspicionScore:
+        await arun_traced_check()
+        return score_by_keyword("", suspicion_by_keyword={})
+
+
+def build_traceable_monitor() -> MonitorTwins:
+    return MonitorTwins(monitor=TraceableRater(), async_monitor=AsyncTraceableRater())
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -129,12 +140,12 @@ def build_stacked_agent() -> Runnable[Any, Any]:
         tools=[],
         middleware=[
             MonitorMiddleware(
-                monitor=TracedMonitor(),
+                monitor=build_traceable_monitor(),
                 protocol=TrustedMonitoring(audit_threshold=0.8),
                 label="outer",
             ),
             MonitorMiddleware(
-                monitor=TracedMonitor(),
+                monitor=build_traceable_monitor(),
                 protocol=TrustedMonitoring(audit_threshold=0.8),
                 label="inner",
             ),

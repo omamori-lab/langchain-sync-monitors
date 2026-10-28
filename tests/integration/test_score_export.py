@@ -14,8 +14,10 @@ from typing import Any
 from unittest.mock import MagicMock
 
 import httpx
+import hyoshigi
 import pytest
 import stamina
+from hyoshigi import Action, Rationale, SuspicionScore, Trajectory
 from langchain.agents import create_agent
 from langchain.agents.middleware.types import AgentMiddleware
 from langchain_core.callbacks import BaseCallbackHandler
@@ -23,8 +25,7 @@ from langchain_core.messages import AIMessage
 from langchain_core.runnables import Runnable, RunnableConfig
 from stamina.instrumentation import RetryDetails
 
-from langchain_sync_monitors import middleware
-from langchain_sync_monitors.contracts import Monitor, MonitorInput, Verdict
+from langchain_sync_monitors import MonitorTwins, middleware
 from langchain_sync_monitors.errors import MonitorError
 from langchain_sync_monitors.middleware import MonitorMiddleware
 from langchain_sync_monitors.protocols import DeferToResample, HaltRun, TrustedMonitoring
@@ -255,15 +256,25 @@ def test_several_monitors_write_their_scores_under_their_own_labels(
     assert all(isinstance(value, float) for _, value in read_feedback(score_services).values())
 
 
-@dataclass(kw_only=True)
-class CertainMonitor(Monitor):
-    """Judges every step certainly an attack, with the integer 1 as its suspicion."""
+def score_as_certain() -> SuspicionScore:
+    """Score an action certainly an attack, with the integer 1 as its value."""
+    return SuspicionScore(value=1, explanation="certain", evidence=Rationale(model="certain"))
 
-    async def evaluate(self, monitor_input: MonitorInput) -> Verdict:
-        return Verdict(suspicion=1, reason="certain")
 
-    def evaluate_sync(self, monitor_input: MonitorInput) -> Verdict:
-        return Verdict(suspicion=1, reason="certain")
+@dataclass(frozen=True, kw_only=True)
+class CertainRater(hyoshigi.Monitor):
+    """Rates every action certainly an attack."""
+
+    def rate(self, action: Action, *, trajectory: Trajectory) -> SuspicionScore:
+        return score_as_certain()
+
+
+@dataclass(frozen=True, kw_only=True)
+class AsyncCertainRater(hyoshigi.AsyncMonitor):
+    """Rates every action certainly an attack."""
+
+    async def rate(self, action: Action, *, trajectory: Trajectory) -> SuspicionScore:
+        return score_as_certain()
 
 
 def test_the_score_is_the_record_float_even_for_an_integer_verdict(
@@ -272,7 +283,7 @@ def test_the_score_is_the_record_float_even_for_an_integer_verdict(
 ) -> None:
     # Arrange
     monitor = MonitorMiddleware(
-        monitor=CertainMonitor(),
+        monitor=MonitorTwins(monitor=CertainRater(), async_monitor=AsyncCertainRater()),
         protocol=TrustedMonitoring(audit_threshold=0.8),
         export_scores=frozenset({Tracer.LANGSMITH}),
     )

@@ -26,7 +26,6 @@ from langchain_sync_monitors import (
     HaltRun,
     MonitorMiddleware,
     MonitorStepFailedEvent,
-    MonitorView,
     StepRecord,
     SubagentHalt,
     monitor_subagents,
@@ -34,6 +33,7 @@ from langchain_sync_monitors import (
 from tests.live.costs import CostLedger, CostSnapshot
 from tests.live.harness import (
     AUDIT_THRESHOLD,
+    MONITOR_VIEW,
     SUSPICION_THRESHOLD,
     DecisionsClients,
     MonitorFamily,
@@ -135,7 +135,7 @@ def build_halting_monitor(
     """Build the subagent's override: the LLM monitor, under Defer to Resample ending in a halt."""
     monitor = build_family_monitor(
         MonitorFamily.LLM_MONITOR,
-        view=MonitorView(),
+        view=MONITOR_VIEW,
         ledger=ledger,
         decisions_clients=decisions_clients,
     )
@@ -157,7 +157,7 @@ def build_deep_live_agent(
     ledger = resources.ledger
     jev = build_family_monitor(
         MonitorFamily.DECISION_MODEL,
-        view=MonitorView(),
+        view=MONITOR_VIEW,
         ledger=ledger,
         decisions_clients=decisions_clients,
     )

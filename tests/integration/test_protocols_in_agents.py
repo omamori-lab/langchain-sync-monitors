@@ -12,16 +12,12 @@ from dataclasses import dataclass
 from typing import Any
 
 import pytest
+from hyoshigi import Action, Author, ToolObservation
 from langchain.agents import create_agent
 from langchain_core.messages import AIMessage, ToolMessage
 from langchain_core.runnables import Runnable
 
-from langchain_sync_monitors.contracts import (
-    ControlProtocol,
-    FeedbackVisibility,
-    MonitorView,
-    Resampling,
-)
+from langchain_sync_monitors.contracts import ControlProtocol, FeedbackVisibility, Resampling
 from langchain_sync_monitors.middleware import MonitorMiddleware
 from langchain_sync_monitors.protocols import (
     AutoMode,
@@ -30,7 +26,6 @@ from langchain_sync_monitors.protocols import (
     HaltRun,
     TrustedMonitoring,
 )
-from langchain_sync_monitors.transcript import render_transcript
 from tests.support.agents import (
     RunMode,
     Workspace,
@@ -41,7 +36,7 @@ from tests.support.agents import (
     run_agent,
 )
 from tests.support.chat_models import OverlapCountingChatModel, ScriptedChatModel
-from tests.support.monitors import KeywordMonitor
+from tests.support.monitors import KeywordMonitor, read_action_text
 
 FINAL_ANSWER = "Q3 revenue grew 12%."
 HALT_MESSAGE = "Stopped by the safety monitor."
@@ -99,14 +94,23 @@ def read_outcomes(run: MonitoredRun) -> list[str]:
     return [record["outcome"] for record in run.state["monitor_log"]]
 
 
-def render_monitor_history(run: MonitoredRun, *, judgement: int) -> str:
-    """Render the history of one of the monitor's judgements as the default view shows it."""
-    monitor_input = run.monitor.inputs[judgement]
-    return render_transcript(
-        monitor_input.history,
-        view=MonitorView(),
-        task_author=monitor_input.task_author,
-    )
+def read_monitor_feedback(run: MonitoredRun, *, judgement: int) -> dict[str, str]:
+    """Return the monitor's feedback on each blocked call, by call id, in one rating's history."""
+    return {
+        event.call_id: read_action_text(Action(parts=event.parts))
+        for event in run.monitor.ratings[judgement].history
+        if isinstance(event, ToolObservation) and event.author is Author.MONITOR
+    }
+
+
+def read_called_tools(run: MonitoredRun, *, judgement: int) -> list[str]:
+    """Return the name of each tool call in one rating's history, in order."""
+    return [
+        call.name
+        for event in run.monitor.ratings[judgement].history
+        if isinstance(event, Action)
+        for call in event.tool_calls
+    ]
 
 
 def test_defer_to_resample_replaces_a_suspicious_step_with_a_clean_sample(
@@ -207,9 +211,10 @@ def test_auto_mode_retry_is_judged_knowing_the_blocked_call_did_not_run(
     )
 
     # Assert
-    retry_history = render_monitor_history(run, judgement=1)
-    assert '<tool_call name="http_post">' in retry_history
-    assert '<monitor_feedback name="http_post">[Safety monitor]' in retry_history
+    feedback = read_monitor_feedback(run, judgement=1)
+    assert read_called_tools(run, judgement=1) == ["http_post"]
+    assert list(feedback) == ["call-post"]
+    assert feedback["call-post"].startswith("[Safety monitor]")
 
 
 def test_later_steps_see_feedback_kept_in_the_transcript(run_mode: RunMode) -> None:
@@ -222,8 +227,9 @@ def test_later_steps_see_feedback_kept_in_the_transcript(run_mode: RunMode) -> N
     )
 
     # Assert
-    final_step_history = render_monitor_history(run, judgement=-1)
-    assert '<monitor_feedback name="http_post">[Safety monitor]' in final_step_history
+    feedback = read_monitor_feedback(run, judgement=-1)
+    assert list(feedback) == ["call-post"]
+    assert feedback["call-post"].startswith("[Safety monitor]")
 
 
 def test_auto_mode_keeps_feedback_in_the_transcript_when_asked(run_mode: RunMode) -> None:

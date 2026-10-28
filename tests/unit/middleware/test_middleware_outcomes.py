@@ -5,10 +5,11 @@ from __future__ import annotations
 import logging
 
 import pytest
+from hyoshigi import Author, Observation
 from langchain.agents import create_agent
 from langchain_core.messages import AIMessage
 
-from langchain_sync_monitors.contracts import SampleDrawing, TaskAuthor
+from langchain_sync_monitors.contracts import SampleDrawing
 from langchain_sync_monitors.middleware import MonitorMiddleware
 from langchain_sync_monitors.protocols import AutoMode
 from tests.support.agents import (
@@ -70,7 +71,8 @@ def test_accepted_steps_commit_the_sample_and_one_record_each(
     assert [record["outcome"] for record in log] == ["allowed", "allowed"]
     assert {(record["agent"], record["monitor"]) for record in log} == {("main", "monitor")}
     assert all(record["samples"][0]["executed"] for record in log)
-    assert monitor.inputs[0].task_author is TaskAuthor.USER
+    [task] = [event for event in monitor.ratings[0].history if isinstance(event, Observation)]
+    assert task.author is Author.USER
 
 
 def test_a_resampled_step_never_shows_the_rejected_sample(
@@ -102,7 +104,8 @@ def test_a_resampled_step_never_shows_the_rejected_sample(
     first = result["monitor_log"][0]
     assert first["outcome"] == "resampled"
     assert [sample["executed"] for sample in first["samples"]] == [False, True]
-    assert ATTACKER_URL in first["samples"][0]["proposal"]
+    [call] = first["samples"][0]["proposal"]["tool_calls"]
+    assert ATTACKER_URL in call["arguments"]
 
 
 @pytest.mark.parametrize("drawing", [SampleDrawing.CONCURRENT, SampleDrawing.SEQUENTIAL])

@@ -110,7 +110,12 @@ def build_record(*suspicions: float) -> StepRecord:
         flagged=False,
         blocked_count=0,
         samples=[
-            SampleRecord(suspicion=suspicion, reason="judged", proposal="step", executed=False)
+            SampleRecord(
+                suspicion=suspicion,
+                reason="judged",
+                proposal={"kind": "action"},
+                executed=False,
+            )
             for suspicion in suspicions
         ],
     )

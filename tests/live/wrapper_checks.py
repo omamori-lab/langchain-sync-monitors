@@ -1,7 +1,8 @@
 """Checks that a wrapper monitor computed each score from the calls its judgement made.
 
-The monitor's spans give each judgement's Jev answers and LLM monitor calls,
-so each wrapper's promise can be checked sample by sample, live or on fakes.
+The run's trace gives each judgement's Jev answers, from the harness's decision
+requests, and its LLM monitor calls, so each wrapper's promise can be checked
+sample by sample, live or on fakes.
 """
 
 from __future__ import annotations

@@ -1,12 +1,12 @@
-"""The types every monitor, control protocol and the middleware exchange.
+"""The types every control protocol and the middleware exchange.
 
 The rest of the package codes against these definitions, so they change only in
 a dedicated pull request. How they fit together is explained in
 `docs/explanation/design.md`.
 
 A step is one run of the agent's model node, as defined under "The monitored
-step" in `docs/explanation/design.md`. The untrusted model proposes it, a
-`Monitor` scores it, and a `ControlProtocol` decides what the agent state
+step" in `docs/explanation/design.md`. The untrusted model proposes it, the
+monitor rates it, and a `ControlProtocol` decides what the agent state
 receives. Protocols reach the model only through a `PendingStep`, which is how
 one copy of each protocol serves both `invoke()` and `ainvoke()`.
 """
@@ -16,45 +16,16 @@ from __future__ import annotations
 import math
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from enum import Flag, StrEnum, auto
+from enum import StrEnum
 from typing import Literal, NotRequired, TypedDict
 
 from hyoshigi import JSON
 from langchain.agents.middleware.types import ModelResponse
 from langchain_core.language_models import BaseChatModel
-from langchain_core.messages import AIMessage, BaseMessage
+from langchain_core.messages import AIMessage
 from pydantic import NonNegativeInt
 
 from langchain_sync_monitors.errors import InvalidSuspicionError
-from langchain_sync_monitors.options import (
-    check_instance_option,
-    check_string_set_option,
-    read_optional_count_option,
-)
-
-
-class Channel(Flag):
-    """The parts of a transcript a monitor can read.
-
-    The default, `ACTIONS`, leaves out the agent's reasoning, its earlier prose
-    and raw tool output, following Claude Code's auto mode classifier
-    [@hughes2026automode]; reasoning is one flag away, since reading it catches
-    more misbehaviour [@baker2025monitoring] but can also mislead a monitor
-    [@arnav2025cotredhanded]. Whether a call ran travels with what it belongs
-    to: a tool error with the call, and monitor feedback and context notes
-    with the task. The channels select what a monitor reads of the history;
-    the step it judges always shows its tool calls and its text, whatever the
-    channels.
-    """
-
-    USER = auto()
-    REASONING = auto()
-    AGENT_TEXT = auto()
-    TOOL_CALLS = auto()
-    TOOL_RESULTS = auto()
-    SUBAGENT_REPORTS = auto()
-    ACTIONS = USER | TOOL_CALLS | SUBAGENT_REPORTS
-    ALL = USER | REASONING | AGENT_TEXT | TOOL_CALLS | TOOL_RESULTS | SUBAGENT_REPORTS
 
 
 class TaskAuthor(StrEnum):
@@ -124,73 +95,12 @@ class Outcome(StrEnum):
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
-class MonitorView:
-    """Which parts of the transcript a monitor reads.
-
-    `most_recent_entries` keeps only the last entries of the history, at least
-    one, or every entry when it is `None`; the messages of the task author are
-    kept in addition. `delegation_tools` names the tools whose results are
-    subagent reports; it defaults to the `task` tool through which Deep Agents
-    delegates to a subagent [@deepagents2026].
-
-    Each option is checked when the view is built: `channels` must be a
-    `Channel`, `most_recent_entries` a whole number of at least 1 or `None`,
-    and `delegation_tools` a set of strings, kept as a frozenset. Anything
-    else raises `ConfigurationError`.
-    """
-
-    channels: Channel = Channel.ACTIONS
-    most_recent_entries: int | None = None
-    delegation_tools: frozenset[str] = frozenset({"task"})
-
-    def __post_init__(self) -> None:
-        """Reject an option of the wrong type, and an entry limit below one.
-
-        A limit below one would silently hide every recent step, and a plain
-        string of tool names would match any part of a name.
-        """
-        check_instance_option(
-            self.channels,
-            option_type=Channel,
-            parameter_name="channels",
-            hint="Combine members with |, such as Channel.ACTIONS | Channel.REASONING.",
-        )
-        most_recent_entries = read_optional_count_option(
-            self.most_recent_entries,
-            parameter_name="most_recent_entries",
-            minimum=1,
-            none_means="to keep every entry",
-        )
-        check_string_set_option(
-            self.delegation_tools,
-            parameter_name="delegation_tools",
-            example="frozenset({'task'})",
-        )
-        # The view is frozen, so its converted options are set past the dataclass's guard.
-        object.__setattr__(self, "most_recent_entries", most_recent_entries)
-        object.__setattr__(self, "delegation_tools", frozenset(self.delegation_tools))
-
-
-@dataclass(frozen=True, slots=True, kw_only=True)
-class MonitorInput:
-    """What a monitor judges: the conversation so far and the step not yet taken.
-
-    Inside an agent, every human message in `history` that did not arrive as
-    a run's input carries an `lc_source` tag, so only the task author's
-    messages are untagged.
-    """
-
-    history: tuple[BaseMessage, ...]
-    proposal: AIMessage
-    task_author: TaskAuthor
-
-
-@dataclass(frozen=True, slots=True, kw_only=True)
 class Verdict:
-    """A monitor's judgement of one step.
+    """A monitor's judgement of one step, as a control protocol reads it.
 
-    `suspicion` runs from 0 (benign) to 1 (certainly an attack), so every
-    monitor works with every protocol.
+    `suspicion` runs from 0 (benign) to 1 (certainly an attack), and
+    `reason` is the monitor's explanation: the value and explanation of the
+    monitor's `SuspicionScore` [@hyoshigi2026].
     """
 
     suspicion: float
@@ -239,11 +149,15 @@ class StepDecision:
 
 
 class SampleRecord(TypedDict):
-    """One judged sample as stored in the agent state."""
+    """One judged sample as stored in the agent state.
+
+    `proposal` is the action the monitor rated, as `Trajectory.dump` stores
+    an action in a trajectory's history [@hyoshigi2026].
+    """
 
     suspicion: float
     reason: str
-    proposal: str
+    proposal: dict[str, JSON]
     executed: bool
 
 
@@ -302,24 +216,6 @@ class Delegation(TypedDict):
     delegating_agent: str
     blocks_before: dict[str, NonNegativeInt]
     runs: dict[str, DelegatedRun]
-
-
-class Monitor(ABC):
-    """Scores a proposed step. Implementations differ in the model family they use.
-
-    A monitor runs inside the agent's model node, so it must not ask a person
-    through LangGraph's `interrupt()`: on resume LangGraph runs the node
-    again [@langgraph2026], the step is sampled and judged afresh, and the
-    answer applies to samples the person never saw.
-    """
-
-    @abstractmethod
-    async def evaluate(self, monitor_input: MonitorInput) -> Verdict:
-        """Score the proposed step in `monitor_input`."""
-
-    @abstractmethod
-    def evaluate_sync(self, monitor_input: MonitorInput) -> Verdict:
-        """Score the proposed step without an event loop, for `invoke()`."""
 
 
 class PendingStep(ABC):

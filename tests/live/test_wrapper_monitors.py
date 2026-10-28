@@ -2,7 +2,8 @@
 
 What it measures: whether each wrapper computes its score from the calls it
 makes, with real models, and the protocol still keeps the canary in. The
-monitor's spans give each judgement's Jev answers and model calls, so:
+run's trace gives each judgement's Jev answers, from the harness's decision
+requests, and its model calls, so:
 
 - `RepeatedMonitor` must ask Jev three times per sample, and its score must
   be the mean of the answers;

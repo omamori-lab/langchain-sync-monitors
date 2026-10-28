@@ -106,7 +106,7 @@ def test_a_task_left_running_after_the_step_is_refused_the_model(
     # Assert
     assert len(result["monitor_log"]) == 1
     assert len(model.calls) == calls_at_return == 1
-    assert len(monitor.inputs) == 1
+    assert len(monitor.ratings) == 1
     expected_error, expected_reason = CLOSED_STEP_REFUSALS[run_mode]
     assert type(late_error) is expected_error
     assert expected_reason in str(late_error)

@@ -28,8 +28,7 @@ from langchain_sync_monitors._langchain import (
     ToolCallResults,
     read_update_pairs,
 )
-from langchain_sync_monitors.message_ids import build_run_end_update
-from langchain_sync_monitors.run_inputs import build_run_start_update
+from langchain_sync_monitors.message_ids import build_run_end_update, build_run_start_update
 from langchain_sync_monitors.task_authorship import (
     build_run_input_update,
     merge_message_ids,
@@ -198,7 +197,6 @@ def test_input_without_an_id_is_given_one_and_recorded_in_a_history_written_back
     assert new_id
     assert "lc_source" not in messages[2].additional_kwargs
     assert update["monitor_task_messages"] == [new_id]
-    assert [entry["id"] for entry in update["monitor_run_inputs"]] == [new_id]
 
 
 def test_input_without_an_id_after_a_stopped_run_is_written_back_as_unconfirmed() -> None:
@@ -535,7 +533,7 @@ class TaskMessagesUpdate:
 MONITOR_STATE_UPDATES: dict[str, Callable[[], object]] = {
     "dict": lambda: {"monitor_task_messages": ["forged"], "messages": [ANSWER]},
     "pairs": lambda: (("monitor_task_messages", ["forged"]), ("messages", [ANSWER])),
-    "overwrite": lambda: {"monitor_run_inputs": Overwrite([]), "messages": [ANSWER]},
+    "overwrite": lambda: {"monitor_seen_human_messages": Overwrite([]), "messages": [ANSWER]},
     "dataclass": lambda: TaskMessagesUpdate(monitor_task_messages=["forged"], messages=[ANSWER]),
     "key-subclass": lambda: {MessagesKey("monitor_inputs_at_halt"): [], "messages": [ANSWER]},
 }
@@ -652,25 +650,20 @@ def read_written_ids(result: object) -> list[str | None]:
 
 
 WRITES_UNDER_AN_ID = {
-    "the-removed-task": (SEEN_TASK_STATE, "task", [["task"]]),
-    "a-seen-message-the-state-holds": (
-        {**SEEN_TASK_STATE, "messages": [TASK_MESSAGE]},
-        "task",
-        [["task"]],
-    ),
-    "an-id-the-monitor-never-saw": (SEEN_TASK_STATE, "progress", []),
+    "the-removed-task": (SEEN_TASK_STATE, "task"),
+    "a-seen-message-the-state-holds": ({**SEEN_TASK_STATE, "messages": [TASK_MESSAGE]}, "task"),
+    "an-id-the-monitor-never-saw": (SEEN_TASK_STATE, "progress"),
 }
 
 
 @pytest.mark.parametrize(
-    ("state", "message_id", "expected_record"),
+    ("state", "message_id"),
     WRITES_UNDER_AN_ID.values(),
     ids=WRITES_UNDER_AN_ID.keys(),
 )
-def test_a_tool_s_write_under_a_seen_id_keeps_the_id_and_is_recorded(
+def test_a_tool_s_write_under_a_seen_id_keeps_the_id_and_writes_nothing_else(
     state: dict[str, object],
     message_id: str,
-    expected_record: list[list[str]],
     caplog: pytest.LogCaptureFixture,
 ) -> None:
     # Arrange
@@ -680,21 +673,11 @@ def test_a_tool_s_write_under_a_seen_id_keeps_the_id_and_is_recorded(
     with caplog.at_level(logging.WARNING, logger=TASK_AUTHORSHIP_LOGGER):
         result = tag_tool_written_notes(command, tool_name="pin", state=state)
 
-    # Assert: the monitor's own record is kept, and is not taken for the tool's write
-    assert read_written_ids(result) == [message_id]
-    assert read_written(result, key="monitor_rewritten_inputs") == expected_record
-    assert caplog.records == []
-
-
-def test_a_removal_under_a_seen_id_is_not_recorded() -> None:
-    # Arrange
-    command = Command(update={"messages": [RemoveMessage(id="task")]})
-
-    # Act
-    removal = tag_tool_written_notes(command, tool_name="forget", state=SEEN_TASK_STATE)
-
     # Assert
-    assert read_written(removal, key="monitor_rewritten_inputs") == []
+    assert isinstance(result, Command)
+    assert read_written_ids(result) == [message_id]
+    assert [key for key, _ in read_update_pairs(result)] == ["messages"]
+    assert caplog.records == []
 
 
 @dataclass
@@ -716,22 +699,9 @@ def test_a_state_that_is_not_a_mapping_reads_as_empty_so_a_write_back_is_the_too
     # Assert: it fails closed, as a write of new words the monitor never saw
     [messages] = read_written(written, key="messages")
     assert read_sources(messages) == ["backup"]
-    assert read_written(written, key="monitor_rewritten_inputs") == []
 
 
-def test_a_tool_message_under_a_seen_id_is_recorded_in_a_command() -> None:
-    # Arrange
-    answer = ToolMessage("Pinned.", tool_call_id="call-1", id="task")
-
-    # Act
-    written = tag_tool_written_notes(answer, tool_name="pin", state=SEEN_TASK_STATE)
-
-    # Assert
-    assert read_written_ids(written) == ["task"]
-    assert read_written(written, key="monitor_rewritten_inputs") == [["task"]]
-
-
-def test_a_tool_s_write_under_the_id_of_input_a_run_could_not_confirm_is_recorded() -> None:
+def test_a_tool_s_write_under_the_id_of_input_a_run_could_not_confirm_is_its_note() -> None:
     # Arrange: a run starts after one that stopped early, and the state takes its start's update
     stopped = {
         "messages": [TASK_MESSAGE, HumanMessage("Only use the Q3 figures.", id="unconfirmed")],
@@ -751,10 +721,9 @@ def test_a_tool_s_write_under_the_id_of_input_a_run_could_not_confirm_is_recorde
     # Act
     written = tag_tool_written_notes(command, tool_name="edit", state=state)
 
-    # Assert: the edit is the tool's note, and the monitor knows it took the input's id
+    # Assert
     [messages] = read_written(written, key="messages")
     assert read_sources(messages) == ["edit"]
-    assert read_written(written, key="monitor_rewritten_inputs") == [["unconfirmed"]]
 
 
 @pytest.mark.parametrize("removal", ["task", REMOVE_ALL_MESSAGES], ids=["by-id", "remove-all"])
@@ -775,7 +744,6 @@ def test_a_later_item_writing_back_what_an_earlier_one_removed_is_the_tool_s_not
     assert isinstance(written, list)
     [[message]] = read_written(written[1], key="messages")
     assert read_sources([message]) == ["backup"]
-    assert read_written(written[1], key="monitor_rewritten_inputs") == [["task"]]
 
 
 @pytest.mark.parametrize("as_list", [False, True], ids=["one-command", "one-item-list"])
@@ -792,33 +760,3 @@ def test_a_write_back_in_the_same_item_as_its_removal_keeps_its_author(as_list: 
     item = written[0] if isinstance(written, list) else written
     [messages] = read_written(item, key="messages")
     assert read_sources(messages) == [None, None]
-
-
-PARENT_COMMAND_GRAPHS = {
-    "named-for-this-graph": ("tools:0d3c", [["task"]]),
-    "bound-for-the-parent": (Command.PARENT, []),
-}
-"""The graph a command raised for the parent names: the parent's wrapper sees the namespace
-LangGraph resolved it to, and the worker's wrapper still sees `Command.PARENT`."""
-
-
-@pytest.mark.parametrize(
-    ("graph", "expected_record"),
-    PARENT_COMMAND_GRAPHS.values(),
-    ids=PARENT_COMMAND_GRAPHS.keys(),
-)
-def test_a_raised_command_is_recorded_only_by_the_graph_it_writes_to(
-    graph: str,
-    expected_record: list[list[str]],
-) -> None:
-    # Arrange
-    update = {"messages": [HumanMessage("noted", id="task"), ANSWER]}
-    parent_command = ParentCommand(Command(graph=graph, update=update))
-
-    # Act
-    relabel_parent_command(parent_command, tool_name="report", state=SEEN_TASK_STATE)
-
-    # Assert
-    [command] = parent_command.args
-    assert command.graph == graph
-    assert read_written(command, key="monitor_rewritten_inputs") == expected_record

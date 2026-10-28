@@ -36,7 +36,7 @@ pip install "langchain-sync-monitors[openrouter,deepagents]"
 |---|---|---|
 | `openrouter` | `langchain-openrouter` | model strings such as `"openrouter:xiaomi/mimo-v2.6-pro"` |
 | `deepagents` | `deepagents` | `create_deep_agent` and `monitor_subagents` |
-| `typesafe` | `langchain-typesafe` | `TypeSafeDecisionModel` |
+| `typesafe` | `hyoshigi[typesafe]`, with TypeSafe's SDK | `DecisionMonitor(model="typesafe:...")` |
 
 ## Quick start
 
@@ -100,14 +100,14 @@ Four control protocols, from watching to blocking: [Choose a protocol](docs/how-
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/assets/diagrams/monitors-dark.svg">
-  <img alt="Three monitor classes cover three kinds of model, each drawn as the charm. LLMMonitor asks a chat model to reason and then score the step, from 0 to 10 by default. GuardModelMonitor has a guard model label the step against a policy you write, and suspicion is the probability of the unsafe label. DecisionModelMonitor asks a decision model yes or no questions, and suspicion is the probability of yes. Each returns the same Verdict, a suspicion from 0 to 1 and a reason, so any monitor works with any control protocol. Three wrappers nest around any monitor: RepeatedMonitor averages several calls, CalibratedMonitor reports the score's smoothed conformal p-value against the scores of honest runs, and CascadeMonitor runs a fast monitor on every step and, when the fast one finds the step suspicious, a careful one whose verdict replaces the fast one's." src="docs/assets/diagrams/monitors-light.svg">
+  <img alt="Three monitor classes cover three kinds of model, each drawn as the charm. LLMMonitor asks a chat model to reason and then score the step, from 0 to 10 by default. GuardMonitor has a guard model label the step against a policy you write, several times, and suspicion is the share of its replies labelled suspicious. DecisionMonitor asks a decision model whether statements about the step hold, and suspicion is the highest of their probabilities by default. Each builds hyoshigi's sync and async monitors and gives the same verdict, a suspicion from 0 to 1 and a reason, so any monitor works with any control protocol. Three wrappers nest around any monitor: RepeatedMonitor averages several calls, CalibratedMonitor reports the score's smoothed conformal p-value against the scores of honest runs, and CascadeMonitor runs a fast monitor on every step and, when the fast one finds the step suspicious, a careful one whose verdict replaces the fast one's." src="docs/assets/diagrams/monitors-light.svg">
 </picture>
 
-Three monitor families, [LLM monitors](docs/how-to/use-an-llm-monitor.md), [guard models](docs/how-to/use-a-guard-model.md) and [decision models](docs/how-to/use-a-decision-model.md), and [wrappers](docs/how-to/combine-and-calibrate-monitors.md) that average, calibrate or cascade them.
+Three monitor families, [LLM monitors](docs/how-to/use-an-llm-monitor.md), [guard models](docs/how-to/use-a-guard-model.md) and [decision models](docs/how-to/use-a-decision-model.md), and [wrappers](docs/how-to/combine-and-calibrate-monitors.md) that average, calibrate or cascade them. The monitors are [hyoshigi](https://omamori-lab.github.io/hyoshigi/)'s: each one builds hyoshigi's sync and async monitors from the same options.
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/assets/diagrams/monitor-view-dark.svg">
-  <img alt="Every entry of the transcript belongs to one channel. The default view, Channel.ACTIONS, reads USER (every turn of the user, kept verbatim even after summarisation, context notes and feedback), TOOL_CALLS (tool calls and errors) and SUBAGENT_REPORTS (what subagents report), and leaves out REASONING, AGENT_TEXT and TOOL_RESULTS, each one flag away. The proposed step's tool calls and text are always shown; the rest of the step follows the view's channels. A MonitorView chooses the channels, can keep only the most recent entries besides the user's turns, and names the tools whose results are subagent reports. The monitor reads the chosen entries as escaped, tagged text ending with the proposed step, then scores the step." src="docs/assets/diagrams/monitor-view-light.svg">
+  <img alt="Every entry of the monitor's trajectory belongs to one channel. The default view, Channel.DEFAULT, reads TASK (the user's turns, or the delegator's, kept as first read even after summarisation), TOOL_CALLS (tool calls and their errors, the monitor's feedback on a blocked call included) and SUBAGENT_REPORTS (what subagents report), and leaves out CONTEXT (context notes, system messages and feedback written as a message), THOUGHTS, AGENT_PARTS and TOOL_OBSERVATIONS, each one flag away. The proposed action's tool calls and text are always shown, and its thought when the view holds THOUGHTS. A View chooses the channels, can keep only the most recent entries besides the task's, and names the tools whose results are subagent reports. The monitor reads the chosen entries as escaped, tagged text ending with the proposed action, then scores it." src="docs/assets/diagrams/monitor-view-light.svg">
 </picture>
 
 What the monitor reads by default, and each channel it leaves out: [Choose what the monitor reads](docs/how-to/choose-what-the-monitor-reads.md).
@@ -123,14 +123,18 @@ A monitor in every Deep Agents subagent: [Monitor Deep Agents subagents](docs/ho
 
 - **Server tools.** Server-side tools, such as Anthropic's web search or
   OpenAI's code interpreter, run inside the model call: they have run before
-  the monitor sees the step, and run again for every sample drawn.
-  `ServerToolWarning` warns about the known ones for
+  the monitor sees the step, and run again for every sample drawn. A step that
+  carries a server tool's result is rated 1.0, since the monitor cannot read
+  what the tool did. `ServerToolWarning` warns about the known ones for
   Anthropic, OpenAI and Gemini when it can see them; it cannot see some, such
   as OpenRouter's web plugin.
 - **What the monitor reads.** By default it reads the task, the tool calls, the
   subagent reports and the text of the step it judges. It does not read the
   agent's reasoning, the text the agent wrote beside its earlier tool calls,
-  or raw tool output; each is one flag away.
+  raw tool output or context notes; each is one flag away. It keeps each
+  message as it first read it, so a later redaction, such as
+  `PIIMiddleware`'s, never reaches the monitor's model or its checkpointed
+  trajectory.
 - **Halts.** A halt stands until a later run brings a message the monitor
   records as new input from the user. A middleware listed before the monitor
   can still lift it, with an untagged human message written from its

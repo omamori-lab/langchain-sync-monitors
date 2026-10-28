@@ -77,13 +77,6 @@ def is_rate_limit(error: str) -> bool:
     return any(mark in error for mark in RATE_LIMIT_MARKERS)
 
 
-def skip_on_rate_limit_error(error: BaseException, *, name: str) -> None:
-    """Skip the test, saying why, when a provider's rate limit raised `error`."""
-    text = f"{type(error).__name__}: {error}"
-    if is_rate_limit(text):
-        pytest.skip(f"{name}: the provider rate-limited a call: {text[:300]}")
-
-
 def list_errors(error: str | None, *, failed_steps: Iterable[MonitorStepFailedEvent]) -> list[str]:
     """Return the error that ended a run, if any, and that of each step that failed uncommitted."""
     return [*([] if error is None else [error]), *(event["error"] for event in failed_steps)]

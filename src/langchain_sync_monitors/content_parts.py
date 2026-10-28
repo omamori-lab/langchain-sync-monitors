@@ -22,7 +22,7 @@ from langchain_core.messages import (
 )
 
 from langchain_sync_monitors.errors import MessageFormatError
-from langchain_sync_monitors.transcript import (
+from langchain_sync_monitors.message_sources import (
     read_unrecognised_block_name,
     read_unrecognised_block_value,
 )

@@ -235,9 +235,11 @@ To write your own, pass `FeedbackTemplate(text=...)`:
 - Start the text with a marker such as `[Safety monitor]`. Some providers drop
   a message's `name`, so the text itself must say where it comes from.
 
-The reason is the monitor's own words. The library adds no score or
-probability to it, so the agent does not learn from the library how close its
-step came to passing. An LLM monitor's reason is its own reasoning: the default
+The reason is the monitor's own words, or, for a rating that failed closed,
+a sentence that names the cause
+([hyoshigi's page on failing closed](https://omamori-lab.github.io/hyoshigi/explanation/failing-closed/)).
+The library adds no score or probability to it, so the agent does not learn
+from the library how close its step came to passing. An LLM monitor's reason is its own reasoning: the default
 prompt asks it to keep its score out, but its wording may still hint at one.
 A monitor you write yourself should keep scores out too.
 
@@ -259,9 +261,8 @@ A blocked attempt is answered in a way every provider accepts:
   attempts and their feedback. The agent's messages show the accepted step
   alone, and `monitor_log` keeps the blocked attempts.
 - With `IN_TRANSCRIPT`, the blocked attempts and their feedback are committed
-  before the accepted step. The agent remembers the blocked attempts on later
-  steps, and so does the monitor, which reads earlier feedback as
-  `<monitor_feedback>`. A chat interface shows committed text to the user, so
+  before the accepted step, and the agent remembers them on later steps. A
+  chat interface shows committed text to the user, so
   each attempt is committed with its text withheld: it reads
   `WITHHELD_TEXT_MESSAGE`, "[Safety monitor] This step was blocked, so its text
   is withheld.", wherever the message keeps it, and keeps its tool calls,
@@ -273,6 +274,11 @@ A blocked attempt is answered in a way every provider accepts:
   `HIDDEN` for an Auto Mode monitor that sits inside another monitor: a
   monitor outside it would judge the first blocked attempt instead of the
   step that runs, and `check_monitor_placement` warns about such a list.
+
+Under either setting, the monitor's trajectory keeps each blocked attempt,
+with its text, and its feedback, so the monitor reads them on later steps as
+its view shows them: feedback on a blocked tool call as a `<tool_error>`, and
+on a blocked final answer as a context note.
 
 `HIDDEN` has a cost. Once a step is over, the agent no longer sees what was
 blocked in it, so at a later step it may propose the same blocked action
@@ -313,7 +319,9 @@ for record in result["monitor_log"]:
     blocked = [sample for sample in record["samples"] if not sample["executed"]]
     for sample in blocked:
         print(f"Step {record['step_number']}, blocked at {sample['suspicion']:.2f}")
-        print(sample["proposal"])
+        # The blocked attempt's tool calls, each with its argument text.
+        for call in sample["proposal"]["tool_calls"]:
+            print(f"  {call['name']} {call['arguments']}")
         print(f"  reason: {sample['reason']}")
 
 # Every record under this monitor's label counts, the subagents' included.

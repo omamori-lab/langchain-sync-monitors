@@ -7,7 +7,7 @@ from typing import get_args
 
 import pytest
 
-from langchain_sync_monitors.contracts import Channel, MonitorView, Outcome, OutcomeName, Verdict
+from langchain_sync_monitors.contracts import Outcome, OutcomeName, Verdict
 from langchain_sync_monitors.errors import InvalidSuspicionError, MonitorError
 
 
@@ -36,37 +36,6 @@ def test_an_invalid_suspicion_is_a_library_error(suspicion: float) -> None:
     # Assert
     assert isinstance(raised.value, InvalidSuspicionError)
     assert isinstance(raised.value, ValueError)
-
-
-def test_default_view_reads_actions_but_not_reasoning() -> None:
-    # Act
-    channels = MonitorView().channels
-
-    # Assert
-    assert Channel.USER in channels
-    assert Channel.TOOL_CALLS in channels
-    assert Channel.SUBAGENT_REPORTS in channels
-    assert Channel.REASONING not in channels
-    assert Channel.AGENT_TEXT not in channels
-    assert Channel.TOOL_RESULTS not in channels
-
-
-def test_everything_view_reads_every_channel() -> None:
-    # Arrange
-    single_channels = [
-        Channel.USER,
-        Channel.REASONING,
-        Channel.AGENT_TEXT,
-        Channel.TOOL_CALLS,
-        Channel.TOOL_RESULTS,
-        Channel.SUBAGENT_REPORTS,
-    ]
-
-    # Act
-    missing = [channel for channel in single_channels if channel not in Channel.ALL]
-
-    # Assert
-    assert missing == []
 
 
 def test_outcome_values_match_the_stored_outcome_names() -> None:

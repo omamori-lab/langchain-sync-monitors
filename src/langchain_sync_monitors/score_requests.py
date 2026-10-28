@@ -32,7 +32,7 @@ from typing import Final, TypeGuard
 
 import httpx
 
-from langchain_sync_monitors.monitors.openrouter_decisions import check_key_characters
+from langchain_sync_monitors.options import check_key_characters
 from langchain_sync_monitors.retries import call_with_retries_sync
 
 logger = logging.getLogger(__name__)

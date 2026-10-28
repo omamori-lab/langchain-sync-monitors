@@ -375,8 +375,9 @@ When you read it:
   [Thresholds and limits](use-auto-mode.md#thresholds-and-limits).
   `max_consecutive_blocks` still counts one step of one agent.
 - **The parent's monitor reads subagent reports.** The default view shows the
-  parent's monitor each subagent's final report as `<subagent_report>`, and
-  it judges the `task` call itself before the subagent starts.
+  parent's monitor each subagent's final report as `<subagent_report>`, since
+  its trajectory records each `task` call's delegation, and it judges the
+  `task` call itself before the subagent starts.
 - **Subagent events need `subgraphs=True`.** A subagent writes its
   `monitor_step` and `monitor_step_failed` events to `stream_mode="custom"`
   inside its own graph, so

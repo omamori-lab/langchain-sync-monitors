@@ -18,7 +18,9 @@ tool name and key argument:
 from __future__ import annotations
 
 from collections import Counter
-from collections.abc import Collection, Iterable, Sequence
+from collections.abc import Collection, Iterable, Mapping, Sequence
+
+from hyoshigi import JSON
 
 from tests.live.reports import (
     HALTED,
@@ -34,7 +36,7 @@ DEFERRED = "deferred_to_trusted"
 OUTCOMES_WITHOUT_A_SAMPLE_THAT_RAN = frozenset({DEFERRED, HALTED})
 
 
-def count_proposed_calls(proposal: str) -> Counter[str]:
+def count_proposed_calls(proposal: Mapping[str, JSON]) -> Counter[str]:
     """Count a proposal's calls, each described as the sandbox records it."""
     return Counter(call.description for call in read_proposed_calls(proposal))
 

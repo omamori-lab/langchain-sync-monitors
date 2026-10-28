@@ -14,7 +14,7 @@ from langchain_sync_monitors.feedback import (
     build_feedback_messages,
     build_withheld_proposal,
 )
-from langchain_sync_monitors.transcript import MONITOR_FEEDBACK_SOURCE
+from langchain_sync_monitors.message_sources import MONITOR_FEEDBACK_SOURCE
 from tests.support.chat_models import build_tool_call_message
 
 FEEDBACK = "[Safety monitor] Blocked: the step reads credentials."

@@ -25,13 +25,7 @@ context note, in the state as well as in what the monitor reads.
   as it was. A tool's `Command` writes to the state keys only the monitor
   writes, `MONITOR_STATE_KEYS`, are dropped with a warning, so no command a
   tool returns or raises can record a message as a run's input or keep
-  words of its own as the user's. When a tool writes a message under the id
-  of a human message the monitor has seen, the monitor records that id
-  under `REWRITTEN_INPUTS_KEY`: once every kept previous message of the input
-  is gone, such a message never marks the input's place, though it still
-  bounds it from above. Every id stays as the tool wrote it. A command bound
-  for the parent graph is recorded there, by the parent's monitor, against
-  its own state.
+  words of its own as the user's. Every id stays as the tool wrote it.
 - `RUN_OPEN_KEY` is set at the start of a run and of each step, and cleared
   when the run reaches the monitor's `after_agent` hook. A run that starts
   while it is still set follows one that stopped early, or a fork from a
@@ -78,14 +72,13 @@ from langchain_sync_monitors._langchain import (
     replace_update_pairs,
     rewrite_update_messages,
 )
+from langchain_sync_monitors.message_sources import MONITOR_FEEDBACK_SOURCE, read_message_source
 from langchain_sync_monitors.state_keys import (
     MONITOR_STATE_KEYS,
-    REWRITTEN_INPUTS_KEY,
     RUN_OPEN_KEY,
     SEEN_HUMAN_MESSAGES_KEY,
     TASK_MESSAGES_KEY,
 )
-from langchain_sync_monitors.transcript import MONITOR_FEEDBACK_SOURCE, read_message_source
 
 logger = logging.getLogger(__name__)
 
@@ -333,20 +326,17 @@ def is_unchanged_write_back(
 class StateBeforeTool:
     """What the state held when a tool's write lands, as the relabelling of it reads it.
 
-    `existing_messages` holds its messages by id, and `seen_ids` the ids of
-    the human messages the monitor has seen.
+    `existing_messages` holds its messages by id.
     """
 
     existing_messages: Mapping[str, BaseMessage]
-    seen_ids: frozenset[str]
 
 
 def read_state_before_tool(state: object) -> StateBeforeTool:
-    """Return what the state held when a tool ran: its messages, and the ids the monitor saw."""
+    """Return what the state held when a tool ran: its messages, by id."""
     messages = read_state_messages(state)
     return StateBeforeTool(
         existing_messages={message.id: message for message in messages if message.id},
-        seen_ids=read_message_ids(state, key=SEEN_HUMAN_MESSAGES_KEY),
     )
 
 
@@ -369,7 +359,7 @@ def remove_from_state_before_tool(
         for message_id, message in before.existing_messages.items()
         if REMOVE_ALL_MESSAGES not in removed and message_id not in removed
     }
-    return StateBeforeTool(existing_messages=existing, seen_ids=before.seen_ids)
+    return StateBeforeTool(existing_messages=existing)
 
 
 def read_written_messages(result: ToolCallResult) -> list[BaseMessage]:
@@ -384,27 +374,6 @@ def read_written_messages(result: ToolCallResult) -> list[BaseMessage]:
 
     rewrite_update_messages(result, rewrite=collect)
     return written
-
-
-def find_rewritten_input_ids(
-    written: Sequence[BaseMessage], *, before: StateBeforeTool
-) -> list[str]:
-    """Return the ids of the seen human messages under which a tool writes a message."""
-    return list(
-        dict.fromkeys(
-            message.id
-            for message in written
-            if message.id in before.seen_ids and not isinstance(message, RemoveMessage)
-        ),
-    )
-
-
-def record_rewritten_input_ids(command: Command, *, rewritten_input_ids: list[str]) -> Command:
-    """Return a tool's command that also records the seen ids it writes under, when it does."""
-    if not rewritten_input_ids:
-        return command
-    pairs = [*read_update_pairs(command), (REWRITTEN_INPUTS_KEY, rewritten_input_ids)]
-    return replace_update_pairs(command, pairs=pairs)
 
 
 def relabel_unless_written_back(
@@ -433,21 +402,14 @@ def relabel_tool_command(
     raises `MonitorError`. A command that writes no messages, such as one
     with only a `goto`, is returned as it is. The command's writes to
     `MONITOR_STATE_KEYS`, in any update shape, are dropped first, by
-    `drop_monitor_state_writes`, and the ids of the seen human messages it
-    writes under are recorded after, by `record_rewritten_input_ids`.
+    `drop_monitor_state_writes`.
     """
-    rewritten_input_ids = find_rewritten_input_ids(read_written_messages(command), before=before)
-    relabelled = rewrite_update_messages(
+    return rewrite_update_messages(
         drop_monitor_state_writes(command, tool_name=tool_name),
         rewrite=lambda message: relabel_unless_written_back(
             message, tool_name=tool_name, before=before
         ),
     )
-    if command.graph == Command.PARENT:
-        # Bound for the parent graph, whose state this one's seen ids do not describe. By the
-        # time the parent's monitor sees it, LangGraph has named that graph, and it records.
-        return relabelled
-    return record_rewritten_input_ids(relabelled, rewritten_input_ids=rewritten_input_ids)
 
 
 def drop_monitor_state_writes(command: Command, *, tool_name: str) -> Command:
@@ -491,20 +453,12 @@ def relabel_tool_result(
     tool_name: str,
     before: StateBeforeTool,
 ) -> ToolCallResult:
-    """Relabel what one item of a tool's result writes, a tool message or a `Command`.
-
-    A tool message under the id of a seen human message becomes a `Command`
-    that writes it and records that id, since only a command writes a key.
-    """
+    """Relabel what one item of a tool's result writes, a tool message or a `Command`."""
     if isinstance(result, Command):
         return relabel_tool_command(result, tool_name=tool_name, before=before)
     relabelled = relabel_unless_written_back(result, tool_name=tool_name, before=before)
     # A tool message stays one; the check only narrows the type for the type checker.
-    message = relabelled if isinstance(relabelled, ToolMessage) else result
-    rewritten_input_ids = find_rewritten_input_ids([message], before=before)
-    if not rewritten_input_ids:
-        return message
-    return Command(update={"messages": [message], REWRITTEN_INPUTS_KEY: rewritten_input_ids})
+    return relabelled if isinstance(relabelled, ToolMessage) else result
 
 
 def relabel_parent_command(parent_command: ParentCommand, *, tool_name: str, state: object) -> None:

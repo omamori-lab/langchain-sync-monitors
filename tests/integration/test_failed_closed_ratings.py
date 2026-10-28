@@ -106,7 +106,6 @@ PROTOCOL_CASES = {
 }
 
 
-@pytest.mark.xfail(strict=True, reason="the monitors are not built on hyoshigi yet")
 @pytest.mark.parametrize("case", PROTOCOL_CASES.values(), ids=PROTOCOL_CASES.keys())
 @pytest.mark.parametrize(
     "build_monitor",
@@ -151,7 +150,6 @@ def test_a_rating_that_failed_closed_is_suspicious_to_the_protocol(
     assert [(sample["suspicion"], sample["reason"]) for sample in first["samples"]] == case.samples
 
 
-@pytest.mark.xfail(strict=True, reason="the monitors are not built on hyoshigi yet")
 def test_a_readable_score_below_the_threshold_lets_the_step_run_unflagged(
     run_mode: RunMode,
 ) -> None:

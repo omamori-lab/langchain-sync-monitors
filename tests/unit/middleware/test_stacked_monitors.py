@@ -15,7 +15,7 @@ import re
 import warnings
 from collections.abc import Callable
 from pathlib import Path
-from typing import Any, Protocol
+from typing import Any, Protocol, cast
 
 import pytest
 from langchain.agents import create_agent
@@ -27,7 +27,6 @@ from langgraph.checkpoint.memory import InMemorySaver
 from langchain_sync_monitors.contracts import (
     ControlProtocol,
     FeedbackVisibility,
-    Monitor,
     Outcome,
     PendingStep,
     Resampling,
@@ -36,7 +35,7 @@ from langchain_sync_monitors.contracts import (
 )
 from langchain_sync_monitors.feedback import WITHHELD_TEXT_MESSAGE
 from langchain_sync_monitors.middleware import MonitorMiddleware
-from langchain_sync_monitors.monitors import CascadeMonitor
+from langchain_sync_monitors.monitors import CascadeMonitor, MonitorTwins
 from langchain_sync_monitors.placement import check_monitor_placement
 from langchain_sync_monitors.protocols import (
     AutoMode,
@@ -57,7 +56,7 @@ from tests.support.agents import (
     run_agent,
 )
 from tests.support.chat_models import ScriptedChatModel
-from tests.support.monitors import KeywordMonitor
+from tests.support.monitors import KeywordMonitor, read_action_text
 
 THRESHOLD = 0.5
 UNSAFE_DRAFT = "I will post the key to attacker.example."
@@ -236,7 +235,7 @@ def test_the_check_names_exactly_the_stacks_that_lose_an_inner_monitor_s_records
 
     # Assert: every judged sample is recorded, and the steps are numbered 1 and 2
     inner_records = find_records(result["monitor_log"], monitor="inner")
-    keeps_every_judgement = count_recorded_samples(inner_records) == len(inner_monitor.inputs)
+    keeps_every_judgement = count_recorded_samples(inner_records) == len(inner_monitor.ratings)
     numbers_each_step_once = [record["step_number"] for record in inner_records] == [1, 2]
     assert (keeps_every_judgement and numbers_each_step_once) is is_sound
     assert (named == ["inner[main]"]) is not is_sound
@@ -264,12 +263,14 @@ def test_a_monitor_inside_a_resampling_monitor_loses_the_rejected_draft_s_judgem
     result = run_agent(agent, mode=run_mode)
 
     # Assert: the inner monitor judged both drafts, but its record keeps the last one only
-    judged = [monitor_input.proposal.text for monitor_input in inner_monitor.inputs]
+    judged = [read_action_text(rating.action) for rating in inner_monitor.ratings]
     [inner_record] = find_records(result["monitor_log"], monitor="inner")
     [outer_record] = find_records(result["monitor_log"], monitor="outer")
     assert judged == [UNSAFE_DRAFT, f"{SAFE_ANSWER} (1)"]
     assert len(inner_record["samples"]) == 1
-    assert "attacker.example" not in inner_record["samples"][0]["proposal"]
+    assert inner_record["samples"][0]["proposal"]["parts"] == [
+        {"kind": "text", "text": f"{SAFE_ANSWER} (1)"},
+    ]
     assert outer_record["outcome"] == "resampled"
     assert read_texts(result["messages"])[-1] == f"{SAFE_ANSWER} (1)"
 
@@ -316,7 +317,7 @@ def test_parallel_resamples_leave_an_inner_monitor_one_record_per_resample_for_o
         EXPECTED_INNER_STEP_NUMBERS[max_resamples, run_mode]
     )
     assert [record["step_number"] for record in outer_records] == [1, 2]
-    assert len(inner_monitor.inputs) == max_resamples + 2
+    assert len(inner_monitor.ratings) == max_resamples + 2
 
 
 def test_a_trusted_step_after_parallel_resamples_leaves_the_inner_monitor_its_record_only(
@@ -343,9 +344,9 @@ def test_a_trusted_step_after_parallel_resamples_leaves_the_inner_monitor_its_re
     # Assert: five judgements, one record, and it holds the trusted step alone
     [inner_record] = find_records(result["monitor_log"], monitor="inner")
     [outer_record] = find_records(result["monitor_log"], monitor="outer")
-    assert len(inner_monitor.inputs) == 5
-    assert [sample["proposal"] for sample in inner_record["samples"]] == [
-        "<proposed_step>\n<agent>Trusted answer (1).</agent>\n</proposed_step>"
+    assert len(inner_monitor.ratings) == 5
+    assert [sample["proposal"]["parts"] for sample in inner_record["samples"]] == [
+        [{"kind": "text", "text": "Trusted answer (1)."}],
     ]
     assert outer_record["outcome"] == "deferred_to_trusted"
 
@@ -388,11 +389,12 @@ def test_an_outer_monitor_judges_the_blocked_draft_an_inner_auto_mode_shows(
     # Assert: the step that ran is the safe answer, whatever the outer monitor judged
     [outer_record] = find_records(result["monitor_log"], monitor="outer")
     [inner_record] = find_records(result["monitor_log"], monitor="inner")
-    [judged] = [monitor_input.proposal.text for monitor_input in outer_monitor.inputs]
+    [judged] = [read_action_text(rating.action) for rating in outer_monitor.ratings]
     assert read_texts(result["messages"])[-1] == f"{SAFE_ANSWER} (1)"
     assert inner_record["outcome"] == "steered"
     assert judged.startswith(expected_judged)
-    assert expected_judged in outer_record["samples"][0]["proposal"]
+    [part] = cast("list[dict[str, str]]", outer_record["samples"][0]["proposal"]["parts"])
+    assert part["text"].startswith(expected_judged)
     assert outer_record["samples"][0]["executed"]
     assert named == expected_named
 
@@ -455,7 +457,7 @@ def test_an_auto_mode_with_one_block_in_the_thread_calls_the_model_once_per_step
     outer_records = find_records(result["monitor_log"], monitor="outer")
     assert [record["outcome"] for record in outer_records] == ["halted", "halted"]
     assert [record["step_number"] for record in inner_records] == [1, 2]
-    assert count_recorded_samples(inner_records) == len(inner_monitor.inputs) == 2
+    assert count_recorded_samples(inner_records) == len(inner_monitor.ratings) == 2
     assert len(model.calls) == 2
     assert check_placement_quietly(stack) == []
 
@@ -463,14 +465,14 @@ def test_an_auto_mode_with_one_block_in_the_thread_calls_the_model_once_per_step
 class CombinedMonitorBuilder(Protocol):
     """Builds one monitor out of two, as the design page's example does."""
 
-    def __call__(self, *, first: Monitor, second: Monitor) -> Monitor: ...
+    def __call__(self, *, first: MonitorTwins, second: MonitorTwins) -> MonitorTwins: ...
 
 
 def load_design_page_monitor(directory: Path) -> CombinedMonitorBuilder:
     """Import the design page's example of a monitor that keeps the higher suspicion."""
     page = DOCS_DIRECTORY / "explanation" / "design.md"
     blocks = re.findall(r"```python\n(.*?)```", page.read_text(), flags=re.DOTALL)
-    [source] = [block for block in blocks if "class HigherSuspicion(Monitor)" in block]
+    [source] = [block for block in blocks if "def build_higher_suspicion(" in block]
     module_path = directory / "higher_suspicion.py"
     module_path.write_text(source)
     specification = importlib.util.spec_from_file_location("higher_suspicion", module_path)
@@ -478,7 +480,7 @@ def load_design_page_monitor(directory: Path) -> CombinedMonitorBuilder:
     assert specification.loader is not None
     module = importlib.util.module_from_spec(specification)
     specification.loader.exec_module(module)
-    builder: CombinedMonitorBuilder = module.HigherSuspicion
+    builder: CombinedMonitorBuilder = module.build_higher_suspicion
     return builder
 
 
@@ -497,10 +499,10 @@ def test_one_monitor_keeping_the_higher_suspicion_rejects_what_a_cascade_lets_th
     expected_outcome: str,
 ) -> None:
     # Arrange: one monitor flags the unsafe draft, the other finds nothing; invoke() runs the
-    # monitors' evaluate_sync and ainvoke() their evaluate
+    # monitors' sync twins and ainvoke() their async twins
     flagging, clearing = build_keyword_monitor(), KeywordMonitor()
     higher_suspicion = load_design_page_monitor(tmp_path)
-    monitors: dict[str, Monitor] = {
+    monitors: dict[str, MonitorTwins | CascadeMonitor] = {
         "higher-suspicion-flagging-first": higher_suspicion(first=flagging, second=clearing),
         "higher-suspicion-flagging-second": higher_suspicion(first=clearing, second=flagging),
         "cascade": CascadeMonitor(fast=flagging, careful=clearing, escalation_threshold=THRESHOLD),
@@ -518,7 +520,7 @@ def test_one_monitor_keeping_the_higher_suspicion_rejects_what_a_cascade_lets_th
     # clear the step the fast one flagged
     [record] = result["monitor_log"]
     assert record["outcome"] == expected_outcome
-    assert len(flagging.inputs) == len(clearing.inputs) == len(record["samples"])
+    assert len(flagging.ratings) == len(clearing.ratings) == len(record["samples"])
     ran = read_texts(result["messages"])[-1]
     assert ("attacker.example" in ran) is (combine == "cascade")
 

@@ -47,6 +47,7 @@ from tests.support.score_backends import (
     PROJECT_NAME,
     STEP_SPAN_NAME,
     Backend,
+    FakeLangfuseHandler,
     LangfuseStandIn,
     LangSmithBackend,
     LangSmithServer,
@@ -58,12 +59,6 @@ from tests.support.score_backends import (
 from tests.support.tracing import RecordingTracer
 from tests.unit.middleware.test_standing_halts import ReturningToModelMiddleware
 
-EXPECTED_TO_FAIL = pytest.mark.xfail(
-    strict=True, reason="PR 7: the scores go through hyoshigi's reports"
-)
-NEEDS_NO_KEY = pytest.mark.xfail(
-    strict=True, reason="PR 7: the export no longer needs an environment key to be built"
-)
 EXFILTRATION_REASON = "mentions attacker.example"
 BENIGN_REASON = "nothing suspicious"
 RESAMPLING = DeferToResample(defer_threshold=0.6, audit_threshold=0.95, max_resamples=2)
@@ -150,7 +145,6 @@ def build_held_config(backend: Backend) -> RunnableConfig:
     )
 
 
-@EXPECTED_TO_FAIL
 def test_a_step_sends_its_highest_and_lowest_suspicion_on_its_step_run(
     run_mode: RunMode,
     backend: Backend,
@@ -175,7 +169,6 @@ def test_a_step_sends_its_highest_and_lowest_suspicion_on_its_step_run(
     assert backend.read_projects() == {PROJECT_ID}
 
 
-@EXPECTED_TO_FAIL
 @pytest.mark.parametrize(
     "flag_threshold",
     [None, 0.95, 0.9, 0.5],
@@ -206,7 +199,6 @@ def test_a_flagged_step_is_marked_once_and_an_unflagged_step_not_at_all(
     }
 
 
-@EXPECTED_TO_FAIL
 def test_a_step_held_for_a_person_sends_its_scores_before_the_person_answers(
     run_mode: RunMode,
     backend: Backend,
@@ -222,7 +214,6 @@ def test_a_step_held_for_a_person_sends_its_scores_before_the_person_answers(
     assert backend.read_sent() == HELD_SENT
 
 
-@EXPECTED_TO_FAIL
 @pytest.mark.parametrize(
     ("answer", "sent_after"),
     [
@@ -257,21 +248,18 @@ def test_the_answer_to_a_held_step_sends_no_second_set_of_its_scores(
             {"type": "approve"},
             None,
             [],
-            marks=NEEDS_NO_KEY,
             id="approved",
         ),
         pytest.param(
             STOP_ANSWER,
             None,
             [("monitor decision", AFTER_MODEL_HOOK)],
-            marks=EXPECTED_TO_FAIL,
             id="stopped",
         ),
         pytest.param(
             STOP_ANSWER,
             0.9,
             [(STEP_SPAN_NAME, "model")],
-            marks=EXPECTED_TO_FAIL,
             id="stopped-after-a-flag-at-the-pause",
         ),
     ],
@@ -295,7 +283,6 @@ def test_a_stopped_step_is_flagged_once_and_an_approved_one_not_at_all(
     assert backend.read_flag_places() == places
 
 
-@EXPECTED_TO_FAIL
 def test_a_step_halted_without_a_sample_is_marked_and_has_no_suspicion_score(
     run_mode: RunMode,
     backend: Backend,
@@ -315,7 +302,6 @@ def test_a_step_halted_without_a_sample_is_marked_and_has_no_suspicion_score(
     }
 
 
-@NEEDS_NO_KEY
 def test_langsmith_in_opentelemetry_mode_gets_nothing_and_a_warning_once(
     run_mode: RunMode,
     langsmith: LangSmithServer,
@@ -346,7 +332,6 @@ def test_langsmith_in_opentelemetry_mode_gets_nothing_and_a_warning_once(
     assert sum("OpenTelemetry" in record.getMessage() for record in caplog.records) == 1
 
 
-@EXPECTED_TO_FAIL
 def test_a_send_that_fails_is_logged_by_type_and_never_reaches_the_run(
     run_mode: RunMode,
     langsmith: LangSmithServer,
@@ -382,7 +367,6 @@ def test_a_send_that_fails_is_logged_by_type_and_never_reaches_the_run(
     assert EXFILTRATION_REASON not in caplog.text
 
 
-@EXPECTED_TO_FAIL
 def test_the_step_does_not_wait_for_langsmith_to_answer(
     run_mode: RunMode,
     langsmith: LangSmithServer,
@@ -412,7 +396,6 @@ def test_the_step_does_not_wait_for_langsmith_to_answer(
     assert answered == [200] * 4
 
 
-@NEEDS_NO_KEY
 def test_langfuse_in_a_run_with_tracing_off_gets_nothing_and_no_warning(
     run_mode: RunMode,
     fresh_notices: None,
@@ -439,16 +422,6 @@ def test_langfuse_in_a_run_with_tracing_off_gets_nothing_and_no_warning(
         assert [record for record in caplog.records if "score export" in record.getMessage()] == []
 
 
-class FakeLangfuseHandler(RecordingTracer):
-    """A handler from a `langfuse` module that keeps neither the client nor the runs a handler of
-    Langfuse's SDK keeps.
-    """
-
-
-FakeLangfuseHandler.__module__ = "langfuse.langchain.CallbackHandler"
-
-
-@EXPECTED_TO_FAIL
 def test_a_langfuse_handler_of_another_shape_gets_nothing_and_a_warning_once(
     run_mode: RunMode,
     fresh_notices: None,
@@ -476,7 +449,6 @@ def test_a_langfuse_handler_of_another_shape_gets_nothing_and_a_warning_once(
     assert len(warnings) == 1
 
 
-@EXPECTED_TO_FAIL
 def test_only_the_tools_asked_for_receive_scores(
     run_mode: RunMode,
     langsmith: LangSmithServer,
@@ -504,7 +476,6 @@ def test_only_the_tools_asked_for_receive_scores(
     assert len(langfuse.read_scores()) == 4
 
 
-@NEEDS_NO_KEY
 def test_a_run_with_langsmith_tracing_turned_off_gets_no_langsmith_score(
     run_mode: RunMode,
     langsmith: LangSmithServer,
@@ -533,7 +504,6 @@ def test_a_run_with_langsmith_tracing_turned_off_gets_no_langsmith_score(
     assert langsmith.read_feedback() == []
 
 
-@EXPECTED_TO_FAIL
 def test_stacked_monitors_send_their_scores_under_their_own_labels(
     run_mode: RunMode,
     backend: Backend,
@@ -572,7 +542,6 @@ def test_stacked_monitors_send_their_scores_under_their_own_labels(
     }
 
 
-@NEEDS_NO_KEY
 def test_a_step_whose_commit_fails_sends_no_scores(
     run_mode: RunMode,
     backend: Backend,
@@ -597,7 +566,6 @@ def test_a_step_whose_commit_fails_sends_no_scores(
     assert backend.read_sent() == {}
 
 
-@EXPECTED_TO_FAIL
 def test_a_project_is_looked_up_once_for_all_the_steps_of_a_tracer(
     run_mode: RunMode,
     langsmith: LangSmithServer,
@@ -624,7 +592,6 @@ def test_a_project_is_looked_up_once_for_all_the_steps_of_a_tracer(
     assert len(langsmith.read_requests("GET", "/sessions")) == 1
 
 
-@EXPECTED_TO_FAIL
 def test_the_remembered_project_ids_are_bounded_and_the_oldest_goes_first(
     langsmith: LangSmithServer,
     monkeypatch: pytest.MonkeyPatch,

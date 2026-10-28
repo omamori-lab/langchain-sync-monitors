@@ -35,6 +35,7 @@ from hyoshigi import (
     ProtocolRequest,
     Replace,
     Run,
+    SuspicionScore,
     Trajectory,
 )
 from pydantic import TypeAdapter, ValidationError
@@ -87,6 +88,21 @@ def dump_action(action: Action) -> dict[str, JSON]:
             raise MonitorError(message)
 
 
+def find_rated(
+    weighed: Sequence[ProtocolDecision | ProtocolRequest],
+) -> list[tuple[Action, SuspicionScore]]:
+    """Return each rated proposal the decisions or requests hold, once, in the order rated.
+
+    A trusted step is not rated, so it is left out.
+    """
+    rated = {
+        proposal.action.id: (proposal.action, proposal.score)
+        for each in weighed
+        for proposal in each.proposals
+    }
+    return [(action, score) for action, score in rated.values() if score is not None]
+
+
 def build_sample_records(
     weighed: Sequence[ProtocolDecision | ProtocolRequest],
     *,
@@ -94,15 +110,9 @@ def build_sample_records(
 ) -> list[SampleRecord]:
     """Record each rated proposal the decisions or requests hold, once, in the order rated.
 
-    A trusted step is not rated, so it has no record. `executed` is true for
-    the proposal whose action has `executed_id`, the id of the action that
-    ran. The suspicion is stored as a plain `float`.
+    `executed` is true for the proposal whose action has `executed_id`, the
+    id of the action that ran. The suspicion is stored as a plain `float`.
     """
-    rated = {
-        proposal.action.id: (proposal.action, proposal.score)
-        for each in weighed
-        for proposal in each.proposals
-    }
     return [
         SampleRecord(
             suspicion=float(score.value),
@@ -110,8 +120,7 @@ def build_sample_records(
             proposal=dump_action(action),
             executed=action.id == executed_id,
         )
-        for action, score in rated.values()
-        if score is not None
+        for action, score in find_rated(weighed)
     ]
 
 
@@ -172,6 +181,14 @@ def read_protocol_outcome(decisions: Sequence[ProtocolDecision]) -> Outcome:
             return Outcome.ALLOWED
 
 
+def reaches_flag_threshold(lowest: float | None, *, flag_threshold: float | None) -> bool:
+    """Tell whether the step's lowest suspicion is at or above `flag_threshold`.
+
+    It is false when the step judged no sample, and when there is no threshold.
+    """
+    return flag_threshold is not None and lowest is not None and lowest >= flag_threshold
+
+
 def is_flagged(
     decisions: Sequence[ProtocolDecision],
     *,
@@ -186,8 +203,7 @@ def is_flagged(
     is_halt = read_outcome(decisions) is Outcome.HALTED
     has_flag = any(isinstance(decision, Flag) for decision in decisions)
     lowest = min((sample["suspicion"] for sample in samples), default=None)
-    reaches = flag_threshold is not None and lowest is not None and lowest >= flag_threshold
-    return is_halt or has_flag or reaches
+    return is_halt or has_flag or reaches_flag_threshold(lowest, flag_threshold=flag_threshold)
 
 
 def count_blocks(decisions: Sequence[ProtocolDecision]) -> int:

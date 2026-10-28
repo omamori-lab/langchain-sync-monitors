@@ -14,7 +14,6 @@ from types import TracebackType
 import httpx
 import pytest
 
-from langchain_sync_monitors.score_requests import build_http_client
 from tests.support.log_records import find_logged_leaks
 
 PLANTED_KEY = "planted-log-key-5e1a"
@@ -81,17 +80,6 @@ def raise_while_handling(handled: Exception, *, hide_cause: bool) -> ExceptionIn
     raise AssertionError("the handler raises")
 
 
-def read_score_client_auth() -> httpx.Auth:
-    """Return the auth the score client keeps from a key pair, as the Langfuse client is built."""
-    with build_http_client(
-        base_url="https://service.test", auth=("pk-planted", PLANTED_PASSWORD)
-    ) as client:
-        auth = client.auth
-    if auth is None:
-        raise AssertionError("a client given a key pair keeps an auth")
-    return auth
-
-
 @pytest.mark.parametrize(
     "error",
     [build_status_error(), httpx.ConnectError("Connection refused", request=REQUEST)],
@@ -132,13 +120,9 @@ async def test_a_record_whose_extras_hold_an_async_client_is_reported() -> None:
     assert leaks == ["score: a live AsyncClient"]
 
 
-@pytest.mark.parametrize(
-    "auth",
-    [httpx.BasicAuth("pk-planted", PLANTED_PASSWORD), read_score_client_auth()],
-    ids=["basic", "score-client"],
-)
-def test_a_record_whose_extras_hold_an_auth_object_is_reported(auth: httpx.Auth) -> None:
+def test_a_record_whose_extras_hold_an_auth_object_is_reported() -> None:
     # Arrange: the auth's text quotes no password, though it holds the header built from one
+    auth = httpx.BasicAuth("pk-planted", PLANTED_PASSWORD)
     record = build_record(extras={"auth": auth})
 
     # Act

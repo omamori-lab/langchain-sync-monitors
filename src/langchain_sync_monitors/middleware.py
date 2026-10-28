@@ -49,12 +49,19 @@ from langchain_sync_monitors._langchain import (
     StructuredOutput,
     ToolCallHandler,
     ToolCallResult,
+    TracedRun,
     hide_model_calls_from_message_stream,
 )
-from langchain_sync_monitors.audits import find_held_step, resolve_held_step, stop_held_step
+from langchain_sync_monitors.audits import (
+    find_held_step,
+    resolve_held_step,
+    stop_held_step,
+    trace_answer,
+    trace_answer_sync,
+)
 from langchain_sync_monitors.commits import build_step_response, commit_step, report_failed_step
 from langchain_sync_monitors.context_values import set_context_value
-from langchain_sync_monitors.contracts import SubagentHalt, TaskAuthor
+from langchain_sync_monitors.contracts import StepRecord, SubagentHalt, TaskAuthor
 from langchain_sync_monitors.errors import ConfigurationError
 from langchain_sync_monitors.given_ids import (
     build_run_end_trajectories_update,
@@ -84,19 +91,17 @@ from langchain_sync_monitors.protocols import (
     check_protocol_option,
     check_trusted_model_use,
 )
-from langchain_sync_monitors.score_export import Tracer, check_score_export, queue_step_score
+from langchain_sync_monitors.score_export import Tracer, check_score_export, send_step_scores
 from langchain_sync_monitors.spans import (
     counting_judgements,
     open_step_span,
     open_step_span_sync,
-    trace_answer,
-    trace_answer_sync,
     trace_decision,
     trace_decision_sync,
     trace_monitors,
 )
 from langchain_sync_monitors.step_preparation import prepare_step
-from langchain_sync_monitors.steps import run_step, run_step_sync
+from langchain_sync_monitors.steps import Step, run_step, run_step_sync
 from langchain_sync_monitors.task_authorship import build_step_start_update
 from langchain_sync_monitors.tool_calls import run_tool_call, run_tool_call_sync
 from langchain_sync_monitors.trajectories import check_trajectory_kept, monitor_step_open
@@ -221,7 +226,7 @@ class MonitorMiddleware(AgentMiddleware[MonitorState, AgentContext, StructuredOu
     In LangChain tracers such as LangSmith and Langfuse, each step is a
     `monitor step` span, with the spans that `spans` describes nested in it.
     `export_scores`, empty by default, names the tools that also get each
-    step's highest suspicion as a score; `Tracer` has the rules.
+    step's highest and lowest suspicion as scores; `Tracer` has the rules.
 
     The instance keeps no run state of its own: Deep Agents runs parallel
     subagents through shared middleware instances, so every piece of run state
@@ -340,8 +345,8 @@ class MonitorMiddleware(AgentMiddleware[MonitorState, AgentContext, StructuredOu
                 middleware_name=self.name,
                 trajectory=step.trajectory,
             )
-            # A decided step, or a held one before its answer, gets a score in the tracing tools.
-            queue_step_score(traced_step, record=record, monitor=self)
+            # A committed step, or a held one before its answer, sends its scores.
+            self.send_scores(traced_step, step=step, record=record)
             return committed
 
     @override
@@ -386,8 +391,8 @@ class MonitorMiddleware(AgentMiddleware[MonitorState, AgentContext, StructuredOu
                 middleware_name=self.name,
                 trajectory=step.trajectory,
             )
-            # A decided step, or a held one before its answer, gets a score in the tracing tools.
-            queue_step_score(traced_step, record=record, monitor=self)
+            # A committed step, or a held one before its answer, sends its scores.
+            self.send_scores(traced_step, step=step, record=record)
             return committed
 
     @override
@@ -454,7 +459,7 @@ class MonitorMiddleware(AgentMiddleware[MonitorState, AgentContext, StructuredOu
         if held is None:
             return self.build_halt_end_update(state)
         answered = resolve_held_step(held, state=state, runtime=runtime, middleware=self)
-        trace_answer_sync(held.identity, record=answered.record)
+        trace_answer_sync(held, answered=answered, middleware=self)
         return answered.update
 
     @hook_config(can_jump_to=["end", "model"])
@@ -469,7 +474,7 @@ class MonitorMiddleware(AgentMiddleware[MonitorState, AgentContext, StructuredOu
         if held is None:
             return self.build_halt_end_update(state)
         answered = resolve_held_step(held, state=state, runtime=runtime, middleware=self)
-        await trace_answer(held.identity, record=answered.record)
+        await trace_answer(held, answered=answered, middleware=self)
         return answered.update
 
     @override
@@ -491,6 +496,17 @@ class MonitorMiddleware(AgentMiddleware[MonitorState, AgentContext, StructuredOu
         The ids it gives messages are marked as read in the monitors' trajectories.
         """
         return self.build_run_end_update(state)
+
+    def send_scores(self, traced_step: TracedRun, *, step: Step, record: StepRecord) -> None:
+        """Send the step's scores to the tracing tools its run is traced to."""
+        send_step_scores(
+            traced_step,
+            decisions=step.decisions,
+            flagged=record["flagged"],
+            label=self.label,
+            flag_threshold=self.flag_threshold,
+            tracers=self.export_scores,
+        )
 
     def build_run_end_update(self, state: MonitorState) -> AgentStateUpdate:
         """Return the update a run ends with: the notes tagged, the run closed, ids marked read.

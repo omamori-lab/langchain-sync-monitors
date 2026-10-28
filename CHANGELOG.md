@@ -217,6 +217,35 @@ change raises the minor version.
   `CalibratedMonitor(random_seed=...)` draws from the seed and the trajectory,
   each action's id blanked, so a fresh run whose tool calls get new ids draws
   afresh.
+- `export_scores` sends through hyoshigi's reports. A committed step that
+  judged a sample sends `<label>_suspicion`, its highest suspicion as before,
+  and the new `<label>_lowest_suspicion`, each the step's recorded score. A
+  step flagged for review is also marked once, with a boolean score or
+  feedback named `flagged`, a halted step with no sample included, which gets
+  no suspicion score. A step held for a person sends its scores when the run
+  pauses, before the answer; the answer sends no score, and a stop is flagged
+  on the `monitor decision` span the answer opens. The decision span's
+  metadata gains `monitor_min_suspicion` and `monitor_suspicions`.
+- **Breaking, privacy:** each score is sent with the monitor's explanation as
+  its comment, and with metadata: whether it failed closed, the cause and the
+  model. The export sent only numbers and ids before. The explanation can
+  quote the step, and neither tool masks a comment.
+- **Breaking:** the export reads no environment key. LangSmith's feedback goes
+  through the tracer's own client, and Langfuse's through the handler's own,
+  so building the monitor no longer raises `ConfigurationError` for a missing
+  `LANGSMITH_API_KEY`, `LANGFUSE_PUBLIC_KEY` or `LANGFUSE_SECRET_KEY`, and a
+  Langfuse handler built with other keys or another host than the
+  environment's now gets its scores. `Tracer.LANGFUSE` without the `langfuse`
+  package raises `MissingExtraError`, which is a `ConfigurationError`.
+- The scores no longer wait on Langfuse to ingest a step or on a window of ten
+  seconds. LangSmith's project lookup, once per client and project, and its
+  posts run on up to 4 daemon threads, which keep running for up to 30
+  seconds at exit, and Langfuse's client queues each score at once. A failed
+  LangSmith call is logged by `langchain_sync_monitors.request_pool` with the
+  error's type alone. A Langfuse client that traces nothing drops the scores
+  itself, so the library no longer reads its private attributes to tell; a
+  handler that holds no observation of the step warns once.
+- `langsmith>=0.14.11` is a direct dependency.
 
 ### Added
 
@@ -274,6 +303,7 @@ change raises the minor version.
   wrappers take as they take the library's monitors.
 - `GPT_OSS_SAFEGUARD` and `QWEN3GUARD`, the labels of those two guards, and
   `MediaTypes` and `DEFAULT_STATEMENT` are exported.
+- The `langfuse` extra, which installs `hyoshigi[langfuse]` and Langfuse's SDK.
 
 ### Removed
 
@@ -301,6 +331,9 @@ change raises the minor version.
   `langchain_sync_monitors.monitors.guard`. A failed model call the rating
   reads as an outcome is logged by `langchain_sync_monitors.chat_model_adapter`,
   and an unreadable reply is no longer logged.
+- The score worker and its modules, `score_worker`, `score_requests`,
+  `scores`, `langsmith_scores` and `langfuse_scores`, with the logger
+  `langchain_sync_monitors.score_worker`.
 
 ### Known limits
 
@@ -315,6 +348,8 @@ change raises the minor version.
   structured response. Approved under a provider strategy, it ends the run
   without `structured_response`; under a tool strategy, the agent goes back
   to the model, which answers again.
+- A held step that new input stops is flagged in `monitor_log` but not marked
+  in the tracing tools: the stop opens no span.
 - Each subagent receives its run's whole trajectory in `monitor_delegation`,
   so the state and the checkpoints grow with the run.
 - `MonitorMiddleware` offers no entry redaction: the trajectory keeps each

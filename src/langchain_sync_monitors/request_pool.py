@@ -1,4 +1,4 @@
-"""A few daemon threads that send a sender's requests side by side, started up front.
+"""A few daemon threads that run a request off the caller's thread, started up front.
 
 The standard library's `concurrent.futures` does not fit an exit drain. Its
 threads are not daemons, so a request still in flight holds the process at
@@ -8,33 +8,61 @@ when the pool is built, and they keep serving during the drain. Python
 3.12.0 to 3.12.2 refuse to start a thread once the interpreter shuts down,
 `atexit` hooks included, which 3.12.3 allows again [@cpython2026]; a pool
 that cannot start its threads runs each call in turn.
+
+`PROCESS_POOL` is the pool of the process. It starts with the first call
+submitted, and at exit it keeps running the calls submitted for up to
+`EXIT_DRAIN_SECONDS`. A child forked from the process forgets the parent's
+pool and lock, whose threads and holder did not come with it, and starts a
+pool of its own.
 """
 
 from __future__ import annotations
 
+import atexit
 import logging
+import os
 import queue
 import threading
-from collections.abc import Callable, Sequence
+import time
+from collections.abc import Callable
 from concurrent.futures import Future
 from dataclasses import dataclass, field
 
 logger = logging.getLogger(__name__)
 
+SEND_THREADS = 4
+"""How many requests the process pool runs at once."""
 
-def run_safely[Item, Result](call: Callable[[Item], Result], *, item: Item) -> Result | None:
-    """Return the call's result, or None, logged by the error's type alone, when it raises."""
+EXIT_DRAIN_SECONDS = 30.0
+"""How long the process pool keeps running the calls submitted, once the process exits."""
+
+
+def run_in_future[Result](future: Future[Result], *, call: Callable[[], Result]) -> None:
+    """Run the call and hand its result, or the error it raised, to the future."""
+    if not future.set_running_or_notify_cancel():
+        return
     try:
-        return call(item)
+        result = call()
     except Exception as error:
+        future.set_exception(error)
+    else:
+        future.set_result(result)
+
+
+def log_failed_request[Result](future: Future[Result]) -> None:
+    """Log a request that raised, by the error's type alone."""
+    if future.cancelled():
+        return
+    error = future.exception()
+    if error is not None:
         logger.warning("score export: a request failed with %s", type(error).__name__)
-        return None
 
 
 class RequestPool:
-    """Runs a call on several items at once, on up to `size` daemon threads.
+    """Runs submitted calls on up to `size` daemon threads.
 
-    A `size` of 1 starts no thread, and runs the calls in turn.
+    A `size` of 1 starts no thread, and runs each call in turn, in the
+    caller's thread.
     """
 
     def __init__(self, *, size: int) -> None:
@@ -53,49 +81,24 @@ class RequestPool:
                 break
             self.threads.append(thread)
 
-    @property
-    def width(self) -> int:
-        """How many calls run at once: the number of threads, or one without any."""
-        return max(len(self.threads), 1)
-
     def serve(self) -> None:
         """Run tasks until the pool closes."""
         while (task := self.tasks.get()) is not None:
             task()
 
-    def run_all[Item, Result](
-        self,
-        call: Callable[[Item], Result],
-        *,
-        items: Sequence[Item],
-    ) -> list[Result | None]:
-        """Return the call's result for each item, in order; None where it raised."""
-        if not self.threads:
-            return [run_safely(call, item=item) for item in items]
-        results: list[Result | None] = [None] * len(items)
-        finished: queue.SimpleQueue[int] = queue.SimpleQueue()
+    def submit[Result](self, call: Callable[[], Result], /) -> Future[Result]:
+        """Run the call on a thread of the pool, and return a future for its result.
 
-        def build_task(position: int, *, item: Item) -> Callable[[], None]:
-            def task() -> None:
-                results[position] = run_safely(call, item=item)
-                finished.put(position)
-
-            return task
-
-        for position, item in enumerate(items):
-            self.tasks.put(build_task(position, item=item))
-        for _ in items:
-            finished.get()
-        return results
-
-    def submit[Result](self, call: Callable[[], Result], /) -> Future[Result | None]:
-        """Stub: returns a finished future with no result, and runs nothing."""
-        future: Future[Result | None] = Future()
-        future.set_result(None)
+        A call that raises is logged by the error's type alone, and the
+        future holds the error.
+        """
+        future: Future[Result] = Future()
+        future.add_done_callback(log_failed_request)
+        if self.threads:
+            self.tasks.put(lambda: run_in_future(future, call=call))
+        else:
+            run_in_future(future, call=call)
         return future
-
-    def drain(self, *, timeout: float) -> None:
-        """Stub: waits for nothing."""
 
     def close(self) -> None:
         """Let every thread finish once the tasks before it are done; later calls run in turn."""
@@ -103,18 +106,56 @@ class RequestPool:
             self.tasks.put(None)
         self.threads = []
 
+    def drain(self, *, timeout: float) -> None:
+        """Close the pool, and wait up to `timeout` seconds for the calls already submitted."""
+        threads = self.threads
+        self.close()
+        deadline = time.monotonic() + timeout
+        for thread in threads:
+            thread.join(timeout=max(deadline - time.monotonic(), 0.0))
+
 
 @dataclass(slots=True, kw_only=True)
 class ProcessRequestPool:
-    """Stub: the pool of this process, which has no pool until the code is written."""
+    """The one request pool of this process, started with the first call submitted.
+
+    The lock is taken only to start the pool, never to submit a call.
+    """
 
     pool: RequestPool | None = None
     process_id: int | None = None
     lock: threading.Lock = field(default_factory=threading.Lock)
 
     def read_pool(self) -> RequestPool:
-        """Stub: a pool that runs calls in turn."""
-        return RequestPool(size=1)
+        """Return the process's pool, starting it and its exit drain the first time."""
+        pool = self.pool
+        if pool is not None and self.process_id == os.getpid():
+            return pool
+        with self.lock:
+            # Another thread may have started the pool while this one waited for the lock.
+            if self.pool is None or self.process_id != os.getpid():
+                self.pool = self.start_pool()
+            return self.pool
+
+    def start_pool(self) -> RequestPool:
+        """Start a pool for this process, with its exit drain in place of any older one's.
+
+        The caller holds the lock.
+        """
+        if self.pool is not None:
+            atexit.unregister(self.pool.drain)
+        pool = RequestPool(size=SEND_THREADS)
+        atexit.register(pool.drain, timeout=EXIT_DRAIN_SECONDS)
+        self.process_id = os.getpid()
+        return pool
+
+    def forget_after_fork(self) -> None:
+        """In a forked child, drop the parent's pool, its exit drain and its lock."""
+        if self.pool is not None:
+            atexit.unregister(self.pool.drain)
+        self.lock = threading.Lock()
+        self.pool = None
+        self.process_id = None
 
 
 PROCESS_POOL = ProcessRequestPool()

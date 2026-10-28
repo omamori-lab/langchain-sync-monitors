@@ -301,7 +301,6 @@ def test_the_decision_span_repeats_the_outcome_in_its_metadata(run_mode: RunMode
     assert decision.metadata["monitor_max_suspicion"] == 0.9
 
 
-@pytest.mark.xfail(strict=True, reason="PR 7: the decision span lists the suspicions")
 def test_the_decision_span_lists_every_samples_suspicion_and_the_lowest(
     run_mode: RunMode,
 ) -> None:

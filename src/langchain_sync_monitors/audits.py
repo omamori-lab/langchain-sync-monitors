@@ -54,6 +54,7 @@ from langchain_sync_monitors._langchain import (
     MONITOR_LOG_KEY,
     AgentStateUpdate,
     MonitorStepEvent,
+    TracedRun,
     write_stream_event,
 )
 from langchain_sync_monitors.contracts import SampleRecord, StepRecord
@@ -64,7 +65,8 @@ from langchain_sync_monitors.halts import build_halt_inputs_update
 from langchain_sync_monitors.message_ids import build_run_start_update
 from langchain_sync_monitors.protocols import DEFAULT_HALT_MESSAGE, FeedbackTemplate
 from langchain_sync_monitors.records import build_sample_records
-from langchain_sync_monitors.spans import StepIdentity
+from langchain_sync_monitors.score_export import send_step_scores
+from langchain_sync_monitors.spans import StepIdentity, open_answer_span, open_answer_span_sync
 from langchain_sync_monitors.state_keys import RUN_OPEN_KEY
 from langchain_sync_monitors.step_preparation import build_step_identity
 from langchain_sync_monitors.task_authorship import read_state_messages
@@ -442,6 +444,55 @@ def commit_answer(
     if commit.route is not None:
         update["jump_to"] = commit.route
     return AnsweredAudit(update=update, record=record)
+
+
+def send_answer_flag(
+    traced_answer: TracedRun,
+    *,
+    held: HeldStep,
+    answered: AnsweredAudit,
+    middleware: MonitorMiddleware,
+) -> None:
+    """Send the flag of an answered step on its answer's decision span, and no score.
+
+    It is sent when the answer flags a step that was not flagged when it was
+    held, as a stop does. A step flagged when held sent its flag then.
+    """
+    held_record = held.identity.build_record(
+        held.decisions,
+        flag_threshold=middleware.flag_threshold,
+    )
+    if answered.record["flagged"] and not held_record["flagged"]:
+        send_step_scores(
+            traced_answer,
+            decisions=(),
+            flagged=True,
+            label=middleware.label,
+            flag_threshold=middleware.flag_threshold,
+            tracers=middleware.export_scores,
+        )
+
+
+def trace_answer_sync(
+    held: HeldStep,
+    *,
+    answered: AnsweredAudit,
+    middleware: MonitorMiddleware,
+) -> None:
+    """Trace a person's answer for `invoke()`, and send the flag of a stop on its span."""
+    with open_answer_span_sync(held.identity, record=answered.record) as traced_answer:
+        send_answer_flag(traced_answer, held=held, answered=answered, middleware=middleware)
+
+
+async def trace_answer(
+    held: HeldStep,
+    *,
+    answered: AnsweredAudit,
+    middleware: MonitorMiddleware,
+) -> None:
+    """Trace a person's answer for `ainvoke()`, and send the flag of a stop on its span."""
+    async with open_answer_span(held.identity, record=answered.record) as traced_answer:
+        send_answer_flag(traced_answer, held=held, answered=answered, middleware=middleware)
 
 
 def resolve_held_step(

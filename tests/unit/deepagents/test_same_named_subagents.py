@@ -4,7 +4,8 @@ A fork runs under the main agent's monitor, and a compiled subagent whose
 monitor keeps the default `agent_name` records under `main` too. Each still
 records the id of the call that started it, so the parent never takes the
 subagent's steps for its own, and answers its halts as `SubagentHalt` says,
-on a fresh thread and after a halt of its own.
+on a fresh thread and after a halt of its own. A fork that shares the parent's
+label starts its own trajectory, so its first step is not halted by a lost write.
 """
 
 from __future__ import annotations
@@ -268,3 +269,27 @@ def test_the_parent_numbers_its_steps_apart_from_a_same_named_subagent_s(
         if "delegation_id" in record
     ]
     assert subagent_steps == [(1, "halted", CALL_ID)]
+
+
+def test_a_fork_sharing_its_parent_s_label_is_not_halted_by_a_lost_write(run_mode: RunMode) -> None:
+    # Arrange: Deep Agents hands a fork its parent's private state, but `monitor_trajectory`
+    # stays out of the graph's input schema, so the parent's whole trajectory never reaches the
+    # fork's reducer as a write. A step halts when the trajectory has a lost write.
+    responses = [
+        build_delegation_step(call_id=CALL_ID, subagent_type="forker"),
+        AIMessage("Fork done."),
+        AIMessage(MAIN_ANSWER),
+    ]
+    agent, _model = build_fork_parent(SubagentHalt.STOP_SUBAGENT_ONLY, responses)
+
+    # Act
+    result = run_thread(agent, mode=run_mode, thread="fresh")
+
+    # Assert
+    fork_steps = [
+        (record["step_number"], record["outcome"])
+        for record in result["monitor_log"]
+        if record.get("delegation_id") == CALL_ID
+    ]
+    assert fork_steps == [(1, "allowed")]
+    assert result["messages"][-1].text == MAIN_ANSWER

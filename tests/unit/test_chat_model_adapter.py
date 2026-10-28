@@ -1651,6 +1651,12 @@ async def test_a_chat_model_that_rejects_the_request_for_log_probabilities_is_a_
             0,
             id="no-log-probabilities-requested",
         ),
+        pytest.param(
+            "Messages.create() got an unexpected keyword argument 'stop'",
+            True,
+            2,
+            id="another-unexpected-keyword",
+        ),
     ],
 )
 async def test_any_other_type_error_passes_through_unchanged(
@@ -1669,6 +1675,18 @@ async def test_any_other_type_error_passes_through_unchanged(
     # Act and Assert
     with pytest.raises(TypeError, match=re.escape(rejection)):
         await generate_on_path(model, PROMPT, call_path=call_path, top_log_probabilities=count)
+
+
+async def test_an_error_that_is_no_type_error_passes_through_even_when_it_names_the_keyword(
+    call_path: CallPath,
+) -> None:
+    # Arrange
+    message = "Messages.create() got an unexpected keyword argument 'logprobs'"
+    model = FlakyChatModel(replies=[ValueError(message)])
+
+    # Act and Assert
+    with pytest.raises(ValueError, match=re.escape(message)):
+        await generate_on_path(model, PROMPT, call_path=call_path, top_log_probabilities=2)
 
 
 def respond_and_keep_bodies(
@@ -1702,6 +1720,21 @@ def respond_and_keep_bodies(
             {"openrouter_provider": {"require_parameters": False}},
             {"require_parameters": False},
             id="the-users-require_parameters",
+        ),
+        pytest.param(
+            {
+                "openrouter_provider": {"order": ["AkashML"]},
+                "model_kwargs": {"provider": {"order": ["Groq"]}},
+            },
+            {"order": ["AkashML"], "require_parameters": True},
+            id="openrouter_provider-over-model_kwargs",
+            marks=pytest.mark.xfail(strict=True),
+        ),
+        pytest.param(
+            {"openrouter_provider": {}, "model_kwargs": {"provider": {"order": ["Groq"]}}},
+            {"require_parameters": True},
+            id="an-empty-openrouter_provider",
+            marks=pytest.mark.xfail(strict=True),
         ),
     ],
 )

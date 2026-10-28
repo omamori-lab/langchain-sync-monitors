@@ -11,6 +11,8 @@ from __future__ import annotations
 from collections.abc import Iterable, Mapping, Sequence
 from typing import TYPE_CHECKING, TypeGuard, cast
 
+from hyoshigi import Redaction
+
 from langchain_sync_monitors._langchain import append_subagent_middleware
 from langchain_sync_monitors.errors import (
     ConfigurationError,
@@ -183,11 +185,13 @@ def check_overrides_option(
     overrides: Mapping[str, MonitorMiddleware] | None,
     *,
     label: str,
+    redaction: Redaction | None,
 ) -> None:
     """Raise `ConfigurationError` unless `overrides` is `None` or maps names to monitors.
 
     Each monitor must have `label`, the main monitor's, under which a
-    subagent's trajectory joins its parent's run.
+    subagent's trajectory joins its parent's run, and `redaction`, the main
+    monitor's, which covers the whole run.
     """
     if overrides is None:
         return
@@ -204,18 +208,36 @@ def check_overrides_option(
                 f"got a key that is {describe_option_value(name)}"
             )
             raise ConfigurationError(error_message)
-        check_instance_option(
-            override,
-            option_type=MonitorMiddleware,
-            parameter_name=f"overrides[{name!r}]",
+        check_override(name, override=override, label=label, redaction=redaction)
+
+
+def check_override(
+    name: str,
+    *,
+    override: MonitorMiddleware,
+    label: str,
+    redaction: Redaction | None,
+) -> None:
+    """Raise `ConfigurationError` unless an override is a monitor of this label and redaction."""
+    check_instance_option(
+        override,
+        option_type=MonitorMiddleware,
+        parameter_name=f"overrides[{name!r}]",
+    )
+    if override.label != label:
+        error_message = (
+            f"overrides[{name!r}] has the label {override.label!r}, but a subagent's "
+            f"trajectory joins its parent's run under the parent's label, {label!r}. Give "
+            f"the override label={label!r}, or monitor a compiled subagent in its own graph."
         )
-        if override.label != label:
-            error_message = (
-                f"overrides[{name!r}] has the label {override.label!r}, but a subagent's "
-                f"trajectory joins its parent's run under the parent's label, {label!r}. Give "
-                f"the override label={label!r}, or monitor a compiled subagent in its own graph."
-            )
-            raise ConfigurationError(error_message)
+        raise ConfigurationError(error_message)
+    if override.redaction != redaction:
+        error_message = (
+            f"overrides[{name!r}] has a redaction that differs from the middleware's, but one "
+            "redaction covers the whole run, the subagent's trajectory included. Give the "
+            "override the middleware's redaction."
+        )
+        raise ConfigurationError(error_message)
 
 
 def build_general_purpose_subagent(
@@ -298,8 +320,9 @@ def monitor_subagents(
     Each subagent gets a copy of `middleware`, or of its entry in `overrides`,
     named after the subagent and told that its task comes from the parent
     agent. An entry in `overrides` keeps `middleware`'s label, since a
-    subagent's trajectory joins its parent's run under that label; another
-    label raises `ConfigurationError`. Pass the result as
+    subagent's trajectory joins its parent's run under that label, and its
+    redaction, which covers the run; another label or redaction raises
+    `ConfigurationError`. Pass the result as
     `create_deep_agent(subagents=...)`.
 
     The general-purpose subagent is added as a spec of its own, since Deep
@@ -341,7 +364,7 @@ def monitor_subagents(
 
     Every option is checked before Deep Agents is imported: `middleware` and
     each override must be a `MonitorMiddleware`, each override of
-    `middleware`'s label, `overrides` a mapping keyed by subagent name,
+    `middleware`'s label and redaction, `overrides` a mapping keyed by subagent name,
     `subagents` an iterable of specs, and `skills` one of skill sources,
     each a path or a `(path, label)` pair of strings, as Deep Agents'
     `SkillsMiddleware` takes them. A subagent's name names its
@@ -350,7 +373,11 @@ def monitor_subagents(
     """
     check_instance_option(middleware, option_type=MonitorMiddleware, parameter_name="middleware")
     given_specs = read_subagent_specs(subagents)
-    check_overrides_option(overrides, label=middleware.label)
+    check_overrides_option(
+        overrides,
+        label=middleware.label,
+        redaction=middleware.redaction,
+    )
     skill_sources = read_skills_option(skills)
     specs = build_declarative_specs(given_specs, skills=skill_sources)
     chosen = overrides or {}

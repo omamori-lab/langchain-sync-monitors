@@ -133,7 +133,7 @@ and how to answer it.
 |---|---|---|
 | `middleware` | Required | The monitor every subagent gets a copy of, usually the main agent's. |
 | `subagents` | No specs | Your subagent specs. The general-purpose subagent is added when it is missing. |
-| `overrides` | `None` | A monitor for named subagents, in place of the copy of `middleware`, with `middleware`'s label. A name that matches no subagent, or a monitor of another label, raises `ConfigurationError`. |
+| `overrides` | `None` | A monitor for named subagents, in place of the copy of `middleware`, with `middleware`'s label and redaction. A name that matches no subagent, or a monitor of another label or redaction, raises `ConfigurationError`. |
 | `skills` | `None` | The main agent's skills, the list you give `create_deep_agent(skills=...)`. The general-purpose subagent gets them. |
 
 `monitor_subagents` returns new specs and leaves yours unchanged; pass the

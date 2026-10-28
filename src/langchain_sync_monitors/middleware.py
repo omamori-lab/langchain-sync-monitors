@@ -198,8 +198,8 @@ class MonitorMiddleware(AgentMiddleware[MonitorState, AgentContext, StructuredOu
     `redaction`, hyoshigi's `Redaction`, redacts each entry, rating and record
     before the trajectory keeps it, so what the monitor keeps and emits holds
     the redacted text; `messages` keep the original. The function must return
-    its own output unchanged. A subagent whose own monitor has none joins
-    unredacted. The how-to Redact what the monitor keeps has the rest.
+    its own output unchanged. The how-to Redact what the monitor keeps has the
+    rest.
 
     A halted step ends the run. The middleware's `after_model` hook routes the
     agent to its end, since the halt message alone does not end an agent that
@@ -423,7 +423,7 @@ class MonitorMiddleware(AgentMiddleware[MonitorState, AgentContext, StructuredOu
         messages as `tag_tool_written_notes` says, and its records as
         `returned_records` says. `tool_calls` has the rule.
         """
-        return run_tool_call_sync(request, handler=handler, agent=self.agent_name)
+        return run_tool_call_sync(request, handler=handler, middleware=self)
 
     @override
     async def awrap_tool_call(
@@ -435,7 +435,7 @@ class MonitorMiddleware(AgentMiddleware[MonitorState, AgentContext, StructuredOu
 
         What the call writes is checked as under `invoke()`.
         """
-        return await run_tool_call(request, handler=handler, agent=self.agent_name)
+        return await run_tool_call(request, handler=handler, middleware=self)
 
     @override
     def before_agent(self, state: MonitorState, runtime: AgentRuntime) -> AgentStateUpdate | None:

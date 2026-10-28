@@ -72,7 +72,10 @@ def build_state(
 
 def check(update: Any, *, state: dict[str, Any] | None = None, **call: Any) -> Command:
     caller = read_tool_caller(
-        state or build_state(), agent="main", tool_call=build_tool_call(**call)
+        state or build_state(),
+        agent="main",
+        tool_call=build_tool_call(**call),
+        redaction=None,
     )
     return check_command_records(Command(update=update), caller=caller)
 
@@ -119,7 +122,12 @@ def test_records_with_no_halt_store_nothing_whatever_their_blocks() -> None:
 
 def test_a_command_that_writes_no_records_is_returned_as_it_is() -> None:
     # Arrange
-    caller = read_tool_caller(build_state(), agent="main", tool_call=build_tool_call())
+    caller = read_tool_caller(
+        build_state(),
+        agent="main",
+        tool_call=build_tool_call(),
+        redaction=None,
+    )
     command = Command(update={"messages": [ToolMessage("done", tool_call_id="call-task")]})
 
     # Act / Assert
@@ -302,7 +310,10 @@ def test_a_caller_whose_state_holds_no_log_has_every_written_record_checked(
 ) -> None:
     # Arrange
     caller = read_tool_caller(
-        state, agent="main", tool_call=build_tool_call(subagent_type="worker")
+        state,
+        agent="main",
+        tool_call=build_tool_call(subagent_type="worker"),
+        redaction=None,
     )
     halted = build_record(outcome="halted", blocked_count=1)
 
@@ -486,7 +497,12 @@ def test_the_records_of_every_update_shape_are_checked() -> None:
 
 def test_a_command_for_the_parent_graph_is_left_to_the_parent_s_monitor() -> None:
     # Arrange
-    caller = read_tool_caller(build_state(), agent="main", tool_call=build_tool_call())
+    caller = read_tool_caller(
+        build_state(),
+        agent="main",
+        tool_call=build_tool_call(),
+        redaction=None,
+    )
     command = Command(graph=Command.PARENT, update={"monitor_log": [build_record(step_number=-1)]})
 
     # Act / Assert
@@ -495,7 +511,12 @@ def test_a_command_for_the_parent_graph_is_left_to_the_parent_s_monitor() -> Non
 
 def test_the_records_in_a_parent_command_a_call_raises_are_checked_in_place() -> None:
     # Arrange: LangGraph names the graph by the time the parent's monitor sees it
-    caller = read_tool_caller(build_state(), agent="main", tool_call=build_tool_call())
+    caller = read_tool_caller(
+        build_state(),
+        agent="main",
+        tool_call=build_tool_call(),
+        redaction=None,
+    )
     parent_command = ParentCommand(
         Command(graph="parent", update={"monitor_log": [build_record(outcome="halted")]})
     )
@@ -511,7 +532,12 @@ def test_the_records_in_a_parent_command_a_call_raises_are_checked_in_place() ->
 
 def test_each_command_of_a_list_result_is_checked() -> None:
     # Arrange
-    caller = read_tool_caller(build_state(), agent="main", tool_call=build_tool_call())
+    caller = read_tool_caller(
+        build_state(),
+        agent="main",
+        tool_call=build_tool_call(),
+        redaction=None,
+    )
     message = ToolMessage("done", tool_call_id="call-task")
     results = [message, Command(update={"monitor_log": [build_record(outcome="halted")]})]
 

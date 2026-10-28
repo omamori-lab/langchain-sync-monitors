@@ -25,6 +25,7 @@ from collections.abc import Generator
 from contextlib import contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
 from langchain.agents.middleware.types import ToolCallRequest
 from langgraph.errors import ParentCommand
@@ -45,6 +46,10 @@ from langchain_sync_monitors.returned_records import (
     read_tool_caller,
 )
 from langchain_sync_monitors.task_authorship import relabel_parent_command, tag_tool_written_notes
+
+if TYPE_CHECKING:
+    # The middleware module imports this one.
+    from langchain_sync_monitors.middleware import MonitorMiddleware
 
 checked_tool_call: ContextVar[ToolCallRequest | None] = ContextVar(
     "monitor_checked_tool_call",
@@ -93,7 +98,7 @@ class CheckedToolCall:
 def check_tool_call(
     request: ToolCallRequest,
     *,
-    agent: str,
+    middleware: MonitorMiddleware,
 ) -> Generator[CheckedToolCall, None, None]:
     """Hand on the call with its delegation, marked as checked while the rest of the stack runs it.
 
@@ -104,8 +109,13 @@ def check_tool_call(
     if is_checked_further_out(request):
         yield CheckedToolCall(request=request, caller=None)
         return
-    caller = read_tool_caller(request.state, agent=agent, tool_call=request.tool_call)
-    delegated = add_delegation(request, agent=agent)
+    caller = read_tool_caller(
+        request.state,
+        agent=middleware.agent_name,
+        tool_call=request.tool_call,
+        redaction=middleware.redaction,
+    )
+    delegated = add_delegation(request, agent=middleware.agent_name)
     with set_context_value(checked_tool_call, value=delegated):
         try:
             yield CheckedToolCall(request=delegated, caller=caller)
@@ -121,10 +131,10 @@ def run_tool_call_sync(
     request: ToolCallRequest,
     *,
     handler: ToolCallHandler,
-    agent: str,
+    middleware: MonitorMiddleware,
 ) -> ToolCallResult:
     """Run a tool call under `invoke()`, handing on the delegation and checking what it writes."""
-    with check_tool_call(request, agent=agent) as checked_call:
+    with check_tool_call(request, middleware=middleware) as checked_call:
         result = handler(checked_call.request)
     return checked_call.check_result(result)
 
@@ -133,9 +143,9 @@ async def run_tool_call(
     request: ToolCallRequest,
     *,
     handler: AsyncToolCallHandler,
-    agent: str,
+    middleware: MonitorMiddleware,
 ) -> ToolCallResult:
     """Run a tool call under `ainvoke()`, handing on the delegation and checking what it writes."""
-    with check_tool_call(request, agent=agent) as checked_call:
+    with check_tool_call(request, middleware=middleware) as checked_call:
         result = await handler(checked_call.request)
     return checked_call.check_result(result)

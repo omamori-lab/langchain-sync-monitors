@@ -38,11 +38,8 @@ middleware = MonitorMiddleware(
 ```
 
 The subagents that `monitor_subagents` monitors take the redaction of the
-middleware they are copied from. A subagent monitored by a middleware of its
-own, a compiled subagent's or an override's, keeps its trajectory as that
-middleware's `redaction` leaves it, and its parent's `monitor_trajectory`
-takes the subtree as it comes: without a `redaction` there, the subtree holds
-the original text. Give each such middleware the same `redaction`.
+middleware they are copied from, and an override in `overrides` must have the
+same one: another raises `ConfigurationError`.
 
 ## Know what a redaction reaches
 
@@ -52,7 +49,7 @@ recorded, redacted decisions:
 
 | Where | What it holds |
 |---|---|
-| `monitor_trajectory` | Every entry, rating and record of the root's trajectory, and of each subagent's trajectory joined under its call, when the subagent's monitor has the redaction |
+| `monitor_trajectory` | Every entry, rating and record of the root's trajectory, and of each subagent's trajectory joined under its call, which the parent's tool-call check loads through the parent's redaction, whatever the subagent's own monitor kept |
 | `monitor_log` and the `monitor_step` events | Each sample's `reason` and `proposal` |
 | The `monitor step` span | The proposed step and the samples' reasons |
 | The `monitor judgement` spans | Each rating's `reason`, which the span ends with before the trajectory records the score, so the text function redacts it there |
@@ -62,11 +59,12 @@ recorded, redacted decisions:
 ## Write a function that gives the same result twice
 
 A stored trajectory loads as it was stored, so a step does not redact it again.
-Two passes remain. A subagent's trajectory joins its parent's through the
-redaction once more, and a failed step's event passes the reasons the
-trajectory already recorded through the text function again. A function that
-adds to a text, such as a marker appended to every message, changes it each
-time. Write one that returns its own output unchanged, as `mask_emails` does.
+Further passes remain. A subagent's trajectory passes through the redaction
+where it joins the run, once more after its own monitor's, and a failed step's
+event passes the reasons the trajectory already recorded through the text
+function again. A function that adds to a text, such as a marker appended to
+every message, changes it each time. Write one that returns its own output
+unchanged, as `mask_emails` does.
 
 ## Know what a redaction leaves
 
@@ -74,6 +72,9 @@ time. Write one that returns its own output unchanged, as `mask_emails` does.
   the text as it was, and so do the traces of LangChain's own model calls, the
   agent's among them. LangChain's `PIIMiddleware`, LangSmith's `anonymizer` and
   Langfuse's `mask` cover those.
+- **A subagent's own state.** A subagent's checkpoint holds what its own
+  middleware keeps. Give a compiled subagent's `MonitorMiddleware` the same
+  `redaction`.
 - **A thread that began without a redaction.** A stored trajectory loads as
   already redacted, so a run that sets a redaction redacts what it adds and
   leaves what the thread stored before.

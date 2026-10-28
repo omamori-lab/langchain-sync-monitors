@@ -18,7 +18,7 @@ with the same keys.
 | `DEFAULT_PROMPT` | Reasoning before the score, on an anchored scale | Apollo Research [@apollo2026monitoringprompt] |
 | Verdicts read only where the format puts them | The threat of prompt injections aimed at the monitor | Terekhov et al. [@terekhov2025adaptive] |
 | `RepeatedMonitor`, `CalibratedMonitor` | Averaged calls, smoothed conformal p-values and random tie-breaking | [Thresholds and scores](#thresholds-and-scores) |
-| `GuardMonitor` | The share of sampled replies that carry the unsafe label | [Guard models](#guard-models) |
+| `GuardMonitor` | The share of sampled replies that carry the unsafe label, or the probability of the label from log-probabilities | [Guard models](#guard-models) |
 | `DecisionMonitor` | The probability that each statement holds, from Jev | [Decision models](#decision-models) |
 
 ## Control protocols
@@ -155,7 +155,8 @@ probability of the first generated token as the unsafe class's
 [@meta2024llamaguard3].
 
 The share of several samples that carry the unsafe label estimates the same
-probability without log-probabilities, and `GuardMonitor` scores that share.
+probability without log-probabilities, and `GuardMonitor` scores that share, or
+the probability itself when `top_log_probabilities` is above 0.
 How many samples to draw draws on Lyu et al., Xiong et al. and Tian et al.,
 and how guard models are calibrated on Liu et al.
 [@lyu2025sampleconsistency; @xiong2024uncertainty; @tian2023justask; @liu2025guardcalibration];

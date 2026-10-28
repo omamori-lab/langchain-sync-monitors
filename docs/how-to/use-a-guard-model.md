@@ -2,8 +2,8 @@
 
 This guide shows how to monitor an agent with `GuardMonitor`, which asks a
 guard model, also called a safety classifier, to label each step against a
-policy you write, and scores the step by the share of its sampled replies
-labelled suspicious.
+policy you write, and scores the step from the guard's labels: by default,
+the share of its sampled replies labelled suspicious.
 
 [TOC]
 
@@ -70,12 +70,13 @@ POLICY_PROMPT = MonitorPrompt(
 `GuardMonitor(model=...)` takes the guard as `str | BaseChatModel`, with
 no default. A provider string goes through LangChain's `init_chat_model`; a
 chat model wrapped in a Runnable, by `with_retry()` or `bind()`, raises
-`ConfigurationError`. Build the model with a temperature above zero: the
-monitor samples several replies to one prompt, and at temperature zero every
-sample carries the same label. Give it no LangChain response cache either,
-global or on the model, which would answer every sample with a copy of the
-first: `MonitorMiddleware` warns once per process with a
-`CachedResampleWarning` when it is built with such a guard.
+`ConfigurationError`. A guard that samples, as it does by default, needs a
+model built with a temperature above zero: the monitor samples several
+replies to one prompt, and at temperature zero every sample carries the same
+label. Give it no LangChain response cache either, global or on the model,
+which would answer every sample with a copy of the first: `MonitorMiddleware`
+warns once per process with a `CachedResampleWarning` when it is built with
+such a guard.
 
 ```python
 from langchain.chat_models import init_chat_model
@@ -103,9 +104,9 @@ known guards: `GPT_OSS_SAFEGUARD` and `QWEN3GUARD`. The policy above asks for
 
 ## Know how the samples become a score
 
-`GuardMonitor` always samples its chat model: suspicion is the share of the
-sampled replies labelled suspicious, five by default, so it moves in steps of
-0.2. Under `invoke()` the samples are drawn one after another, and under
+At `top_log_probabilities=0`, the default, `GuardMonitor` samples its chat
+model: suspicion is the share of the sampled replies labelled suspicious, five
+by default, so it moves in steps of 0.2. Under `invoke()` the samples are drawn one after another, and under
 `ainvoke()` at once. A reply that cannot be read, is cut off, is refused or is
 rejected fails the whole rating closed at 1.0, and a sample left unanswered is
 set aside while more than half answered.
@@ -123,6 +124,41 @@ monitors](combine-and-calibrate-monitors.md) shows.
 A sample the model left unanswered includes one whose rate limit outlasted the
 library's retries ([Know what a failed call
 does](use-an-llm-monitor.md#know-what-a-failed-call-does)).
+
+## Score from log-probabilities
+
+`top_log_probabilities` is the number of alternatives to each token that the
+chat model is asked for, and the default, 0, asks for none. hyoshigi's
+[section on scoring a model's log-probabilities in one
+call](https://omamori-lab.github.io/hyoshigi/how-to/choosing-a-monitor/#a-guard-monitor-scores-a-models-log-probabilities-in-one-call)
+gives how the guard scores them, and when a rating fails closed.
+
+```python
+guard_model = init_chat_model("openrouter:openai/gpt-4o-mini", temperature=0)
+monitor = GuardMonitor(
+    model=guard_model,
+    prompt=POLICY_PROMPT,
+    labels=GuardLabels(suspicious={"violation"}, safe={"no_violation"}),
+    top_log_probabilities=20,
+)
+```
+
+- **The count.** 20 is the most OpenAI's API returns, since it takes
+  `top_logprobs` from 0 to 20 [@openaipythonsdk2026], and the number of
+  alternatives Granite Guardian reads (section 4.3) [@padhi2024graniteguardian].
+- **OpenRouter.** For a `ChatOpenRouter`, the request's `provider`
+  preferences gain `require_parameters: true`, which routes it only to
+  providers that support every parameter in it [@openrouter2026providerrouting].
+  The preferences are `openrouter_provider` when set, else the `provider`
+  among `model_kwargs`; their other keys stay, and a `require_parameters` you
+  set wins, even `False`.
+- **A 404.** When no provider of the model supports the request, OpenRouter
+  answers with HTTP 404, and the error is raised as it is. Set the count
+  only for a model whose every provider returns log-probabilities: a 404
+  with it on usually means that none does.
+- **A chat model that rejects the request.** A chat model whose class refuses
+  the `logprobs` keyword raises `ConfigurationError` when the monitor rates,
+  naming the model. Use `top_log_probabilities=0` with it.
 
 ## Know how the label is read
 

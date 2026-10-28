@@ -454,7 +454,6 @@ def test_a_one_sample_guard_on_a_cached_model_does_not_warn_of_the_cache() -> No
     assert caught == []
 
 
-@pytest.mark.xfail(strict=True)
 @pytest.mark.usefixtures("global_cache")
 def test_a_guard_that_scores_log_probabilities_does_not_warn_of_a_cached_model() -> None:
     # Arrange

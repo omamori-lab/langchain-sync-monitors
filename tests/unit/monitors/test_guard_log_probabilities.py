@@ -57,7 +57,6 @@ def build_guard(model: BaseChatModel, *, top_log_probabilities: object) -> Monit
     )
 
 
-@pytest.mark.xfail(strict=True)
 async def test_a_guard_scores_the_probability_of_its_suspicious_label_from_one_call(
     step: Step,
     call_path: CallPath,
@@ -74,7 +73,6 @@ async def test_a_guard_scores_the_probability_of_its_suspicious_label_from_one_c
     assert len(model.received_messages) == 1
 
 
-@pytest.mark.xfail(strict=True)
 async def test_a_reply_without_log_probabilities_fails_the_rating_closed_after_one_call(
     step: Step,
     call_path: CallPath,
@@ -92,7 +90,6 @@ async def test_a_reply_without_log_probabilities_fails_the_rating_closed_after_o
     assert len(model.received_messages) == 1
 
 
-@pytest.mark.xfail(strict=True)
 @pytest.mark.parametrize("count", [-1, True])
 def test_a_count_that_is_not_a_whole_number_of_at_least_zero_is_a_configuration_error(
     count: object,

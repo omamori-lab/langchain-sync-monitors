@@ -197,13 +197,36 @@ def find_refusal_blocks(reply: AIMessage) -> Iterator[dict[str, object]]:
                 yield block
 
 
+def read_prompt_feedback(reply: AIMessage) -> dict[str, object]:
+    """Return the prompt feedback in the reply's metadata, or an empty one.
+
+    When Gemini returns no candidate, langchain-google-genai gives an empty
+    reply and keeps the feedback on the prompt there, with the reason it was
+    blocked [@langchaingooglegenai2026].
+    """
+    feedback = reply.response_metadata.get("prompt_feedback")
+    return feedback if isinstance(feedback, dict) else {}
+
+
+def is_prompt_blocked(reply: AIMessage) -> bool:
+    """Tell whether the prompt feedback gives a reason Gemini blocked the prompt.
+
+    The reason is a string, such as `SAFETY` or `BLOCKLIST`. A reply with none,
+    or with the unspecified value, which the API documents as unused, is not
+    blocked [@google2026generatecontent].
+    """
+    reason = read_prompt_feedback(reply).get("block_reason")
+    return isinstance(reason, str) and bool(reason) and "unspecified" not in reason.lower()
+
+
 def find_refusal_texts(reply: AIMessage) -> Iterator[object]:
     """Yield what the reply holds where a provider puts its explanation of a refusal.
 
     That is the `refusal` of a chat completion's message, which
     langchain-openai keeps in `additional_kwargs`, and the text of a `refusal`
-    block [@langchainopenai2026], and the `explanation` of Anthropic's
-    `stop_details` [@anthropicpythonsdk2026].
+    block [@langchainopenai2026], the `explanation` of Anthropic's
+    `stop_details` [@anthropicpythonsdk2026], and the `block_reason_message`
+    of the feedback on a blocked prompt.
     """
     yield reply.additional_kwargs.get("refusal")
     for block in find_refusal_blocks(reply):
@@ -211,17 +234,20 @@ def find_refusal_texts(reply: AIMessage) -> Iterator[object]:
     stop_details = reply.response_metadata.get("stop_details")
     if isinstance(stop_details, dict):
         yield stop_details.get("explanation")
+    if is_prompt_blocked(reply):
+        yield read_prompt_feedback(reply).get("block_reason_message")
 
 
 def has_refusal_marker(reply: AIMessage) -> bool:
     """Tell whether the reply says, without an explanation, that the provider refused.
 
-    That is a stop reason that names a refusal (`REFUSAL_STOP_REASONS`), or a
-    `refusal` block, whether or not it has text.
+    That is a stop reason that names a refusal (`REFUSAL_STOP_REASONS`), a
+    `refusal` block, whether or not it has text, or a blocked prompt.
     """
     return (
         has_stop_reason(reply, reasons=REFUSAL_STOP_REASONS)
         or next(find_refusal_blocks(reply), None) is not None
+        or is_prompt_blocked(reply)
     )
 
 

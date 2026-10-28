@@ -227,8 +227,9 @@ class DecisionMonitor:
     reads `OPENROUTER_API_KEY` and takes text only, as
     `openrouter_decisions` explains. The other options are hyoshigi's
     `DecisionMonitor`'s, and `perceives` the media the model takes. A model
-    of another provider, or a missing key, raises `ConfigurationError`; any
-    other decision model is a `MonitorTwins` of hyoshigi's `DecisionMonitor`.
+    of another provider, a `perceives` that is not a `MediaTypes`, or a missing
+    key raises `ConfigurationError`; any other decision model is a
+    `MonitorTwins` of hyoshigi's `DecisionMonitor`.
     """
 
     model: str
@@ -241,6 +242,7 @@ class DecisionMonitor:
     def __post_init__(self) -> None:
         """Build both twins on the model's decision models."""
         check_instance_option(self.model, option_type=str, parameter_name="model")
+        check_instance_option(self.perceives, option_type=MediaTypes, parameter_name="perceives")
         model, async_model = build_decision_models(self.model, perceives=self.perceives)
         options = {
             "view": self.view,

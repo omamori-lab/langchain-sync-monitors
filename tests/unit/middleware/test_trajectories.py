@@ -47,7 +47,7 @@ from langchain_sync_monitors.protocols import (
     FeedbackTemplate,
     TrustedMonitoring,
 )
-from langchain_sync_monitors.trajectories import (
+from langchain_sync_monitors.trajectory_channel import (
     TrajectoryDelta,
     TrajectoryLengths,
     merge_trajectories,

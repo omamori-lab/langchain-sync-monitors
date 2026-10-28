@@ -24,7 +24,7 @@ from langchain_sync_monitors.halts import InputsAtHalt, merge_inputs_at_halt
 from langchain_sync_monitors.run_inputs import RunInput, merge_run_inputs
 from langchain_sync_monitors.subagent_returns import SubagentReturn, merge_subagent_returns
 from langchain_sync_monitors.task_authorship import keep_latest, merge_message_ids
-from langchain_sync_monitors.trajectories import TrajectoryState, merge_trajectories
+from langchain_sync_monitors.trajectory_channel import TrajectoryState, merge_trajectories
 
 
 class MonitorState(AgentState):

@@ -245,7 +245,7 @@ def find_held_step(
         state,
         label=middleware.label,
         task_author=middleware.task_author,
-        redaction=None,
+        redaction=middleware.redaction,
     )
     records = loaded.trajectory.records
     # read_draw gave the held reply its action's id.
@@ -562,7 +562,7 @@ def stop_held_step(
         update=update,
         label=middleware.label,
         task_author=middleware.task_author,
-        redaction=None,
+        redaction=middleware.redaction,
         stop=halt,
     )
     written = update.get("messages")

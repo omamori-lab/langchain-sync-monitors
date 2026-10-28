@@ -48,10 +48,6 @@ EDIT_WITH_SECRET = {
     ],
 }
 NEW_INPUT_WITH_SECRET = f"Only summarise it, key {SECRET}."
-KEEPS_THE_TEXT = pytest.mark.xfail(
-    strict=True,
-    reason="PR 8 loads a held step through the redaction",
-)
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -109,21 +105,18 @@ def test_an_audit_request_shows_the_held_calls_as_made_and_the_samples_redacted(
             ["audit", "replace", "run"],
             f"note {MASK}",
             id="edit",
-            marks=KEEPS_THE_TEXT,
         ),
         pytest.param(
             {"type": "reject", "message": f"Do not send {SECRET}."},
             ["audit", "block", "run"],
             f"Blocked: Do not send {MASK}.",
             id="reject",
-            marks=KEEPS_THE_TEXT,
         ),
         pytest.param(
             {"type": "stop", "message": f"Stopped: {SECRET}."},
             ["audit", "halt"],
             f"Stopped: {MASK}.",
             id="stop",
-            marks=KEEPS_THE_TEXT,
         ),
     ],
 )
@@ -151,7 +144,6 @@ def test_an_answer_to_an_audit_is_recorded_without_the_text_the_redaction_remove
     assert SECRET not in json.dumps(result["monitor_log"])
 
 
-@KEEPS_THE_TEXT
 def test_the_new_input_that_stops_a_held_step_is_recorded_without_the_text_the_redaction_removes(
     run_mode: RunMode,
     paused_post: PausedRun,

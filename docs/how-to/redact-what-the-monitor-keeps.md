@@ -50,6 +50,7 @@ recorded, redacted decisions:
 | Where | What it holds |
 |---|---|
 | `monitor_trajectory` | Every entry, rating and record of the root's trajectory, and of each subagent's trajectory joined under its call, which the parent's tool-call check loads through the parent's redaction, whatever the subagent's own monitor kept |
+| A held step and its answer | The `AuditRequest`'s `samples`, the answer's record and the new input that stops the step. The request's `tool_calls` stay as the model made them, so the person sees what an approval runs |
 | `monitor_log` and the `monitor_step` events | Each sample's `reason` and `proposal` |
 | The `monitor step` span | The proposed step and the samples' reasons |
 | The `monitor judgement` spans | Each rating's `reason`, which the span ends with before the trajectory records the score, so the text function redacts it there |

@@ -85,7 +85,8 @@ The model strings are examples, and `openrouter:` strings need the
 | `answers` | The answers this audit takes: `edit` only when the held reply has tool calls |
 
 The tool calls are the model's own, not redacted, so the person sees what an
-approval runs.
+approval runs. [Redact what the monitor keeps](redact-what-the-monitor-keeps.md)
+says what a `redaction` reaches in an audit.
 
 ## The answers
 

@@ -580,9 +580,13 @@ STALE_WRITES: dict[str, tuple[Any, int]] = {
         {**build_stale_delta(nested=True), "base": {**EMPTY_LENGTHS, "history": 5}},
         1,
     ),
+    "behind-in-seen-keys-alone": (
+        {**build_stale_delta(nested=False), "base": {**EMPTY_LENGTHS, "history": 1}},
+        1,
+    ),
     "malformed": ({"base": "zero"}, 1),
 }
-"""Each write against a label that already holds one event, and the lost writes it adds."""
+"""Each write against a label that holds one event and one seen key, and the lost writes it adds."""
 
 
 @pytest.mark.xfail(strict=True)

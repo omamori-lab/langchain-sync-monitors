@@ -718,6 +718,70 @@ JOINED_DUMP: dict[str, JSON] = {
     "subagents": {"call-task": SUBAGENT_DUMP},
 }
 """The delegating trajectory with the subagent's joined under `call-task`."""
+RATED_SUBAGENT_DUMP: dict[str, JSON] = {
+    **LONGER_SUBAGENT_DUMP,
+    "ratings": [
+        {
+            "action_id": "step-1",
+            "score": {
+                "value": 0.1,
+                "explanation": "Harmless.",
+                "evidence": {"kind": "rationale", "model": "m", "hidden_reasoning": []},
+            },
+        },
+    ],
+}
+"""`LONGER_SUBAGENT_DUMP` with a rating of its answer."""
+HALTED_SUBAGENT_DUMP: dict[str, JSON] = {
+    **SUBAGENT_DUMP,
+    "records": [
+        {
+            "kind": "halt",
+            "reason": "Stopped.",
+            "proposals": [
+                {
+                    "action": {
+                        "kind": "action",
+                        "id": "step-1",
+                        "thought": [],
+                        "parts": [{"kind": "text", "text": "Three sources."}],
+                        "tool_calls": [],
+                    },
+                    "score": None,
+                    "policy": "trusted",
+                },
+            ],
+            "position": 1,
+            "sequence": 0,
+        },
+    ],
+}
+"""`SUBAGENT_DUMP` with a record of a halt."""
+CALLING_SUBAGENT_DUMP: dict[str, JSON] = {
+    **SUBAGENT_DUMP,
+    "history": [
+        {
+            "kind": "observation",
+            "author": "delegator",
+            "source": None,
+            "parts": [{"kind": "text", "text": "Find the sources."}],
+        },
+        {
+            "kind": "action",
+            "id": "step-1",
+            "thought": [],
+            "parts": [],
+            "tool_calls": [{"id": "call-nested", "name": "task", "arguments": "{}"}],
+        },
+    ],
+    "subagents": {"call-nested": SUBAGENT_DUMP},
+}
+"""The subagent `call-task` started, which calls `task` as `call-nested`, with the instruction."""
+CALLING_LONGER_DUMP: dict[str, JSON] = {
+    **CALLING_SUBAGENT_DUMP,
+    "subagents": {"call-nested": LONGER_SUBAGENT_DUMP},
+}
+"""The same subagent one answer later below `call-nested`, its own lists unchanged."""
 
 
 def build_held(trajectory: dict[str, JSON], *, lost_writes: int = 0) -> dict[str, TrajectoryState]:
@@ -745,16 +809,55 @@ def build_returned(
     }
 
 
+def join_under_call(subagent: dict[str, JSON]) -> dict[str, JSON]:
+    """Return the delegating trajectory with `subagent` joined under `call-task`."""
+    return {**JOINED_DUMP, "subagents": {"call-task": subagent}}
+
+
 RETURNED_WRITES = {
     "joined-under-its-call": (
         build_held(DELEGATING_DUMP),
         build_returned(SUBAGENT_DUMP),
         build_held(JOINED_DUMP),
     ),
-    "again-adding-no-record": (
+    "again-with-nothing-beyond-the-held": (
+        build_held(JOINED_DUMP),
+        build_returned(SUBAGENT_DUMP),
+        build_held(JOINED_DUMP),
+    ),
+    "again-with-less-than-the-held": (
+        build_held(join_under_call(LONGER_SUBAGENT_DUMP)),
+        build_returned(SUBAGENT_DUMP),
+        build_held(join_under_call(LONGER_SUBAGENT_DUMP)),
+    ),
+    "again-with-more-history": pytest.param(
         build_held(JOINED_DUMP),
         build_returned(LONGER_SUBAGENT_DUMP),
+        build_held(JOINED_DUMP, lost_writes=1),
+        marks=pytest.mark.xfail(strict=True, reason="a fuller returned subtree is lost (#146)"),
+    ),
+    "again-with-more-ratings": pytest.param(
+        build_held(join_under_call(LONGER_SUBAGENT_DUMP)),
+        build_returned(RATED_SUBAGENT_DUMP),
+        build_held(join_under_call(LONGER_SUBAGENT_DUMP), lost_writes=1),
+        marks=pytest.mark.xfail(strict=True, reason="a fuller returned subtree is lost (#146)"),
+    ),
+    "again-with-more-records": (
         build_held(JOINED_DUMP),
+        build_returned(HALTED_SUBAGENT_DUMP),
+        build_held(JOINED_DUMP, lost_writes=1),
+    ),
+    "again-with-more-history-below": pytest.param(
+        build_held(join_under_call(CALLING_SUBAGENT_DUMP)),
+        build_returned(CALLING_LONGER_DUMP),
+        build_held(join_under_call(CALLING_SUBAGENT_DUMP), lost_writes=1),
+        marks=pytest.mark.xfail(strict=True, reason="a fuller returned subtree is lost (#146)"),
+    ),
+    "again-with-more-history-and-fewer-records": pytest.param(
+        build_held(join_under_call(HALTED_SUBAGENT_DUMP)),
+        build_returned(LONGER_SUBAGENT_DUMP),
+        build_held(join_under_call(HALTED_SUBAGENT_DUMP), lost_writes=1),
+        marks=pytest.mark.xfail(strict=True, reason="a fuller returned subtree is lost (#146)"),
     ),
     "under-a-label-without-one": (
         {},

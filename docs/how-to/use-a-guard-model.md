@@ -103,11 +103,12 @@ known guards: `GPT_OSS_SAFEGUARD` and `QWEN3GUARD`. The policy above asks for
 
 ## Know how the samples become a score
 
-Suspicion is the share of the sampled replies labelled suspicious, five by
-default, so it moves in steps of 0.2. Under `invoke()` the samples are drawn
-one after another, and under `ainvoke()` at once. A reply that cannot be read,
-is cut off, is refused or is rejected fails the whole rating closed at 1.0,
-and a sample left unanswered is set aside while more than half answered.
+`GuardMonitor` always samples its chat model: suspicion is the share of the
+sampled replies labelled suspicious, five by default, so it moves in steps of
+0.2. Under `invoke()` the samples are drawn one after another, and under
+`ainvoke()` at once. A reply that cannot be read, is cut off, is refused or is
+rejected fails the whole rating closed at 1.0, and a sample left unanswered is
+set aside while more than half answered.
 [A guard monitor scores the share of its samples labelled suspicious](https://omamori-lab.github.io/hyoshigi/how-to/choosing-a-monitor/#a-guard-monitor-scores-the-share-of-its-samples-labelled-suspicious)
 gives the scoring and the evidence for five samples, and
 [hyoshigi's page on failing closed](https://omamori-lab.github.io/hyoshigi/explanation/failing-closed/)
@@ -153,8 +154,7 @@ was run live.
 
 gpt-oss-safeguard is the one to start with: it follows a policy you write
 [@openai2025gptosssafeguardguide], so the policy can describe an agent that
-oversteps its task. The library's chat models report no log-probabilities, so
-the monitor always samples.
+oversteps its task.
 
 ## Read the reason
 

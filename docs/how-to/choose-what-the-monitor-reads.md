@@ -26,9 +26,12 @@ step after it arrives. The trajectory is never rebuilt from `messages`, so:
   under the same id.
 
 The second rule is a privacy rule. **What a redaction removes after the
-monitor first read the message, the monitor's model still receives, and the
-checkpointed `monitor_trajectory` still holds.** The library has no option
-that redacts an entry before the trajectory keeps it.
+monitor first read the message, the checkpointed `monitor_trajectory` still
+holds, and the monitor's model still receives unless the monitor's view
+redacts it.** `MonitorMiddleware` offers no redaction of an entry before the
+trajectory keeps it;
+[hyoshigi's `View(redaction=...)`](https://omamori-lab.github.io/hyoshigi/how-to/redacting-what-leaves-the-process/#a-view-redacts-what-the-monitors-model-reads)
+redacts what a monitor's model reads.
 [The trajectory](../explanation/design.md#the-trajectory) says when each hook
 reads, and [Read the monitor log](read-the-monitor-log.md#know-what-each-stream-shows)
 says which streams show the state key.

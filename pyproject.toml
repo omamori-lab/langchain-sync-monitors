@@ -52,7 +52,7 @@ dependencies = [
 [project.optional-dependencies]
 deepagents = ["deepagents>=0.7.13"]
 openrouter = ["langchain-openrouter>=0.2.1"]
-typesafe = ["hyoshigi[typesafe]>=0.4.0"]
+typesafe = ["hyoshigi[typesafe]>=0.5.0"]
 
 [project.urls]
 Homepage = "https://omamori-lab.github.io/langchain-sync-monitors/"

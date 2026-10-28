@@ -699,19 +699,16 @@ FAILURE_OUTCOMES = [
     pytest.param(
         lambda: ProviderResponseFailure(503),
         Unavailable(status=503),
-        marks=UNFIXED,
         id="typed-server-failure-with-status-on-response",
     ),
     pytest.param(
         lambda: build_google_server_error(503),
         Unavailable(status=503),
-        marks=UNFIXED,
         id="google-server-error",
     ),
     pytest.param(
         lambda: ResponseStatusError(413),
         Rejected(status=413),
-        marks=UNFIXED,
         id="status-413-on-response",
     ),
     pytest.param(lambda: ProviderContextOverflow(400), Rejected(status=400), id="context-overflow"),
@@ -742,7 +739,7 @@ RATE_LIMITS = [
     pytest.param(lambda: build_http_status_error(429), id="httpx-429"),
     pytest.param(lambda: ProviderRateLimit(429), id="typed-rate-limit"),
     pytest.param(lambda: ModelRateLimitError(), id="typed-rate-limit-without-status"),
-    pytest.param(lambda: ResponseStatusError(429), marks=UNFIXED, id="status-429-on-response"),
+    pytest.param(lambda: ResponseStatusError(429), id="status-429-on-response"),
 ]
 
 

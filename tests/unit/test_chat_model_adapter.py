@@ -532,13 +532,11 @@ REFUSED_REPLIES = [
     pytest.param(
         AIMessage(content=[{"type": "refusal"}]),
         Refused(),
-        marks=UNFIXED,
         id="refusal-block-without-text",
     ),
     pytest.param(
         AIMessage(content=[{"type": "refusal", "refusal": ""}]),
         Refused(),
-        marks=UNFIXED,
         id="refusal-block-with-empty-text",
     ),
 ]

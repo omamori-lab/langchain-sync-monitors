@@ -185,41 +185,58 @@ def is_reply_cut_off(reply: AIMessage) -> bool:
     return has_stop_reason(reply, reasons=CUT_OFF_STOP_REASONS)
 
 
-def find_refusal_blocks(reply: AIMessage) -> Iterator[object]:
-    """Yield the `refusal` of each block in the reply's content that has one."""
+def find_refusal_blocks(reply: AIMessage) -> Iterator[dict[str, object]]:
+    """Yield each block of the reply's content that is of the type `refusal`.
+
+    langchain-openai gives a Responses API refusal such a block, with the
+    refusal text under `refusal` [@langchainopenai2026].
+    """
     if isinstance(reply.content, list):
         for block in reply.content:
-            if isinstance(block, dict):
-                yield block.get("refusal")
+            if isinstance(block, dict) and block.get("type") == "refusal":
+                yield block
 
 
 def find_refusal_texts(reply: AIMessage) -> Iterator[object]:
     """Yield what the reply holds where a provider puts its explanation of a refusal.
 
     That is the `refusal` of a chat completion's message, which
-    langchain-openai keeps in `additional_kwargs`, and the `refusal` block it
-    gives a Responses API refusal [@langchainopenai2026], and the
-    `explanation` of Anthropic's `stop_details` [@anthropicpythonsdk2026].
+    langchain-openai keeps in `additional_kwargs`, and the text of a `refusal`
+    block [@langchainopenai2026], and the `explanation` of Anthropic's
+    `stop_details` [@anthropicpythonsdk2026].
     """
     yield reply.additional_kwargs.get("refusal")
-    yield from find_refusal_blocks(reply)
+    for block in find_refusal_blocks(reply):
+        yield block.get("refusal")
     stop_details = reply.response_metadata.get("stop_details")
     if isinstance(stop_details, dict):
         yield stop_details.get("explanation")
 
 
+def has_refusal_marker(reply: AIMessage) -> bool:
+    """Tell whether the reply says, without an explanation, that the provider refused.
+
+    That is a stop reason that names a refusal (`REFUSAL_STOP_REASONS`), or a
+    `refusal` block, whether or not it has text.
+    """
+    return (
+        has_stop_reason(reply, reasons=REFUSAL_STOP_REASONS)
+        or next(find_refusal_blocks(reply), None) is not None
+    )
+
+
 def read_refusal(reply: AIMessage) -> Refused | None:
     """Return the refusal a reply holds, or `None` when it holds none.
 
-    A reply is a refusal when a stop reason names one (`REFUSAL_STOP_REASONS`)
-    or when it carries a provider's explanation of one. The explanation is the
-    first of those that is a non-empty string.
+    A reply is a refusal when it carries a marker of one or a provider's
+    explanation of one. The explanation is the first of those that is a
+    non-empty string.
     """
     explanation = next(
         (text for text in find_refusal_texts(reply) if isinstance(text, str) and text),
         None,
     )
-    if explanation is None and not has_stop_reason(reply, reasons=REFUSAL_STOP_REASONS):
+    if explanation is None and not has_refusal_marker(reply):
         return None
     return Refused(explanation=explanation)
 

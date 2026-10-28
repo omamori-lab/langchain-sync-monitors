@@ -90,9 +90,9 @@ hooks. One run passes through them in this order: `before_agent` once,
 
 | Hook | What the monitor does there |
 |---|---|
-| `before_agent` | Records the run's input ([task authorship](#task-authorship-and-notes)). |
+| `before_agent` | Records the run's input ([task authorship](#task-authorship-and-notes)), and adds it to the monitor's trajectory ([the trajectory](#the-trajectory)). |
 | `before_model` | Tags the notes written so far, and marks the run open. |
-| `wrap_model_call` | Samples, judges, decides and commits the step. |
+| `wrap_model_call` | Adds what reached the agent since its last step to the trajectory, then samples, judges, decides and commits the step, with the step's events. |
 | `after_model` | Ends the run after this monitor's halt ([halts](#halts)). |
 | `wrap_tool_call` | Hands each tool call a `Delegation` ([subagents](#subagents)), tags the human messages a tool writes, drops its writes to the monitor's own keys, and checks its writes to `monitor_log` ([task authorship](#task-authorship-and-notes)). |
 | `after_agent` | Tags the notes written since the last step, and marks the run closed. |
@@ -699,12 +699,14 @@ the private key `monitor_inputs_at_halt`, one entry per monitor. The halt
 stands while this monitor's last step is that halt and the count has not
 grown. Before the protocol runs, the middleware checks it, and then, under
 `SubagentHalt.STOP_WHOLE_RUN`, whether a subagent halted since this agent's
-last step:
+last step. Ahead of both, it checks whether the monitor's trajectory lost a
+write ([the trajectory](#the-trajectory)); that step halts with
+`LOST_WRITE_HALT_MESSAGE`, from `halts.py`, and its halt stands as any other:
 
 [![Before the protocol runs, the monitor checks two halts, and either one decides the step without a sample. A new step can follow a halt, because an after_agent hook can send a halted run back to the model. First, if this monitor's last step halted and the thread has recorded no run input since, the step halts again with STANDING_HALT_MESSAGE, from halts.py. If not, and the monitor has SubagentHalt.STOP_WHOLE_RUN, and a subagent halted since this agent's last step, the step halts, and that halt stands as this agent's own. Otherwise the protocol decides the step as usual. Either halt draws no sample: its record is halted and flagged, and holds no samples.](../assets/diagrams/halt-stands-light.svg#only-light)](../assets/diagrams/halt-stands-light.svg "Open the diagram at full size")
 [![Before the protocol runs, the monitor checks two halts, and either one decides the step without a sample. A new step can follow a halt, because an after_agent hook can send a halted run back to the model. First, if this monitor's last step halted and the thread has recorded no run input since, the step halts again with STANDING_HALT_MESSAGE, from halts.py. If not, and the monitor has SubagentHalt.STOP_WHOLE_RUN, and a subagent halted since this agent's last step, the step halts, and that halt stands as this agent's own. Otherwise the protocol decides the step as usual. Either halt draws no sample: its record is halted and flagged, and holds no samples.](../assets/diagrams/halt-stands-dark.svg#only-dark)](../assets/diagrams/halt-stands-dark.svg "Open the diagram at full size")
 
-Both halts here draw no sample: the untrusted model is not called, and the
+Every halt here draws no sample: the untrusted model is not called, and the
 step's record is `halted`, flagged, with no samples. A standing halt's final
 message is `STANDING_HALT_MESSAGE`, from `halts.py`, whatever message the
 `HaltRun` has:
@@ -839,11 +841,12 @@ when its task returns. The suspicion is stored as a `float` and the flag as a
 
 ### Private state keys
 
-The monitor keeps its run state in nine keys. Seven are private: they never
+The monitor keeps its run state in ten keys. Eight are private: they never
 enter a run's `invoke` output or an isolated subagent's input, though Deep
 Agents hands a forked subagent its parent's private state, but they do appear
 in `stream_mode="values"`, `stream_mode="updates"` and `get_state`. So
-`monitor_run_inputs` carries the text of the user's turns into those three.
+`monitor_run_inputs` and `monitor_trajectory` carry the text of the user's
+turns into those three.
 
 | Key | Holds | In a run's input | In `invoke` output | In `values`, `updates`, `get_state` |
 |---|---|---|---|---|
@@ -856,11 +859,49 @@ in `stream_mode="values"`, `stream_mode="updates"` and `get_state`. So
 | `monitor_run_open` | Whether a run has started and not yet reached `after_agent` | No | No | Yes |
 | `monitor_inputs_at_halt` | For each monitor, the run inputs recorded at its latest halt | No | No | In `values` and `get_state` from the first chunk, as `[]`; in `updates` once a monitor has halted |
 | `monitor_subagent_returns` | The subagent halts, and the blocks by monitor label, that each tool call returned, until the agent's next step answers them | No | No | In `values` and `get_state` from the first chunk, as `[]`; in `updates` once a tool call returns a halt or a block, and when a step answers it |
+| `monitor_trajectory` | Each monitor's trajectory of the run, by label: every message it read or committed, as hyoshigi's actions and observations, the key of each, and the count of its lost writes ([the trajectory](#the-trajectory)) | No | No | In `values` and `get_state` from the first chunk, as `{}`; in `updates` from `before_agent` and from each step that adds to it, as the step's delta |
 
 Every key but `monitor_delegation` has a reducer, so stacked monitors can
 write them in one node. A subagent's private keys and its
 `monitor_delegation` stay in its own state: the parent's streams never show
 them, even with `subgraphs=True`.
+
+### The trajectory
+
+Each monitor keeps its trajectory of the run under its label in
+`monitor_trajectory`: hyoshigi's history of the actions the agent took and
+the observations that reached it, each with its author [@hyoshigi2026]. The
+protocols do not read it yet; they decide from the model request.
+
+Each message enters the trajectory once, by its key: its id, or a hash of its
+type and content when it has none.
+
+- `before_agent` reads the run's input, as the run's own update leaves it,
+  before a summariser can remove it.
+- Each step first reads the request's system message, when it differs from
+  the latest system or developer message in the trajectory, then the state's
+  messages, then the messages another middleware added to the request alone.
+  A human message no run received as input enters as a context note.
+- Each step then adds its own events, and marks every message it commits as
+  read. A blocked attempt enters as the action the monitor rated, then its
+  feedback, whatever `feedback_visibility` says. The reply that runs enters
+  as the action the monitor rated, each server tool result in it a
+  placeholder, then the results. A halt message adds nothing.
+- The answer to a Deep Agents `task` call starts the subagent's trajectory
+  under the call, with the call's description as its instruction
+  [@deepagents2026]. The subagent's own steps stay in its own state.
+
+The key is a LangGraph `DeltaChannel`: each hook writes a delta, the entries
+beyond the lengths it loaded, a checkpoint stores the deltas, and LangGraph
+rebuilds the value from them [@langgraph2026]. A delta applies only on the
+lengths it was computed against. A monitor inside another monitor's step
+writes once for each draw the outer monitor makes, and draws made at once
+under `ainvoke()` pile up deltas on the same lengths: the first applies, and
+the rest are dropped ([two monitors in one agent](#two-monitors-in-one-agent)).
+Any other stale write is dropped as well, and counts as a lost write: the
+monitor's next step halts without a sample, flagged, with a warning, and the
+halt stands until a later run brings new input
+([a halt stands](#a-halt-stands)).
 
 ### What streams
 
@@ -1061,6 +1102,7 @@ wrappers, `MonitorView`, the decision models, `monitor_subagents` and
 |---|---|
 | `MonitorError` | The base class of the library's own errors. Also raised at run time for a malformed record in `monitor_log` or `monitor_subagent_returns`, for a decision model's answer that is not a probability from 0 to 1, for a protocol's decision of the wrong shape ([failed steps](#failed-steps)), and for a pending step used after its step under `ainvoke()` ([sync and async](#sync-and-async)). |
 | `ConfigurationError` | An option cannot work. Also at run time: for an invalid `monitor_delegation` in an agent's input; for a guard model that returns no log-probabilities under `GuardScoring.LOG_PROBABILITIES`, or whose adapter does not take the `logprobs` keyword under `GuardScoring.AUTO` or `LOG_PROBABILITIES`; and for a tool call that reuses the id of the call that started its agent and returns records under that agent's name ([subagents and the thread total](#subagents-and-the-thread-total)). |
+| `MessageFormatError` | The trajectory cannot read a message: an AI message without an id, a message of a type it does not read, a block that lacks what its kind requires, or an action that reuses an action id or a tool call id already in the trajectory. Raised at a run's start, at a step's, or when a step commits, which then is not committed ([keeping the trajectory](#keeping-the-trajectory)). It is a `MonitorError` and a `ValueError`. |
 | `MissingExtraError` | A feature needs an extra that is not installed; the message names the extra, and the uv and pip commands that install it. It is a `ConfigurationError` and an `ImportError`. |
 | `SynchronousRunError` | A protocol or monitor needs an event loop under `invoke()` ([sync and async](#sync-and-async)). |
 | `RetriedCallError` | Handed to stamina's retry hooks, logged and counted in place of an error the library retries, naming its type and HTTP status alone ([Turn on log messages](../how-to/read-the-monitor-log.md#turn-on-log-messages)); never raised to the caller, who gets the error itself after the last attempt. |
@@ -1283,6 +1325,28 @@ limit is linked from where it arises above.
   the inner subagent has run.
 - **Delegation ids** name a step only if the model provider gives every tool
   call in the thread its own id, which LangChain does not check.
+
+### Keeping the trajectory
+
+- **`DeltaChannel` is beta.** LangGraph marks it so: its API and stored form
+  may change [@langgraph2026].
+- **Pruning savers.** A checkpoint saver that prunes, copies or deletes
+  checkpoints without walking a `DeltaChannel`'s chain of writes rebuilds
+  `monitor_trajectory` as empty, with no error [@langgraph2026].
+- **Summarised between steps.** A message added after one step and removed by
+  a summariser before the next never enters the trajectory, since a
+  summariser's `before_model` hook runs before the monitor's hooks. It cannot
+  happen while the summariser keeps at least as many recent messages as one
+  step adds.
+- **Answers to malformed calls.** As langchain 1.4.7 builds an agent, it
+  answers a malformed tool call that nothing answered with an error message,
+  in the model request first, without an id, then in the state under a new
+  id [@langchain2026]. The trajectory reads that answer twice.
+- **Ids in a history passed in.** Each action and each tool call needs an id
+  of its own: a message whose action reuses an id already in the trajectory
+  raises `MessageFormatError`. Anthropic's Messages API describes a tool use
+  block's id as the unique identifier its result names
+  [@anthropic2026toolcalls].
 
 ### What the records and streams miss
 

@@ -42,6 +42,11 @@ from langchain_sync_monitors.run_inputs import build_refresh_update
 from langchain_sync_monitors.spans import StepIdentity, build_step_span_inputs
 from langchain_sync_monitors.subagent_returns import build_answered_update
 from langchain_sync_monitors.task_authorship import build_note_update
+from langchain_sync_monitors.trajectories import (
+    LoadedTrajectory,
+    build_trajectory_update,
+    mark_committed,
+)
 
 # The middleware's logger, which docs/how-to/read-the-monitor-log.md names for these messages.
 logger = logging.getLogger("langchain_sync_monitors.middleware")
@@ -140,6 +145,7 @@ def commit_step(
     record: StepRecord,
     middleware_name: str,
     feedback_visibility: FeedbackVisibility,
+    trajectory: LoadedTrajectory,
 ) -> ExtendedModelResponse[StructuredOutput]:
     """Commit the decided messages and append the step's record to `monitor_log`.
 
@@ -150,7 +156,10 @@ def commit_step(
     untagged human messages in the state that the monitor had not seen are
     recorded as
     seen, so the next run does not take them for its input, and the
-    subagent halts and blocks the step answered are removed.
+    subagent halts and blocks the step answered are removed. The monitor's
+    trajectory gains what the step added to it, every committed message is
+    marked seen there, and the step answers the trajectory's lost writes,
+    for which it halted.
     """
     messages = list(decision.response.result)
     if feedback_visibility is FeedbackVisibility.IN_TRANSCRIPT:
@@ -159,6 +168,7 @@ def commit_step(
         result=messages,
         structured_response=decision.response.structured_response,
     )
+    mark_committed(trajectory, committed=messages)
     update = {
         MONITOR_LOG_KEY: [record],
         # A middleware listed after the monitor runs its `before_model` hook after the
@@ -168,6 +178,7 @@ def commit_step(
         **build_refresh_update(request.state),
         **build_halt_inputs_update(record, state=request.state, middleware_name=middleware_name),
         **build_answered_update(request.state),
+        **build_trajectory_update(trajectory, answered_lost_writes=trajectory.lost_writes),
     }
     write_stream_event(request, event=MonitorStepEvent(type="monitor_step", record=record))
     logger.debug(

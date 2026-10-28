@@ -50,6 +50,7 @@ from langchain_sync_monitors._langchain import (
     hide_model_calls_from_message_stream,
 )
 from langchain_sync_monitors.commits import check_step_decision, commit_step, report_failed_step
+from langchain_sync_monitors.context_values import set_context_value
 from langchain_sync_monitors.contracts import (
     ControlProtocol,
     Fallback,
@@ -63,6 +64,7 @@ from langchain_sync_monitors.errors import ConfigurationError
 from langchain_sync_monitors.halts import (
     build_jump_to_end_update,
     find_halt_decision,
+    find_lost_write_halt,
     has_just_halted,
 )
 from langchain_sync_monitors.message_ids import build_run_end_update
@@ -101,6 +103,13 @@ from langchain_sync_monitors.task_authorship import (
     read_message_ids,
 )
 from langchain_sync_monitors.tool_calls import run_tool_call, run_tool_call_sync
+from langchain_sync_monitors.trajectories import (
+    add_step_events,
+    build_trajectory_update,
+    load_run_start_trajectory,
+    load_step_trajectory,
+    monitor_step_open,
+)
 
 
 @dataclass(frozen=True, kw_only=True, eq=False)
@@ -160,6 +169,12 @@ class MonitorMiddleware(AgentMiddleware[MonitorState, AgentContext, StructuredOu
     After a run that stopped before reaching `after_agent`, the next run's
     new messages are notes too, since the monitor cannot tell them from what
     the stopped run left; `task_authorship` has the rule and its limits.
+
+    Each monitor keeps its trajectory of the run under its label, in the
+    private state key `monitor_trajectory`, each message in it once;
+    `trajectories` has the rule. A stale write to it outside a stack of
+    monitors counts as lost, and the monitor's next step halts without a
+    sample.
 
     A halted step ends the run. The middleware's `after_model` hook routes the
     agent to its end, since the halt message alone does not end an agent that
@@ -286,9 +301,13 @@ class MonitorMiddleware(AgentMiddleware[MonitorState, AgentContext, StructuredOu
                         traced_step=traced_step,
                         middleware_name=self.name,
                     ):
-                        with hide_model_calls_from_message_stream():
+                        with (
+                            hide_model_calls_from_message_stream(),
+                            set_context_value(monitor_step_open, value=True),
+                        ):
                             decided = run_synchronously(self.protocol.decide(step))
                         decision = check_step_decision(decided, protocol=self.protocol)
+                        add_step_events(prepared.trajectory, decision=decision)
                 finally:
                     # A task the protocol left on a running loop may run after the step.
                     # Once closed, the step refuses it the model.
@@ -301,6 +320,7 @@ class MonitorMiddleware(AgentMiddleware[MonitorState, AgentContext, StructuredOu
                 record=record,
                 middleware_name=self.name,
                 feedback_visibility=self.feedback_visibility,
+                trajectory=prepared.trajectory,
             )
             # Only a committed step, one in monitor_log, gets a score in the tracing tools.
             queue_step_score(traced_step, record=record, monitor=self)
@@ -326,9 +346,13 @@ class MonitorMiddleware(AgentMiddleware[MonitorState, AgentContext, StructuredOu
                         traced_step=traced_step,
                         middleware_name=self.name,
                     ):
-                        with hide_model_calls_from_message_stream():
+                        with (
+                            hide_model_calls_from_message_stream(),
+                            set_context_value(monitor_step_open, value=True),
+                        ):
                             decided = await self.protocol.decide(step)
                         decision = check_step_decision(decided, protocol=self.protocol)
+                        add_step_events(prepared.trajectory, decision=decision)
                 finally:
                     # A task the protocol started and left running may outlast the step.
                     # Once closed, the step refuses it the model and the monitor.
@@ -341,6 +365,7 @@ class MonitorMiddleware(AgentMiddleware[MonitorState, AgentContext, StructuredOu
                 record=record,
                 middleware_name=self.name,
                 feedback_visibility=self.feedback_visibility,
+                trajectory=prepared.trajectory,
             )
             # Only a committed step, one in monitor_log, gets a score in the tracing tools.
             queue_step_score(traced_step, record=record, monitor=self)
@@ -375,8 +400,8 @@ class MonitorMiddleware(AgentMiddleware[MonitorState, AgentContext, StructuredOu
 
     @override
     def before_agent(self, state: MonitorState, runtime: AgentRuntime) -> AgentStateUpdate | None:
-        """Record this run's input, and keep its text for the monitor, under `invoke()`."""
-        return build_run_start_update(state)
+        """Record this run's input, and add it to the trajectory, under `invoke()`."""
+        return self.build_run_start_update(state)
 
     @override
     async def abefore_agent(  # lanorme: ignore[NAMING-011]
@@ -384,8 +409,8 @@ class MonitorMiddleware(AgentMiddleware[MonitorState, AgentContext, StructuredOu
         state: MonitorState,
         runtime: AgentRuntime,
     ) -> AgentStateUpdate | None:
-        """Record this run's input, and keep its text for the monitor, under `ainvoke()`."""
-        return build_run_start_update(state)
+        """Record this run's input, and add it to the trajectory, under `ainvoke()`."""
+        return self.build_run_start_update(state)
 
     @override
     def before_model(self, state: MonitorState, runtime: AgentRuntime) -> AgentStateUpdate | None:
@@ -432,6 +457,22 @@ class MonitorMiddleware(AgentMiddleware[MonitorState, AgentContext, StructuredOu
         """Tag the notes written since the last step, and close the run, under `ainvoke()`."""
         return build_run_end_update(state)
 
+    def build_run_start_update(self, state: MonitorState) -> AgentStateUpdate:
+        """Return the update a run starts with, which adds the run's input to the trajectory.
+
+        The trajectory reads the state as the run's own update leaves it, its
+        ids given and its unconfirmed input tagged, before a summariser can
+        remove the input.
+        """
+        update = build_run_start_update(state)
+        trajectory = load_run_start_trajectory(
+            state,
+            update=update,
+            label=self.label,
+            task_author=self.task_author,
+        )
+        return {**update, **build_trajectory_update(trajectory, answered_lost_writes=0)}
+
     def build_halt_end_update(self, state: MonitorState) -> AgentStateUpdate | None:
         """Return the update that jumps to the agent's end after this monitor's halt, else None."""
         if has_just_halted(state, monitor=self.label, agent=self.agent_name):
@@ -449,6 +490,11 @@ class MonitorMiddleware(AgentMiddleware[MonitorState, AgentContext, StructuredOu
             delegation_id=delegation_id,
         )
         returns = read_subagent_returns(request.state)
+        trajectory = load_step_trajectory(
+            request,
+            label=self.label,
+            task_author=self.task_author,
+        )
         identity = StepIdentity(
             monitor=self.label,
             agent=self.agent_name,
@@ -456,7 +502,11 @@ class MonitorMiddleware(AgentMiddleware[MonitorState, AgentContext, StructuredOu
             protocol=type(self.protocol).__name__,
             delegation_id=delegation_id,
         )
-        halt = find_halt_decision(
+        halt = find_lost_write_halt(
+            trajectory.lost_writes,
+            monitor=self.label,
+            middleware_name=self.name,
+        ) or find_halt_decision(
             request.state,
             previous_records=previous_records,
             returns=returns,
@@ -474,4 +524,4 @@ class MonitorMiddleware(AgentMiddleware[MonitorState, AgentContext, StructuredOu
             blocks_in_thread=count_blocks_in_thread(request.state, monitor=self.label),
             new_subagent_blocks=count_returned_blocks(returns, monitor=self.label),
         )
-        return PreparedStep(identity=identity, halt=halt, options=options)
+        return PreparedStep(identity=identity, halt=halt, options=options, trajectory=trajectory)

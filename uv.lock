@@ -881,7 +881,7 @@ requires-dist = [
     { name = "langchain-core", specifier = ">=1.6" },
     { name = "langchain-openrouter", marker = "extra == 'openrouter'", specifier = ">=0.2.1" },
     { name = "langchain-typesafe", marker = "extra == 'typesafe'", specifier = ">=0.0.1a3" },
-    { name = "langgraph", specifier = ">=1.2.11" },
+    { name = "langgraph", specifier = ">=1.2.12" },
     { name = "pydantic", specifier = ">=2.12" },
     { name = "stamina", specifier = ">=25.1" },
 ]

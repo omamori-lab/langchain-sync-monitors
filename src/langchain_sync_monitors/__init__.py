@@ -37,6 +37,7 @@ from langchain_sync_monitors.deepagents import monitor_subagents
 from langchain_sync_monitors.errors import (
     ConfigurationError,
     InvalidSuspicionError,
+    MessageFormatError,
     MissingExtraError,
     MonitorError,
     ServerToolWarning,
@@ -120,6 +121,7 @@ __all__ = [
     "HardLabelWarning",
     "InvalidSuspicionError",
     "LLMMonitor",
+    "MessageFormatError",
     "MissingExtraError",
     "Monitor",
     "MonitorError",

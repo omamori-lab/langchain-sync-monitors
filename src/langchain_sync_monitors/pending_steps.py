@@ -55,6 +55,7 @@ from langchain_sync_monitors.spans import (
 )
 from langchain_sync_monitors.task_authorship import tag_context_notes
 from langchain_sync_monitors.thresholds import LIBRARY_DIRECTORY
+from langchain_sync_monitors.trajectories import LoadedTrajectory
 
 SYNCHRONOUS_RUN_MESSAGE = (
     "A control protocol awaited real asynchronous work during a synchronous invoke(). "
@@ -198,12 +199,14 @@ class PreparedStep:
     """A step as the middleware reads it before drawing any sample.
 
     `identity` names the step, `halt` is the halt it gets without a sample, if
-    any, and `options` are the keywords of its pending step.
+    any, `options` are the keywords of its pending step, and `trajectory` is
+    the monitor's trajectory, synced with the step's request.
     """
 
     identity: StepIdentity
     halt: StepDecision | None
     options: PendingStepOptions
+    trajectory: LoadedTrajectory
 
 
 @dataclass(frozen=True, kw_only=True, eq=False)

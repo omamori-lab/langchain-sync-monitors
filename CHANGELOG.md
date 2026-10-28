@@ -18,12 +18,37 @@ change raises the minor version.
 
 - langchain-sync-monitors depends on `hyoshigi>=0.4.0`, the framework-free
   control core extracted from it.
+- langgraph's floor rises to 1.2.12. Each monitor's trajectory is kept in a
+  LangGraph `DeltaChannel`, which LangGraph marks as beta.
+- A run whose messages hold an action that reuses an action id or a tool call
+  id already in the run now raises `MessageFormatError`, at the start of the
+  run or of the step that reads it. A history passed in must give each action
+  and each tool call an id of its own.
+- A stale write to a monitor's trajectory, outside a stack of monitors, halts
+  that monitor's next step without a sample, with a warning. The halt stands
+  until a later run brings new input.
+- A tool's write to `monitor_trajectory` is dropped with a warning, as is its
+  write to every other key only the monitor writes.
 
 ### Added
 
 - The docs pages, the README and the module of the default prompt carry the
   training-data canary that alignment.org/canary lists, so a dataset builder
   can leave them out of training corpora.
+- Each monitor keeps its trajectory of the run, every message it read or
+  committed, once, as hyoshigi's actions and observations, under the new
+  private state key `monitor_trajectory`, by monitor label. `get_state` and
+  the `values` and `updates` streams show it; a run's `invoke()` result does
+  not. A blocked attempt enters it with its feedback, whatever
+  `feedback_visibility` says, and a halt message never does. The protocols do
+  not read it yet.
+- `MessageFormatError` is exported.
+
+### Known limits
+
+- A checkpoint saver that prunes, copies or deletes checkpoints without
+  walking a `DeltaChannel`'s chain of writes rebuilds `monitor_trajectory` as
+  empty, with no error.
 
 ## [0.1.5] - 2026-10-04
 

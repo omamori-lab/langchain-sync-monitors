@@ -38,6 +38,7 @@ they write stays a note.
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Mapping, Sequence
 from typing import TypedDict
 
@@ -52,6 +53,9 @@ from langchain_sync_monitors.state_keys import INPUTS_AT_HALT_KEY, TASK_MESSAGES
 from langchain_sync_monitors.subagent_returns import SubagentReturn, find_halted_subagents
 from langchain_sync_monitors.task_authorship import read_message_ids, read_state_messages
 
+# The middleware's logger, which docs/how-to/read-the-monitor-log.md names for its warnings.
+logger = logging.getLogger("langchain_sync_monitors.middleware")
+
 STANDING_HALT_MESSAGE = (
     "[Safety monitor] This run is stopped: the safety monitor halted an earlier step, and "
     "that halt stands until a later run brings new input the monitor can confirm. The "
@@ -62,6 +66,14 @@ STANDING_HALT_MESSAGE = (
 The earlier halt may belong to this run or to an earlier one, so the message
 does not say which.
 """
+
+
+LOST_WRITE_HALT_MESSAGE = (
+    "[Safety monitor] This run is stopped: a write to the safety monitor's record of the run "
+    "was lost, so the monitor halts rather than judge without it. The halt stands until a "
+    "later run brings new input the monitor can confirm."
+)
+"""The final message of a step halted, without a sample, because its trajectory lost a write."""
 
 
 class InputsAtHalt(TypedDict):
@@ -182,6 +194,31 @@ def build_standing_halt_decision() -> StepDecision:
     to the model, which a person should see.
     """
     return build_halt_decision(STANDING_HALT_MESSAGE)
+
+
+def find_lost_write_halt(
+    lost_writes: int,
+    *,
+    monitor: str,
+    middleware_name: str,
+) -> StepDecision | None:
+    """Return the halt a step gets because its monitor's trajectory lost writes, else None.
+
+    `trajectories` counts a stale write the trajectory dropped outside the
+    stacked case as lost. The step halts without a sample, flagged, and a
+    warning names the monitor and the count; the step's write answers the
+    count, and the halt stands as any halt does.
+    """
+    if lost_writes == 0:
+        return None
+    logger.warning(
+        "%s: %d stale write(s) to the trajectory of the monitor %r were dropped, so this step "
+        "halts without a sample. The halt stands until a later run brings new input.",
+        middleware_name,
+        lost_writes,
+        monitor,
+    )
+    return build_halt_decision(LOST_WRITE_HALT_MESSAGE)
 
 
 def find_halt_decision(

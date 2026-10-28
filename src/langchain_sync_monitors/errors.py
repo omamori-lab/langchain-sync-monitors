@@ -57,10 +57,11 @@ class MessageFormatError(MonitorError, ValueError):
     """A LangChain message that the trajectory reader cannot read.
 
     It is raised for an AI message without an id, a message of a type the
-    reader does not read, and a block of a known type that lacks what its
-    type requires. The message names where the problem is, such as
-    `AIMessage.content_blocks[2]`, and what was expected there, and quotes
-    nothing the message holds. It is both a `MonitorError` and a
+    reader does not read, a block of a known type that lacks what its type
+    requires, and an action that reuses an action id or a tool call id
+    already in the monitor's trajectory. The message names where the
+    problem is, such as `AIMessage.content_blocks[2]`, and what was expected
+    there, and quotes nothing the message holds. It is both a `MonitorError` and a
     `ValueError`, so code that catches either one sees it.
     """
 

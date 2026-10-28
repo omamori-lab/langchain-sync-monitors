@@ -35,12 +35,19 @@ from langchain_core.exceptions import (
     ModelInvalidRequestError,
     ModelRateLimitError,
 )
-from langchain_core.language_models import BaseChatModel, ModelProfile
+from langchain_core.language_models import BaseChatModel, LanguageModelInput, ModelProfile
 from langchain_core.messages import AIMessage
+from langchain_core.runnables import Runnable
 
 from langchain_sync_monitors._langchain import read_chat_model_labels
+from langchain_sync_monitors.errors import ConfigurationError
+from langchain_sync_monitors.log_probabilities import (
+    add_log_probabilities,
+    build_request_options,
+    is_rejected_keyword,
+)
 from langchain_sync_monitors.model_calls import build_internal_call_config, resolve_chat_model
-from langchain_sync_monitors.options import check_instance_option
+from langchain_sync_monitors.options import check_instance_option, read_count_option
 from langchain_sync_monitors.prompt_messages import build_messages, has_media_part
 from langchain_sync_monitors.retries import (
     call_with_retries,
@@ -426,6 +433,14 @@ class ChatModelAdapter:
 
     A failure is an outcome when the prompt or the provider's state causes it
     (`read_failure` gives the rules), and any other is raised as it is.
+
+    At a `top_log_probabilities` above 0, each call asks the chat model for
+    that many alternatives to every token, and both models declare the count,
+    which a hyoshigi guard scores from [@hyoshigi2026choosing]. A complete
+    reply carries them as `Generation.log_probabilities`; one whose
+    log-probabilities are not in the documented shape is unavailable, and one
+    without any carries none. At 0 nothing is asked for and nothing is read.
+    `log_probabilities` gives the request and the format.
     """
 
     def __init__(
@@ -438,11 +453,21 @@ class ChatModelAdapter:
         """Resolve the chat model and build both generative models from it.
 
         `source` goes into the `lc_source` metadata of every call and must be
-        a string. A model that is neither a string nor a chat model raises
+        a string. `top_log_probabilities` must be a whole number of at least 0.
+        A model that is neither a string nor a chat model raises
         `ConfigurationError`, as `resolve_chat_model` says.
         """
         check_instance_option(source, option_type=str, parameter_name="source")
+        self.top_log_probabilities = read_count_option(
+            top_log_probabilities,
+            parameter_name="top_log_probabilities",
+            minimum=0,
+        )
         self.chat_model = resolve_chat_model(model)
+        options = build_request_options(self.chat_model, count=self.top_log_probabilities)
+        self.runnable: Runnable[LanguageModelInput, AIMessage] = (
+            self.chat_model.bind(**options) if options else self.chat_model
+        )
         self.call_config = build_internal_call_config(source=source)
         name = name_chat_model(self.chat_model)
         perceives = read_perceived_media(self.chat_model.profile)
@@ -450,11 +475,13 @@ class ChatModelAdapter:
             name=name,
             generate=self.generate_sync,
             perceives=perceives,
+            top_log_probabilities=self.top_log_probabilities,
         )
         self.async_generative_model = AsyncGenerativeModel(
             name=name,
             generate=self.generate,
             perceives=perceives,
+            top_log_probabilities=self.top_log_probabilities,
         )
 
     async def generate(self, prompt: Prompt) -> GenerationOutcome:
@@ -464,7 +491,7 @@ class ChatModelAdapter:
             return Unavailable()
 
         async def call_model() -> AIMessage:
-            return await self.chat_model.ainvoke(messages, config=self.call_config)
+            return await self.runnable.ainvoke(messages, config=self.call_config)
 
         try:
             reply = await call_with_retries(
@@ -474,8 +501,8 @@ class ChatModelAdapter:
                 wait_initial=RATE_LIMIT_FIRST_WAIT_SECONDS,
             )
         except Exception as error:
-            return settle_failure(error, holds_media=has_media_part(prompt))
-        return read_reply(reply)
+            return self.settle_error(error, holds_media=has_media_part(prompt))
+        return self.read_outcome(reply)
 
     def generate_sync(self, prompt: Prompt) -> GenerationOutcome:
         """Call `invoke` with the prompt, and read the reply or the failure as an outcome."""
@@ -484,7 +511,7 @@ class ChatModelAdapter:
             return Unavailable()
 
         def call_model() -> AIMessage:
-            return self.chat_model.invoke(messages, config=self.call_config)
+            return self.runnable.invoke(messages, config=self.call_config)
 
         try:
             reply = call_with_retries_sync(
@@ -494,5 +521,32 @@ class ChatModelAdapter:
                 wait_initial=RATE_LIMIT_FIRST_WAIT_SECONDS,
             )
         except Exception as error:
-            return settle_failure(error, holds_media=has_media_part(prompt))
-        return read_reply(reply)
+            return self.settle_error(error, holds_media=has_media_part(prompt))
+        return self.read_outcome(reply)
+
+    def read_outcome(self, reply: AIMessage) -> GenerationOutcome:
+        """Read the reply as `read_reply` does, and add its log-probabilities to a generation.
+
+        Only a complete reply is read for them, and only at a count above 0.
+        """
+        outcome = read_reply(reply)
+        if self.top_log_probabilities == 0 or not isinstance(outcome, Generation):
+            return outcome
+        return add_log_probabilities(outcome, reply=reply)
+
+    def settle_error(self, error: Exception, *, holds_media: bool) -> Rejected | Unavailable:
+        """Settle the failure as `settle_failure` does, but explain a refused `logprobs` keyword.
+
+        A `TypeError` that refuses the `logprobs` keyword, raised by a call
+        that asked for log-probabilities, is a `ConfigurationError` naming the
+        count to use. Every other error passes through unchanged, including a
+        `TypeError` that merely mentions `logprobs`.
+        """
+        if self.top_log_probabilities > 0 and is_rejected_keyword(error, keyword="logprobs"):
+            message = (
+                f"{name_chat_model(self.chat_model)} does not accept the request for "
+                "log-probabilities that top_log_probabilities makes; use "
+                "top_log_probabilities=0 with this model"
+            )
+            raise ConfigurationError(message) from error
+        return settle_failure(error, holds_media=holds_media)

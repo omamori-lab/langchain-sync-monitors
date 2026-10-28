@@ -33,7 +33,11 @@ from langchain_sync_monitors.contracts import SampleRecord, StepRecord
 from langchain_sync_monitors.feedback import build_halt_message
 from langchain_sync_monitors.halts import build_halt_inputs_update
 from langchain_sync_monitors.protocols import DEFAULT_HALT_MESSAGE
-from langchain_sync_monitors.records import build_sample_records, redact_failed_samples
+from langchain_sync_monitors.records import (
+    build_sample_records,
+    redact_failed_samples,
+    redact_text,
+)
 from langchain_sync_monitors.spans import StepIdentity, build_step_span_inputs
 from langchain_sync_monitors.steps import Step, StepResult, find_reply, find_reply_position
 from langchain_sync_monitors.subagent_returns import build_answered_update
@@ -67,7 +71,10 @@ def describe_failure(step: Step, *, error: BaseException) -> tuple[str, list[Sam
     redaction = step.trajectory.trajectory.redaction
     if redaction is None:
         return description, samples
-    return redaction.text(description), redact_failed_samples(samples, redaction=redaction)
+    return (
+        redact_text(description, redaction=redaction),
+        redact_failed_samples(samples, redaction=redaction),
+    )
 
 
 @contextmanager

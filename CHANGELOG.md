@@ -318,7 +318,8 @@ change raises the minor version.
   calls (LangChain's `PIIMiddleware`, LangSmith's `anonymizer` and Langfuse's
   `mask` cover those), or the text a thread stored before the redaction was
   set; a view-only redaction stays `View(redaction=...)`. Any other value
-  raises `ConfigurationError`.
+  raises `ConfigurationError`, and so does a text function that returns
+  anything but a `str`, wherever the library applies it.
 - `MonitorTwins(monitor=..., async_monitor=...)`, a monitor of your own
   written as hyoshigi's sync and async twins, which the middleware and the
   wrappers take as they take the library's monitors.

@@ -48,7 +48,7 @@ from langchain_sync_monitors._langchain import (
 from langchain_sync_monitors.context_values import set_context_value
 from langchain_sync_monitors.contracts import SampleRecord, StepRecord
 from langchain_sync_monitors.monitors import MonitorConfiguration
-from langchain_sync_monitors.records import build_step_record
+from langchain_sync_monitors.records import build_step_record, redact_text
 
 STEP_SPAN_NAME = "monitor step"
 JUDGEMENT_SPAN_NAME = "monitor judgement"
@@ -243,10 +243,9 @@ def build_score_outputs(
 
     The explanation passes through the redaction's text function, if any.
     """
-    reason = score.explanation if redaction is None else redaction.text(score.explanation)
     return {
         "suspicion": score.value,
-        "reason": reason,
+        "reason": redact_text(score.explanation, redaction=redaction),
         "failed_closed": score.failed_closed,
     }
 

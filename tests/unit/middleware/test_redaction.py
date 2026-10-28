@@ -337,7 +337,6 @@ SYSTEM_PROMPTS = {
 """A system prompt, and OpenAI's developer message, each with the source capitals give it."""
 
 
-@pytest.mark.xfail(strict=True, reason="PR 8 compares redacted sources")
 @pytest.mark.parametrize(
     ("system_prompt", "source"),
     SYSTEM_PROMPTS.values(),
@@ -384,7 +383,6 @@ def run_until_it_fails(agent: Agent, *, mode: RunMode) -> Exception | None:
     return None
 
 
-@pytest.mark.xfail(strict=True, reason="PR 8 checks the text function's result where lsm calls it")
 def test_a_judgement_reason_that_the_text_function_returns_no_str_for_raises(
     run_mode: RunMode,
 ) -> None:
@@ -402,7 +400,6 @@ def test_a_judgement_reason_that_the_text_function_returns_no_str_for_raises(
     assert "text function must return a str, got None" in str(error)
 
 
-@pytest.mark.xfail(strict=True, reason="PR 8 checks the text function's result where lsm calls it")
 def test_a_failed_step_s_error_that_the_text_function_returns_no_str_for_raises(
     run_mode: RunMode,
 ) -> None:
@@ -423,7 +420,6 @@ def test_a_failed_step_s_error_that_the_text_function_returns_no_str_for_raises(
     assert "text function must return a str, got None" in str(error)
 
 
-@pytest.mark.xfail(strict=True, reason="PR 8 checks the text function's result where lsm calls it")
 def test_a_judgement_span_s_reason_that_the_text_function_returns_no_str_for_raises() -> None:
     # Arrange: the span ends before the trajectory records the score and applies the function
     score = SuspicionScore(

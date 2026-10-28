@@ -499,7 +499,6 @@ def test_any_other_value_is_rendered_by_its_type_and_length(value: object, expec
     assert render_value(value) == expected
 
 
-@pytest.mark.xfail(strict=True, reason="PR 8 checks the text function's result where lsm calls it")
 def test_a_failed_sample_s_reason_that_the_text_function_returns_no_str_for_raises() -> None:
     # Arrange
     samples = [

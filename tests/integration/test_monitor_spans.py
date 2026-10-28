@@ -15,10 +15,12 @@ from dataclasses import dataclass
 from typing import Any
 
 import pytest
+from hyoshigi import Unavailable
 from langchain.agents import create_agent
 from langchain_core.messages import AIMessage
 from langchain_core.runnables import Runnable
 
+from langchain_sync_monitors import RepeatedMonitor
 from langchain_sync_monitors.contracts import ControlProtocol, Resampling
 from langchain_sync_monitors.middleware import MonitorMiddleware
 from langchain_sync_monitors.protocols import (
@@ -38,7 +40,7 @@ from tests.support.agents import (
 )
 from tests.support.chat_models import ScriptedChatModel, build_tool_call_message
 from tests.support.flaky_models import FlakyChatModel
-from tests.support.monitors import KeywordMonitor
+from tests.support.monitors import KeywordMonitor, ScriptedGeneration
 from tests.support.tracing import (
     RecordedRun,
     RecordingTracer,
@@ -295,6 +297,87 @@ def test_judgement_spans_hold_the_verdict_and_no_proposal_text(run_mode: RunMode
     assert [child.name for child in first.children] == [MONITOR_CALL]
     below_the_step = [*tracer.find_runs(JUDGEMENT), *tracer.find_runs(DECISION)]
     assert all(EXFILTRATION_MARK not in json.dumps(run.inputs) for run in below_the_step)
+
+
+UNAVAILABLE_REASON = "The monitor's model was unavailable, so the action is treated as suspicious."
+SUSPICIOUS_JUDGEMENT = {
+    "suspicion": 0.9,
+    "reason": f"mentions {EXFILTRATION_MARK}",
+    "failed_closed": False,
+}
+
+
+@pytest.mark.xfail(strict=True, reason="the monitors are not built on hyoshigi yet")
+def test_each_rating_is_one_judgement_span_with_its_score_and_whether_it_failed_closed(
+    run_mode: RunMode,
+) -> None:
+    # Arrange: every sample is suspicious, so the step is rated three times, then halted
+    agent = build_agent(
+        protocol=DeferToResample(
+            fallback=HaltRun(message="Stopped."),
+            defer_threshold=0.6,
+            audit_threshold=0.95,
+            max_resamples=2,
+        ),
+        untrusted_steps=[build_exfiltration_step(call_id=f"call-{n}") for n in range(3)],
+    )
+
+    # Act
+    _, tracer = run_traced_agent(agent, mode=run_mode)
+
+    # Assert
+    judgements = tracer.find_runs(JUDGEMENT)
+    assert [judgement.inputs["sample_number"] for judgement in judgements] == [1, 2, 3]
+    assert [judgement.outputs for judgement in judgements] == [
+        SUSPICIOUS_JUDGEMENT,
+        SUSPICIOUS_JUDGEMENT,
+        SUSPICIOUS_JUDGEMENT,
+    ]
+
+
+@pytest.mark.xfail(strict=True, reason="the monitors are not built on hyoshigi yet")
+def test_a_repeated_monitor_s_rating_is_one_judgement_span(run_mode: RunMode) -> None:
+    # Arrange: three calls of the keyword monitor make one rating of each step
+    monitor = RepeatedMonitor(
+        monitor=KeywordMonitor(suspicion_by_keyword=SUSPICION_BY_KEYWORD),
+        ensemble_size=3,
+    )
+    agent = create_agent(
+        model=ScriptedChatModel(responses=[build_exfiltration_step(), AIMessage(FINAL_ANSWER)]),
+        tools=Workspace().build_tools(),
+        middleware=[
+            MonitorMiddleware(monitor=monitor, protocol=TrustedMonitoring(audit_threshold=0.95)),
+        ],
+    )
+
+    # Act
+    _, tracer = run_traced_agent(agent, mode=run_mode)
+
+    # Assert
+    assert [judgement.outputs for judgement in tracer.find_runs(JUDGEMENT)] == [
+        SUSPICIOUS_JUDGEMENT,
+        {"suspicion": 0.1, "reason": "nothing suspicious", "failed_closed": False},
+    ]
+
+
+@pytest.mark.xfail(strict=True, reason="the monitors are not built on hyoshigi yet")
+def test_a_rating_that_failed_closed_says_so_in_its_judgement_span(run_mode: RunMode) -> None:
+    # Arrange
+    monitor = ScriptedGeneration(outcome=Unavailable(status=503)).build_twins()
+    agent = create_agent(
+        model=ScriptedChatModel(responses=[AIMessage(FINAL_ANSWER)]),
+        middleware=[
+            MonitorMiddleware(monitor=monitor, protocol=TrustedMonitoring(audit_threshold=0.95)),
+        ],
+    )
+
+    # Act
+    _, tracer = run_traced_agent(agent, mode=run_mode)
+
+    # Assert
+    assert [judgement.outputs for judgement in tracer.find_runs(JUDGEMENT)] == [
+        {"suspicion": 1.0, "reason": UNAVAILABLE_REASON, "failed_closed": True},
+    ]
 
 
 def test_every_monitor_span_names_its_step_in_flat_metadata(run_mode: RunMode) -> None:

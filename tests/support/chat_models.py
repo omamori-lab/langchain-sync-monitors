@@ -138,6 +138,37 @@ class SummarisingScriptedChatModel(ScriptedChatModel):
         return self.summary.model_copy(deep=True)
 
 
+class SideRecordingChatModel(ScriptedChatModel):
+    """A scripted monitor's model that records which side called it: `invoke` or `ainvoke`."""
+
+    sides: list[str] = Field(default_factory=list)
+
+    @property
+    def requests(self) -> list[str]:
+        """The text of the last message of each call, in order."""
+        return [messages[-1].text for messages in self.calls]
+
+    def _generate(
+        self,
+        messages: list[BaseMessage],
+        stop: list[str] | None = None,
+        run_manager: CallbackManagerForLLMRun | None = None,
+        **kwargs: Any,
+    ) -> ChatResult:
+        self.sides.append("sync")
+        return super()._generate(messages, stop=stop, run_manager=run_manager, **kwargs)
+
+    async def _agenerate(
+        self,
+        messages: list[BaseMessage],
+        stop: list[str] | None = None,
+        run_manager: AsyncCallbackManagerForLLMRun | None = None,
+        **kwargs: Any,
+    ) -> ChatResult:
+        self.sides.append("async")
+        return await super()._agenerate(messages, stop=stop, run_manager=run_manager, **kwargs)
+
+
 class StreamingScriptedChatModel(ScriptedChatModel):
     """A scripted model that streams each reply as providers do.
 

@@ -10,6 +10,8 @@ server tools of Anthropic, OpenAI and Gemini it knows with a
 `ServerToolWarning`.
 """
 
+from hyoshigi import GuardLabels, MonitorPrompt
+
 from langchain_sync_monitors._langchain import MonitorStepEvent, MonitorStepFailedEvent
 from langchain_sync_monitors.contracts import (
     BlockedAttempt,
@@ -57,10 +59,13 @@ from langchain_sync_monitors.monitors import (
     ChatModelMonitor,
     DecisionModel,
     DecisionModelMonitor,
+    DecisionMonitor,
     GuardModelMonitor,
+    GuardMonitor,
     GuardScoring,
     HardLabelWarning,
     LLMMonitor,
+    MonitorTwins,
     OpenRouterDecisionModel,
     RepeatedMonitor,
     TypeSafeDecisionModel,
@@ -108,6 +113,7 @@ __all__ = [
     "ControlProtocol",
     "DecisionModel",
     "DecisionModelMonitor",
+    "DecisionMonitor",
     "DefaultThreshold",
     "DeferToResample",
     "DeferToTrusted",
@@ -117,7 +123,9 @@ __all__ = [
     "Fallback",
     "FeedbackTemplate",
     "FeedbackVisibility",
+    "GuardLabels",
     "GuardModelMonitor",
+    "GuardMonitor",
     "GuardScoring",
     "HaltRun",
     "HardLabelWarning",
@@ -130,9 +138,11 @@ __all__ = [
     "MonitorInput",
     "MonitorMiddleware",
     "MonitorPlacementWarning",
+    "MonitorPrompt",
     "MonitorState",
     "MonitorStepEvent",
     "MonitorStepFailedEvent",
+    "MonitorTwins",
     "MonitorView",
     "OpenRouterDecisionModel",
     "Outcome",

@@ -8,9 +8,12 @@ import re
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 
+import hyoshigi
+from hyoshigi import AsyncGenerativeModel, GenerationOutcome, GenerativeModel, Prompt, TextPart
 from langchain_core.language_models import BaseChatModel
 from langchain_core.runnables import RunnableConfig
 
+from langchain_sync_monitors import MonitorTwins
 from langchain_sync_monitors.contracts import Monitor, MonitorInput, MonitorView, Verdict
 from langchain_sync_monitors.model_calls import build_internal_call_config
 from langchain_sync_monitors.transcript import (
@@ -149,3 +152,40 @@ class GatedMonitor(Monitor):
 
     def evaluate_sync(self, monitor_input: MonitorInput) -> Verdict:
         return Verdict(suspicion=BENIGN_SUSPICION, reason="nothing suspicious")
+
+
+@dataclass(kw_only=True)
+class ScriptedGeneration:
+    """hyoshigi's generative model on both sides, answering every prompt with one outcome.
+
+    `sides` records which side each call came from, and `requests` the text of
+    each prompt's content.
+    """
+
+    outcome: GenerationOutcome
+    sides: list[str] = field(default_factory=list)
+    requests: list[str] = field(default_factory=list)
+
+    def record_prompt(self, prompt: Prompt, *, side: str) -> GenerationOutcome:
+        self.sides.append(side)
+        self.requests.append(
+            "".join(part.text for part in prompt.content if isinstance(part, TextPart)),
+        )
+        return self.outcome
+
+    def generate_sync(self, prompt: Prompt) -> GenerationOutcome:
+        return self.record_prompt(prompt, side="sync")
+
+    async def generate(self, prompt: Prompt) -> GenerationOutcome:
+        return self.record_prompt(prompt, side="async")
+
+    def build_twins(self) -> MonitorTwins:
+        """Return hyoshigi's LLM monitor twins over this model, as a user's own monitor."""
+        return MonitorTwins(
+            monitor=hyoshigi.LLMMonitor(
+                model=GenerativeModel(name="scripted", generate=self.generate_sync),
+            ),
+            async_monitor=hyoshigi.AsyncLLMMonitor(
+                model=AsyncGenerativeModel(name="scripted", generate=self.generate),
+            ),
+        )

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Iterator
+from types import SimpleNamespace
 from typing import Literal
 
 import httpx
@@ -153,6 +154,26 @@ async def test_a_retried_error_on_every_attempt_raises_the_last_one(
     assert len(retry_details) == 2
 
 
+class ResponseError(Exception):
+    """An error in the shape Google's SDK gives one: the HTTP status only on its response."""
+
+    def __init__(self, response: object, *, status_code: object = None) -> None:
+        super().__init__("failed")
+        self.response = response
+        if status_code is not None:
+            self.status_code = status_code
+
+
+def build_response_error(
+    response_status: object,
+    *,
+    status_code: object = None,
+) -> ResponseError:
+    """Build an error whose response, a plain object, carries the given status."""
+    response = SimpleNamespace(status_code=response_status)
+    return ResponseError(response, status_code=status_code)
+
+
 def build_status_error(status_code: int) -> httpx.HTTPStatusError:
     request = httpx.Request("POST", "https://service.test/v1")
     response = httpx.Response(status_code, request=request)
@@ -167,6 +188,27 @@ def build_status_error(status_code: int) -> httpx.HTTPStatusError:
         pytest.param(StatusError("429"), None, id="status-code-as-text"),
         pytest.param(StatusError(True), None, id="status-code-as-bool"),
         pytest.param(httpx.ConnectError("connection reset"), None, id="no-status"),
+        pytest.param(
+            build_response_error(503),
+            503,
+            marks=pytest.mark.xfail(strict=True, reason="the response's status is not read yet"),
+            id="status-on-response",
+        ),
+        pytest.param(
+            build_response_error("503"),
+            None,
+            id="status-on-response-as-text",
+        ),
+        pytest.param(
+            build_response_error(True),
+            None,
+            id="status-on-response-as-bool",
+        ),
+        pytest.param(
+            build_response_error(503, status_code=429),
+            429,
+            id="own-status-before-the-response-status",
+        ),
     ],
 )
 def test_the_stand_in_names_an_integer_status_and_the_type_alone(

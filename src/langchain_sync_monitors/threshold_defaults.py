@@ -10,10 +10,22 @@ from __future__ import annotations
 
 import functools
 import warnings
+from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import Final
+from typing import Final, assert_never
 
-from langchain_sync_monitors.monitors import CONSTRUCTOR_CALLER_LEVEL
+from langchain_sync_monitors.errors import ConfigurationError
+from langchain_sync_monitors.monitors import (
+    CONSTRUCTOR_CALLER_LEVEL,
+    CalibratedMonitor,
+    CascadeMonitor,
+    DecisionMonitor,
+    GuardMonitor,
+    LLMMonitor,
+    MonitorConfiguration,
+    MonitorTwins,
+    RepeatedMonitor,
+)
 from langchain_sync_monitors.options import LIBRARY_DIRECTORY
 
 DEFAULTS_URL: Final = (
@@ -73,3 +85,44 @@ def warn_about_uncalibrated_thresholds(defaults: ThresholdDefaults) -> None:
         stacklevel=CONSTRUCTOR_CALLER_LEVEL,
         skip_file_prefixes=(LIBRARY_DIRECTORY,),
     )
+
+
+def find_threshold_defaults(monitor: MonitorConfiguration) -> ThresholdDefaults | None:
+    """Return the defaults of the monitor's family, or None for a family without any."""
+    match monitor:
+        case LLMMonitor():
+            return LLM_MONITOR_DEFAULTS
+        case DecisionMonitor():
+            return DECISION_MONITOR_DEFAULTS
+        case (
+            GuardMonitor()
+            | RepeatedMonitor()
+            | CalibratedMonitor()
+            | CascadeMonitor()
+            | MonitorTwins()
+        ):
+            return None
+        case unreachable:
+            assert_never(unreachable)
+
+
+def take_threshold_defaults(
+    monitor: MonitorConfiguration,
+    *,
+    options: Sequence[str],
+) -> ThresholdDefaults:
+    """Return the defaults of the monitor's family for the `options` left at None, and warn.
+
+    A monitor of a family without defaults raises `ConfigurationError` naming `options`.
+    """
+    defaults = find_threshold_defaults(monitor)
+    if defaults is None:
+        names = " and ".join(options)
+        message = (
+            f"{names} cannot be None with a {type(monitor).__name__}, which has no default "
+            "threshold; give a number from 0 to 1, set from the scores of honest runs. Only an "
+            f"LLMMonitor and a DecisionMonitor have defaults: {DEFAULTS_URL}"
+        )
+        raise ConfigurationError(message)
+    warn_about_uncalibrated_thresholds(defaults)
+    return defaults

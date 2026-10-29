@@ -186,6 +186,11 @@ was run live.
 gpt-oss-safeguard is the one to start with: it follows a policy you write
 [@openai2025gptosssafeguardguide], so the policy can describe an agent that
 oversteps its task.
+On 2026-10-29, through OpenRouter at temperature 1.0 with five samples, 309 of
+619 of its ratings of honest steps failed closed at 1.0, on replies the
+monitor could not read, under heavy rate limiting
+([#167](https://github.com/omamori-lab/langchain-sync-monitors/issues/167)).
+Measure the share of honest steps it flags before relying on it.
 
 ## Read the reason
 

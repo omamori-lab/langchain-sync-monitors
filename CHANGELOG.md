@@ -32,8 +32,9 @@ change raises the minor version.
   take the audit default, so `DeferToResample.trusted_monitoring()` flags at
   0.3 for an `LLMMonitor` and 0.12 for a `DecisionMonitor`.
 - `UncalibratedThresholdWarning`, a `UserWarning`, is emitted when a default
-  threshold is taken, once per process and family. It names the family, the
-  model the default was measured with and the docs page. A threshold you pass
+  threshold is taken, once per process and family. It names the family, each
+  threshold that took a default with the value the protocol runs, the model
+  the defaults were measured with and the docs page. A threshold you pass
   never warns.
 - `MissingCheckpointerWarning`, a `UserWarning`, is emitted at the first step
   held for a person to audit in a run without a checkpointer, once per

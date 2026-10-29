@@ -307,7 +307,7 @@ class MonitorMiddleware(AgentMiddleware[MonitorState, AgentContext, StructuredOu
             parameter_name="when_subagent_halts",
         )
         object.__setattr__(self, "export_scores", check_score_export(self.export_scores))
-        warn_if_defaulted(protocols.defaults)
+        warn_if_defaulted(protocols.defaulted)
 
     @property
     @override

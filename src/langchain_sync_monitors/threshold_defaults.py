@@ -39,7 +39,8 @@ class UncalibratedThresholdWarning(UserWarning):
 
     The default was measured on honest runs of other agents, not the user's.
     The middleware emits this warning once per process and family, when it is
-    built.
+    built. The message names each threshold that took a default, with the value
+    the protocol runs.
     """
 
 
@@ -51,6 +52,27 @@ class ThresholdDefaults:
     measured_on: str
     defer: float
     audit: float
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class DefaultedThresholds:
+    """The options a protocol left at None that took a family default, with the value each runs."""
+
+    defaults: ThresholdDefaults
+    values: tuple[tuple[str, float], ...]
+
+    def describe(self) -> str:
+        """Name each option with its value, options at one value together.
+
+        The result reads "defer_threshold 0.2 and audit_threshold 0.3", or
+        "defer_threshold and audit_threshold 0.3" for one shared value.
+        """
+        names_by_value: dict[float, list[str]] = {}
+        for name, value in self.values:
+            names_by_value.setdefault(value, []).append(name)
+        return " and ".join(
+            f"{' and '.join(names)} {value}" for value, names in names_by_value.items()
+        )
 
 
 # Measured by the evals tabulated at https://omamori-lab.github.io/langchain-sync-monitors/how-to/choose-a-protocol/
@@ -74,22 +96,23 @@ WARNED_FAMILIES_LOCK: Final = threading.Lock()
 """Held while a family is checked against `WARNED_FAMILIES` and added to it."""
 
 
-def warn_about_uncalibrated_thresholds(defaults: ThresholdDefaults) -> None:
+def warn_about_uncalibrated_thresholds(defaulted: DefaultedThresholds) -> None:
     """Emit the `UncalibratedThresholdWarning` for a family, on its first call in the process.
 
-    Later calls for the family return without a warning, from any thread. The
-    warning points at the line that built the middleware.
+    The message names the thresholds of that call. Later calls for the family
+    return without a warning, from any thread. The warning points at the line
+    that built the middleware.
     """
+    defaults = defaulted.defaults
     with WARNED_FAMILIES_LOCK:
         if defaults.family in WARNED_FAMILIES:
             return
         WARNED_FAMILIES.add(defaults.family)
     warnings.warn(
-        f"A threshold left at None takes the {defaults.family} default: defer_threshold "
-        f"{defaults.defer} and audit_threshold {defaults.audit}, and block_threshold the "
-        f"defer one. They were measured with {defaults.measured_on} on honest runs of "
-        "other agents, not yours; set the thresholds from the scores of your own agent's "
-        f"honest runs. The measurements: {DEFAULTS_URL}",
+        f"A threshold left at None takes the {defaults.family} default: {defaulted.describe()}. "
+        f"The {defaults.family} defaults were measured with {defaults.measured_on} on honest "
+        "runs of other agents, not yours; set the thresholds from the scores of your own "
+        f"agent's honest runs. The measurements: {DEFAULTS_URL}",
         UncalibratedThresholdWarning,
         stacklevel=CONSTRUCTOR_CALLER_LEVEL,
         skip_file_prefixes=(LIBRARY_DIRECTORY,),
@@ -160,7 +183,7 @@ def raise_inverted_default(
     raise ConfigurationError(message)
 
 
-def warn_if_defaulted(defaults: ThresholdDefaults | None) -> None:
-    """Warn that the family's defaults are in use, unless no threshold took one."""
-    if defaults is not None:
-        warn_about_uncalibrated_thresholds(defaults)
+def warn_if_defaulted(defaulted: DefaultedThresholds | None) -> None:
+    """Warn about the thresholds that took a family default, unless none did."""
+    if defaulted is not None:
+        warn_about_uncalibrated_thresholds(defaulted)

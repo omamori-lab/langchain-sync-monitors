@@ -29,7 +29,7 @@ from langchain_sync_monitors.options import (
 )
 from langchain_sync_monitors.spans import trace_monitors
 from langchain_sync_monitors.threshold_defaults import (
-    ThresholdDefaults,
+    DefaultedThresholds,
     raise_inverted_default,
     read_threshold_defaults,
 )
@@ -48,13 +48,13 @@ DEFAULT_HALT_MESSAGE: Final = (
 class ProtocolTwins:
     """A protocol's sync twin, which decides under `invoke()`, and its async twin.
 
-    `defaults` holds the family defaults a None threshold took, or None when it
-    took none. The middleware warns for them once all its own checks pass.
+    `defaulted` holds the thresholds that took a family default, or None when
+    none did. The middleware warns for them once all its own checks pass.
     """
 
     protocol: hyoshigi.DeferToResample | hyoshigi.BlockAndFeedBack
     async_protocol: hyoshigi.AsyncDeferToResample | hyoshigi.AsyncBlockAndFeedBack
-    defaults: ThresholdDefaults | None
+    defaulted: DefaultedThresholds | None
 
     def can_ask_for_trusted_steps(self) -> bool:
         """Tell whether the protocol can ask for a trusted step.
@@ -143,7 +143,9 @@ class DeferToResample:
 
     def build(self, monitor: MonitorConfiguration) -> ProtocolTwins:
         """Build hyoshigi's sync and async protocols around the monitor's twins."""
-        defer_threshold, audit_threshold, defaults = fill_deferral_thresholds(self, monitor=monitor)
+        defer_threshold, audit_threshold, defaulted = fill_deferral_thresholds(
+            self, monitor=monitor
+        )
         monitors = trace_monitors(monitor)
         protocol = hyoshigi.DeferToResample(
             monitor=monitors.monitor,
@@ -166,7 +168,7 @@ class DeferToResample:
         return ProtocolTwins(
             protocol=protocol,
             async_protocol=async_protocol,
-            defaults=defaults,
+            defaulted=defaulted,
         )
 
 
@@ -193,11 +195,15 @@ class BlockAndFeedBack:
 
     def build(self, monitor: MonitorConfiguration) -> ProtocolTwins:
         """Build hyoshigi's sync and async protocols around the monitor's twins."""
-        defaults: ThresholdDefaults | None = None
+        defaulted: DefaultedThresholds | None = None
         block_threshold = self.block_threshold
         if block_threshold is None:
             defaults = read_threshold_defaults(monitor, options=["block_threshold"])
             block_threshold = defaults.defer
+            defaulted = DefaultedThresholds(
+                defaults=defaults,
+                values=(("block_threshold", block_threshold),),
+            )
         monitors = trace_monitors(monitor)
         protocol = hyoshigi.BlockAndFeedBack(
             monitor=monitors.monitor,
@@ -216,12 +222,12 @@ class BlockAndFeedBack:
         return ProtocolTwins(
             protocol=protocol,
             async_protocol=async_protocol,
-            defaults=defaults,
+            defaulted=defaulted,
         )
 
 
-type DeferralThresholds = tuple[float, float, ThresholdDefaults | None]
-"""The defer and audit thresholds, and the family defaults one of them took, if any."""
+type DeferralThresholds = tuple[float, float, DefaultedThresholds | None]
+"""The defer and audit thresholds, and the ones that took a family default, if any."""
 
 
 def read_threshold_or_default(
@@ -254,7 +260,11 @@ def fill_flagging_thresholds(
         threshold = read_threshold_value(given, parameter_name=parameter_name)
         return threshold, threshold, None
     defaults = read_threshold_defaults(monitor, options=["defer_threshold", "audit_threshold"])
-    return defaults.audit, defaults.audit, defaults
+    defaulted = DefaultedThresholds(
+        defaults=defaults,
+        values=(("defer_threshold", defaults.audit), ("audit_threshold", defaults.audit)),
+    )
+    return defaults.audit, defaults.audit, defaulted
 
 
 def fill_separate_thresholds(
@@ -288,7 +298,12 @@ def fill_separate_thresholds(
             defer_threshold=defer_threshold,
             audit_threshold=audit_threshold,
         )
-    return defer, audit, defaults
+    filled = {"defer_threshold": defer, "audit_threshold": audit}
+    defaulted = DefaultedThresholds(
+        defaults=defaults,
+        values=tuple((name, filled[name]) for name, value in thresholds.items() if value is None),
+    )
+    return defer, audit, defaulted
 
 
 def fill_deferral_thresholds(
@@ -300,8 +315,8 @@ def fill_deferral_thresholds(
 
     A None threshold takes the monitor family's default, or, under
     `AuditResponse.FLAG`, the other threshold's value; with both None under
-    `FLAG`, both take the audit default. The family's defaults are the third
-    item, or None when no threshold took one.
+    `FLAG`, both take the audit default. The third item holds the thresholds
+    that took a family default, or is None when none did.
     """
     defer_threshold, audit_threshold = protocol.defer_threshold, protocol.audit_threshold
     if defer_threshold is not None and audit_threshold is not None:

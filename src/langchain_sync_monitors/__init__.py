@@ -85,7 +85,7 @@ from langchain_sync_monitors.protocols import (
 from langchain_sync_monitors.score_export import Tracer
 from langchain_sync_monitors.threshold_defaults import UncalibratedThresholdWarning
 
-__version__ = "0.2.1"
+__version__ = "0.3.0"
 
 __all__ = [
     "ATTACK_CRITERIA",

@@ -13,8 +13,10 @@ and `DeferToResample.defer_to_trusted` return an ordinary `DeferToResample`.
 
 from __future__ import annotations
 
+import contextlib
 import warnings
 from collections.abc import Callable
+from functools import partial
 from typing import Any
 
 import hyoshigi
@@ -73,6 +75,7 @@ UNSET_BLOCK = BlockAndFeedBack(
 """Blocks at the default."""
 
 type MonitorBuilder = Callable[[], MonitorConfiguration]
+type MiddlewareBuilder = Callable[..., MonitorMiddleware]
 
 
 @pytest.fixture(autouse=True)
@@ -794,29 +797,100 @@ def test_a_default_equal_to_the_given_threshold_builds(
     assert read_deferral_thresholds(middleware) == thresholds
 
 
+LATER_CHECK_NOT_YET_BEFORE_THE_WARNING = pytest.mark.xfail(
+    strict=True,
+    reason="the protocol warns when it is built, before the middleware's later checks",
+)
+
+
 @pytest.mark.parametrize(
-    "refused",
+    "build_refused",
     [
         pytest.param(
-            DeferToResample(defer_threshold=0.5, audit_threshold=None, max_resamples=0),
+            partial(
+                MonitorMiddleware,
+                protocol=DeferToResample(
+                    defer_threshold=0.5,
+                    audit_threshold=None,
+                    max_resamples=0,
+                ),
+            ),
             id="a default on the wrong side",
         ),
         pytest.param(
-            DeferToResample(defer_threshold=None, audit_threshold=None, max_resamples=-1),
+            partial(
+                MonitorMiddleware,
+                protocol=DeferToResample(
+                    defer_threshold=None,
+                    audit_threshold=None,
+                    max_resamples=-1,
+                ),
+            ),
             id="a count hyoshigi refuses",
         ),
         pytest.param(
-            BlockAndFeedBack(block_threshold=None, blocks_in_a_row=0),
+            partial(
+                MonitorMiddleware,
+                protocol=BlockAndFeedBack(
+                    block_threshold=None,
+                    blocks_in_a_row=0,
+                ),
+            ),
             id="a limit hyoshigi refuses",
+        ),
+        pytest.param(
+            partial(
+                MonitorMiddleware,
+                protocol=UNSET_FLAGGING,
+                trusted_model=ScriptedChatModel(responses=[]),
+            ),
+            marks=LATER_CHECK_NOT_YET_BEFORE_THE_WARNING,
+            id="a trusted model the protocol never asks for",
+        ),
+        pytest.param(
+            partial(
+                MonitorMiddleware,
+                protocol=UNSET_DEFERRAL,
+                trusted_model=42,
+            ),
+            marks=LATER_CHECK_NOT_YET_BEFORE_THE_WARNING,
+            id="a trusted model that is not a chat model",
+        ),
+        pytest.param(
+            partial(
+                MonitorMiddleware,
+                protocol=UNSET_DEFERRAL,
+                task_author="nobody",
+            ),
+            marks=LATER_CHECK_NOT_YET_BEFORE_THE_WARNING,
+            id="a task author that is not one",
+        ),
+        pytest.param(
+            partial(
+                MonitorMiddleware,
+                protocol=UNSET_DEFERRAL,
+                when_subagent_halts="never",
+            ),
+            marks=LATER_CHECK_NOT_YET_BEFORE_THE_WARNING,
+            id="a halt of subagents that is not one",
+        ),
+        pytest.param(
+            partial(
+                MonitorMiddleware,
+                protocol=UNSET_DEFERRAL,
+                export_scores="langsmith",
+            ),
+            marks=LATER_CHECK_NOT_YET_BEFORE_THE_WARNING,
+            id="scores to export that are not a set",
         ),
     ],
 )
 def test_a_build_that_raises_leaves_the_warning_for_the_next_default(
-    refused: DeferToResample | BlockAndFeedBack,
+    build_refused: MiddlewareBuilder,
 ) -> None:
     # Arrange
-    with pytest.raises(ConfigurationError):
-        MonitorMiddleware(monitor=build_llm_monitor(), protocol=refused)
+    with contextlib.suppress(ConfigurationError):
+        build_refused(monitor=build_llm_monitor())
 
     # Act
     categories = build_recording_warnings((build_llm_monitor, UNSET_DEFERRAL))

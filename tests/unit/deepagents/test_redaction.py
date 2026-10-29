@@ -10,6 +10,7 @@ from __future__ import annotations
 import json
 from typing import Any
 
+import pytest
 from deepagents import CompiledSubAgent, create_deep_agent
 from hyoshigi import Action, Author, Observation, TextPart, ToolObservation, Trajectory
 from langchain.agents import create_agent
@@ -17,7 +18,7 @@ from langchain_core.messages import AIMessage
 from langgraph.graph.state import CompiledStateGraph
 
 from langchain_sync_monitors import Channel, Redaction, View
-from langchain_sync_monitors.contracts import TaskAuthor
+from langchain_sync_monitors.contracts import SampleRecord, TaskAuthor
 from langchain_sync_monitors.middleware import MonitorMiddleware
 from tests.support.agents import RunMode, read_stored_trajectory, run_agent
 from tests.support.chat_models import ScriptedChatModel
@@ -33,6 +34,7 @@ from tests.support.redaction import (
     MASKED_READ_CALL,
     MASKED_READ_RESULT,
     SECRET,
+    SUSPICION_BY_SECRET,
     TASK_WITH_SECRET,
     build_secret_steps,
     build_secret_tools,
@@ -50,7 +52,7 @@ def build_monitor(
     redaction: Redaction | None = MASK_SECRET,
 ) -> MonitorMiddleware:
     return MonitorMiddleware(
-        monitor=KeywordMonitor(),
+        monitor=KeywordMonitor(suspicion_by_keyword=SUSPICION_BY_SECRET),
         protocol=RUN_EVERY_STEP,
         agent_name=agent_name,
         task_author=task_author,
@@ -105,6 +107,45 @@ MASKED_WORKER_HISTORY = (
 )
 """The worker's trajectory as the mask leaves it."""
 
+MASKED_REASON = f"mentions {MASK}"
+MASKED_WORKER_SAMPLES = [
+    [
+        SampleRecord(
+            suspicion=0.9,
+            reason=MASKED_REASON,
+            proposal={
+                "kind": "action",
+                "id": "step-1",
+                "thought": [],
+                "parts": [{"kind": "text", "text": MASKED_FIRST_REPLY}],
+                "tool_calls": [
+                    {
+                        "id": "call-read",
+                        "name": "read_file",
+                        "arguments": MASKED_READ_CALL.arguments,
+                    },
+                ],
+            },
+            executed=True,
+        ),
+    ],
+    [
+        SampleRecord(
+            suspicion=0.9,
+            reason=MASKED_REASON,
+            proposal={
+                "kind": "action",
+                "id": "step-2",
+                "thought": [],
+                "parts": [{"kind": "text", "text": MASKED_LAST_REPLY}],
+                "tool_calls": [],
+            },
+            executed=True,
+        ),
+    ],
+]
+"""The samples of the worker's two records as the mask leaves them."""
+
 
 def test_a_subagent_s_joined_trajectory_holds_what_the_redaction_leaves(run_mode: RunMode) -> None:
     # Arrange
@@ -132,6 +173,23 @@ def test_a_parent_redacts_the_trajectory_of_a_subagent_whose_monitor_has_no_reda
     stored = read_stored_trajectory(result)
     assert SECRET not in json.dumps(stored)
     assert Trajectory.load(stored).subagents["call-task"].history == MASKED_WORKER_HISTORY
+
+
+@pytest.mark.xfail(strict=True, reason="a returned record joins the parent's log as it comes")
+def test_a_parent_redacts_the_records_of_a_subagent_whose_monitor_has_no_redaction(
+    run_mode: RunMode,
+) -> None:
+    # Arrange: the worker's own monitor keeps its records as it rated them
+    agent = build_agent_with_worker(worker_redaction=None)
+
+    # Act
+    result = run_agent(agent, mode=run_mode, task=TASK_WITH_SECRET)
+
+    # Assert
+    log = result["monitor_log"]
+    assert SECRET not in json.dumps(log)
+    worker_records = [record for record in log if record["agent"] == "worker"]
+    assert [record["samples"] for record in worker_records] == MASKED_WORKER_SAMPLES
 
 
 def test_a_subagent_s_monitor_is_asked_redacted_content(run_mode: RunMode) -> None:

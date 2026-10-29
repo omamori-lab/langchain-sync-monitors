@@ -12,6 +12,7 @@ import stamina
 from stamina.instrumentation import LoggingOnRetryHook, RetryDetails
 
 from langchain_sync_monitors.checkpointers import warn_about_missing_checkpointer
+from langchain_sync_monitors.threshold_defaults import warn_about_uncalibrated_thresholds
 from tests.support.agents import RunMode
 from tests.support.log_records import RecordCollector
 
@@ -28,6 +29,14 @@ def fresh_checkpointer_warning() -> Iterator[None]:
     warn_about_missing_checkpointer.cache_clear()
     yield
     warn_about_missing_checkpointer.cache_clear()
+
+
+@pytest.fixture
+def fresh_uncalibrated_threshold_warning() -> Iterator[None]:
+    """Let a test see the threshold warnings, which are shown once per process and family."""
+    warn_about_uncalibrated_thresholds.cache_clear()
+    yield
+    warn_about_uncalibrated_thresholds.cache_clear()
 
 
 @dataclass

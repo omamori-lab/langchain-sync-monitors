@@ -9,8 +9,8 @@ chat model through `ChatModelAdapter`, `DecisionMonitor` calls a decision
 model's SDK, `RepeatedMonitor`, `CalibratedMonitor` and `CascadeMonitor`
 wrap the twins of other monitors, and `MonitorTwins` holds a pair the user
 wrote. Each option keeps hyoshigi's name and meaning. An option hyoshigi
-refuses raises the library's `ConfigurationError` where the monitor is
-built, and a warning hyoshigi raises then is raised once, at that line.
+refuses raises `ConfigurationError` where the monitor is built, and a
+warning hyoshigi raises then is raised once, at that line.
 """
 
 from __future__ import annotations
@@ -38,7 +38,6 @@ from langchain_sync_monitors.errors import (
     ConfigurationError,
     MissingExtraError,
     build_missing_extra_message,
-    raise_as_configuration_error,
 )
 from langchain_sync_monitors.model_calls import CachedResampleWarning, is_response_cache_active
 from langchain_sync_monitors.openrouter_decisions import open_decision_models
@@ -156,14 +155,13 @@ class LLMMonitor:
             "highest_score": self.highest_score,
             "max_parse_retries": self.max_parse_retries,
         }
-        with raise_as_configuration_error():
-            twins = MonitorTwins(
-                monitor=hyoshigi.LLMMonitor(model=adapter.generative_model, **options),
-                async_monitor=hyoshigi.AsyncLLMMonitor(
-                    model=adapter.async_generative_model,
-                    **options,
-                ),
-            )
+        twins = MonitorTwins(
+            monitor=hyoshigi.LLMMonitor(model=adapter.generative_model, **options),
+            async_monitor=hyoshigi.AsyncLLMMonitor(
+                model=adapter.async_generative_model,
+                **options,
+            ),
+        )
         set_twins(self, twins=twins)
 
 
@@ -215,16 +213,15 @@ class GuardMonitor:
             samples=self.samples,
             view=self.view,
         )
-        with raise_as_configuration_error():
-            twins = build_twins_warning_once(
-                lambda: MonitorTwins(
-                    monitor=hyoshigi.GuardMonitor(model=adapter.generative_model, **options),
-                    async_monitor=hyoshigi.AsyncGuardMonitor(
-                        model=adapter.async_generative_model,
-                        **options,
-                    ),
+        twins = build_twins_warning_once(
+            lambda: MonitorTwins(
+                monitor=hyoshigi.GuardMonitor(model=adapter.generative_model, **options),
+                async_monitor=hyoshigi.AsyncGuardMonitor(
+                    model=adapter.async_generative_model,
+                    **options,
                 ),
-            )
+            ),
+        )
         set_twins(self, twins=twins)
 
 
@@ -261,11 +258,10 @@ class DecisionMonitor:
             "statements": self.statements,
             "aggregation": self.aggregation,
         }
-        with raise_as_configuration_error():
-            twins = MonitorTwins(
-                monitor=hyoshigi.DecisionMonitor(model=model, **options),
-                async_monitor=hyoshigi.AsyncDecisionMonitor(model=async_model, **options),
-            )
+        twins = MonitorTwins(
+            monitor=hyoshigi.DecisionMonitor(model=model, **options),
+            async_monitor=hyoshigi.AsyncDecisionMonitor(model=async_model, **options),
+        )
         set_twins(self, twins=twins)
 
 
@@ -284,19 +280,18 @@ def build_decision_models(
     match provider:
         case "typesafe" if model_id:
             sync_client, async_client = build_typesafe_clients()
-            with raise_as_configuration_error():
-                return (
-                    hyoshigi.DecisionModel.from_typesafe(
-                        sync_client,
-                        model=model_id,
-                        perceives=perceives,
-                    ),
-                    hyoshigi.AsyncDecisionModel.from_typesafe(
-                        async_client,
-                        model=model_id,
-                        perceives=perceives,
-                    ),
-                )
+            return (
+                hyoshigi.DecisionModel.from_typesafe(
+                    sync_client,
+                    model=model_id,
+                    perceives=perceives,
+                ),
+                hyoshigi.AsyncDecisionModel.from_typesafe(
+                    async_client,
+                    model=model_id,
+                    perceives=perceives,
+                ),
+            )
         case "openrouter" if model_id:
             if perceives.patterns:
                 message = "an 'openrouter:' decision model reads text only, so perceives no media"
@@ -349,17 +344,16 @@ class RepeatedMonitor:
         """Build both twins over the wrapped monitor's."""
         check_monitor_option(self.monitor, parameter_name="monitor")
         inner = self.monitor.twins
-        with raise_as_configuration_error():
-            twins = MonitorTwins(
-                monitor=hyoshigi.RepeatedMonitor(
-                    monitor=inner.monitor,
-                    ensemble_size=self.ensemble_size,
-                ),
-                async_monitor=hyoshigi.AsyncRepeatedMonitor(
-                    monitor=inner.async_monitor,
-                    ensemble_size=self.ensemble_size,
-                ),
-            )
+        twins = MonitorTwins(
+            monitor=hyoshigi.RepeatedMonitor(
+                monitor=inner.monitor,
+                ensemble_size=self.ensemble_size,
+            ),
+            async_monitor=hyoshigi.AsyncRepeatedMonitor(
+                monitor=inner.async_monitor,
+                ensemble_size=self.ensemble_size,
+            ),
+        )
         set_twins(self, twins=twins)
 
 
@@ -381,20 +375,19 @@ class CalibratedMonitor:
         """Build both twins over the wrapped monitor's."""
         check_monitor_option(self.monitor, parameter_name="monitor")
         inner = self.monitor.twins
-        with raise_as_configuration_error():
-            monitor = hyoshigi.CalibratedMonitor(
-                monitor=inner.monitor,
-                honest_scores=honest_scores,
+        monitor = hyoshigi.CalibratedMonitor(
+            monitor=inner.monitor,
+            honest_scores=honest_scores,
+            random_seed=self.random_seed,
+        )
+        twins = MonitorTwins(
+            monitor=monitor,
+            async_monitor=hyoshigi.AsyncCalibratedMonitor(
+                monitor=inner.async_monitor,
+                honest_scores=monitor.sorted_honest_scores,
                 random_seed=self.random_seed,
-            )
-            twins = MonitorTwins(
-                monitor=monitor,
-                async_monitor=hyoshigi.AsyncCalibratedMonitor(
-                    monitor=inner.async_monitor,
-                    honest_scores=monitor.sorted_honest_scores,
-                    random_seed=self.random_seed,
-                ),
-            )
+            ),
+        )
         set_twins(self, twins=twins)
 
 
@@ -415,19 +408,18 @@ class CascadeMonitor:
         check_monitor_option(self.fast, parameter_name="fast")
         check_monitor_option(self.careful, parameter_name="careful")
         fast, careful = self.fast.twins, self.careful.twins
-        with raise_as_configuration_error():
-            twins = MonitorTwins(
-                monitor=hyoshigi.CascadeMonitor(
-                    fast=fast.monitor,
-                    careful=careful.monitor,
-                    escalation_threshold=self.escalation_threshold,
-                ),
-                async_monitor=hyoshigi.AsyncCascadeMonitor(
-                    fast=fast.async_monitor,
-                    careful=careful.async_monitor,
-                    escalation_threshold=self.escalation_threshold,
-                ),
-            )
+        twins = MonitorTwins(
+            monitor=hyoshigi.CascadeMonitor(
+                fast=fast.monitor,
+                careful=careful.monitor,
+                escalation_threshold=self.escalation_threshold,
+            ),
+            async_monitor=hyoshigi.AsyncCascadeMonitor(
+                fast=fast.async_monitor,
+                careful=careful.async_monitor,
+                escalation_threshold=self.escalation_threshold,
+            ),
+        )
         set_twins(self, twins=twins)
 
 

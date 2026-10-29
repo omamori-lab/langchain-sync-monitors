@@ -3,10 +3,9 @@
 Under `invoke()` the step is rated by the sync twin, which calls the model's
 sync side, and under `ainvoke()` by the async twin. Both twins carry the
 configuration's options and render hyoshigi's prompt, which holds the
-proposed action in its `<proposed_action>` element. A hyoshigi error raised
-while the twins are built is raised again as the library's
-`ConfigurationError`. A monitor that asks a cached model the same prompt more
-than once warns when the middleware is built.
+proposed action in its `<proposed_action>` element. A monitor that asks a
+cached model the same prompt more than once warns when the middleware is
+built.
 """
 
 from __future__ import annotations
@@ -254,7 +253,6 @@ def test_a_decision_model_of_an_unknown_provider_is_a_configuration_error() -> N
         DecisionMonitor(model="anthropic:claude-haiku-5-5")
 
     # Assert
-    assert isinstance(raised.value, hyoshigi.ConfigurationError)
     assert "typesafe:" in str(raised.value)
 
 
@@ -270,7 +268,7 @@ def test_twins_of_the_wrong_family_are_a_configuration_error() -> None:
         )
 
     # Assert
-    assert isinstance(raised.value, hyoshigi.ConfigurationError)
+    assert "monitor must be a Monitor" in str(raised.value)
 
 
 def test_a_one_sample_guard_warns_once_at_the_line_that_builds_it() -> None:

@@ -1,51 +1,22 @@
 """Errors raised by the library, and the warning about what a monitor cannot gate.
 
-Every error derives from `MonitorError`, so a caller can catch the library's
-failures in one place without catching unrelated exceptions.
+`ConfigurationError` is hyoshigi's, raised as it is. Every other error derives
+from `MonitorError`, so a caller can catch the library's failures in one place
+without catching unrelated exceptions.
 """
 
-from collections.abc import Generator
-from contextlib import contextmanager
-
-import hyoshigi
+from hyoshigi import ConfigurationError
 
 
 class MonitorError(Exception):
-    """Base class for every error this library raises."""
-
-
-class ConfigurationError(MonitorError, hyoshigi.ConfigurationError):
-    """A monitor, protocol or middleware was built with settings that cannot work.
-
-    Most are raised when the object is built. Two settings can only be checked
-    during a run, so the same error is raised then: a `monitor_delegation` in
-    an agent's input that is not a valid `Delegation`, and a
-    `top_log_probabilities` above 0 for a chat model that rejects the request
-    for log-probabilities. It is also hyoshigi's `ConfigurationError`, and so a
-    `ValueError`, so code that catches any of the three sees it.
-    """
-
-
-@contextmanager
-def raise_as_configuration_error() -> Generator[None]:
-    """Raise a hyoshigi `ConfigurationError` from the block again as this library's.
-
-    The library's error is raised from hyoshigi's, with the same message, so
-    the cause stays in the traceback. Any other exception passes unchanged.
-    """
-    try:
-        yield
-    except ConfigurationError:
-        raise
-    except hyoshigi.ConfigurationError as error:
-        raise ConfigurationError(str(error)) from error
+    """Base class for the errors this library raises, `ConfigurationError` excepted."""
 
 
 class MissingExtraError(ConfigurationError, ImportError):
     """A feature needs an optional extra that is not installed.
 
-    It is both a `ConfigurationError` and an `ImportError`, so code that
-    catches either one sees it. The message names the extra, and the uv and
+    It is both hyoshigi's `ConfigurationError` and an `ImportError`, so code
+    that catches either one sees it. The message names the extra, and the uv and
     pip commands that install it.
     """
 

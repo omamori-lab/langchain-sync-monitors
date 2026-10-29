@@ -6,8 +6,8 @@ it runs, is replaced, is blocked with feedback, or is held for a person
 them. Each class here holds one protocol's settings, under hyoshigi's names,
 defaults and meanings, and builds hyoshigi's sync and async protocol around a
 monitor's twins, so one middleware serves `invoke()` and `ainvoke()`. A
-setting hyoshigi refuses raises the library's `ConfigurationError` when the
-middleware is built, since a protocol is built with its monitor.
+setting hyoshigi refuses raises `ConfigurationError` when the middleware
+is built, since a protocol is built with its monitor.
 """
 
 from __future__ import annotations
@@ -19,7 +19,7 @@ from typing import Final, assert_never
 import hyoshigi
 from hyoshigi import AuditResponse, FailureResponse, Resampling
 
-from langchain_sync_monitors.errors import ConfigurationError, raise_as_configuration_error
+from langchain_sync_monitors.errors import ConfigurationError
 from langchain_sync_monitors.options import check_instance_option, describe_option_value
 from langchain_sync_monitors.spans import TracedTwins
 
@@ -83,25 +83,24 @@ class DeferToResample:
 
     def build(self, monitors: TracedTwins) -> ProtocolTwins:
         """Build hyoshigi's sync and async protocols around the monitor's twins."""
-        with raise_as_configuration_error():
-            protocol = hyoshigi.DeferToResample(
-                monitor=monitors.monitor,
-                defer_threshold=self.defer_threshold,
-                audit_threshold=self.audit_threshold,
-                max_resamples=self.max_resamples,
-                on_unavailable=self.on_unavailable,
-                resampling=self.resampling,
-                on_audit=self.on_audit,
-            )
-            async_protocol = hyoshigi.AsyncDeferToResample(
-                monitor=monitors.async_monitor,
-                defer_threshold=protocol.defer_threshold,
-                audit_threshold=protocol.audit_threshold,
-                max_resamples=protocol.max_resamples,
-                on_unavailable=protocol.on_unavailable,
-                resampling=protocol.resampling,
-                on_audit=protocol.on_audit,
-            )
+        protocol = hyoshigi.DeferToResample(
+            monitor=monitors.monitor,
+            defer_threshold=self.defer_threshold,
+            audit_threshold=self.audit_threshold,
+            max_resamples=self.max_resamples,
+            on_unavailable=self.on_unavailable,
+            resampling=self.resampling,
+            on_audit=self.on_audit,
+        )
+        async_protocol = hyoshigi.AsyncDeferToResample(
+            monitor=monitors.async_monitor,
+            defer_threshold=protocol.defer_threshold,
+            audit_threshold=protocol.audit_threshold,
+            max_resamples=protocol.max_resamples,
+            on_unavailable=protocol.on_unavailable,
+            resampling=protocol.resampling,
+            on_audit=protocol.on_audit,
+        )
         return ProtocolTwins(protocol=protocol, async_protocol=async_protocol)
 
 
@@ -124,21 +123,20 @@ class BlockAndFeedBack:
 
     def build(self, monitors: TracedTwins) -> ProtocolTwins:
         """Build hyoshigi's sync and async protocols around the monitor's twins."""
-        with raise_as_configuration_error():
-            protocol = hyoshigi.BlockAndFeedBack(
-                monitor=monitors.monitor,
-                block_threshold=self.block_threshold,
-                blocks_in_a_row=self.blocks_in_a_row,
-                blocks_in_total=self.blocks_in_total,
-                on_unavailable=self.on_unavailable,
-            )
-            async_protocol = hyoshigi.AsyncBlockAndFeedBack(
-                monitor=monitors.async_monitor,
-                block_threshold=protocol.block_threshold,
-                blocks_in_a_row=protocol.blocks_in_a_row,
-                blocks_in_total=protocol.blocks_in_total,
-                on_unavailable=protocol.on_unavailable,
-            )
+        protocol = hyoshigi.BlockAndFeedBack(
+            monitor=monitors.monitor,
+            block_threshold=self.block_threshold,
+            blocks_in_a_row=self.blocks_in_a_row,
+            blocks_in_total=self.blocks_in_total,
+            on_unavailable=self.on_unavailable,
+        )
+        async_protocol = hyoshigi.AsyncBlockAndFeedBack(
+            monitor=monitors.async_monitor,
+            block_threshold=protocol.block_threshold,
+            blocks_in_a_row=protocol.blocks_in_a_row,
+            blocks_in_total=protocol.blocks_in_total,
+            on_unavailable=protocol.on_unavailable,
+        )
         return ProtocolTwins(protocol=protocol, async_protocol=async_protocol)
 
 

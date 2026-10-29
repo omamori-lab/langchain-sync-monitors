@@ -31,6 +31,11 @@ checked as follows:
   the monitor cannot tell from the agent's own, so it raises
   `ConfigurationError`.
 
+With a redaction, the calling agent's, the records kept pass through it
+whatever the subagent's own monitor kept: each sample's reason through its
+text function, and its proposal as a trajectory with the redaction stores an
+action. A proposal that is not a stored action is left out, as an empty dict.
+
 A write to `monitor_trajectory` is kept, for `trajectory_channel` to join
 under the call, only as a mapping of one or more monitor labels to the
 trajectory states of a subagent the call itself started, each once, with no
@@ -78,6 +83,7 @@ from langchain_sync_monitors.contracts import StepRecord
 from langchain_sync_monitors.errors import ConfigurationError
 from langchain_sync_monitors.records import (
     is_own_record,
+    redact_record,
     render_value,
     validate_step_record,
 )
@@ -243,7 +249,7 @@ def check_written_record(item: object, *, caller: ToolCaller, returned: Returned
     if caller.is_caller_record(record):
         check_caller_record(record, caller=caller, returned=returned)
         return
-    returned.kept.append(record)
+    returned.kept.append(redact_record(record, redaction=caller.redaction))
     if record["outcome"] == "halted":
         returned.halted_subagents.append(caller.name_halted_subagent(record))
 

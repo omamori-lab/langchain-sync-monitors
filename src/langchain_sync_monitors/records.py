@@ -30,6 +30,7 @@ from hyoshigi import (
     Audit,
     Block,
     Flag,
+    FormatError,
     Halt,
     Policy,
     ProtocolDecision,
@@ -82,6 +83,11 @@ def dump_action(action: Action) -> dict[str, JSON]:
     """
     trajectory = Trajectory()
     trajectory.act(action)
+    return read_stored_action(trajectory)
+
+
+def read_stored_action(trajectory: Trajectory) -> dict[str, JSON]:
+    """Return the one entry a trajectory of one action stores in its history."""
     match trajectory.dump():
         case {"history": [dict() as stored]}:
             return stored
@@ -147,6 +153,41 @@ def redact_text(text: str, *, redaction: Redaction | None) -> str:
         message = f"the redaction's text function must return a str, got {describe_type(redacted)}"
         raise ConfigurationError(message)
     return redacted
+
+
+def redact_proposal(proposal: dict[str, JSON], *, redaction: Redaction) -> dict[str, JSON]:
+    """Return a stored action as a trajectory with the redaction stores it.
+
+    A proposal that is not a stored action becomes an empty dict.
+    """
+    stored: dict[str, JSON] = {**Trajectory().dump(), "history": [proposal]}
+    try:
+        trajectory = Trajectory.load(stored, redaction=redaction)
+    except FormatError:
+        return {}
+    return read_stored_action(trajectory)
+
+
+def redact_record(record: StepRecord, *, redaction: Redaction | None) -> StepRecord:
+    """Return the record with each sample's reason and proposal redacted.
+
+    The reason passes through the redaction's text function and the proposal
+    through `redact_proposal`. Without a redaction the record is returned as
+    it is.
+    """
+    if redaction is None:
+        return record
+    return {
+        **record,
+        "samples": [
+            {
+                **sample,
+                "reason": redact_text(sample["reason"], redaction=redaction),
+                "proposal": redact_proposal(sample["proposal"], redaction=redaction),
+            }
+            for sample in record["samples"]
+        ],
+    }
 
 
 def redact_failed_samples(

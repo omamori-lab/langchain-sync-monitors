@@ -151,7 +151,6 @@ def test_a_command_that_writes_no_records_is_returned_as_it_is() -> None:
     assert check_command_records(command, caller=caller) is command
 
 
-@pytest.mark.xfail(strict=True, reason="a returned record joins the log as it comes")
 def test_a_returned_proposal_that_is_no_stored_action_is_left_out_under_a_redaction() -> None:
     # Arrange
     caller = read_tool_caller(
@@ -178,7 +177,23 @@ def test_a_returned_proposal_that_is_no_stored_action_is_left_out_under_a_redact
     ]
 
 
-@pytest.mark.xfail(strict=True, reason="a returned record joins the log as it comes")
+def test_a_returned_record_is_kept_as_it_is_without_a_redaction() -> None:
+    # Arrange: a proposal that is no stored action stays whole, since nothing is redacted
+    sample = {
+        "suspicion": 0.5,
+        "reason": f"mentions {SECRET}",
+        "proposal": {"note": SECRET},
+        "executed": True,
+    }
+    record = build_record(samples=[sample])
+
+    # Act
+    checked = check({"monitor_log": [record]})
+
+    # Assert
+    assert read_written(checked, key="monitor_log") == [[record]]
+
+
 def test_every_sample_of_a_returned_record_is_redacted_under_a_redaction() -> None:
     # Arrange
     caller = read_tool_caller(

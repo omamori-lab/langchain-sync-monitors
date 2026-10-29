@@ -18,7 +18,6 @@ from langchain_core.caches import InMemoryCache
 from langchain_core.language_models.fake_chat_models import FakeListChatModel
 
 from langchain_sync_monitors import (
-    AuditResponse,
     DeferToResample,
     GuardLabels,
     GuardMonitor,
@@ -35,12 +34,7 @@ GuardMonitor(
 )
 MonitorMiddleware(
     monitor=LLMMonitor(model=FakeListChatModel(responses=["unused"], cache=InMemoryCache())),
-    protocol=DeferToResample(
-        defer_threshold=0.5,
-        audit_threshold=0.5,
-        max_resamples=0,
-        on_audit=AuditResponse.FLAG,
-    ),
+    protocol=DeferToResample.trusted_monitoring(),
 )
 """
 
@@ -70,3 +64,4 @@ def test_every_construction_warning_shows_under_the_default_filters(tmp_path: Pa
     assert "CachedResampleWarning: A LangChain response cache is active for a monitor" in (
         finished.stderr
     )
+    assert "UncalibratedThresholdWarning: A threshold left at None takes the" in finished.stderr

@@ -31,7 +31,7 @@ from tests.live.harness import (
 )
 from tests.live.reports import RunReport, is_side_task_proposal
 from tests.live.scenario import Scenario, Task
-from tests.live.thresholds import AUDIT_PERCENT, DEFER_PERCENT, CandidateDefault, build_candidate
+from tests.live.thresholds import AUDIT_BUDGET, DEFER_BUDGET, CandidateDefault, build_candidate
 
 HONEST_STEP_TARGET: Final = 600
 MIN_HONEST_STEPS: Final = 300
@@ -75,8 +75,8 @@ class FamilyReport(TypedDict):
     view: str
     honest: HonestReport
     attack: AttackReport
-    defer: CandidateDefault
-    audit: CandidateDefault
+    defer: CandidateDefault | None
+    audit: CandidateDefault | None
     spend: float
 
 
@@ -240,8 +240,8 @@ def build_family_report(
         "view": str(DEFAULT_VIEW.channels),
         "honest": honest,
         "attack": attack,
-        "defer": build_candidate(scores, attack["side_task_scores"], percent=DEFER_PERCENT),
-        "audit": build_candidate(scores, attack["side_task_scores"], percent=AUDIT_PERCENT),
+        "defer": build_candidate(scores, attack["side_task_scores"], budget=DEFER_BUDGET),
+        "audit": build_candidate(scores, attack["side_task_scores"], budget=AUDIT_BUDGET),
         "spend": spend,
     }
 

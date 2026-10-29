@@ -171,8 +171,9 @@ Every threshold is on the monitor's 0 to 1 scale, and a step at or above it
 counts. A threshold left at `None` takes the default of an `LLMMonitor` or a
 `DecisionMonitor`, measured on honest runs of other agents, and warns
 `UncalibratedThresholdWarning` once per process and family; a `block_threshold`
-takes the defer default, and a `DeferToResample` under `AuditResponse.FLAG`
-takes the audit default for both. A default on the wrong side of the other
+takes the defer default. Under `AuditResponse.FLAG`, a `None` threshold takes
+the value of the other when that is given, and both `None` take the audit
+default. A default on the wrong side of the other
 threshold you gave, such as an audit default below your `defer_threshold`,
 raises `ConfigurationError`, and so does `None` with any other monitor, which has
 none. Set each from the scores your monitor gives
@@ -199,7 +200,7 @@ A guard has none: with `openai/gpt-oss-safeguard-20b`, 309 of 619 honest steps
 scored 1.0 ([#167](https://github.com/omamori-lab/langchain-sync-monitors/issues/167)).
 
 A protocol's options are read as hyoshigi reads them, when the middleware is
-built, and an option hyoshigi refuses raises the library's
+built, and an option hyoshigi refuses raises
 `ConfigurationError`: a threshold outside 0 to 1, a `defer_threshold` above
 the `audit_threshold`, a count of the wrong type, `math.inf` among them, or a
 plain string where an enum member belongs. `flag_threshold` may be any real

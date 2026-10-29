@@ -171,7 +171,7 @@ monitor = DecisionMonitor(
 )
 ```
 
-A statement or an aggregation hyoshigi refuses raises the library's
+A statement or an aggregation hyoshigi refuses raises
 `ConfigurationError` when the monitor is built.
 
 ## Mind the resolution

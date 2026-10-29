@@ -509,7 +509,6 @@ def test_a_default_threshold_warns_once_per_process_for_its_family(
     assert categories == [UncalibratedThresholdWarning]
 
 
-@pytest.mark.xfail(strict=True)
 def test_a_warning_made_an_error_raises_again_at_the_next_build() -> None:
     # Arrange
     with warnings.catch_warnings():

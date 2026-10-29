@@ -100,23 +100,25 @@ def warn_about_uncalibrated_thresholds(defaulted: DefaultedThresholds) -> None:
     """Emit the `UncalibratedThresholdWarning` for a family, on its first call in the process.
 
     The message names the thresholds of that call. Later calls for the family
-    return without a warning, from any thread. The warning points at the line
-    that built the middleware.
+    return without a warning, from any thread; a warning a filter turns into an
+    error records nothing, so the next call raises it again. The warning points
+    at the line that built the middleware.
     """
     defaults = defaulted.defaults
     with WARNED_FAMILIES_LOCK:
         if defaults.family in WARNED_FAMILIES:
             return
+        warnings.warn(
+            f"A threshold left at None takes the {defaults.family} default: "
+            f"{defaulted.describe()}. The {defaults.family} defaults were measured with "
+            f"{defaults.measured_on} on honest runs of other agents, not yours; set the "
+            "thresholds from the scores of your own agent's honest runs. The measurements: "
+            f"{DEFAULTS_URL}",
+            UncalibratedThresholdWarning,
+            stacklevel=CONSTRUCTOR_CALLER_LEVEL,
+            skip_file_prefixes=(LIBRARY_DIRECTORY,),
+        )
         WARNED_FAMILIES.add(defaults.family)
-    warnings.warn(
-        f"A threshold left at None takes the {defaults.family} default: {defaulted.describe()}. "
-        f"The {defaults.family} defaults were measured with {defaults.measured_on} on honest "
-        "runs of other agents, not yours; set the thresholds from the scores of your own "
-        f"agent's honest runs. The measurements: {DEFAULTS_URL}",
-        UncalibratedThresholdWarning,
-        stacklevel=CONSTRUCTOR_CALLER_LEVEL,
-        skip_file_prefixes=(LIBRARY_DIRECTORY,),
-    )
 
 
 def find_threshold_defaults(monitor: MonitorConfiguration) -> ThresholdDefaults | None:

@@ -1130,15 +1130,12 @@ the monitor in the stack Deep Agents builds, where the check cannot see it
 Every public constructor checks its options when it is built, and raises
 `ConfigurationError` for a value of the wrong type: `FeedbackTemplate`,
 `MonitorMiddleware`, the monitors, their wrappers and `MonitorTwins`,
-`monitor_subagents` and `check_monitor_placement`. An option hyoshigi refuses
-while a monitor is built, or while `MonitorMiddleware` builds the protocol
-around it, raises the library's `ConfigurationError`, raised from
-hyoshigi's; a protocol's settings are therefore checked when the middleware
-is built. The
-value types hyoshigi owns, `View`, `MonitorPrompt`, `GuardLabels` and
-`MediaTypes`, raise hyoshigi's own `ConfigurationError` when they are built,
-which the library's subclasses, so catch `ValueError`, or hyoshigi's class,
-to catch both.
+`monitor_subagents` and `check_monitor_placement`. `ConfigurationError` is
+hyoshigi's, a `ValueError`. An option hyoshigi refuses while a monitor is
+built, or while `MonitorMiddleware` builds the protocol around it, raises it
+as it is, so a protocol's settings are checked when the middleware is built.
+The value types hyoshigi owns, `View`, `MonitorPrompt`, `GuardLabels` and
+`MediaTypes`, raise it when they are built.
 
 - An enum option must be a member: a plain string is refused, not converted.
 - A threshold, `flag_threshold` and `CascadeMonitor(escalation_threshold=...)`
@@ -1162,10 +1159,10 @@ to catch both.
 
 | Class | Raised or emitted when |
 |---|---|
-| `MonitorError` | The base class of the library's own errors. Also raised at run time for a malformed record in `monitor_log` or `monitor_subagent_returns`, and for a thread whose decided steps outlive the monitor's trajectory ([the trajectory](#the-trajectory)). |
-| `ConfigurationError` | An option cannot work, a `trusted_model` the protocol never asks for included. It is also hyoshigi's `ConfigurationError`, and so a `ValueError`. Also at run time: for an invalid `monitor_delegation` in an agent's input, or one whose run cannot hold the subagent's trajectory; for an `openrouter:` decision model's client error other than 403 and 413, such as a bad key; for a guard's chat model that refuses the `logprobs` keyword when `top_log_probabilities` is above 0; and for a tool call that reuses the id of the call that started its agent and returns records under that agent's name ([subagents and the block total](#subagents-and-the-block-total)). |
+| `MonitorError` | The base class of the library's own errors, `ConfigurationError` excepted. Also raised at run time for a malformed record in `monitor_log` or `monitor_subagent_returns`, and for a thread whose decided steps outlive the monitor's trajectory ([the trajectory](#the-trajectory)). |
+| `ConfigurationError` | hyoshigi's, a `ValueError` and not a `MonitorError`. Raised when an option cannot work, a `trusted_model` the protocol never asks for included. Also at run time: for an invalid `monitor_delegation` in an agent's input, or one whose run cannot hold the subagent's trajectory; for an `openrouter:` decision model's client error other than 403 and 413, such as a bad key; for a guard's chat model that refuses the `logprobs` keyword when `top_log_probabilities` is above 0; and for a tool call that reuses the id of the call that started its agent and returns records under that agent's name ([subagents and the block total](#subagents-and-the-block-total)). |
 | `MessageFormatError` | The trajectory cannot read a message: an AI message without an id, a message of a type it does not read, a block that lacks what its kind requires, or a message read from the state whose action reuses an action id or a tool call id already in the trajectory; a drawn reply is read under fresh ids instead. Raised at a run's start, at a step's, or when a step commits, which then is not committed ([keeping the trajectory](#keeping-the-trajectory)). It is a `MonitorError` and a `ValueError`. |
-| `MissingExtraError` | A feature needs an extra that is not installed; the message names the extra, and the uv and pip commands that install it. It is a `ConfigurationError` and an `ImportError`. |
+| `MissingExtraError` | A feature needs an extra that is not installed; the message names the extra, and the uv and pip commands that install it. It is a `ConfigurationError` and an `ImportError`, and so not a `MonitorError`. |
 | `RetriedCallError` | Handed to stamina's retry hooks, logged and counted in place of an error the library retries, naming its type and HTTP status alone ([Turn on log messages](../how-to/read-the-monitor-log.md#turn-on-log-messages)); never raised to the caller, who gets the error itself after the last attempt. |
 | `CachedResampleWarning` | A step is resampled under a response cache, or a middleware is built with a monitor that asks a cached chat model the same prompt more than once: an `LLMMonitor` with parse retries, a `GuardMonitor` that samples more than once, or a `RepeatedMonitor` of more than one call; once per process for each. |
 | `ServerToolWarning` | A model call receives a server tool; once per middleware instance. |

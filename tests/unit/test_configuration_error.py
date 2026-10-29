@@ -23,10 +23,6 @@ from tests.support.chat_models import ScriptedChatModel
 OPENROUTER_MODEL = "openrouter:vendor/model"
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="the library raises its own subclass of hyoshigi's error",
-)
 def test_the_exported_configuration_error_is_hyoshigis() -> None:
     # Act
     exported = langchain_sync_monitors.ConfigurationError
@@ -35,10 +31,6 @@ def test_the_exported_configuration_error_is_hyoshigis() -> None:
     assert exported is hyoshigi.ConfigurationError
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="the library raises its own subclass of hyoshigi's error",
-)
 @pytest.mark.parametrize(
     "build",
     [
@@ -82,10 +74,6 @@ def test_an_error_raised_when_building_is_hyoshigis_configuration_error(
     assert type(raised.value) is hyoshigi.ConfigurationError
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="the library raises its own subclass of hyoshigi's error",
-)
 def test_a_missing_extra_is_hyoshigis_configuration_error_but_not_a_monitor_error(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

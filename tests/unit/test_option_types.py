@@ -3,7 +3,7 @@
 The middleware, the monitors, the feedback template, `monitor_subagents` and
 `check_monitor_placement` refuse an option of the wrong type with
 `ConfigurationError`. An option a monitor or a protocol passes to hyoshigi is
-refused with hyoshigi's message, raised again as the library's error.
+refused with hyoshigi's own error.
 """
 
 from __future__ import annotations

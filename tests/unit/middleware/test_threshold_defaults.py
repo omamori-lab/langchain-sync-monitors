@@ -321,7 +321,7 @@ def test_only_the_unset_threshold_of_a_monitor_without_a_default_is_named() -> N
     [(None, 0.4), (0.4, None)],
     ids=["defer unset", "audit unset"],
 )
-def test_under_flag_an_unset_threshold_takes_the_value_of_the_other_and_does_not_warn(
+def test_under_flag_an_unset_threshold_takes_the_value_of_the_other(
     build_monitor: MonitorBuilder,
     defer_threshold: float | None,
     audit_threshold: float | None,
@@ -335,13 +335,10 @@ def test_under_flag_an_unset_threshold_takes_the_value_of_the_other_and_does_not
     )
 
     # Act
-    with warnings.catch_warnings(record=True) as caught:
-        warnings.simplefilter("always")
-        middleware = MonitorMiddleware(monitor=build_monitor(), protocol=protocol)
+    middleware = MonitorMiddleware(monitor=build_monitor(), protocol=protocol)
 
     # Assert
     assert read_deferral_thresholds(middleware) == (0.4, 0.4, 0.4, 0.4)
-    assert caught == []
 
 
 @pytest.mark.parametrize(
@@ -366,6 +363,24 @@ def test_under_flag_an_unset_threshold_takes_the_value_of_the_other_and_does_not
                 on_audit=AuditResponse.FLAG,
             ),
             id="flagging",
+        ),
+        pytest.param(
+            DeferToResample(
+                defer_threshold=0.4,
+                audit_threshold=None,
+                max_resamples=0,
+                on_audit=AuditResponse.FLAG,
+            ),
+            id="flagging, defer given",
+        ),
+        pytest.param(
+            DeferToResample(
+                defer_threshold=None,
+                audit_threshold=0.4,
+                max_resamples=0,
+                on_audit=AuditResponse.FLAG,
+            ),
+            id="flagging, audit given",
         ),
         pytest.param(BlockAndFeedBack(block_threshold=0.5), id="block and feed back"),
     ],
@@ -589,7 +604,7 @@ def test_the_default_block_threshold_of_an_llm_monitor_blocks_a_step(
 
 
 @pytest.mark.parametrize("threshold", [0.4, None])
-def test_trusted_monitoring_flags_at_one_threshold_and_draws_no_resample(
+def test_trusted_monitoring_is_a_flagging_deferral_at_one_threshold_without_resamples(
     threshold: float | None,
 ) -> None:
     # Act
@@ -617,7 +632,7 @@ def test_trusted_monitoring_without_a_threshold_leaves_it_unset() -> None:
     [(0.2, 0.8), (0.2, None), (None, 0.8)],
     ids=["both", "defer only", "audit only"],
 )
-def test_defer_to_trusted_draws_no_resample_and_holds_an_audit(
+def test_defer_to_trusted_is_a_deferral_without_resamples_that_holds_audits(
     defer_threshold: float | None,
     audit_threshold: float | None,
 ) -> None:
@@ -651,7 +666,7 @@ def test_defer_to_trusted_without_thresholds_leaves_them_unset() -> None:
         pytest.param(0.2, 2, True, id="at a threshold of the user's"),
     ],
 )
-def test_trusted_monitoring_runs_every_step_and_flags_the_suspicious_ones(
+def test_trusted_monitoring_runs_each_step_flagging_those_at_or_above_the_threshold(
     run_mode: RunMode,
     threshold: float | None,
     score_value: int,

@@ -207,7 +207,7 @@ jobs:
       - name: Install the wheel into a fresh environment and import it
         run: |
           wheel="dist/langchain_sync_monitors-${VERSION}-py3-none-any.whl"
-          extra_modules="deepagents langchain_openrouter langchain_typesafe"
+          extra_modules="deepagents langchain_openrouter langfuse typesafe_sdk"
           if [[ "${EXTRAS}" == "every extra" ]]; then
             requirement="${wheel}[deepagents,openrouter,typesafe]"
             expect_extras=yes

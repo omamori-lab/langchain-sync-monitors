@@ -71,7 +71,7 @@ def test_an_error_raised_when_building_is_hyoshigis_configuration_error(
         build()
 
     # Assert
-    assert type(raised.value) is hyoshigi.ConfigurationError
+    assert (type(raised.value), raised.value.__cause__) == (hyoshigi.ConfigurationError, None)
 
 
 def test_a_missing_extra_is_hyoshigis_configuration_error_but_not_a_monitor_error(

@@ -80,7 +80,8 @@ class DeferToResample:
     `LLMMonitor` or a `DecisionMonitor` has one, and any other monitor raises
     `ConfigurationError`. Under `on_audit=AuditResponse.FLAG`, which needs equal
     thresholds, a None one takes the other's value when that is given, and both
-    None take the audit default.
+    None take the audit default. `trusted_monitoring` and `defer_to_trusted`
+    build the two settings with no resample.
     """
 
     defer_threshold: float | None
@@ -92,8 +93,19 @@ class DeferToResample:
 
     @classmethod
     def trusted_monitoring(cls, threshold: float | None = None) -> Self:
-        """Stub: both thresholds at `threshold`, no resample, and an audit that is held."""
-        return cls(defer_threshold=threshold, audit_threshold=threshold, max_resamples=0)
+        """Run every step, and flag the steps at or above `threshold`.
+
+        Both thresholds are `threshold`, no step is resampled, and an audit
+        flags its step with `AuditResponse.FLAG`. Trusted monitoring is AI
+        Control's protocol, audited at a threshold [@greenblatt2023aicontrol],
+        sec. 3.2.
+        """
+        return cls(
+            defer_threshold=threshold,
+            audit_threshold=threshold,
+            max_resamples=0,
+            on_audit=AuditResponse.FLAG,
+        )
 
     @classmethod
     def defer_to_trusted(
@@ -102,11 +114,17 @@ class DeferToResample:
         *,
         audit_threshold: float | None = None,
     ) -> Self:
-        """Stub: the thresholds as given, but one resample is drawn."""
+        """Have the trusted model write each step at or above `defer_threshold`.
+
+        No step is resampled. The middleware's `trusted_model` writes a step
+        from `defer_threshold` up to `audit_threshold`, and a step at or above
+        `audit_threshold` is held for a person. Defer to trusted is AI
+        Control's protocol [@greenblatt2023aicontrol], sec. 3.3.
+        """
         return cls(
             defer_threshold=defer_threshold,
             audit_threshold=audit_threshold,
-            max_resamples=1,
+            max_resamples=0,
         )
 
     def build(self, monitor: MonitorConfiguration) -> ProtocolTwins:

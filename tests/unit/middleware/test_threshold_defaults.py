@@ -72,8 +72,6 @@ UNSET_BLOCK = BlockAndFeedBack(
 )
 """Blocks at the default."""
 
-EXPECTED_TO_FAIL = pytest.mark.xfail(strict=True, reason="the presets are stubs")
-
 type MonitorBuilder = Callable[[], MonitorConfiguration]
 
 
@@ -510,7 +508,6 @@ def test_the_default_block_threshold_of_an_llm_monitor_blocks_a_step(
     assert [record["outcome"] for record in result["monitor_log"]] == outcomes
 
 
-@EXPECTED_TO_FAIL
 @pytest.mark.parametrize("threshold", [0.4, None])
 def test_trusted_monitoring_flags_at_one_threshold_and_draws_no_resample(
     threshold: float | None,
@@ -527,7 +524,6 @@ def test_trusted_monitoring_flags_at_one_threshold_and_draws_no_resample(
     )
 
 
-@EXPECTED_TO_FAIL
 def test_trusted_monitoring_without_a_threshold_leaves_it_unset() -> None:
     # Act
     protocol = DeferToResample.trusted_monitoring()
@@ -536,7 +532,6 @@ def test_trusted_monitoring_without_a_threshold_leaves_it_unset() -> None:
     assert protocol == UNSET_FLAGGING
 
 
-@EXPECTED_TO_FAIL
 @pytest.mark.parametrize(
     ("defer_threshold", "audit_threshold"),
     [(0.2, 0.8), (0.2, None), (None, 0.8)],
@@ -560,7 +555,6 @@ def test_defer_to_trusted_draws_no_resample_and_holds_an_audit(
     )
 
 
-@EXPECTED_TO_FAIL
 def test_defer_to_trusted_without_thresholds_leaves_them_unset() -> None:
     # Act
     protocol = DeferToResample.defer_to_trusted()
@@ -569,7 +563,6 @@ def test_defer_to_trusted_without_thresholds_leaves_them_unset() -> None:
     assert protocol == UNSET_DEFERRAL
 
 
-@EXPECTED_TO_FAIL
 @pytest.mark.parametrize(
     ("threshold", "score_value", "flagged"),
     [
@@ -602,7 +595,6 @@ def test_trusted_monitoring_runs_every_step_and_flags_the_suspicious_ones(
     assert result["messages"][-1].text == ANSWER
 
 
-@EXPECTED_TO_FAIL
 def test_defer_to_trusted_hands_a_suspicious_step_to_the_trusted_model(
     run_mode: RunMode,
 ) -> None:

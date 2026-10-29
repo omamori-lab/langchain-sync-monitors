@@ -12,12 +12,12 @@ import langchain_sync_monitors
 from langchain_sync_monitors import (
     DecisionMonitor,
     DeferToResample,
+    FeedbackTemplate,
     LLMMonitor,
     MissingExtraError,
     MonitorError,
     MonitorMiddleware,
 )
-from langchain_sync_monitors.protocols import FeedbackTemplate
 from tests.support.chat_models import ScriptedChatModel
 
 OPENROUTER_MODEL = "openrouter:vendor/model"

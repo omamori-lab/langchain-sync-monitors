@@ -1,8 +1,8 @@
 """Errors raised by the library, and the warning about what a monitor cannot gate.
 
-`ConfigurationError` is hyoshigi's, raised as it is. Every other error derives
-from `MonitorError`, so a caller can catch the library's failures in one place
-without catching unrelated exceptions.
+`ConfigurationError` is hyoshigi's, raised as it is, and `MissingExtraError` is
+one. Every other error derives from `MonitorError`, so a caller can catch the
+library's failures in one place without catching unrelated exceptions.
 """
 
 from hyoshigi import ConfigurationError

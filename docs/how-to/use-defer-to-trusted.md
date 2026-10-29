@@ -82,9 +82,11 @@ built.
 [Use Defer to Resample](use-defer-to-resample.md#options); here `max_resamples`
 is 0, and `defer_threshold` is below `audit_threshold`. The trusted model is
 `MonitorMiddleware`'s `trusted_model`, described in
-[The trusted model](choose-a-protocol.md#the-trusted-model). Each threshold is
-a number from 0 to 1; set both from the scores your monitor gives on honest
-runs, as [Calibrate the threshold](use-trusted-monitoring.md#calibrate-the-threshold)
+[The trusted model](choose-a-protocol.md#the-trusted-model).
+`DeferToResample.defer_to_trusted(defer_threshold, audit_threshold=...)` builds
+it. Each threshold is a number from 0 to 1, or `None` for the default of an
+`LLMMonitor` or a `DecisionMonitor`; set both from the scores your monitor gives
+on honest runs, as [Calibrate the threshold](use-trusted-monitoring.md#calibrate-the-threshold)
 describes. With equal thresholds no step is deferred, and a `trusted_model`
 raises `ConfigurationError`.
 

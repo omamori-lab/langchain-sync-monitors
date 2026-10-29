@@ -51,9 +51,10 @@ Keep to these patterns; reviewers check them.
 - **Simple for the user, configurable for the expert.** A monitored agent is
   one line, `MonitorMiddleware(monitor=..., protocol=...)`. Every behaviour
   is an option, checked when the object is built. An option has a default
-  where one is safe; a threshold has none, as in hyoshigi, so each is set from
-  the scores of honest runs. Anything beyond the options is an implementation
-  of a contract.
+  where one is safe; a threshold has none in hyoshigi, so each is best set from
+  the scores of honest runs. Here a threshold left at `None` takes the default
+  of an `LLMMonitor` or a `DecisionMonitor` and warns; any other monitor needs
+  one. Anything beyond the options is an implementation of a contract.
 - **Program to the contracts.** `contracts.py` holds what the middleware and
   its users exchange: the options `TaskAuthor` and `SubagentHalt`, the
   `Outcome` of a step, and the records `StepRecord`, `SampleRecord`,

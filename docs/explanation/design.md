@@ -297,9 +297,10 @@ run ([asking a person](#asking-a-person)). The answer is recorded at the
 audit's position, since an audit adds nothing to the history;
 [Answer an audit](../how-to/answer-an-audit.md) gives the answers.
 
-Thresholds have no defaults, as in hyoshigi: each should come from the scores
-of honest runs (appendix C) [@bhatt2025ctrlz]
-([thresholds](../how-to/choose-a-protocol.md#thresholds)).
+Thresholds have no defaults in hyoshigi. Here a threshold left at `None` takes
+the default of an `LLMMonitor` or a `DecisionMonitor`, and any other monitor
+needs one; each should come from the scores of honest runs (appendix C)
+[@bhatt2025ctrlz] ([thresholds](../how-to/choose-a-protocol.md#thresholds)).
 
 An audit in the literature does more than halt. In AI Control a person
 reviews flagged code before it is used, and a backdoor found shuts the
@@ -1167,6 +1168,7 @@ The value types hyoshigi owns, `View`, `MonitorPrompt`, `GuardLabels` and
 | `CachedResampleWarning` | A step is resampled under a response cache, or a middleware is built with a monitor that asks a cached chat model the same prompt more than once: an `LLMMonitor` with parse retries, a `GuardMonitor` that samples more than once, or a `RepeatedMonitor` of more than one call; once per process for each. |
 | `ServerToolWarning` | A model call receives a server tool; once per middleware instance. |
 | `MissingCheckpointerWarning` | A step is held for a person to audit in a run without a checkpointer; once per process. |
+| `UncalibratedThresholdWarning` | A protocol's threshold is left at `None` and takes the default of an `LLMMonitor` or a `DecisionMonitor`; once per process and family. |
 | `MonitorPlacementWarning` | `check_monitor_placement` finds a middleware placed where it undermines the monitor, a stacked monitor that loses records, or one that may block inside another, included, or `monitor_subagents` builds such a stack in a subagent. |
 | `HardLabelWarning` | hyoshigi's: a `GuardMonitor` is built with one sample, once, at the line that builds it. |
 

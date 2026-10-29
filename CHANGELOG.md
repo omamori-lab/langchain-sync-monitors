@@ -16,6 +16,25 @@ change raises the minor version.
 
 ### Added
 
+- `DeferToResample.trusted_monitoring(threshold=None)` and
+  `DeferToResample.defer_to_trusted(defer_threshold=None, *,
+  audit_threshold=None)` return an ordinary `DeferToResample`, so they add no
+  top-level name. Trusted monitoring sets both thresholds to `threshold`, no
+  resample and `on_audit=AuditResponse.FLAG`: every step runs and a suspicious
+  one is flagged. Defer to trusted sets no resample, and the middleware's
+  `trusted_model` writes a deferred step.
+- A threshold left at `None` takes the default of its monitor's family when
+  `MonitorMiddleware` is built. An `LLMMonitor` defers at 0.2 and audits at
+  0.3, measured with `xiaomi/mimo-v2.6-pro`; a `DecisionMonitor` at 0.05 and
+  0.12, measured with `typesafe/jev-1.13`. A `block_threshold` takes the defer
+  default. Under `on_audit=AuditResponse.FLAG`, which needs equal thresholds, a
+  `None` one takes the value of the other when that is given, and both `None`
+  take the audit default, so `DeferToResample.trusted_monitoring()` flags at
+  0.3 for an `LLMMonitor` and 0.12 for a `DecisionMonitor`.
+- `UncalibratedThresholdWarning`, a `UserWarning`, is emitted when a default
+  threshold is taken, once per process and family. It names the family, the
+  model the default was measured with and the docs page. A threshold you pass
+  never warns.
 - `MissingCheckpointerWarning`, a `UserWarning`, is emitted at the first step
   held for a person to audit in a run without a checkpointer, once per
   process. Such a run stops at the audit and cannot be resumed. The message
@@ -25,6 +44,13 @@ change raises the minor version.
 
 ### Changed
 
+- `DeferToResample`'s `defer_threshold` and `audit_threshold` and
+  `BlockAndFeedBack`'s `block_threshold` may be `None`; they were required
+  numbers. A guard (sampling or log-probabilities), `RepeatedMonitor`,
+  `CalibratedMonitor`, `CascadeMonitor` and `MonitorTwins` have no default, so
+  a `None` threshold with them raises `ConfigurationError` naming the option.
+  `DeferToResample.build` and `BlockAndFeedBack.build` take the monitor's
+  configuration, where they took its traced twins.
 - **Breaking:** `ConfigurationError` is hyoshigi's `ConfigurationError`, the
   same object, and the library raises it as it is, where it raised a subclass
   of it that was also a `MonitorError`. It is no longer a `MonitorError`, nor

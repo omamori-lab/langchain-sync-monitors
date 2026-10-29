@@ -71,8 +71,6 @@ UNSET_BLOCK = BlockAndFeedBack(
 )
 """Blocks at the default."""
 
-EXPECTED_TO_FAIL = pytest.mark.xfail(strict=True, reason="a None threshold is not resolved yet")
-
 type MonitorBuilder = Callable[[], MonitorConfiguration]
 
 
@@ -190,7 +188,6 @@ def run_under_llm_monitor(
     return run_agent(agent, mode=run_mode, config=build_thread_config("threshold-defaults"))
 
 
-@EXPECTED_TO_FAIL
 @pytest.mark.parametrize(
     ("build_monitor", "thresholds"),
     [
@@ -212,7 +209,6 @@ def test_unset_deferral_thresholds_take_the_defaults_of_the_monitors_family(
     assert read_deferral_thresholds(middleware) == thresholds
 
 
-@EXPECTED_TO_FAIL
 @pytest.mark.parametrize(
     ("build_monitor", "thresholds"),
     [
@@ -234,7 +230,6 @@ def test_an_unset_block_threshold_takes_the_defer_default_of_the_monitors_family
     assert read_block_thresholds(middleware) == thresholds
 
 
-@EXPECTED_TO_FAIL
 @pytest.mark.parametrize(
     ("build_monitor", "thresholds"),
     [
@@ -256,7 +251,6 @@ def test_unset_flagging_thresholds_both_take_the_audit_default_of_the_monitors_f
     assert read_deferral_thresholds(middleware) == thresholds
 
 
-@EXPECTED_TO_FAIL
 @pytest.mark.parametrize(
     "build_monitor",
     [
@@ -293,7 +287,6 @@ def test_an_unset_threshold_of_a_monitor_without_a_default_is_a_configuration_er
     assert type(monitor).__name__ in str(raised.value)
 
 
-@EXPECTED_TO_FAIL
 def test_only_the_unset_threshold_of_a_monitor_without_a_default_is_named() -> None:
     # Arrange
     protocol = DeferToResample(
@@ -312,7 +305,6 @@ def test_only_the_unset_threshold_of_a_monitor_without_a_default_is_named() -> N
     assert "GuardMonitor" in str(raised.value)
 
 
-@EXPECTED_TO_FAIL
 @pytest.mark.parametrize(
     "build_monitor",
     [
@@ -385,7 +377,6 @@ def test_thresholds_the_user_gave_do_not_warn(
     assert categories == []
 
 
-@EXPECTED_TO_FAIL
 @pytest.mark.parametrize(
     ("build_monitor", "family", "model"),
     [
@@ -417,7 +408,6 @@ def test_a_default_threshold_warns_naming_the_family_the_model_and_the_docs(
     assert DEFAULTS_URL in message
 
 
-@EXPECTED_TO_FAIL
 @pytest.mark.parametrize(
     "protocol",
     [UNSET_DEFERRAL, UNSET_FLAGGING, UNSET_BLOCK],
@@ -437,7 +427,6 @@ def test_a_default_threshold_warns_once_per_process_for_its_family(
     assert categories == [UncalibratedThresholdWarning]
 
 
-@EXPECTED_TO_FAIL
 def test_each_family_warns_for_itself() -> None:
     # Act
     categories = build_recording_warnings(
@@ -449,7 +438,6 @@ def test_each_family_warns_for_itself() -> None:
     assert categories == [UncalibratedThresholdWarning, UncalibratedThresholdWarning]
 
 
-@EXPECTED_TO_FAIL
 def test_a_threshold_the_user_gave_leaves_the_warning_for_the_next_default() -> None:
     # Arrange
     given = DeferToResample(defer_threshold=0.5, audit_threshold=0.9, max_resamples=0)
@@ -468,10 +456,8 @@ def test_a_threshold_the_user_gave_leaves_the_warning_for_the_next_default() -> 
     ("score_value", "outcomes", "audits"),
     [
         pytest.param(1, ["allowed"], 0, id="below the defer default"),
-        pytest.param(
-            2, ["deferred_to_trusted"], 0, marks=EXPECTED_TO_FAIL, id="at the defer default"
-        ),
-        pytest.param(3, [], 1, marks=EXPECTED_TO_FAIL, id="at the audit default"),
+        pytest.param(2, ["deferred_to_trusted"], 0, id="at the defer default"),
+        pytest.param(3, [], 1, id="at the audit default"),
     ],
 )
 def test_the_default_thresholds_of_an_llm_monitor_decide_a_step(
@@ -501,7 +487,7 @@ def test_the_default_thresholds_of_an_llm_monitor_decide_a_step(
     ("scores", "outcomes"),
     [
         pytest.param([1], ["allowed"], id="below the block default"),
-        pytest.param([2, 1], ["steered"], marks=EXPECTED_TO_FAIL, id="at the block default"),
+        pytest.param([2, 1], ["steered"], id="at the block default"),
     ],
 )
 def test_the_default_block_threshold_of_an_llm_monitor_blocks_a_step(

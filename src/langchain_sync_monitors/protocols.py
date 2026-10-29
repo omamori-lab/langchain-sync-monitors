@@ -6,8 +6,9 @@ it runs, is replaced, is blocked with feedback, or is held for a person
 them. Each class here holds one protocol's settings, under hyoshigi's names,
 defaults and meanings, and builds hyoshigi's sync and async protocol around a
 monitor's twins, so one middleware serves `invoke()` and `ainvoke()`. A
-setting hyoshigi refuses raises `ConfigurationError` when the middleware
-is built, since a protocol is built with its monitor.
+threshold may be None, which takes the default of the monitor's family when the
+protocol is built. A setting hyoshigi refuses raises `ConfigurationError` when
+the middleware is built, since a protocol is built with its monitor.
 """
 
 from __future__ import annotations
@@ -23,6 +24,7 @@ from langchain_sync_monitors.errors import ConfigurationError
 from langchain_sync_monitors.monitors import MonitorConfiguration
 from langchain_sync_monitors.options import check_instance_option, describe_option_value
 from langchain_sync_monitors.spans import trace_monitors
+from langchain_sync_monitors.threshold_defaults import take_threshold_defaults
 
 REASON_FIELD: Final = "reason"
 """The one format field a feedback template holds: the reason for the block."""
@@ -73,6 +75,12 @@ class DeferToResample:
     and with equal thresholds as well, trusted monitoring. This is Ctrl-Z's
     protocol [@bhatt2025ctrlz], as hyoshigi's `DeferToResample` decides it
     [@hyoshigi2026].
+
+    A threshold left at None takes the default of the monitor's family: an
+    `LLMMonitor` or a `DecisionMonitor` has one, and any other monitor raises
+    `ConfigurationError`. Under `on_audit=AuditResponse.FLAG`, which needs equal
+    thresholds, a None one takes the other's value when that is given, and both
+    None take the audit default.
     """
 
     defer_threshold: float | None
@@ -117,6 +125,10 @@ class BlockAndFeedBack:
     `blocks_in_total` in total, subagents' included, the next step is
     audited. This follows Claude Code's auto mode [@hughes2026automode], as
     hyoshigi's `BlockAndFeedBack` decides it [@hyoshigi2026].
+
+    A `block_threshold` left at None takes the defer default of the monitor's
+    family: an `LLMMonitor` or a `DecisionMonitor` has one, and any other
+    monitor raises `ConfigurationError`.
     """
 
     block_threshold: float | None
@@ -126,8 +138,9 @@ class BlockAndFeedBack:
 
     def build(self, monitor: MonitorConfiguration) -> ProtocolTwins:
         """Build hyoshigi's sync and async protocols around the monitor's twins."""
-        # Stub: a None threshold is 1.0, whatever the monitor.
-        block_threshold = 1.0 if self.block_threshold is None else self.block_threshold
+        block_threshold = self.block_threshold
+        if block_threshold is None:
+            block_threshold = take_threshold_defaults(monitor, options=["block_threshold"]).defer
         monitors = trace_monitors(monitor)
         protocol = hyoshigi.BlockAndFeedBack(
             monitor=monitors.monitor,
@@ -146,21 +159,63 @@ class BlockAndFeedBack:
         return ProtocolTwins(protocol=protocol, async_protocol=async_protocol)
 
 
+def fill_flagging_thresholds(
+    defer_threshold: float | None,
+    *,
+    audit_threshold: float | None,
+    monitor: MonitorConfiguration,
+) -> tuple[float, float]:
+    """Return equal thresholds, as `AuditResponse.FLAG` needs, from the one given or the default.
+
+    With neither given, both are the audit default of the monitor's family.
+    """
+    threshold = audit_threshold if defer_threshold is None else defer_threshold
+    if threshold is None:
+        threshold = take_threshold_defaults(
+            monitor,
+            options=["defer_threshold", "audit_threshold"],
+        ).audit
+    return threshold, threshold
+
+
+def fill_separate_thresholds(
+    defer_threshold: float | None,
+    *,
+    audit_threshold: float | None,
+    monitor: MonitorConfiguration,
+) -> tuple[float, float]:
+    """Replace each None threshold by the monitor family's default for it."""
+    thresholds = {"defer_threshold": defer_threshold, "audit_threshold": audit_threshold}
+    defaults = take_threshold_defaults(
+        monitor,
+        options=[name for name, value in thresholds.items() if value is None],
+    )
+    return (
+        defaults.defer if defer_threshold is None else defer_threshold,
+        defaults.audit if audit_threshold is None else audit_threshold,
+    )
+
+
 def fill_deferral_thresholds(
     protocol: DeferToResample,
     *,
     monitor: MonitorConfiguration,
 ) -> tuple[float, float]:
-    """Stub: return the thresholds as given, or fixed ones whatever the monitor if any is None.
+    """Return the protocol's defer and audit thresholds, each None replaced.
 
-    The fixed thresholds are 0.9 to defer and 1.0 to audit, or 1.0 for both under
-    `AuditResponse.FLAG`, which needs them equal.
+    A None threshold takes the monitor family's default, or, under
+    `AuditResponse.FLAG`, the other threshold's value; with both None under
+    `FLAG`, both take the audit default.
     """
-    if protocol.defer_threshold is not None and protocol.audit_threshold is not None:
-        return protocol.defer_threshold, protocol.audit_threshold
-    if protocol.on_audit is AuditResponse.FLAG:
-        return 1.0, 1.0
-    return 0.9, 1.0
+    defer_threshold, audit_threshold = protocol.defer_threshold, protocol.audit_threshold
+    if defer_threshold is not None and audit_threshold is not None:
+        return defer_threshold, audit_threshold
+    fill = (
+        fill_flagging_thresholds
+        if protocol.on_audit is AuditResponse.FLAG
+        else fill_separate_thresholds
+    )
+    return fill(defer_threshold, audit_threshold=audit_threshold, monitor=monitor)
 
 
 type ProtocolConfiguration = DeferToResample | BlockAndFeedBack

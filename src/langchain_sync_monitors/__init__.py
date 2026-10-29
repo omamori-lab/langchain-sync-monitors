@@ -83,7 +83,7 @@ from langchain_sync_monitors.protocols import (
 )
 from langchain_sync_monitors.score_export import Tracer
 
-__version__ = "0.1.6.dev0"
+__version__ = "0.2.0"
 
 __all__ = [
     "ATTACK_CRITERIA",

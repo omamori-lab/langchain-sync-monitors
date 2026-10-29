@@ -84,8 +84,9 @@ class DeferToResample:
     build the two settings with no resample.
     """
 
-    defer_threshold: float | None
-    audit_threshold: float | None
+    # Stub: a threshold left out is 0.5.
+    defer_threshold: float | None = 0.5
+    audit_threshold: float | None = 0.5
     max_resamples: int
     on_unavailable: FailureResponse = FailureResponse.AUDIT
     resampling: Resampling = Resampling.SEQUENTIAL
@@ -168,7 +169,8 @@ class BlockAndFeedBack:
     monitor raises `ConfigurationError`.
     """
 
-    block_threshold: float | None
+    # Stub: a threshold left out is 0.5.
+    block_threshold: float | None = 0.5
     blocks_in_a_row: int = 3
     blocks_in_total: int = 20
     on_unavailable: FailureResponse = FailureResponse.AUDIT

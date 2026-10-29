@@ -126,8 +126,8 @@ def test_the_flag_interval_stays_within_zero_and_one_whatever_the_rounding(
     end: int,
     expected: float,
 ) -> None:
-    # Arrange: the Wilson limits lie in [0, 1], and floating point takes the lower limit of no
-    # flagged step in 10 to -2.8e-17 and the upper limit of 18 in 18 past 1
+    # Arrange: the Wilson lower limit of no flagged step is 0 and the upper limit of every step
+    # flagged is 1; computed, they land 2.8e-17 to either side, by platform
 
     # Act
     interval = find_flag_interval(flagged, total=total)

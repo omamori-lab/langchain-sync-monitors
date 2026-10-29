@@ -2,13 +2,21 @@
 
 LangGraph saves a paused run in a checkpointer and resumes it from there
 [@langgraph2026]. A run without one stops at the audit, so the audit can
-never be answered.
+never be answered. LangGraph puts the run's checkpointer in the config of
+every node, under `CONFIG_KEY_CHECKPOINTER`: the one a parent graph lends to
+its subgraph, or None when there is none.
 """
 
 from __future__ import annotations
 
 import functools
 import warnings
+from typing import TYPE_CHECKING
+
+from langgraph.constants import CONFIG_KEY_CHECKPOINTER
+
+if TYPE_CHECKING:
+    from langchain_core.runnables import RunnableConfig
 
 
 class MissingCheckpointerWarning(UserWarning):
@@ -18,6 +26,15 @@ class MissingCheckpointerWarning(UserWarning):
     cannot be resumed [@langgraph2026]. The middleware emits this warning
     once per process, at the first such audit.
     """
+
+
+def is_checkpointer_missing(config: RunnableConfig) -> bool:
+    """Tell whether a node's config says the run has no checkpointer.
+
+    A config without the key says nothing, so its run is not taken to lack one.
+    """
+    configurable = config.get("configurable", {})
+    return CONFIG_KEY_CHECKPOINTER in configurable and configurable[CONFIG_KEY_CHECKPOINTER] is None
 
 
 @functools.cache

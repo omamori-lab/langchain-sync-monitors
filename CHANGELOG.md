@@ -14,6 +14,15 @@ change raises the minor version.
 
 ## [Unreleased]
 
+### Added
+
+- `MissingCheckpointerWarning`, a `UserWarning`, is emitted at the first step
+  held for a person to audit in a run without a checkpointer, once per
+  process. Such a run stops at the audit and cannot be resumed. The message
+  names `create_agent(checkpointer=...)`, which lets the audit be answered, and
+  `AuditResponse.FLAG`, which runs the step and flags it instead. A run whose
+  config does not say whether it has a checkpointer does not warn.
+
 ### Changed
 
 - **Breaking:** `ConfigurationError` is hyoshigi's `ConfigurationError`, the

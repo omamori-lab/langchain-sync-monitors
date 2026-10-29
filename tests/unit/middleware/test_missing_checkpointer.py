@@ -90,7 +90,6 @@ def read_checkpointer_warnings(caught: list[warnings.WarningMessage]) -> list[st
     return [str(item.message) for item in caught if item.category is MissingCheckpointerWarning]
 
 
-@pytest.mark.xfail(strict=True, reason="the audit's pause does not warn yet")
 @pytest.mark.parametrize(
     "config",
     [None, THREAD],
@@ -112,7 +111,6 @@ def test_a_held_audit_without_a_checkpointer_warns_once(
     assert len(result["__interrupt__"]) == 1
 
 
-@pytest.mark.xfail(strict=True, reason="the audit's pause does not warn yet")
 def test_the_warning_names_the_checkpointer_and_the_flag_response(run_mode: RunMode) -> None:
     # Arrange
     agent = build_agent(checkpointer=None)
@@ -141,7 +139,6 @@ def test_a_held_audit_with_a_checkpointer_does_not_warn(run_mode: RunMode) -> No
     assert len(result["__interrupt__"]) == 1
 
 
-@pytest.mark.xfail(strict=True, reason="the audit's pause does not warn yet")
 def test_a_second_held_audit_in_the_process_does_not_warn_again(run_mode: RunMode) -> None:
     # Arrange
     first = build_agent(checkpointer=None)
@@ -156,7 +153,6 @@ def test_a_second_held_audit_in_the_process_does_not_warn_again(run_mode: RunMod
     assert len(read_checkpointer_warnings(caught)) == 1
 
 
-@pytest.mark.xfail(strict=True, reason="the audit's pause does not warn yet")
 def test_an_audit_with_a_checkpointer_leaves_the_warning_for_the_next_audit_without_one(
     run_mode: RunMode,
 ) -> None:

@@ -47,6 +47,7 @@ from uuid import uuid4
 from hyoshigi import JSON, Audit, Block, Halt, Policy, Proposal, ProtocolDecision, Replace, Run
 from langchain.agents.middleware.types import JumpTo
 from langchain_core.messages import AIMessage, BaseMessage, RemoveMessage, ToolCall, ToolMessage
+from langgraph.config import get_config
 from langgraph.types import Overwrite, interrupt
 from pydantic import AfterValidator, Discriminator
 
@@ -56,6 +57,10 @@ from langchain_sync_monitors._langchain import (
     MonitorStepEvent,
     TracedRun,
     write_stream_event,
+)
+from langchain_sync_monitors.checkpointers import (
+    is_checkpointer_missing,
+    warn_about_missing_checkpointer,
 )
 from langchain_sync_monitors.contracts import SampleRecord, StepRecord
 from langchain_sync_monitors.errors import MonitorError
@@ -509,11 +514,15 @@ def resolve_held_step(
 ) -> AnsweredAudit:
     """Pause the run for a person's answer to the held step, then apply it.
 
-    Nothing after `interrupt` returns raises on an answer, since LangGraph
-    keeps an answer it returned, and would hand it back on every resume.
+    A run without a checkpointer first warns `MissingCheckpointerWarning`,
+    once per process. Nothing after `interrupt` returns raises on an answer,
+    since LangGraph keeps an answer it returned, and would hand it back on
+    every resume.
     """
     request = build_audit_request(held)
     schema = cast("type[AuditAnswer]", build_answer_schema(request))
+    if is_checkpointer_missing(get_config()):
+        warn_about_missing_checkpointer()
     answer = interrupt(request, response_schema=schema)
     commit = decide_answer(held, answer=answer, feedback=middleware.feedback)
     answered = commit_answer(held, commit=commit, state=state, middleware=middleware)

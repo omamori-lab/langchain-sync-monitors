@@ -10,7 +10,6 @@ from __future__ import annotations
 import json
 from typing import Any
 
-import pytest
 from deepagents import CompiledSubAgent, create_deep_agent
 from hyoshigi import Action, Author, Observation, TextPart, ToolObservation, Trajectory
 from langchain.agents import create_agent
@@ -175,7 +174,6 @@ def test_a_parent_redacts_the_trajectory_of_a_subagent_whose_monitor_has_no_reda
     assert Trajectory.load(stored).subagents["call-task"].history == MASKED_WORKER_HISTORY
 
 
-@pytest.mark.xfail(strict=True, reason="a returned record joins the parent's log as it comes")
 def test_a_parent_redacts_the_records_of_a_subagent_whose_monitor_has_no_redaction(
     run_mode: RunMode,
 ) -> None:

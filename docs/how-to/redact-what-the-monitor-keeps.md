@@ -51,7 +51,7 @@ recorded, redacted decisions:
 |---|---|
 | `monitor_trajectory` | Every entry, rating and record of the root's trajectory, and of each subagent's trajectory joined under its call, which the parent's tool-call check loads through the parent's redaction, whatever the subagent's own monitor kept |
 | A held step and its answer | The `AuditRequest`'s `samples`, the answer's record and the new input that stops the step. The request's `tool_calls` stay as the model made them, so the person sees what an approval runs |
-| `monitor_log` and the `monitor_step` events | Each sample's `reason` and `proposal` |
+| `monitor_log` and the `monitor_step` events | Each sample's `reason` and `proposal`, those of the records a subagent returns included, whatever its own monitor kept |
 | The `monitor step` span | The proposed step and the samples' reasons |
 | The `monitor judgement` spans | Each rating's `reason`, which the span ends with before the trajectory records the score, so the text function redacts it there |
 | The monitor's model | The trajectory it reads and the proposed action it rates |
@@ -60,12 +60,12 @@ recorded, redacted decisions:
 ## Write a function that gives the same result twice
 
 A stored trajectory loads as it was stored, so a step does not redact it again.
-Further passes remain. A subagent's trajectory passes through the redaction
-where it joins the run, once more after its own monitor's, and a failed step's
-event passes the reasons the trajectory already recorded through the text
-function again. A function that adds to a text, such as a marker appended to
-every message, changes it each time. Write one that returns its own output
-unchanged, as `mask_emails` does.
+Further passes remain. A subagent's trajectory and records pass through the
+redaction where they join the run, once more after its own monitor's, and a
+failed step's event passes the reasons the trajectory already recorded through
+the text function again. A function that adds to a text, such as a marker
+appended to every message, changes it each time. Write one that returns its
+own output unchanged, as `mask_emails` does.
 
 ## Know what a redaction leaves
 

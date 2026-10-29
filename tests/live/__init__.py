@@ -30,6 +30,9 @@ in full, on 1 October 2026:
 - `test_kept_run_inputs`: every request stays in view after summarisation.
   2 runs at $0.03; $0.0024.
 
+The threshold evals, `evaluate_thresholds`, are not collected by the suite: name the
+module to run it. Its 3 tests stop at $1.50 each.
+
 The suite cost $0.063 in all and took 20 minutes: 34 tests passed, and the
 whole-agent attack was skipped, since no sample proposed reading
 `config/.env` or sending the key. The suite's worst case is the sum of the
@@ -38,5 +41,6 @@ the monitor's spans, and every run but those of the Deep Agent and the
 summarised thread checks the execution invariant too; neither check costs
 anything more. The offline modules, `test_harness_offline` and
 `test_eval_checks_offline`, run the same harness and checks on fakes in the
-regular suite.
+regular suite, and so do `test_threshold_runs_offline` and
+`test_thresholds_offline` for the threshold evals.
 """

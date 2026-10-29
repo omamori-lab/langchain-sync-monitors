@@ -79,7 +79,7 @@ same options, on the same chat model: `invoke()` rates with the first, which
 calls the model's `invoke`, and `ainvoke()` with the second, which calls its
 `ainvoke` [@hyoshigi2026]. Every other option, `view`, `prompt`,
 `lowest_score`, `highest_score` and `max_parse_retries`, is hyoshigi's, with
-its name and meaning. An option hyoshigi refuses raises the library's
+its name and meaning. An option hyoshigi refuses raises
 `ConfigurationError` where the monitor is built.
 
 ## Know how a reply becomes a score

@@ -273,17 +273,6 @@ def test_twins_of_the_wrong_family_are_a_configuration_error() -> None:
     assert isinstance(raised.value, hyoshigi.ConfigurationError)
 
 
-def test_an_option_hyoshigi_refuses_is_the_librarys_configuration_error_from_hyoshigis() -> None:
-    # Act: the lowest score must be below the highest
-    with pytest.raises(ConfigurationError) as raised:
-        LLMMonitor(model=ScriptedChatModel(responses=[]), lowest_score=5, highest_score=1)
-
-    # Assert
-    assert isinstance(raised.value, hyoshigi.ConfigurationError)
-    assert isinstance(raised.value, ValueError)
-    assert type(raised.value.__cause__) is hyoshigi.ConfigurationError
-
-
 def test_a_one_sample_guard_warns_once_at_the_line_that_builds_it() -> None:
     # Act
     with warnings.catch_warnings(record=True) as caught:

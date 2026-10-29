@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import string
 from dataclasses import dataclass
-from typing import Final, assert_never
+from typing import Final, Self, assert_never
 
 import hyoshigi
 from hyoshigi import AuditResponse, FailureResponse, Resampling
@@ -89,6 +89,25 @@ class DeferToResample:
     on_unavailable: FailureResponse = FailureResponse.AUDIT
     resampling: Resampling = Resampling.SEQUENTIAL
     on_audit: AuditResponse = AuditResponse.HOLD
+
+    @classmethod
+    def trusted_monitoring(cls, threshold: float | None = None) -> Self:
+        """Stub: both thresholds at `threshold`, no resample, and an audit that is held."""
+        return cls(defer_threshold=threshold, audit_threshold=threshold, max_resamples=0)
+
+    @classmethod
+    def defer_to_trusted(
+        cls,
+        defer_threshold: float | None = None,
+        *,
+        audit_threshold: float | None = None,
+    ) -> Self:
+        """Stub: the thresholds as given, but one resample is drawn."""
+        return cls(
+            defer_threshold=defer_threshold,
+            audit_threshold=audit_threshold,
+            max_resamples=1,
+        )
 
     def build(self, monitor: MonitorConfiguration) -> ProtocolTwins:
         """Build hyoshigi's sync and async protocols around the monitor's twins."""

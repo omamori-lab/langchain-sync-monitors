@@ -53,6 +53,22 @@ def build_record(**fields: Any) -> dict[str, Any]:
     return {**record, **fields}
 
 
+def build_sample(*, secret: str, action_id: str) -> dict[str, Any]:
+    """Return a sample whose reason and stored action hold the text, the action as dumped."""
+    return {
+        "suspicion": 0.5,
+        "reason": f"mentions {secret}",
+        "proposal": {
+            "kind": "action",
+            "id": action_id,
+            "thought": [],
+            "parts": [{"kind": "text", "text": f"key {secret}"}],
+            "tool_calls": [],
+        },
+        "executed": False,
+    }
+
+
 def build_tool_call(
     *, call_id: str | None = "call-task", subagent_type: str | None = None
 ) -> ToolCall:
@@ -159,6 +175,32 @@ def test_a_returned_proposal_that_is_no_stored_action_is_left_out_under_a_redact
     [[record]] = read_written(checked, key="monitor_log")
     assert record["samples"] == [
         {"suspicion": 0.5, "reason": f"mentions {MASK}", "proposal": {}, "executed": True},
+    ]
+
+
+@pytest.mark.xfail(strict=True, reason="a returned record joins the log as it comes")
+def test_every_sample_of_a_returned_record_is_redacted_under_a_redaction() -> None:
+    # Arrange
+    caller = read_tool_caller(
+        build_state(),
+        agent="main",
+        tool_call=build_tool_call(),
+        redaction=MASK_SECRET,
+    )
+    samples = [
+        build_sample(secret=SECRET, action_id="first"),
+        build_sample(secret=SECRET, action_id="second"),
+    ]
+    command = Command(update={"monitor_log": [build_record(samples=samples)]})
+
+    # Act
+    checked = check_command_records(command, caller=caller)
+
+    # Assert
+    [[record]] = read_written(checked, key="monitor_log")
+    assert record["samples"] == [
+        build_sample(secret=MASK, action_id="first"),
+        build_sample(secret=MASK, action_id="second"),
     ]
 
 

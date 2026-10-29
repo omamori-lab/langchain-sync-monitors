@@ -72,6 +72,11 @@ UNSET_BLOCK = BlockAndFeedBack(
 )
 """Blocks at the default."""
 
+EXPECTED_TO_FAIL = pytest.mark.xfail(
+    strict=True,
+    reason="a threshold left out is 0.5, and a default is not checked against the other",
+)
+
 type MonitorBuilder = Callable[[], MonitorConfiguration]
 
 
@@ -616,3 +621,184 @@ def test_defer_to_trusted_hands_a_suspicious_step_to_the_trusted_model(
         ("deferred_to_trusted", 1)
     ]
     assert result["messages"][-1].text == TRUSTED_ANSWER
+
+
+@EXPECTED_TO_FAIL
+@pytest.mark.parametrize(
+    ("build_protocol", "expected"),
+    [
+        pytest.param(
+            lambda: DeferToResample(max_resamples=0),
+            UNSET_DEFERRAL,
+            id="defer to resample",
+        ),
+        pytest.param(
+            lambda: DeferToResample(
+                max_resamples=0,
+                on_audit=AuditResponse.FLAG,
+            ),
+            UNSET_FLAGGING,
+            id="flagging",
+        ),
+        pytest.param(
+            lambda: BlockAndFeedBack(),
+            UNSET_BLOCK,
+            id="block and feed back",
+        ),
+    ],
+)
+def test_a_threshold_left_out_is_none(
+    build_protocol: Callable[[], DeferToResample | BlockAndFeedBack],
+    expected: DeferToResample | BlockAndFeedBack,
+) -> None:
+    # Act
+    protocol = build_protocol()
+
+    # Assert
+    assert protocol == expected
+
+
+@EXPECTED_TO_FAIL
+@pytest.mark.parametrize(
+    ("build_monitor", "defer_threshold", "audit_threshold", "message"),
+    [
+        pytest.param(
+            build_llm_monitor,
+            0.5,
+            None,
+            "audit_threshold took the LLMMonitor default 0.3, which is below the given "
+            "defer_threshold 0.5; pass audit_threshold too",
+            id="LLMMonitor, defer given",
+        ),
+        pytest.param(
+            build_llm_monitor,
+            None,
+            0.1,
+            "defer_threshold took the LLMMonitor default 0.2, which is above the given "
+            "audit_threshold 0.1; pass defer_threshold too",
+            id="LLMMonitor, audit given",
+        ),
+        pytest.param(
+            build_decision_monitor,
+            0.5,
+            None,
+            "audit_threshold took the DecisionMonitor default 0.12, which is below the given "
+            "defer_threshold 0.5; pass audit_threshold too",
+            id="DecisionMonitor, defer given",
+        ),
+        pytest.param(
+            build_decision_monitor,
+            None,
+            0.01,
+            "defer_threshold took the DecisionMonitor default 0.05, which is above the given "
+            "audit_threshold 0.01; pass defer_threshold too",
+            id="DecisionMonitor, audit given",
+        ),
+    ],
+)
+def test_a_default_on_the_wrong_side_of_the_given_threshold_is_a_configuration_error(
+    build_monitor: MonitorBuilder,
+    defer_threshold: float | None,
+    audit_threshold: float | None,
+    message: str,
+) -> None:
+    # Arrange
+    protocol = DeferToResample(
+        defer_threshold=defer_threshold,
+        audit_threshold=audit_threshold,
+        max_resamples=0,
+    )
+
+    # Act
+    with pytest.raises(ConfigurationError) as raised:
+        MonitorMiddleware(monitor=build_monitor(), protocol=protocol)
+
+    # Assert
+    assert str(raised.value) == message
+
+
+@EXPECTED_TO_FAIL
+def test_defer_to_trusted_with_a_defer_threshold_above_the_audit_default_names_the_default() -> (
+    None
+):
+    # Arrange
+    protocol = DeferToResample.defer_to_trusted(0.5)
+
+    # Act
+    with pytest.raises(ConfigurationError) as raised:
+        MonitorMiddleware(monitor=build_llm_monitor(), protocol=protocol)
+
+    # Assert
+    assert str(raised.value) == (
+        "audit_threshold took the LLMMonitor default 0.3, which is below the given "
+        "defer_threshold 0.5; pass audit_threshold too"
+    )
+
+
+@pytest.mark.parametrize(
+    ("defer_threshold", "audit_threshold", "thresholds"),
+    [
+        pytest.param(0.3, None, (0.3, 0.3, 0.3, 0.3), id="defer given at the audit default"),
+        pytest.param(None, 0.2, (0.2, 0.2, 0.2, 0.2), id="audit given at the defer default"),
+    ],
+)
+def test_a_default_equal_to_the_given_threshold_builds(
+    defer_threshold: float | None,
+    audit_threshold: float | None,
+    thresholds: tuple[float, float, float, float],
+) -> None:
+    # Arrange
+    protocol = DeferToResample(
+        defer_threshold=defer_threshold,
+        audit_threshold=audit_threshold,
+        max_resamples=0,
+    )
+
+    # Act
+    middleware = MonitorMiddleware(monitor=build_llm_monitor(), protocol=protocol)
+
+    # Assert
+    assert read_deferral_thresholds(middleware) == thresholds
+
+
+@EXPECTED_TO_FAIL
+@pytest.mark.parametrize(
+    "refused",
+    [
+        pytest.param(
+            DeferToResample(defer_threshold=0.5, audit_threshold=None, max_resamples=0),
+            id="a default on the wrong side",
+        ),
+        pytest.param(
+            DeferToResample(defer_threshold=None, audit_threshold=None, max_resamples=-1),
+            id="a count hyoshigi refuses",
+        ),
+        pytest.param(
+            BlockAndFeedBack(block_threshold=None, blocks_in_a_row=0),
+            id="a limit hyoshigi refuses",
+        ),
+    ],
+)
+def test_a_build_that_raises_leaves_the_warning_for_the_next_default(
+    refused: DeferToResample | BlockAndFeedBack,
+) -> None:
+    # Arrange
+    with pytest.raises(ConfigurationError):
+        MonitorMiddleware(monitor=build_llm_monitor(), protocol=refused)
+
+    # Act
+    categories = build_recording_warnings((build_llm_monitor, UNSET_DEFERRAL))
+
+    # Assert
+    assert categories == [UncalibratedThresholdWarning]
+
+
+def test_the_warning_is_a_user_warning_that_points_at_the_line_that_built_the_middleware() -> None:
+    # Act
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        MonitorMiddleware(monitor=build_llm_monitor(), protocol=UNSET_DEFERRAL)
+
+    # Assert
+    assert issubclass(caught[0].category, UserWarning)
+    assert caught[0].filename == __file__

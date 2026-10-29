@@ -209,7 +209,7 @@ jobs:
           wheel="dist/langchain_sync_monitors-${VERSION}-py3-none-any.whl"
           extra_modules="deepagents langchain_openrouter langfuse typesafe_sdk"
           if [[ "${EXTRAS}" == "every extra" ]]; then
-            requirement="${wheel}[deepagents,openrouter,typesafe]"
+            requirement="${wheel}[deepagents,langfuse,openrouter,typesafe]"
             expect_extras=yes
           else
             requirement="${wheel}"

@@ -7,7 +7,8 @@ twins of the user's own have no default, so a None threshold with them is a
 when it is built, and warns `UncalibratedThresholdWarning` the first time in
 the process for each family. A threshold the user gave never warns, and under
 `AuditResponse.FLAG`, which needs equal thresholds, a None one takes the value
-of the other one when that is given.
+of the other one when that is given. The presets `DeferToResample.trusted_monitoring`
+and `DeferToResample.defer_to_trusted` return an ordinary `DeferToResample`.
 """
 
 from __future__ import annotations
@@ -70,6 +71,8 @@ UNSET_BLOCK = BlockAndFeedBack(
     block_threshold=None,
 )
 """Blocks at the default."""
+
+EXPECTED_TO_FAIL = pytest.mark.xfail(strict=True, reason="the presets are stubs")
 
 type MonitorBuilder = Callable[[], MonitorConfiguration]
 
@@ -505,3 +508,119 @@ def test_the_default_block_threshold_of_an_llm_monitor_blocks_a_step(
 
     # Assert
     assert [record["outcome"] for record in result["monitor_log"]] == outcomes
+
+
+@EXPECTED_TO_FAIL
+@pytest.mark.parametrize("threshold", [0.4, None])
+def test_trusted_monitoring_flags_at_one_threshold_and_draws_no_resample(
+    threshold: float | None,
+) -> None:
+    # Act
+    protocol = DeferToResample.trusted_monitoring(threshold)
+
+    # Assert
+    assert protocol == DeferToResample(
+        defer_threshold=threshold,
+        audit_threshold=threshold,
+        max_resamples=0,
+        on_audit=AuditResponse.FLAG,
+    )
+
+
+@EXPECTED_TO_FAIL
+def test_trusted_monitoring_without_a_threshold_leaves_it_unset() -> None:
+    # Act
+    protocol = DeferToResample.trusted_monitoring()
+
+    # Assert
+    assert protocol == UNSET_FLAGGING
+
+
+@EXPECTED_TO_FAIL
+@pytest.mark.parametrize(
+    ("defer_threshold", "audit_threshold"),
+    [(0.2, 0.8), (0.2, None), (None, 0.8)],
+    ids=["both", "defer only", "audit only"],
+)
+def test_defer_to_trusted_draws_no_resample_and_holds_an_audit(
+    defer_threshold: float | None,
+    audit_threshold: float | None,
+) -> None:
+    # Act
+    protocol = DeferToResample.defer_to_trusted(
+        defer_threshold,
+        audit_threshold=audit_threshold,
+    )
+
+    # Assert
+    assert protocol == DeferToResample(
+        defer_threshold=defer_threshold,
+        audit_threshold=audit_threshold,
+        max_resamples=0,
+    )
+
+
+@EXPECTED_TO_FAIL
+def test_defer_to_trusted_without_thresholds_leaves_them_unset() -> None:
+    # Act
+    protocol = DeferToResample.defer_to_trusted()
+
+    # Assert
+    assert protocol == UNSET_DEFERRAL
+
+
+@EXPECTED_TO_FAIL
+@pytest.mark.parametrize(
+    ("threshold", "score_value", "flagged"),
+    [
+        pytest.param(None, 2, False, id="below the audit default"),
+        pytest.param(None, 3, True, id="at the audit default"),
+        pytest.param(0.2, 2, True, id="at a threshold of the user's"),
+    ],
+)
+def test_trusted_monitoring_runs_every_step_and_flags_the_suspicious_ones(
+    run_mode: RunMode,
+    threshold: float | None,
+    score_value: int,
+    flagged: bool,
+) -> None:
+    # Arrange
+    protocol = DeferToResample.trusted_monitoring(threshold)
+
+    # Act
+    result = run_under_llm_monitor(
+        protocol,
+        scores=[score_value],
+        answers=[ANSWER],
+        run_mode=run_mode,
+    )
+
+    # Assert
+    assert [(record["outcome"], record["flagged"]) for record in result["monitor_log"]] == [
+        ("allowed", flagged),
+    ]
+    assert result["messages"][-1].text == ANSWER
+
+
+@EXPECTED_TO_FAIL
+def test_defer_to_trusted_hands_a_suspicious_step_to_the_trusted_model(
+    run_mode: RunMode,
+) -> None:
+    # Arrange
+    protocol = DeferToResample.defer_to_trusted()
+    trusted_model = ScriptedChatModel(responses=[AIMessage(TRUSTED_ANSWER)])
+
+    # Act
+    result = run_under_llm_monitor(
+        protocol,
+        scores=[2, 2],
+        answers=[ANSWER, ANSWER],
+        run_mode=run_mode,
+        trusted_model=trusted_model,
+    )
+
+    # Assert
+    assert [(record["outcome"], len(record["samples"])) for record in result["monitor_log"]] == [
+        ("deferred_to_trusted", 1)
+    ]
+    assert result["messages"][-1].text == TRUSTED_ANSWER

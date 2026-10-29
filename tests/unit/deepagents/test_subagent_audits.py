@@ -11,14 +11,16 @@ gave the held calls go with the held reply.
 
 from __future__ import annotations
 
+import warnings
 from typing import Any
 from unittest.mock import ANY
 
+import pytest
 from deepagents import SubAgent, create_deep_agent
 from langchain_core.messages import AIMessage
 from langgraph.checkpoint.memory import InMemorySaver
 
-from langchain_sync_monitors import DeferToResample, MonitorMiddleware
+from langchain_sync_monitors import DeferToResample, MissingCheckpointerWarning, MonitorMiddleware
 from langchain_sync_monitors.deepagents import monitor_subagents
 from tests.support.agents import (
     ATTACKER_URL,
@@ -119,6 +121,28 @@ def test_a_subagent_s_audit_names_the_subagent_and_its_call(run_mode: RunMode) -
             "answers": ["approve", "edit", "reject", "stop"],
         },
     ]
+
+
+@pytest.mark.usefixtures("fresh_checkpointer_warning")
+def test_a_subagent_s_audit_under_a_checkpointed_deep_agent_does_not_warn(
+    run_mode: RunMode,
+) -> None:
+    # Arrange
+    agent = build_parallel_agent(
+        worker_model=ScriptedChatModel(responses=[AIMessage("Worker done.")]),
+        reviewer_model=ScriptedChatModel(
+            responses=[build_exfiltration_step(call_id="call-review"), AIMessage("Checked.")],
+        ),
+        workspace=Workspace(),
+    )
+
+    # Act
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", MissingCheckpointerWarning)
+        result = run_agent(agent, mode=run_mode, config=THREAD)
+
+    # Assert
+    assert len(result["__interrupt__"]) == 1
 
 
 def test_an_approved_subagent_step_runs_and_its_finished_sibling_is_not_run_again(

@@ -14,6 +14,14 @@ change raises the minor version.
 
 ## [Unreleased]
 
+## [0.2.1] - 2026-10-29
+
+### Fixed
+
+- 0.2.0 was tagged, but its release check imported a module the rebuild
+  removed, so it never reached PyPI. 0.2.1 is the same library, the first
+  release of the rebuild on hyoshigi on PyPI.
+
 ## [0.2.0] - 2026-10-29
 
 ### Changed
@@ -588,7 +596,8 @@ change raises the minor version.
 - The full list is in
   [Known limits and open paths](https://omamori-lab.github.io/langchain-sync-monitors/explanation/design/#known-limits-and-open-paths).
 
-[Unreleased]: https://github.com/omamori-lab/langchain-sync-monitors/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/omamori-lab/langchain-sync-monitors/compare/v0.2.1...HEAD
+[0.2.1]: https://github.com/omamori-lab/langchain-sync-monitors/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/omamori-lab/langchain-sync-monitors/compare/v0.1.5...v0.2.0
 [0.1.5]: https://github.com/omamori-lab/langchain-sync-monitors/compare/v0.1.4...v0.1.5
 [0.1.4]: https://github.com/omamori-lab/langchain-sync-monitors/compare/v0.1.3...v0.1.4

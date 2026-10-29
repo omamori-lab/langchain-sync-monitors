@@ -51,13 +51,18 @@ def find_threshold(scores: Sequence[float], *, budget: float) -> float | None:
 
 
 def find_flag_interval(flagged: int, *, total: int) -> tuple[float, float]:
-    """Return the Wilson 95% interval of a rate of `flagged` steps in `total`."""
+    """Return the Wilson 95% interval of a rate of `flagged` steps in `total`.
+
+    The lower limit is 0 when no step is flagged, and the upper limit 1 when every step is.
+    """
     z = NormalDist().inv_cdf(0.975)
     rate = flagged / total
     scale = 1 + z * z / total
     centre = (rate + z * z / (2 * total)) / scale
     half = z * math.sqrt(rate * (1 - rate) / total + z * z / (4 * total * total)) / scale
-    return max(0.0, centre - half), min(1.0, centre + half)
+    lower = 0.0 if flagged == 0 else max(0.0, centre - half)
+    upper = 1.0 if flagged == total else min(1.0, centre + half)
+    return lower, upper
 
 
 def is_under_twice_budget(*, upper: float, budget: float) -> bool:

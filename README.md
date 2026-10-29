@@ -55,17 +55,8 @@ def read_file(path: str) -> str:
 monitor = MonitorMiddleware(
     # The monitor: a chat model that judges every step the agent proposes.
     monitor=LLMMonitor(model="openrouter:xiaomi/mimo-v2.6-pro"),
-    # The protocol: sample a suspicious step again, up to twice, and if every
-    # sample stays suspicious, have the trusted model write the step instead.
-    protocol=DeferToResample(
-        # Resample a step that scores 0.6 or more, and hold it for a person,
-        # who answers before any of the agent's own tools run, when even its
-        # least suspicious sample scores 0.9.
-        defer_threshold=0.6,
-        audit_threshold=0.9,
-        max_resamples=2,
-    ),
-    trusted_model="openrouter:xiaomi/mimo-v2.6-flash",
+    # The protocol: run every step, and flag the ones the monitor finds suspicious.
+    protocol=DeferToResample.trusted_monitoring(),
 )
 # The untrusted model does the work, with the monitor last in the list.
 agent = create_agent(
@@ -77,15 +68,16 @@ for record in result.get("monitor_log", []):
     print(record["step_number"], record["outcome"], record["flagged"])
 ```
 
-Without a checkpointer, as here, a step held for a person stops the run at the
-audit, with its request under `result["__interrupt__"]`; [Answer an
-audit](docs/how-to/answer-an-audit.md) adds a checkpointer and answers it.
-
-Three models play three roles: the untrusted agent does the work, the monitor
-judges each step, and the trusted model writes a step when every sample looks
-suspicious. Each is a parameter, and any LangChain chat model works; the
-library picks none for you. Thresholds share one scale from 0 to 1, and none
-has a default; calibrate them on honest runs of your own agent. Put the
+Trusted monitoring never changes a run: `record["flagged"]` marks the steps for
+a person to review. Two models play two roles: the untrusted agent does the
+work and the monitor judges each step. Each is a parameter, and any LangChain
+chat model works; the library picks none for you. Thresholds share one scale
+from 0 to 1. A threshold left at `None`, as here, takes the default of an
+`LLMMonitor` or a `DecisionMonitor` and warns `UncalibratedThresholdWarning`;
+those defaults were measured on other agents' honest runs, so calibrate the
+thresholds on honest runs of your own agent. [Answer an
+audit](docs/how-to/answer-an-audit.md) holds a step for a person, and [Use Defer
+to Trusted](docs/how-to/use-defer-to-trusted.md) has a trusted model write it. Put the
 monitor last in the middleware list. `check_monitor_placement(middleware=[...])`
 warns about placements known to undermine it, but does not look for the
 `before_agent` and `after_agent` hooks that can lift a halt.

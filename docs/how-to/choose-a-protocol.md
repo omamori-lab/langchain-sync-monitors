@@ -167,8 +167,13 @@ middleware have for sound reasons.
 
 ### Thresholds
 
-Every threshold is on the monitor's 0 to 1 scale, a step at or above it
-counts, and none has a default. Set each from the scores your monitor gives
+Every threshold is on the monitor's 0 to 1 scale, and a step at or above it
+counts. A threshold left at `None` takes the default of an `LLMMonitor` or a
+`DecisionMonitor`, measured on honest runs of other agents, and warns
+`UncalibratedThresholdWarning` once per process and family; a `block_threshold`
+takes the defer default, and a `DeferToResample` under `AuditResponse.FLAG`
+takes the audit default for both. Any other monitor has none, so `None` with it
+raises `ConfigurationError`. Set each from the scores your monitor gives
 on honest runs, as
 [Calibrate the threshold](use-trusted-monitoring.md#calibrate-the-threshold)
 shows; Defer to Resample's `audit_threshold` and the middleware's

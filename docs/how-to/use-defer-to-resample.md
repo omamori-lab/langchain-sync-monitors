@@ -97,12 +97,12 @@ chat model object you built.
 
 | Option | Default | What it does |
 |---|---|---|
-| `defer_threshold` | required | A sample whose score is at or above this value is not acceptable. |
-| `audit_threshold` | required | A step whose lowest score is at or above this value is audited. At least `defer_threshold`. |
+| `defer_threshold` | required, or `None` | A sample whose score is at or above this value is not acceptable. `None` takes the default of the monitor's family; see [Thresholds](choose-a-protocol.md#thresholds). |
+| `audit_threshold` | required, or `None` | A step whose lowest score is at or above this value is audited. At least `defer_threshold`. `None` takes the default of the monitor's family. |
 | `max_resamples` | required | How many more samples to draw after a suspicious first one, a whole number of at least 0. Two, three samples in all, is what Ctrl-Z's basic Defer to Resample draws (section 3.2) [@bhatt2025ctrlz]. With 0, the protocol is [Defer to Trusted](use-defer-to-trusted.md). |
 | `resampling` | `Resampling.SEQUENTIAL` | `SEQUENTIAL` or `PARALLEL`, as below. |
 | `on_unavailable` | `FailureResponse.AUDIT` | What a step whose monitor got no answer becomes: audited, blocked, handed to the trusted model or run. |
-| `on_audit` | `AuditResponse.HOLD` | `FLAG` runs an audited step and flags it instead; it needs `max_resamples=0` and equal thresholds, which is [Trusted Monitoring](use-trusted-monitoring.md). |
+| `on_audit` | `AuditResponse.HOLD` | `FLAG` runs an audited step and flags it instead; it needs `max_resamples=0` and equal thresholds, which is [Trusted Monitoring](use-trusted-monitoring.md). A `None` threshold under `FLAG` takes the value of the other threshold when that is given. |
 
 Each threshold is a number from 0 to 1; see
 [Thresholds](choose-a-protocol.md#thresholds).

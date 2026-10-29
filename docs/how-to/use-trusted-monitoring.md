@@ -78,16 +78,19 @@ you built.
 
 Trusted Monitoring is `DeferToResample` with `max_resamples=0`,
 `on_audit=AuditResponse.FLAG`, and `defer_threshold` equal to
-`audit_threshold`: a step at or above that value is flagged. The value is a
-number from 0 to 1; see [Thresholds](choose-a-protocol.md#thresholds). A
+`audit_threshold`: a step at or above that value is flagged.
+`DeferToResample.trusted_monitoring(threshold)` builds it. The value is a
+number from 0 to 1, or `None` for the audit default of an `LLMMonitor` or a
+`DecisionMonitor`; see [Thresholds](choose-a-protocol.md#thresholds). A
 `trusted_model` raises `ConfigurationError`, since no step is deferred.
 `MonitorMiddleware`'s own options are listed in
 [Middleware options](choose-a-protocol.md#middleware-options).
 
 ### Calibrate the threshold
 
-The threshold has no default: suspicion scores differ between monitors and
-agents, so a fixed value may flag most honest work or miss attacks.
+A default threshold was measured on other agents' honest runs: suspicion scores
+differ between monitors and agents, so a fixed value may flag most honest work
+or miss attacks.
 
 Control evaluations set thresholds at percentiles of the scores the monitor
 gives on honest runs;

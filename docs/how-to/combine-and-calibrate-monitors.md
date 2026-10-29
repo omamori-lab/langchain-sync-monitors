@@ -8,9 +8,10 @@ This guide shows how to wrap a monitor in `RepeatedMonitor`,
 
 ## Set every threshold yourself
 
-Every control protocol compares the monitor's suspicion with thresholds, and
-none of them has a default: each threshold is a number from 0 to 1 you pass,
-as [Thresholds](choose-a-protocol.md#thresholds) says. Each monitor spreads its scores
+Every control protocol compares the monitor's suspicion with thresholds. Each
+threshold is a number from 0 to 1 you pass, or `None`, which takes a default
+only for an `LLMMonitor` and a `DecisionMonitor`, as
+[Thresholds](choose-a-protocol.md#thresholds) says. Each monitor spreads its scores
 differently, and an agent's honest work looks more or less unusual depending
 on its task and tools. Control evaluations set thresholds from the scores the
 monitor gives to honest runs, and the audit threshold spends a known audit

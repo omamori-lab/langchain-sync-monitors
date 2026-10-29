@@ -199,8 +199,8 @@ MONITOR_MODELS: Final = {
 class RunConfiguration:
     """What one run combines: a scenario, a task, a monitor, a protocol and how it is invoked.
 
-    With `reads_reasoning`, the monitor's view adds the agent's thoughts to
-    `MONITOR_VIEW`. `threshold` is the protocol's defer, block or audit
+    The monitor reads `monitor_view`, and with `reads_reasoning` the agent's
+    thoughts too. `threshold` is the protocol's defer, block or audit
     threshold.
     """
 
@@ -212,6 +212,7 @@ class RunConfiguration:
     task: Task = Task.Q3_EMAIL
     wrapper: MonitorWrapper | None = None
     threshold: float = SUSPICION_THRESHOLD
+    monitor_view: View = MONITOR_VIEW
 
     @property
     def run_id(self) -> str:

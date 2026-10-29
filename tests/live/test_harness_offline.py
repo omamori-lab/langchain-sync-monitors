@@ -20,7 +20,7 @@ from langchain_core.messages import AIMessage, HumanMessage
 from langchain_core.runnables import Runnable, RunnableBinding
 from langchain_core.utils.function_calling import convert_to_openai_tool
 
-from langchain_sync_monitors import SampleRecord, StepRecord
+from langchain_sync_monitors import Channel, SampleRecord, StepRecord, View
 from tests.live.costs import (
     BudgetExceededError,
     CostLedger,
@@ -35,6 +35,7 @@ from tests.live.fakes import (
     SandboxAgentModel,
 )
 from tests.live.harness import (
+    MONITOR_VIEW,
     MonitorFamily,
     ProtocolName,
     RunConfiguration,
@@ -457,3 +458,39 @@ def test_the_side_task_wrapper_keeps_the_wrapped_models_tool_binding() -> None:
     assert binding.bound is wrapper
     assert binding.kwargs == direct.kwargs
     assert len(binding.kwargs["tools"]) == len(tools)
+
+
+IGNORED_VIEW = pytest.mark.xfail(
+    strict=True, reason="the configuration's view ignores monitor_view"
+)
+
+
+@pytest.mark.parametrize(
+    ("monitor_view", "reads_reasoning", "expected"),
+    [
+        (MONITOR_VIEW, False, Channel.DEFAULT | Channel.CONTEXT),
+        (MONITOR_VIEW, True, Channel.DEFAULT | Channel.CONTEXT | Channel.THOUGHTS),
+        pytest.param(View(), False, Channel.DEFAULT, marks=IGNORED_VIEW),
+        pytest.param(View(), True, Channel.DEFAULT | Channel.THOUGHTS, marks=IGNORED_VIEW),
+    ],
+)
+def test_the_configuration_reads_the_view_it_is_given(
+    monitor_view: View,
+    reads_reasoning: bool,
+    expected: Channel,
+) -> None:
+    # Arrange
+    configuration = RunConfiguration(
+        scenario=Scenario.HONEST,
+        monitor_family=MonitorFamily.LLM_MONITOR,
+        protocol_name=ProtocolName.TRUSTED_MONITORING,
+        monitor_view=monitor_view,
+        reads_reasoning=reads_reasoning,
+    )
+
+    # Act
+    view = configuration.view
+
+    # Assert
+    assert view.channels == expected
+    assert view.delegation_tools == monitor_view.delegation_tools

@@ -40,7 +40,8 @@ ignores within the `max_total` budget there.
 - Plans live in `docs/plans/<feature>/`, one directory per feature: the plan
   (diagrams and pseudocode) and the research behind its decisions. The first
   is `docs/plans/initial-implementation/`. A new feature gets a new directory.
-- Errors live in `errors.py` and derive from `MonitorError`. Diagnostics go
+- Errors live in `errors.py` and derive from `MonitorError`, except
+  `ConfigurationError`, which is hyoshigi's and exported as it is. Diagnostics go
   through `logging.getLogger(__name__)`, never `print`.
 
 ## How the code is designed
@@ -75,8 +76,8 @@ Keep to these patterns; reviewers check them.
   `CalibratedMonitor`, `CascadeMonitor`), a monitor's model, the middleware's
   `trusted_model`. A subclass is a kind of its parent that can stand anywhere
   the parent does: `TracedMonitor` is a `hyoshigi.Monitor` that rates through
-  the twin it holds, and `ConfigurationError` is both a `MonitorError` and
-  hyoshigi's. A subclass that refuses part of its parent (Refused Bequest)
+  the twin it holds, and `MissingExtraError` is both a `ConfigurationError`
+  and an `ImportError`. A subclass that refuses part of its parent (Refused Bequest)
   holds it instead; a holder that only forwards (Middle Man) inherits. Keep
   hierarchies shallow, with at most one class between a contract and the
   class you build.

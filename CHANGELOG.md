@@ -14,6 +14,16 @@ change raises the minor version.
 
 ## [Unreleased]
 
+### Changed
+
+- **Breaking:** `ConfigurationError` is hyoshigi's `ConfigurationError`, the
+  same object, and the library raises it as it is, where it raised a subclass
+  of it that was also a `MonitorError`. It is no longer a `MonitorError`, nor
+  is `MissingExtraError`, which subclasses it, so `except MonitorError` does
+  not catch a configuration error. Catch `ConfigurationError`, or
+  `ValueError`, for every configuration error. An option hyoshigi refuses is
+  raised unchanged, with no hyoshigi error as its cause.
+
 ## [0.2.1] - 2026-10-29
 
 ### Changed

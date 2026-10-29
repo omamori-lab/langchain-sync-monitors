@@ -25,6 +25,7 @@ from langchain_sync_monitors.subagent_returns import (
     build_answered_update,
     merge_subagent_returns,
 )
+from tests.support.redaction import MASK, MASK_SECRET, SECRET
 
 LOGGER = "langchain_sync_monitors.returned_records"
 OWN_STEP = StepRecord(
@@ -132,6 +133,33 @@ def test_a_command_that_writes_no_records_is_returned_as_it_is() -> None:
 
     # Act / Assert
     assert check_command_records(command, caller=caller) is command
+
+
+@pytest.mark.xfail(strict=True, reason="a returned record joins the log as it comes")
+def test_a_returned_proposal_that_is_no_stored_action_is_left_out_under_a_redaction() -> None:
+    # Arrange
+    caller = read_tool_caller(
+        build_state(),
+        agent="main",
+        tool_call=build_tool_call(),
+        redaction=MASK_SECRET,
+    )
+    sample = {
+        "suspicion": 0.5,
+        "reason": f"mentions {SECRET}",
+        "proposal": {"note": SECRET},
+        "executed": True,
+    }
+    command = Command(update={"monitor_log": [build_record(samples=[sample])]})
+
+    # Act
+    checked = check_command_records(command, caller=caller)
+
+    # Assert
+    [[record]] = read_written(checked, key="monitor_log")
+    assert record["samples"] == [
+        {"suspicion": 0.5, "reason": f"mentions {MASK}", "proposal": {}, "executed": True},
+    ]
 
 
 @pytest.mark.parametrize(

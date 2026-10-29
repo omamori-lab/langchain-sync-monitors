@@ -294,7 +294,8 @@ change raises the minor version.
   1.0. For a `ChatOpenRouter`, the request's `provider` preferences gain
   `require_parameters: true` unless yours set it; a chat model whose class
   refuses the `logprobs` keyword raises `ConfigurationError` when the guard
-  rates a step.
+  rates a step. Log-probabilities that are not in the chat completions format
+  are logged by `langchain_sync_monitors.log_probabilities`.
 - `MonitorMiddleware(trusted_model=..., feedback=..., flag_threshold=...)`:
   the model that writes a trusted step, the message a blocked step sends the
   agent, and the lowest sample that flags a step. A `trusted_model` the
@@ -362,8 +363,11 @@ change raises the minor version.
   reads as an outcome is logged by `langchain_sync_monitors.chat_model_adapter`,
   and an unreadable reply is no longer logged.
 - The score worker and its modules, `score_worker`, `score_requests`,
-  `scores`, `langsmith_scores` and `langfuse_scores`, with the logger
-  `langchain_sync_monitors.score_worker`.
+  `scores`, `langsmith_scores` and `langfuse_scores`, with the loggers
+  `langchain_sync_monitors.score_worker`,
+  `langchain_sync_monitors.score_requests`,
+  `langchain_sync_monitors.langsmith_scores` and
+  `langchain_sync_monitors.langfuse_scores`.
 
 ### Known limits
 

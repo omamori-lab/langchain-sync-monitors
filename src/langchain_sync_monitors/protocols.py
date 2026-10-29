@@ -242,10 +242,16 @@ def fill_flagging_thresholds(
 ) -> DeferralThresholds:
     """Return equal thresholds, as `AuditResponse.FLAG` needs, from the one given or the default.
 
-    With neither given, both are the audit default of the monitor's family.
+    The one given is read under its own name. With neither given, both are the audit default of
+    the monitor's family.
     """
-    threshold = audit_threshold if defer_threshold is None else defer_threshold
-    if threshold is not None:
+    parameter_name, given = (
+        ("audit_threshold", audit_threshold)
+        if defer_threshold is None
+        else ("defer_threshold", defer_threshold)
+    )
+    if given is not None:
+        threshold = read_threshold_value(given, parameter_name=parameter_name)
         return threshold, threshold, None
     defaults = read_threshold_defaults(monitor, options=["defer_threshold", "audit_threshold"])
     return defaults.audit, defaults.audit, defaults

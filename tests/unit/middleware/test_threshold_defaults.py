@@ -486,10 +486,6 @@ def test_each_protocol_that_takes_a_default_warns(
             "0.5",
             AuditResponse.FLAG,
             "audit_threshold must be a number between 0 and 1, got '0.5'",
-            marks=pytest.mark.xfail(
-                strict=True,
-                reason="the flagging thresholds pass a given threshold on unread",
-            ),
             id="audit given under flag",
         ),
         pytest.param(
@@ -497,10 +493,6 @@ def test_each_protocol_that_takes_a_default_warns(
             1.5,
             AuditResponse.FLAG,
             "audit_threshold must be between 0 and 1, got 1.5",
-            marks=pytest.mark.xfail(
-                strict=True,
-                reason="the flagging thresholds pass a given threshold on unread",
-            ),
             id="audit out of range under flag",
         ),
     ],

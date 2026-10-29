@@ -41,6 +41,6 @@ the monitor's spans, and every run but those of the Deep Agent and the
 summarised thread checks the execution invariant too; neither check costs
 anything more. The offline modules, `test_harness_offline` and
 `test_eval_checks_offline`, run the same harness and checks on fakes in the
-regular suite, and so do `test_threshold_runs_offline` and
-`test_thresholds_offline` for the threshold evals.
+regular suite, and so does `test_threshold_runs_offline` for the threshold
+evals; `test_thresholds_offline` tests the evals' statistics on fixed numbers.
 """

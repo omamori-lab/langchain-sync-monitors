@@ -509,6 +509,22 @@ def test_a_default_threshold_warns_once_per_process_for_its_family(
     assert categories == [UncalibratedThresholdWarning]
 
 
+@pytest.mark.xfail(strict=True)
+def test_a_warning_made_an_error_raises_again_at_the_next_build() -> None:
+    # Arrange
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", UncalibratedThresholdWarning)
+        with contextlib.suppress(UncalibratedThresholdWarning):
+            MonitorMiddleware(monitor=build_llm_monitor(), protocol=UNSET_DEFERRAL)
+
+        # Act
+        with pytest.raises(UncalibratedThresholdWarning) as raised:
+            MonitorMiddleware(monitor=build_llm_monitor(), protocol=UNSET_DEFERRAL)
+
+    # Assert
+    assert raised.type is UncalibratedThresholdWarning
+
+
 def test_each_family_warns_for_itself() -> None:
     # Act
     categories = build_recording_warnings(

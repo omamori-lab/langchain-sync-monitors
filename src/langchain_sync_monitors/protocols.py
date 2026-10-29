@@ -32,7 +32,6 @@ from langchain_sync_monitors.threshold_defaults import (
     ThresholdDefaults,
     raise_inverted_default,
     read_threshold_defaults,
-    warn_if_defaulted,
 )
 
 REASON_FIELD: Final = "reason"
@@ -47,10 +46,15 @@ DEFAULT_HALT_MESSAGE: Final = (
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class ProtocolTwins:
-    """A protocol's sync twin, which decides under `invoke()`, and its async twin."""
+    """A protocol's sync twin, which decides under `invoke()`, and its async twin.
+
+    `defaults` holds the family defaults a None threshold took, or None when it
+    took none. The middleware warns for them once all its own checks pass.
+    """
 
     protocol: hyoshigi.DeferToResample | hyoshigi.BlockAndFeedBack
     async_protocol: hyoshigi.AsyncDeferToResample | hyoshigi.AsyncBlockAndFeedBack
+    defaults: ThresholdDefaults | None
 
     def can_ask_for_trusted_steps(self) -> bool:
         """Tell whether the protocol can ask for a trusted step.
@@ -159,8 +163,11 @@ class DeferToResample:
             resampling=protocol.resampling,
             on_audit=protocol.on_audit,
         )
-        warn_if_defaulted(defaults)
-        return ProtocolTwins(protocol=protocol, async_protocol=async_protocol)
+        return ProtocolTwins(
+            protocol=protocol,
+            async_protocol=async_protocol,
+            defaults=defaults,
+        )
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -206,8 +213,11 @@ class BlockAndFeedBack:
             blocks_in_total=protocol.blocks_in_total,
             on_unavailable=protocol.on_unavailable,
         )
-        warn_if_defaulted(defaults)
-        return ProtocolTwins(protocol=protocol, async_protocol=async_protocol)
+        return ProtocolTwins(
+            protocol=protocol,
+            async_protocol=async_protocol,
+            defaults=defaults,
+        )
 
 
 type DeferralThresholds = tuple[float, float, ThresholdDefaults | None]

@@ -103,6 +103,7 @@ from langchain_sync_monitors.spans import (
 from langchain_sync_monitors.step_preparation import prepare_step
 from langchain_sync_monitors.steps import Step, run_step, run_step_sync
 from langchain_sync_monitors.task_authorship import build_step_start_update
+from langchain_sync_monitors.threshold_defaults import warn_if_defaulted
 from langchain_sync_monitors.tool_calls import run_tool_call, run_tool_call_sync
 from langchain_sync_monitors.trajectories import check_trajectory_kept, monitor_step_open
 
@@ -260,7 +261,7 @@ class MonitorMiddleware(AgentMiddleware[MonitorState, AgentContext, StructuredOu
     transformers = (InternalCallTransformer,)  # ty: ignore[invalid-attribute-override]
 
     def __post_init__(self) -> None:
-        """Reject an option of the wrong type, and build the protocol around the monitor."""
+        """Reject an option of the wrong type, build the protocol, and finally warn for defaults."""
         check_name_part_option(self.label, parameter_name="label")
         check_name_part_option(self.agent_name, parameter_name="agent_name")
         if self.name != f"{self.label}[{self.agent_name}]":
@@ -306,6 +307,7 @@ class MonitorMiddleware(AgentMiddleware[MonitorState, AgentContext, StructuredOu
             parameter_name="when_subagent_halts",
         )
         object.__setattr__(self, "export_scores", check_score_export(self.export_scores))
+        warn_if_defaulted(protocols.defaults)
 
     @property
     @override

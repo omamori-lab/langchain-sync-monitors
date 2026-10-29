@@ -797,12 +797,6 @@ def test_a_default_equal_to_the_given_threshold_builds(
     assert read_deferral_thresholds(middleware) == thresholds
 
 
-LATER_CHECK_NOT_YET_BEFORE_THE_WARNING = pytest.mark.xfail(
-    strict=True,
-    reason="the protocol warns when it is built, before the middleware's later checks",
-)
-
-
 @pytest.mark.parametrize(
     "build_refused",
     [
@@ -844,7 +838,6 @@ LATER_CHECK_NOT_YET_BEFORE_THE_WARNING = pytest.mark.xfail(
                 protocol=UNSET_FLAGGING,
                 trusted_model=ScriptedChatModel(responses=[]),
             ),
-            marks=LATER_CHECK_NOT_YET_BEFORE_THE_WARNING,
             id="a trusted model the protocol never asks for",
         ),
         pytest.param(
@@ -853,7 +846,6 @@ LATER_CHECK_NOT_YET_BEFORE_THE_WARNING = pytest.mark.xfail(
                 protocol=UNSET_DEFERRAL,
                 trusted_model=42,
             ),
-            marks=LATER_CHECK_NOT_YET_BEFORE_THE_WARNING,
             id="a trusted model that is not a chat model",
         ),
         pytest.param(
@@ -862,7 +854,6 @@ LATER_CHECK_NOT_YET_BEFORE_THE_WARNING = pytest.mark.xfail(
                 protocol=UNSET_DEFERRAL,
                 task_author="nobody",
             ),
-            marks=LATER_CHECK_NOT_YET_BEFORE_THE_WARNING,
             id="a task author that is not one",
         ),
         pytest.param(
@@ -871,7 +862,6 @@ LATER_CHECK_NOT_YET_BEFORE_THE_WARNING = pytest.mark.xfail(
                 protocol=UNSET_DEFERRAL,
                 when_subagent_halts="never",
             ),
-            marks=LATER_CHECK_NOT_YET_BEFORE_THE_WARNING,
             id="a halt of subagents that is not one",
         ),
         pytest.param(
@@ -880,7 +870,6 @@ LATER_CHECK_NOT_YET_BEFORE_THE_WARNING = pytest.mark.xfail(
                 protocol=UNSET_DEFERRAL,
                 export_scores="langsmith",
             ),
-            marks=LATER_CHECK_NOT_YET_BEFORE_THE_WARNING,
             id="scores to export that are not a set",
         ),
     ],

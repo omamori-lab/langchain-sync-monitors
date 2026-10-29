@@ -439,6 +439,47 @@ def test_each_family_warns_for_itself() -> None:
     assert categories == [UncalibratedThresholdWarning, UncalibratedThresholdWarning]
 
 
+@pytest.mark.parametrize(
+    "protocol",
+    [UNSET_DEFERRAL, UNSET_FLAGGING, UNSET_BLOCK],
+    ids=["defer to resample", "flagging", "block and feed back"],
+)
+def test_each_protocol_that_takes_a_default_warns(
+    protocol: DeferToResample | BlockAndFeedBack,
+) -> None:
+    # Act
+    categories = build_recording_warnings((build_llm_monitor, protocol))
+
+    # Assert
+    assert categories == [UncalibratedThresholdWarning]
+
+
+@pytest.mark.parametrize(
+    ("defer_threshold", "audit_threshold"),
+    [
+        pytest.param("0.5", None, id="defer given"),
+        pytest.param(None, "0.5", id="audit given"),
+    ],
+)
+def test_a_given_threshold_that_is_not_a_number_beside_a_none_is_a_configuration_error(
+    defer_threshold: str | None,
+    audit_threshold: str | None,
+) -> None:
+    # Arrange
+    protocol = DeferToResample(
+        defer_threshold=defer_threshold,  # ty: ignore[invalid-argument-type]
+        audit_threshold=audit_threshold,  # ty: ignore[invalid-argument-type]
+        max_resamples=0,
+    )
+
+    # Act
+    with pytest.raises(ConfigurationError) as raised:
+        MonitorMiddleware(monitor=build_llm_monitor(), protocol=protocol)
+
+    # Assert
+    assert "must be a number between 0 and 1, got '0.5'" in str(raised.value)
+
+
 def test_a_threshold_the_user_gave_leaves_the_warning_for_the_next_default() -> None:
     # Arrange
     given = DeferToResample(defer_threshold=0.5, audit_threshold=0.9, max_resamples=0)

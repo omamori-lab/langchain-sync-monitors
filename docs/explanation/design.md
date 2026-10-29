@@ -1166,6 +1166,7 @@ The value types hyoshigi owns, `View`, `MonitorPrompt`, `GuardLabels` and
 | `RetriedCallError` | Handed to stamina's retry hooks, logged and counted in place of an error the library retries, naming its type and HTTP status alone ([Turn on log messages](../how-to/read-the-monitor-log.md#turn-on-log-messages)); never raised to the caller, who gets the error itself after the last attempt. |
 | `CachedResampleWarning` | A step is resampled under a response cache, or a middleware is built with a monitor that asks a cached chat model the same prompt more than once: an `LLMMonitor` with parse retries, a `GuardMonitor` that samples more than once, or a `RepeatedMonitor` of more than one call; once per process for each. |
 | `ServerToolWarning` | A model call receives a server tool; once per middleware instance. |
+| `MissingCheckpointerWarning` | A step is held for a person to audit in a run without a checkpointer; once per process. |
 | `MonitorPlacementWarning` | `check_monitor_placement` finds a middleware placed where it undermines the monitor, a stacked monitor that loses records, or one that may block inside another, included, or `monitor_subagents` builds such a stack in a subagent. |
 | `HardLabelWarning` | hyoshigi's: a `GuardMonitor` is built with one sample, once, at the line that builds it. |
 
@@ -1310,7 +1311,8 @@ limit is linked from where it arises above.
   ([two monitors in one agent](#two-monitors-in-one-agent)).
 - **An audit needs a checkpointer.** Without one, the run stops at the
   pause with the `AuditRequest` as `__interrupt__`, cannot be resumed, and
-  the held step leaves no record ([asking a person](#asking-a-person)).
+  the held step leaves no record ([asking a person](#asking-a-person)). The
+  first such audit in a process warns `MissingCheckpointerWarning`.
 - **New input while a subagent is paused.** LangGraph drops the paused
   `task` call, so the subagent's held call never runs and its held step
   leaves no `StepRecord`.

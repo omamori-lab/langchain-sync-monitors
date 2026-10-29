@@ -159,6 +159,8 @@ asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
 markers = ["live: calls real model providers; needs OPENROUTER_API_KEY and spends credits"]
 addopts = "-m 'not live'"
+# Tests pause audits without a checkpointer on purpose; the warning's own tests record it.
+filterwarnings = ["ignore::langchain_sync_monitors.MissingCheckpointerWarning"]
 
 # The limits below are a ratchet: lower them as the code allows, and raise one only in a
 # reviewed change that says why.

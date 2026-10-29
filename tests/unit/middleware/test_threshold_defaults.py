@@ -458,21 +458,54 @@ def test_each_protocol_that_takes_a_default_warns(
 
 
 @pytest.mark.parametrize(
-    ("defer_threshold", "audit_threshold"),
+    ("defer_threshold", "audit_threshold", "on_audit", "message"),
     [
-        pytest.param("0.5", None, id="defer given"),
-        pytest.param(None, "0.5", id="audit given"),
+        pytest.param(
+            "0.5",
+            None,
+            AuditResponse.HOLD,
+            "defer_threshold must be a number between 0 and 1, got '0.5'",
+            id="defer given",
+        ),
+        pytest.param(
+            None,
+            "0.5",
+            AuditResponse.HOLD,
+            "audit_threshold must be a number between 0 and 1, got '0.5'",
+            id="audit given",
+        ),
+        pytest.param(
+            "0.5",
+            None,
+            AuditResponse.FLAG,
+            "defer_threshold must be a number between 0 and 1, got '0.5'",
+            id="defer given under flag",
+        ),
+        pytest.param(
+            None,
+            "0.5",
+            AuditResponse.FLAG,
+            "audit_threshold must be a number between 0 and 1, got '0.5'",
+            marks=pytest.mark.xfail(
+                strict=True,
+                reason="the flagging thresholds pass a given threshold on unread",
+            ),
+            id="audit given under flag",
+        ),
     ],
 )
 def test_a_given_threshold_that_is_not_a_number_beside_a_none_is_a_configuration_error(
     defer_threshold: str | None,
     audit_threshold: str | None,
+    on_audit: AuditResponse,
+    message: str,
 ) -> None:
     # Arrange
     protocol = DeferToResample(
         defer_threshold=defer_threshold,  # ty: ignore[invalid-argument-type]
         audit_threshold=audit_threshold,  # ty: ignore[invalid-argument-type]
         max_resamples=0,
+        on_audit=on_audit,
     )
 
     # Act
@@ -480,7 +513,7 @@ def test_a_given_threshold_that_is_not_a_number_beside_a_none_is_a_configuration
         MonitorMiddleware(monitor=build_llm_monitor(), protocol=protocol)
 
     # Assert
-    assert "must be a number between 0 and 1, got '0.5'" in str(raised.value)
+    assert str(raised.value) == message
 
 
 def test_a_threshold_the_user_gave_leaves_the_warning_for_the_next_default() -> None:

@@ -45,10 +45,13 @@ change raises the minor version.
 ### Changed
 
 - `DeferToResample`'s `defer_threshold` and `audit_threshold` and
-  `BlockAndFeedBack`'s `block_threshold` may be `None`; they were required
+  `BlockAndFeedBack`'s `block_threshold` default to `None`; they were required
   numbers. A guard (sampling or log-probabilities), `RepeatedMonitor`,
   `CalibratedMonitor`, `CascadeMonitor` and `MonitorTwins` have no default, so
   a `None` threshold with them raises `ConfigurationError` naming the option.
+  So does a default on the wrong side of the other threshold you gave, such as
+  an audit default below your `defer_threshold`; the message names the default
+  and says to pass the other threshold too.
   `DeferToResample.build` and `BlockAndFeedBack.build` take the monitor's
   configuration, where they took its traced twins.
 - **Breaking:** `ConfigurationError` is hyoshigi's `ConfigurationError`, the

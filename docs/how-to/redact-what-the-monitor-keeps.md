@@ -54,7 +54,7 @@ recorded, redacted decisions:
 | `monitor_log` and the `monitor_step` events | Each sample's `reason` and `proposal`, those of the records a subagent returns included, whatever its own monitor kept |
 | The `monitor step` span | The proposed step and the samples' reasons |
 | The `monitor judgement` spans | Each rating's `reason`, which the span ends with before the trajectory records the score, so the text function redacts it there |
-| The monitor's model | The trajectory it reads and the proposed action it rates |
+| The model of hyoshigi's monitors | The trajectory it reads and the proposed action it rates, which they render through `trajectory.redaction`. A `MonitorTwins` of your own is given the action as the agent proposed it, and `trajectory.redaction` |
 | The `monitor_step_failed` events | Each sample's `reason` and the `error`, through the text function; the proposals are left out, as an empty dict |
 
 ## Write a function that gives the same result twice
@@ -71,8 +71,10 @@ own output unchanged, as `mask_emails` does.
 
 - **The agent's messages.** `messages` in the checkpoint and the streams hold
   the text as it was, and so do the traces of LangChain's own model calls, the
-  agent's among them. LangChain's `PIIMiddleware`, LangSmith's `anonymizer` and
-  Langfuse's `mask` cover those.
+  agent's among them. LangChain's `PIIMiddleware` and LangSmith's `anonymizer`
+  cover those. Langfuse's `mask` covers the input, output and metadata of its
+  traces; its LangChain handler sets the status message of a failed call to
+  `str(error)`, which `mask` does not process (Langfuse 5.0.4).
 - **A subagent's own state.** A subagent's checkpoint holds what its own
   middleware keeps. Give a compiled subagent's `MonitorMiddleware` the same
   `redaction`.

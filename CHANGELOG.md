@@ -304,8 +304,10 @@ change raises the minor version.
 - `MonitorMiddleware(redaction=...)`, with hyoshigi's `Redaction` exported as
   the same object. Each entry, rating and record passes through it before the
   monitor's trajectory keeps it, so `monitor_trajectory`, `monitor_log`, the
-  spans, the streamed events and the monitor's model hold the redacted text,
-  in the root's trajectory and in each subagent's joined under its call. An
+  spans, the streamed events and the model of hyoshigi's monitors hold the
+  redacted text, in the root's trajectory and in each subagent's joined under
+  its call. A monitor of your own, a `MonitorTwins`, is given the rated action
+  as the agent proposed it, and the redaction as `trajectory.redaction`. An
   audit's `samples`, a person's answer to it and the new input that stops a
   held step are redacted too, and its request shows the held `tool_calls` as
   the model made them. A rejection without a message gives the agent the
@@ -318,11 +320,13 @@ change raises the minor version.
   and `monitor_subagents` raises `ConfigurationError` for an entry of `overrides`
   whose redaction differs from `middleware`'s. The redaction does not reach
   `messages`, a subagent's own checkpoint, LangChain's own traces of model
-  calls (LangChain's `PIIMiddleware`, LangSmith's `anonymizer` and Langfuse's
-  `mask` cover those), or the text a thread stored before the redaction was
-  set; a view-only redaction stays `View(redaction=...)`. Any other value
-  raises `ConfigurationError`, and so does a text function that returns
-  anything but a `str`, wherever the library applies it.
+  calls (LangChain's `PIIMiddleware` and LangSmith's `anonymizer` cover those;
+  Langfuse's `mask` covers the input, output and metadata of its traces, not
+  the status message that its LangChain handler sets to `str(error)` for a
+  failed call), or the text a thread stored before the redaction was set; a
+  view-only redaction stays `View(redaction=...)`. Any other value raises
+  `ConfigurationError`, and so does a text function that returns anything but
+  a `str`, wherever the library applies it.
 - `MonitorTwins(monitor=..., async_monitor=...)`, a monitor of your own
   written as hyoshigi's sync and async twins, which the middleware and the
   wrappers take as they take the library's monitors.

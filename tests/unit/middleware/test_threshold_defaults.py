@@ -427,6 +427,82 @@ def test_a_default_threshold_warns_naming_the_family_the_model_and_the_docs(
     assert DEFAULTS_URL in message
 
 
+WARNS_EVERY_DEFAULT_OF_THE_FAMILY = pytest.mark.xfail(
+    strict=True,
+    reason="the message lists both defaults of the family, whichever threshold took one",
+)
+
+
+@pytest.mark.parametrize(
+    ("build_monitor", "protocol", "listing"),
+    [
+        pytest.param(
+            build_llm_monitor,
+            DeferToResample(defer_threshold=0.1, audit_threshold=None, max_resamples=0),
+            "audit_threshold 0.3",
+            marks=WARNS_EVERY_DEFAULT_OF_THE_FAMILY,
+            id="defer given",
+        ),
+        pytest.param(
+            build_llm_monitor,
+            DeferToResample(defer_threshold=None, audit_threshold=0.5, max_resamples=0),
+            "defer_threshold 0.2",
+            marks=WARNS_EVERY_DEFAULT_OF_THE_FAMILY,
+            id="audit given",
+        ),
+        pytest.param(
+            build_llm_monitor,
+            UNSET_DEFERRAL,
+            "defer_threshold 0.2 and audit_threshold 0.3",
+            marks=WARNS_EVERY_DEFAULT_OF_THE_FAMILY,
+            id="neither given",
+        ),
+        pytest.param(
+            build_llm_monitor,
+            UNSET_FLAGGING,
+            "defer_threshold and audit_threshold 0.3",
+            marks=WARNS_EVERY_DEFAULT_OF_THE_FAMILY,
+            id="flagging, neither given",
+        ),
+        pytest.param(
+            build_decision_monitor,
+            UNSET_FLAGGING,
+            "defer_threshold and audit_threshold 0.12",
+            marks=WARNS_EVERY_DEFAULT_OF_THE_FAMILY,
+            id="flagging, neither given, DecisionMonitor",
+        ),
+        pytest.param(
+            build_llm_monitor,
+            UNSET_BLOCK,
+            "block_threshold 0.2",
+            marks=WARNS_EVERY_DEFAULT_OF_THE_FAMILY,
+            id="block",
+        ),
+        pytest.param(
+            build_decision_monitor,
+            UNSET_BLOCK,
+            "block_threshold 0.05",
+            marks=WARNS_EVERY_DEFAULT_OF_THE_FAMILY,
+            id="block, DecisionMonitor",
+        ),
+    ],
+)
+def test_the_warning_names_only_the_thresholds_that_took_a_default_with_their_values(
+    build_monitor: MonitorBuilder,
+    protocol: DeferToResample | BlockAndFeedBack,
+    listing: str,
+) -> None:
+    # Arrange
+    monitor = build_monitor()
+
+    # Act
+    with pytest.warns(UncalibratedThresholdWarning) as caught:
+        MonitorMiddleware(monitor=monitor, protocol=protocol)
+
+    # Assert
+    assert f" default: {listing}. " in str(caught[0].message)
+
+
 @pytest.mark.parametrize(
     "protocol",
     [UNSET_DEFERRAL, UNSET_FLAGGING, UNSET_BLOCK],

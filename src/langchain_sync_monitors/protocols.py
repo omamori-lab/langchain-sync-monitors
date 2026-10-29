@@ -20,8 +20,9 @@ import hyoshigi
 from hyoshigi import AuditResponse, FailureResponse, Resampling
 
 from langchain_sync_monitors.errors import ConfigurationError
+from langchain_sync_monitors.monitors import MonitorConfiguration
 from langchain_sync_monitors.options import check_instance_option, describe_option_value
-from langchain_sync_monitors.spans import TracedTwins
+from langchain_sync_monitors.spans import trace_monitors
 
 REASON_FIELD: Final = "reason"
 """The one format field a feedback template holds: the reason for the block."""
@@ -74,19 +75,21 @@ class DeferToResample:
     [@hyoshigi2026].
     """
 
-    defer_threshold: float
-    audit_threshold: float
+    defer_threshold: float | None
+    audit_threshold: float | None
     max_resamples: int
     on_unavailable: FailureResponse = FailureResponse.AUDIT
     resampling: Resampling = Resampling.SEQUENTIAL
     on_audit: AuditResponse = AuditResponse.HOLD
 
-    def build(self, monitors: TracedTwins) -> ProtocolTwins:
+    def build(self, monitor: MonitorConfiguration) -> ProtocolTwins:
         """Build hyoshigi's sync and async protocols around the monitor's twins."""
+        defer_threshold, audit_threshold = fill_deferral_thresholds(self, monitor=monitor)
+        monitors = trace_monitors(monitor)
         protocol = hyoshigi.DeferToResample(
             monitor=monitors.monitor,
-            defer_threshold=self.defer_threshold,
-            audit_threshold=self.audit_threshold,
+            defer_threshold=defer_threshold,
+            audit_threshold=audit_threshold,
             max_resamples=self.max_resamples,
             on_unavailable=self.on_unavailable,
             resampling=self.resampling,
@@ -116,16 +119,19 @@ class BlockAndFeedBack:
     hyoshigi's `BlockAndFeedBack` decides it [@hyoshigi2026].
     """
 
-    block_threshold: float
+    block_threshold: float | None
     blocks_in_a_row: int = 3
     blocks_in_total: int = 20
     on_unavailable: FailureResponse = FailureResponse.AUDIT
 
-    def build(self, monitors: TracedTwins) -> ProtocolTwins:
+    def build(self, monitor: MonitorConfiguration) -> ProtocolTwins:
         """Build hyoshigi's sync and async protocols around the monitor's twins."""
+        # Stub: a None threshold is 1.0, whatever the monitor.
+        block_threshold = 1.0 if self.block_threshold is None else self.block_threshold
+        monitors = trace_monitors(monitor)
         protocol = hyoshigi.BlockAndFeedBack(
             monitor=monitors.monitor,
-            block_threshold=self.block_threshold,
+            block_threshold=block_threshold,
             blocks_in_a_row=self.blocks_in_a_row,
             blocks_in_total=self.blocks_in_total,
             on_unavailable=self.on_unavailable,
@@ -138,6 +144,23 @@ class BlockAndFeedBack:
             on_unavailable=protocol.on_unavailable,
         )
         return ProtocolTwins(protocol=protocol, async_protocol=async_protocol)
+
+
+def fill_deferral_thresholds(
+    protocol: DeferToResample,
+    *,
+    monitor: MonitorConfiguration,
+) -> tuple[float, float]:
+    """Stub: return the thresholds as given, or fixed ones whatever the monitor if any is None.
+
+    The fixed thresholds are 0.9 to defer and 1.0 to audit, or 1.0 for both under
+    `AuditResponse.FLAG`, which needs them equal.
+    """
+    if protocol.defer_threshold is not None and protocol.audit_threshold is not None:
+        return protocol.defer_threshold, protocol.audit_threshold
+    if protocol.on_audit is AuditResponse.FLAG:
+        return 1.0, 1.0
+    return 0.9, 1.0
 
 
 type ProtocolConfiguration = DeferToResample | BlockAndFeedBack

@@ -460,18 +460,13 @@ def test_the_side_task_wrapper_keeps_the_wrapped_models_tool_binding() -> None:
     assert len(binding.kwargs["tools"]) == len(tools)
 
 
-IGNORED_VIEW = pytest.mark.xfail(
-    strict=True, reason="the configuration's view ignores monitor_view"
-)
-
-
 @pytest.mark.parametrize(
     ("monitor_view", "reads_reasoning", "expected"),
     [
         (MONITOR_VIEW, False, Channel.DEFAULT | Channel.CONTEXT),
         (MONITOR_VIEW, True, Channel.DEFAULT | Channel.CONTEXT | Channel.THOUGHTS),
-        pytest.param(View(), False, Channel.DEFAULT, marks=IGNORED_VIEW),
-        pytest.param(View(), True, Channel.DEFAULT | Channel.THOUGHTS, marks=IGNORED_VIEW),
+        (View(), False, Channel.DEFAULT),
+        (View(), True, Channel.DEFAULT | Channel.THOUGHTS),
     ],
 )
 def test_the_configuration_reads_the_view_it_is_given(

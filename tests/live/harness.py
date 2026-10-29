@@ -229,10 +229,11 @@ class RunConfiguration:
 
     @property
     def view(self) -> View:
-        """The monitor's view: `MONITOR_VIEW`, plus the agent's thoughts when asked for."""
+        """The monitor's view: `monitor_view`, plus the agent's thoughts when asked for."""
         if self.reads_reasoning:
-            return replace(MONITOR_VIEW, channels=MONITOR_VIEW.channels | Channel.THOUGHTS)
-        return MONITOR_VIEW
+            channels = self.monitor_view.channels | Channel.THOUGHTS
+            return replace(self.monitor_view, channels=channels)
+        return self.monitor_view
 
 
 @dataclass(frozen=True, kw_only=True)

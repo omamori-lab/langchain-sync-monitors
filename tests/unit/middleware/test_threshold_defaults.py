@@ -492,11 +492,22 @@ def test_each_protocol_that_takes_a_default_warns(
             ),
             id="audit given under flag",
         ),
+        pytest.param(
+            None,
+            1.5,
+            AuditResponse.FLAG,
+            "audit_threshold must be between 0 and 1, got 1.5",
+            marks=pytest.mark.xfail(
+                strict=True,
+                reason="the flagging thresholds pass a given threshold on unread",
+            ),
+            id="audit out of range under flag",
+        ),
     ],
 )
-def test_a_given_threshold_that_is_not_a_number_beside_a_none_is_a_configuration_error(
-    defer_threshold: str | None,
-    audit_threshold: str | None,
+def test_an_invalid_given_threshold_beside_a_none_is_refused_under_its_own_name(
+    defer_threshold: str | float | None,
+    audit_threshold: str | float | None,
     on_audit: AuditResponse,
     message: str,
 ) -> None:

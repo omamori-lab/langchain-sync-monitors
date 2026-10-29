@@ -8,7 +8,7 @@ process and family.
 
 from __future__ import annotations
 
-import functools
+import threading
 import warnings
 from collections.abc import Sequence
 from dataclasses import dataclass
@@ -68,13 +68,22 @@ DECISION_MONITOR_DEFAULTS: Final = ThresholdDefaults(
 )
 
 
-@functools.cache
+WARNED_FAMILIES: Final[set[str]] = set()
+"""The families the process has warned about, each by name."""
+WARNED_FAMILIES_LOCK: Final = threading.Lock()
+"""Held while a family is checked against `WARNED_FAMILIES` and added to it."""
+
+
 def warn_about_uncalibrated_thresholds(defaults: ThresholdDefaults) -> None:
     """Emit the `UncalibratedThresholdWarning` for a family, on its first call in the process.
 
-    The cache on this function keeps the warning to one per process and family.
-    It points at the line that built the middleware.
+    Later calls for the family return without a warning, from any thread. The
+    warning points at the line that built the middleware.
     """
+    with WARNED_FAMILIES_LOCK:
+        if defaults.family in WARNED_FAMILIES:
+            return
+        WARNED_FAMILIES.add(defaults.family)
     warnings.warn(
         f"A threshold left at None takes the {defaults.family} default: defer_threshold "
         f"{defaults.defer} and audit_threshold {defaults.audit}, and block_threshold the "

@@ -342,6 +342,10 @@ the package re-exports under the same names, as in
     options:
       members: false
 
+::: langchain_sync_monitors.MissingCheckpointerWarning
+    options:
+      members: false
+
 ::: langchain_sync_monitors.MonitorPlacementWarning
     options:
       members: false

@@ -44,6 +44,7 @@ from langchain_sync_monitors.audits import (
     RejectAnswer,
     StopAnswer,
 )
+from langchain_sync_monitors.checkpointers import MissingCheckpointerWarning
 from langchain_sync_monitors.contracts import (
     DelegatedRun,
     Delegation,
@@ -118,6 +119,7 @@ __all__ = [
     "LLMMonitor",
     "MediaTypes",
     "MessageFormatError",
+    "MissingCheckpointerWarning",
     "MissingExtraError",
     "MonitorError",
     "MonitorMiddleware",

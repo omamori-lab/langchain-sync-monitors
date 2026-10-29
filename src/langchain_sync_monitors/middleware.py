@@ -99,7 +99,6 @@ from langchain_sync_monitors.spans import (
     open_step_span_sync,
     trace_decision,
     trace_decision_sync,
-    trace_monitors,
 )
 from langchain_sync_monitors.step_preparation import prepare_step
 from langchain_sync_monitors.steps import Step, run_step, run_step_sync
@@ -295,7 +294,7 @@ class MonitorMiddleware(AgentMiddleware[MonitorState, AgentContext, StructuredOu
                 parameter_name="redaction",
                 hint="Build one with Redaction(text=..., media=...).",
             )
-        protocols = self.protocol.build(trace_monitors(self.monitor))
+        protocols = self.protocol.build(self.monitor)
         if self.trusted_model is not None:
             check_trusted_model_use(protocols, protocol_name=type(self.protocol).__name__)
             object.__setattr__(self, "trusted_model", resolve_chat_model(self.trusted_model))

@@ -12,7 +12,7 @@ import functools
 import warnings
 from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import Final, assert_never
+from typing import Final, NoReturn, assert_never
 
 from langchain_sync_monitors.errors import ConfigurationError
 from langchain_sync_monitors.monitors import (
@@ -53,7 +53,7 @@ class ThresholdDefaults:
     audit: float
 
 
-# Measured by the evals that the table at DEFAULTS_URL reports.
+# Measured by the evals tabulated at https://omamori-lab.github.io/langchain-sync-monitors/how-to/choose-a-protocol/
 LLM_MONITOR_DEFAULTS: Final = ThresholdDefaults(
     family="LLMMonitor",
     measured_on="xiaomi/mimo-v2.6-pro",
@@ -106,12 +106,12 @@ def find_threshold_defaults(monitor: MonitorConfiguration) -> ThresholdDefaults 
             assert_never(unreachable)
 
 
-def take_threshold_defaults(
+def read_threshold_defaults(
     monitor: MonitorConfiguration,
     *,
     options: Sequence[str],
 ) -> ThresholdDefaults:
-    """Return the defaults of the monitor's family for the `options` left at None, and warn.
+    """Return the defaults of the monitor's family for the `options` left at None.
 
     A monitor of a family without defaults raises `ConfigurationError` naming `options`.
     """
@@ -124,5 +124,34 @@ def take_threshold_defaults(
             f"LLMMonitor and a DecisionMonitor have defaults: {DEFAULTS_URL}"
         )
         raise ConfigurationError(message)
-    warn_about_uncalibrated_thresholds(defaults)
     return defaults
+
+
+def raise_inverted_default(
+    defaults: ThresholdDefaults,
+    *,
+    defer_threshold: float | None,
+    audit_threshold: float | None,
+) -> NoReturn:
+    """Raise `ConfigurationError` for a default that is on the wrong side of the given threshold.
+
+    Exactly one of the thresholds is None: it took the family's default, and the
+    defer threshold must be at most the audit threshold.
+    """
+    if audit_threshold is None:
+        message = (
+            f"audit_threshold took the {defaults.family} default {defaults.audit}, which is "
+            f"below the given defer_threshold {defer_threshold}; pass audit_threshold too"
+        )
+    else:
+        message = (
+            f"defer_threshold took the {defaults.family} default {defaults.defer}, which is "
+            f"above the given audit_threshold {audit_threshold}; pass defer_threshold too"
+        )
+    raise ConfigurationError(message)
+
+
+def warn_if_defaulted(defaults: ThresholdDefaults | None) -> None:
+    """Warn that the family's defaults are in use, unless no threshold took one."""
+    if defaults is not None:
+        warn_about_uncalibrated_thresholds(defaults)

@@ -172,8 +172,10 @@ counts. A threshold left at `None` takes the default of an `LLMMonitor` or a
 `DecisionMonitor`, measured on honest runs of other agents, and warns
 `UncalibratedThresholdWarning` once per process and family; a `block_threshold`
 takes the defer default, and a `DeferToResample` under `AuditResponse.FLAG`
-takes the audit default for both. Any other monitor has none, so `None` with it
-raises `ConfigurationError`. Set each from the scores your monitor gives
+takes the audit default for both. A default on the wrong side of the other
+threshold you gave, such as an audit default below your `defer_threshold`,
+raises `ConfigurationError`, and so does `None` with any other monitor, which has
+none. Set each from the scores your monitor gives
 on honest runs, as
 [Calibrate the threshold](use-trusted-monitoring.md#calibrate-the-threshold)
 shows; Defer to Resample's `audit_threshold` and the middleware's

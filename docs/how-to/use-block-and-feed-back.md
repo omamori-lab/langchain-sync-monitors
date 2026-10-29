@@ -91,7 +91,7 @@ object you built.
 
 | Option | Default | What it does |
 |---|---|---|
-| `block_threshold` | required, or `None` | A proposal whose score is at or above this value is blocked. A number from 0 to 1; see [Thresholds](choose-a-protocol.md#thresholds). `None` takes the defer default of the monitor's family. |
+| `block_threshold` | `None` | A proposal whose score is at or above this value is blocked. A number from 0 to 1; see [Thresholds](choose-a-protocol.md#thresholds). `None` takes the defer default of the monitor's family. |
 | `blocks_in_a_row` | 3 | At this many blocks in a row, the next proposal is audited. A whole number of at least 1. |
 | `blocks_in_total` | 20 | At this many blocks in the run, subagents' included, the next proposal is audited. A whole number of at least 1. |
 | `on_unavailable` | `FailureResponse.AUDIT` | What a proposal whose monitor got no answer becomes: audited, blocked or run. |

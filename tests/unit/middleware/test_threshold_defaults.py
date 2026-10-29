@@ -72,11 +72,6 @@ UNSET_BLOCK = BlockAndFeedBack(
 )
 """Blocks at the default."""
 
-EXPECTED_TO_FAIL = pytest.mark.xfail(
-    strict=True,
-    reason="a threshold left out is 0.5, and a default is not checked against the other",
-)
-
 type MonitorBuilder = Callable[[], MonitorConfiguration]
 
 
@@ -623,7 +618,6 @@ def test_defer_to_trusted_hands_a_suspicious_step_to_the_trusted_model(
     assert result["messages"][-1].text == TRUSTED_ANSWER
 
 
-@EXPECTED_TO_FAIL
 @pytest.mark.parametrize(
     ("build_protocol", "expected"),
     [
@@ -658,7 +652,6 @@ def test_a_threshold_left_out_is_none(
     assert protocol == expected
 
 
-@EXPECTED_TO_FAIL
 @pytest.mark.parametrize(
     ("build_monitor", "defer_threshold", "audit_threshold", "message"),
     [
@@ -717,7 +710,6 @@ def test_a_default_on_the_wrong_side_of_the_given_threshold_is_a_configuration_e
     assert str(raised.value) == message
 
 
-@EXPECTED_TO_FAIL
 def test_defer_to_trusted_with_a_defer_threshold_above_the_audit_default_names_the_default() -> (
     None
 ):
@@ -761,7 +753,6 @@ def test_a_default_equal_to_the_given_threshold_builds(
     assert read_deferral_thresholds(middleware) == thresholds
 
 
-@EXPECTED_TO_FAIL
 @pytest.mark.parametrize(
     "refused",
     [

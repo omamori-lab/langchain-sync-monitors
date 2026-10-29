@@ -11,6 +11,7 @@ import pytest
 import stamina
 from stamina.instrumentation import LoggingOnRetryHook, RetryDetails
 
+from langchain_sync_monitors.checkpointers import warn_about_missing_checkpointer
 from tests.support.agents import RunMode
 from tests.support.log_records import RecordCollector
 
@@ -19,6 +20,14 @@ from tests.support.log_records import RecordCollector
 def run_mode(request: pytest.FixtureRequest) -> RunMode:
     """Run each agent test once under `invoke()` and once under `ainvoke()`."""
     return cast("RunMode", request.param)
+
+
+@pytest.fixture
+def fresh_checkpointer_warning() -> Iterator[None]:
+    """Let a test see the checkpointer warning, which the library shows once per process."""
+    warn_about_missing_checkpointer.cache_clear()
+    yield
+    warn_about_missing_checkpointer.cache_clear()
 
 
 @dataclass

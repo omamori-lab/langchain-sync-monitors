@@ -14,6 +14,13 @@ change raises the minor version.
 
 ## [Unreleased]
 
+### Changed
+
+- **Breaking:** langchain-sync-monitors depends on `hyoshigi>=0.6.0`. A
+  `Redaction` without `media` removes each media part, and the rating of a
+  step whose parts or tool calls hold media fails closed. Pass
+  `media=lambda part: part` to keep media as it is.
+
 ## [0.3.0] - 2026-10-29
 
 ### Added

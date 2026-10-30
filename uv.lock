@@ -1,5 +1,5 @@
 version = 1
-revision = 5
+revision = 3
 requires-python = ">=3.12"
 resolution-markers = [
     "python_full_version >= '3.15'",
@@ -600,11 +600,11 @@ wheels = [
 
 [[package]]
 name = "hyoshigi"
-version = "0.5.0"
+version = "0.6.0"
 source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/00/26/0de272061c9c68ba6dd5ce1f021fe96faa03f9cc7f2c11431b77f4137dd5/hyoshigi-0.5.0.tar.gz", hash = "sha256:2ece36d9a26cf7a90c837e9ecbcf4483205fbecd4955919103958bf8136db538", size = 296159, upload-time = "2026-10-28T16:17:06.533Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/d5/d9/39ac1f7d07701b44557d2dd540ed8ce55e40aaf26da246e9c832467e99fc/hyoshigi-0.6.0.tar.gz", hash = "sha256:225c4e8f123c840016ce62ce3c731d43a7503ef9617b564f2943bbb94a97b988", size = 296764, upload-time = "2026-10-30T09:12:51.488Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/1c/44/89ba51840e881ccf8ee0c6b108a9f433d2df8629d2c0aa095d68e88bc2c0/hyoshigi-0.5.0-py3-none-any.whl", hash = "sha256:4441a21d02e9daa5c3fcebcfdbd2c12644951d27a2fb43bfa3b84df38e9364c6", size = 140270, upload-time = "2026-10-28T16:17:04.932Z" },
+    { url = "https://files.pythonhosted.org/packages/c2/a4/5d70c9bb93cfd88be67d9d043c840fe66bb0ab13ab1f6fe509da87731a87/hyoshigi-0.6.0-py3-none-any.whl", hash = "sha256:549a96a6555a978e3c8ec3afbc5c4f95bf5d83d16dfc5f20a2ff317d5ae8bfa4", size = 140392, upload-time = "2026-10-30T09:12:49.989Z" },
 ]
 
 [package.optional-dependencies]
@@ -909,9 +909,9 @@ docs = [
 requires-dist = [
     { name = "deepagents", marker = "extra == 'deepagents'", specifier = ">=0.7.13" },
     { name = "httpx", specifier = ">=0.27" },
-    { name = "hyoshigi", specifier = ">=0.5.0" },
-    { name = "hyoshigi", extras = ["langfuse"], marker = "extra == 'langfuse'", specifier = ">=0.5.0" },
-    { name = "hyoshigi", extras = ["typesafe"], marker = "extra == 'typesafe'", specifier = ">=0.5.0" },
+    { name = "hyoshigi", specifier = ">=0.6.0" },
+    { name = "hyoshigi", extras = ["langfuse"], marker = "extra == 'langfuse'", specifier = ">=0.6.0" },
+    { name = "hyoshigi", extras = ["typesafe"], marker = "extra == 'typesafe'", specifier = ">=0.6.0" },
     { name = "langchain", specifier = ">=1.4" },
     { name = "langchain-core", specifier = ">=1.6" },
     { name = "langchain-openrouter", marker = "extra == 'openrouter'", specifier = ">=0.2.1" },

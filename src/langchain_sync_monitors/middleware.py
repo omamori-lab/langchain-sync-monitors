@@ -293,7 +293,7 @@ class MonitorMiddleware(AgentMiddleware[MonitorState, AgentContext, StructuredOu
                 self.redaction,
                 option_type=Redaction,
                 parameter_name="redaction",
-                hint="Build one with Redaction(text=..., media=...).",
+                hint="Build one with Redaction(text=...).",
             )
         protocols = self.protocol.build(self.monitor)
         if self.trusted_model is not None:

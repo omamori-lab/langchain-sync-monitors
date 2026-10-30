@@ -9,7 +9,9 @@ redaction reaches, and which it leaves as they were.
 ## Pass a redaction
 
 `MonitorMiddleware(redaction=...)` takes hyoshigi's `Redaction`, a function for
-text and one for media.
+text and an optional one for media. Left out, the media function removes each
+media part, and the rating of a step whose parts or tool calls hold media fails
+closed, at suspicion 1.0. Pass `media=lambda part: part` to keep media as it is.
 [hyoshigi's guide to redacting what leaves the process](https://omamori-lab.github.io/hyoshigi/how-to/redacting-what-leaves-the-process/)
 says what a `Redaction` reaches and how to write one. Any other value raises
 `ConfigurationError` when the middleware is built.
@@ -26,8 +28,7 @@ def mask_emails(text: str) -> str:
     return EMAIL.sub("[EMAIL]", text)
 
 
-# Media passes as it is; give a function that blurs it to redact images.
-redaction = Redaction(text=mask_emails, media=lambda part: part)
+redaction = Redaction(text=mask_emails)
 
 middleware = MonitorMiddleware(
     # The monitor's model is yours to choose; the library never picks one.

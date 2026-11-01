@@ -21,6 +21,7 @@ jobs:
   build:
     name: Build the site
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - name: Check out the repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -47,6 +48,8 @@ jobs:
     name: Deploy to GitHub Pages
     needs: build
     runs-on: ubuntu-latest
+    # Longer than deploy-pages' own 10-minute timeout, so the action times out first.
+    timeout-minutes: 15
     permissions:
       pages: write
       id-token: write

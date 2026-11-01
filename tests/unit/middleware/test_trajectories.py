@@ -665,7 +665,7 @@ def test_only_a_nested_write_behind_the_trajectory_is_dropped_without_a_lost_wri
 
 DELEGATING_DUMP: dict[str, JSON] = {
     "format": "hyoshigi.trajectory",
-    "version": 3,
+    "version": 4,
     "history": [
         STORED_TASK_OBSERVATION,
         {
@@ -673,7 +673,7 @@ DELEGATING_DUMP: dict[str, JSON] = {
             "id": "step-1",
             "thought": [],
             "parts": [],
-            "tool_calls": [{"id": "call-task", "name": "task", "arguments": "{}"}],
+            "tool_calls": [{"id": "call-task", "name": "task", "arguments": "{}", "media": []}],
         },
     ],
     "ratings": [],
@@ -683,7 +683,7 @@ DELEGATING_DUMP: dict[str, JSON] = {
 """A trajectory whose action calls `task` as `call-task`, as `Trajectory.dump()` stores it."""
 SUBAGENT_DUMP: dict[str, JSON] = {
     "format": "hyoshigi.trajectory",
-    "version": 3,
+    "version": 4,
     "history": [
         {
             "kind": "observation",
@@ -699,7 +699,7 @@ SUBAGENT_DUMP: dict[str, JSON] = {
 """The trajectory of the subagent `call-task` started: its instruction."""
 LONGER_SUBAGENT_DUMP: dict[str, JSON] = {
     "format": "hyoshigi.trajectory",
-    "version": 3,
+    "version": 4,
     "history": [
         {
             "kind": "observation",
@@ -722,7 +722,7 @@ LONGER_SUBAGENT_DUMP: dict[str, JSON] = {
 """The same subagent's trajectory one answer later, with no record."""
 JOINED_DUMP: dict[str, JSON] = {
     "format": "hyoshigi.trajectory",
-    "version": 3,
+    "version": 4,
     "history": DELEGATING_DUMP["history"],
     "ratings": [],
     "records": [],
@@ -782,7 +782,7 @@ CALLING_SUBAGENT_DUMP: dict[str, JSON] = {
             "id": "step-1",
             "thought": [],
             "parts": [],
-            "tool_calls": [{"id": "call-nested", "name": "task", "arguments": "{}"}],
+            "tool_calls": [{"id": "call-nested", "name": "task", "arguments": "{}", "media": []}],
         },
     ],
     "subagents": {"call-nested": SUBAGENT_DUMP},

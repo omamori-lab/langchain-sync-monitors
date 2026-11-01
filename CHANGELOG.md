@@ -16,10 +16,18 @@ change raises the minor version.
 
 ### Changed
 
-- **Breaking:** langchain-sync-monitors depends on `hyoshigi>=0.6.0`. A
+- **Breaking:** langchain-sync-monitors depends on `hyoshigi>=0.7.0`. A
   `Redaction` without `media` removes each media part, and the rating of a
   step whose parts or tool calls hold media fails closed. Pass
   `media=lambda part: part` to keep media as it is.
+- **Breaking:** each tool call in a `monitor_log` record's proposal holds
+  `media`. An image that is a whole data URL in a tool call's arguments moves
+  there, and `"[media n]"` takes its place in `arguments`, as
+  [hyoshigi 0.7.0](https://github.com/omamori-lab/hyoshigi/blob/main/CHANGELOG.md#070---2026-11-01)
+  says.
+- **Breaking:** a thread checkpointed with hyoshigi 0.6.0 or earlier raises
+  hyoshigi's `FormatError` at its next run, because its trajectory holds tool
+  calls without `media`.
 
 ## [0.3.0] - 2026-10-29
 

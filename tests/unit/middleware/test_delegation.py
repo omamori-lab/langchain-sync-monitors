@@ -56,6 +56,7 @@ DELEGATING_STEP: dict[str, JSON] = {
             "id": "call-delegate",
             "name": "delegate",
             "arguments": '{"description": "Find the sources."}',
+            "media": [],
         },
     ],
 }
@@ -66,7 +67,7 @@ BENIGN_SCORE: dict[str, JSON] = {
 }
 DELEGATING_RUN: dict[str, JSON] = {
     "format": "hyoshigi.trajectory",
-    "version": 3,
+    "version": 4,
     "history": [
         {
             "kind": "observation",
@@ -362,7 +363,7 @@ def run_with_delegation(agent: Any, *, delegation: object, mode: RunMode) -> dic
 
 EMPTY_RUN: dict[str, Any] = {
     "format": "hyoshigi.trajectory",
-    "version": 3,
+    "version": 4,
     "history": [],
     "ratings": [],
     "records": [],
@@ -373,14 +374,14 @@ EMPTY_RUN: dict[str, Any] = {
 
 CALLING_RUN: dict[str, Any] = {
     "format": "hyoshigi.trajectory",
-    "version": 3,
+    "version": 4,
     "history": [
         {
             "kind": "action",
             "id": "step-1",
             "thought": [],
             "parts": [],
-            "tool_calls": [{"id": "call-child", "name": "task", "arguments": "{}"}],
+            "tool_calls": [{"id": "call-child", "name": "task", "arguments": "{}", "media": []}],
         },
     ],
     "ratings": [],
@@ -483,13 +484,13 @@ BLOCKED_DRAFT: dict[str, Any] = {
     "id": "draft-1",
     "thought": [],
     "parts": [],
-    "tool_calls": [{"id": "call-blocked", "name": "http_post", "arguments": "{}"}],
+    "tool_calls": [{"id": "call-blocked", "name": "http_post", "arguments": "{}", "media": []}],
 }
 """A reply the delegating agent drafted, which its monitor blocked."""
 
 RUN_WITH_A_BLOCK: dict[str, Any] = {
     "format": "hyoshigi.trajectory",
-    "version": 3,
+    "version": 4,
     "history": [
         BLOCKED_DRAFT,
         {
@@ -505,7 +506,7 @@ RUN_WITH_A_BLOCK: dict[str, Any] = {
             "id": "step-2",
             "thought": [],
             "parts": [],
-            "tool_calls": [{"id": "call-caller", "name": "task", "arguments": "{}"}],
+            "tool_calls": [{"id": "call-caller", "name": "task", "arguments": "{}", "media": []}],
         },
     ],
     "ratings": [],

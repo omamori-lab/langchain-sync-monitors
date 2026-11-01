@@ -1,9 +1,8 @@
 # Dependabot opens a weekly pull request for each ecosystem. CI checks it like
 # any other pull request.
 #
-# github-actions keeps the workflows' actions current, including
-# pypa/gh-action-pypi-publish, which release.yml pins to a commit SHA and
-# which nothing else would update.
+# github-actions keeps the workflows' actions, each pinned to a commit SHA,
+# current; nothing else would update them.
 #
 # uv keeps uv.lock current. The lower bounds in pyproject.toml are
 # deliberate, and CI tests them in its lowest-versions job, so a lock update

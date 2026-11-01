@@ -189,9 +189,9 @@ Before 1.0:
 - The Release workflow runs only in `omamori-lab/langchain-sync-monitors`, so
   a fork never tries to publish. If the repository is renamed or moved, update
   the `if:` of its first job, or every run is skipped: grey, not red.
-- `pypa/gh-action-pypi-publish` is pinned to a commit SHA, with its version in a
-  comment. Dependabot (`.github/dependabot.yml`) proposes updates to it and to
-  the other actions every week; nothing else moves the pin.
+- Every action, `pypa/gh-action-pypi-publish` included, is pinned to a commit
+  SHA, with its version in a comment. Dependabot (`.github/dependabot.yml`)
+  proposes updates to them every week; nothing else moves a pin.
 - setup-uv turns its cache off on release events, so the Release run is slower
   than CI. That is on purpose: it keeps a poisoned cache out of a publishing
   run.

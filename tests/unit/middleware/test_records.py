@@ -179,7 +179,7 @@ def test_a_record_counts_blocks_and_keeps_tool_calls() -> None:
     assert (record["outcome"], record["blocked_count"], record["flagged"]) == ("halted", 1, True)
     assert [sample["executed"] for sample in record["samples"]] == [False]
     assert record["samples"][0]["proposal"]["tool_calls"] == [
-        {"id": "c1", "name": "http_post", "arguments": '{"url": "x"}'},
+        {"id": "c1", "name": "http_post", "arguments": '{"url": "x"}', "media": []},
     ]
 
 
@@ -214,7 +214,7 @@ def test_a_record_keeps_a_malformed_tool_call_as_audit_evidence() -> None:
 
     # Assert
     assert record["samples"][0]["proposal"]["tool_calls"] == [
-        {"id": "call_00_abc", "name": "http_post", "arguments": raw_arguments},
+        {"id": "call_00_abc", "name": "http_post", "arguments": raw_arguments, "media": []},
     ]
 
 

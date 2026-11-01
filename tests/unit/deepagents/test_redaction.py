@@ -122,6 +122,7 @@ MASKED_WORKER_SAMPLES = [
                         "id": "call-read",
                         "name": "read_file",
                         "arguments": MASKED_READ_CALL.arguments,
+                        "media": [],
                     },
                 ],
             },

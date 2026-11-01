@@ -2,8 +2,7 @@
 
 from __future__ import annotations
 
-import json
-from typing import Any, cast, get_args
+from typing import Any, get_args
 
 import pytest
 from hyoshigi import (
@@ -248,11 +247,22 @@ def test_a_record_keeps_an_image_from_a_tool_call_s_arguments_as_its_media() -> 
     )
 
     # Assert
-    [tool_call] = cast("list[dict[str, object]]", record["samples"][0]["proposal"]["tool_calls"])
-    assert (tool_call["arguments"], payload in json.dumps(tool_call["media"])) == (
-        '{"image": "[media 1]"}',
-        True,
-    )
+    assert record["samples"][0]["proposal"]["tool_calls"] == [
+        {
+            "id": "call-image",
+            "name": "post_image",
+            "arguments": '{"image": "[media 1]"}',
+            "media": [
+                {
+                    "kind": "media",
+                    "media_type": "image/png",
+                    "url": None,
+                    "data": payload,
+                    "description": None,
+                },
+            ],
+        },
+    ]
 
 
 def test_records_hold_only_plain_values() -> None:

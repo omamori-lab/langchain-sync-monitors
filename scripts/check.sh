@@ -50,7 +50,7 @@ REQUIRE_DOCS_GROUP=1 uv run --group dev --group docs pytest -q
 
 echo "==> lanorme standards"
 # lanorme needs Python 3.13+; it only parses the code, so it checks 3.12 source correctly.
-uvx --python 3.13 lanorme==0.21.0 check .
+uvx --python 3.13 lanorme==0.21.1 check .
 
 echo "==> docs build"
 uv run --group docs mkdocs build --strict --site-dir "$(mktemp -d)"

@@ -91,7 +91,7 @@ Python file, so a docs-only commit skips the docs-standard tests. Run
 
 lanorme needs Python 3.13, so the script runs it with `uvx --python 3.13`; it
 only parses the code, so it checks 3.12 source correctly. To see why a rule
-fired, run `uvx --python 3.13 lanorme==0.21.0 rule CODE`. Its limits in
+fired, run `uvx --python 3.13 lanorme==0.21.1 rule CODE`. Its limits in
 `pyproject.toml` are a ratchet: meet them by naming steps or sharing a helper,
 not by raising a limit, and keep inline ignores within the `max_total` budget
 there.

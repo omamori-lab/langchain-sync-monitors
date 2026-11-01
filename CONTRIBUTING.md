@@ -187,9 +187,10 @@ Preview the site with `uv run --group docs mkdocs serve`.
 ## Releasing
 
 A release is a commit on `main` tagged `vX.Y.Z`, with a GitHub Release for
-that tag. `scripts/release.sh` makes both; publishing the GitHub Release starts
-the Release workflow, which checks the tagged commit, publishes it to PyPI and
-deploys the documentation. The release skill,
+that tag. The release pull request makes the commit; `scripts/release.sh` tags
+it and creates the Release. Publishing the Release starts the Release
+workflow, which checks the tagged commit, publishes it to PyPI and deploys the
+documentation. The release skill,
 `.claude/skills/release/SKILL.md`, adds the versioning rules, the gotchas and
 how to finish a half-done release.
 
@@ -215,9 +216,8 @@ A repository administrator does this once, before the first release:
 5. Enable private vulnerability reporting in the repository's security
    settings; `SECURITY.md` relies on it.
 6. Add a tag ruleset for `v*` that lets only maintainers create, move or
-   delete release tags. If `main` requires pull requests, let the maintainer
-   who releases bypass that rule, because the script pushes the release commit
-   to `main`.
+   delete release tags. The release commit reaches `main` through a pull
+   request, so `main` can require pull requests with no bypass for releases.
 
 The required reviewers and the tag ruleset are the controls that hold. An
 administrator can bypass the reviewer, and the ruleset too when its bypass list
@@ -227,20 +227,21 @@ commit's copy of the workflow, which anyone with write access can change.
 
 ### Release steps
 
-1. **Date the changelog in a pull request.** Move the `## [Unreleased]` entries
-   under a new `## [X.Y.Z] - YYYY-MM-DD` heading, leave an empty
+1. **Prepare the release in a pull request.** Move the `## [Unreleased]`
+   entries under a new `## [X.Y.Z] - YYYY-MM-DD` heading, leave an empty
    `## [Unreleased]` above it, and update the link references at the bottom of
    `CHANGELOG.md`. In `README.md`, `docs/index.md` and
    `docs/tutorials/first-monitored-agent.md`, rewrite the text each
    `release-check` comment marks so it describes the released package, and
-   delete the comments. `scripts/check-release.sh X.Y.Z` previews the release
-   checks; before the bump it should report only `__version__` and
-   `CITATION.cff`. Merge the pull request.
+   delete the comments. Set `__version__` in
+   `src/langchain_sync_monitors/__init__.py` to `X.Y.Z`, and `version` and
+   `date-released` in `CITATION.cff` to `X.Y.Z` and the CHANGELOG date.
+   `scripts/check-release.sh X.Y.Z` runs the release checks; it should report
+   nothing. Merge the pull request.
 2. **Run the release script** on a clean `main` that matches `origin/main`:
-   `scripts/release.sh X.Y.Z`. It sets `__version__` and `CITATION.cff`, runs
-   the release checks, every gate and `twine check --strict`, commits
-   `Release X.Y.Z`, tags it `vX.Y.Z`, pushes `main` and the tag, and creates
-   the GitHub Release with the CHANGELOG section as its notes.
+   `scripts/release.sh X.Y.Z`. It runs the release checks, every gate and
+   `twine check --strict`, tags `main`'s commit `vX.Y.Z`, pushes the tag, and
+   creates the GitHub Release with the CHANGELOG section as its notes.
 3. **Approve the deployment.** The workflow's `Publish to PyPI` job waits for
    the `pypi` environment; approve it once every check before it has passed.
 4. **Check the result**: install `langchain-sync-monitors==X.Y.Z` from PyPI in
@@ -290,7 +291,7 @@ the script.
   run the Docs workflow by hand from the release tag.
 - **A broken release on PyPI** cannot be replaced, and its version number
   cannot be used again. Yank it on PyPI and release the fix as `X.Y.(Z+1)`.
-- **The release script stopped after its commit**: finish by hand, as the
+- **The release script stopped after it tagged**: finish by hand, as the
   release skill describes.
 
 ## Licence

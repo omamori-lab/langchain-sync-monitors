@@ -4,9 +4,8 @@
 #
 #   scripts/check-release.sh X.Y.Z
 #
-# scripts/release.sh runs it on the bumped tree before it commits, and the
-# Release workflow runs it on the tagged commit before anything is built. It
-# checks that:
+# scripts/release.sh runs it on main before it tags, and the Release workflow
+# runs it on the tagged commit before anything is built. It checks that:
 #   - X.Y.Z is a final version, not a development or pre-release one;
 #   - __version__ in src/langchain_sync_monitors/__init__.py is X.Y.Z;
 #   - CHANGELOG.md has a non-empty "## [X.Y.Z] - YYYY-MM-DD" section and an

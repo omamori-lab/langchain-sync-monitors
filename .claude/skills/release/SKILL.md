@@ -1,8 +1,8 @@
 ---
 name: release
-description: Use when cutting, shipping, releasing or publishing a new langchain-sync-monitors version (a "0.x.y" bump, a vX.Y.Z tag, a PyPI release), or when finishing or recovering a release that failed part way. Runs every gate on the bumped tree, sets __version__ and CITATION.cff, tags a commit on main, and creates the GitHub Release whose workflow re-runs CI, checks and installs the built files, and publishes them to PyPI through trusted publishing once a maintainer approves.
+description: Use when cutting, shipping, releasing or publishing a new langchain-sync-monitors version (a "0.x.y" bump, a vX.Y.Z tag, a PyPI release), or when finishing or recovering a release that failed part way. Checks that main carries the version the release pull request set, runs every gate, tags main's commit, and creates the GitHub Release whose workflow re-runs CI, checks and installs the built files, and publishes them to PyPI through trusted publishing once a maintainer approves.
 license: MIT
-compatibility: Requires bash, perl, git, uv and a signed-in gh with push access to omamori-lab/langchain-sync-monitors, run from a clean main checkout that matches origin/main.
+compatibility: Requires bash, git, uv and a signed-in gh with push access to omamori-lab/langchain-sync-monitors, run from a clean main checkout that matches origin/main.
 metadata:
   project: langchain-sync-monitors
 ---
@@ -22,7 +22,7 @@ Every release passes the same checks, in two places, and leaves the same
 evidence behind.
 
 `scripts/release.sh` checks, on your machine, that the approval gate exists
-and that the bumped tree is ready, before it commits:
+and that `main` is ready, before it tags:
 
 1. The `pypi` environment has a required reviewer (read with `gh api`).
    Administrators may bypass it, by the owner's choice.
@@ -109,12 +109,14 @@ Before 1.0:
 
      For the first release, `[0.1.0]` points at
      `https://github.com/omamori-lab/langchain-sync-monitors/releases/tag/v0.1.0`.
-   - In `README.md` and `docs/index.md`, rewrite the text each
+   - In `README.md`, `docs/index.md` and
+     `docs/tutorials/first-monitored-agent.md`, rewrite the text each
      `release-check` comment marks so it describes the released package, then
      delete the comments.
-   - Leave `__version__` and `CITATION.cff` alone: the script sets them.
-   - Preview with `scripts/check-release.sh X.Y.Z`. On this branch it should
-     report only the `__version__` and `CITATION.cff` problems.
+   - Set `__version__` in `src/langchain_sync_monitors/__init__.py` to
+     `X.Y.Z`, and `version` and `date-released` in `CITATION.cff` to `X.Y.Z`
+     and the date of the CHANGELOG heading.
+   - Run `scripts/check-release.sh X.Y.Z`; it should report nothing.
    - Run `scripts/check.sh`, then merge the pull request.
 3. **Run the script** on an up-to-date `main`:
 
@@ -124,15 +126,15 @@ Before 1.0:
    ```
 
    It refuses unless you are on `main`, the tree is clean, `main` matches
-   `origin/main`, the dated CHANGELOG section exists, the tag `vX.Y.Z` is new
-   locally and on `origin`, and the `pypi` environment has a required
-   reviewer. On GitHub's Free plan that needs a public repository; the API
-   shows no reviewers on a private one. Then it sets `__version__` and
-   `CITATION.cff` (version and `date-released`, from the CHANGELOG heading),
-   runs `uv lock`, runs the checks listed under "The release discipline", commits
-   `Release X.Y.Z`, tags it `vX.Y.Z`, pushes `main` and the tag, and creates the
-   GitHub Release with `gh release create --repo omamori-lab/langchain-sync-monitors --verify-tag`.
-   It deletes its temporary notes file however it ends.
+   `origin/main`, the tag `vX.Y.Z` is new locally and on `origin`, and the
+   `pypi` environment has a required reviewer. On GitHub's Free plan that
+   needs a public repository; the API shows no reviewers on a private one.
+   Then it runs the checks listed under "The release discipline", refuses if
+   `origin/main` moved while they ran, tags `main`'s commit `vX.Y.Z`, pushes
+   the tag, and creates the GitHub Release
+   with `gh release create --repo omamori-lab/langchain-sync-monitors --verify-tag`.
+   It changes no tracked file, and deletes its temporary notes file however it
+   ends.
 4. **Approve the deployment.** Open the Release run in the Actions tab. Once
    every check passes, the `Publish to PyPI` job waits for the `pypi`
    environment; review the run and approve it.
@@ -150,11 +152,9 @@ Before 1.0:
 
 ## Gotchas
 
-- The script commits the bump straight to `main`. If `main` requires pull
-  requests, the maintainer running it needs permission to bypass that rule.
 - The version lives in `src/langchain_sync_monitors/__init__.py`, which hatch
   reads, and in `CITATION.cff`. `uv.lock` does not record it, because the
-  version is dynamic, so `uv lock` normally leaves the lock alone.
+  version is dynamic, so the release pull request leaves the lock alone.
 - PyPI never accepts a file name twice, even after the file is deleted, so a
   version number is spent once any file of it is uploaded. Never move or reuse
   a tag whose files reached PyPI.
@@ -164,10 +164,8 @@ Before 1.0:
   workflow. Create it with your own `gh`, as the script does.
 - A Release published from the GitHub web page also starts the workflow, and
   passes the workflow's checks, the `pypi` environment check included. It skips
-  everything `scripts/release.sh` does on your machine: the gates on the bumped
-  tree, the build and twine check, and the version bump itself, so the
-  workflow's version checks refuse it unless the tag's commit already carries
-  `X.Y.Z`.
+  what `scripts/release.sh` does on your machine: the gates, the build and the
+  twine check.
 - A Release marked as a pre-release is refused, because its `vX.Y.Z` would go to
   PyPI as a final version. Unticking the mark afterwards fires `released`, not
   `published`, so it starts nothing: delete the Release with
@@ -200,13 +198,9 @@ Before 1.0:
 
 - **The script refuses in its preflight**: nothing changed. Fix what it names
   and run it again.
-- **The script fails before the commit** (a check, a gate, the build or twine):
-  it restores `__init__.py`, `CITATION.cff` and `uv.lock`. Fix the cause in a
-  pull request, then run it again.
-- **The script fails at the commit itself**, for example because a pre-commit
-  hook or commit signing fails: it restores the three files from `HEAD`, which
-  also unstages them. Fix the cause and run it again.
-- **The script fails after the commit** (a rejected push, or `gh`): see
+- **The script fails before it tags** (a check, a gate, the build or twine):
+  nothing changed. Fix the cause in a pull request, then run it again.
+- **The script fails after it tags** (a rejected push, or `gh`): see
   "Finish a half-done release".
 - **The workflow's first job finds no reviewer on `pypi`**: nothing ran after
   it. Fix the environment, then re-run the workflow.
@@ -214,9 +208,8 @@ Before 1.0:
   build or the install check): nothing is on PyPI. Delete the Release and the
   tag with `gh release delete vX.Y.Z --cleanup-tag --yes` and
   `git tag -d vX.Y.Z`, fix the cause in a pull request, and run the script
-  again once it merges, before anything else does. `main` already carries
-  `X.Y.Z`, so the script checks and tags the new `HEAD` without a second
-  release commit.
+  again once it merges, before anything else does. `main` still carries
+  `X.Y.Z`, so the script checks and tags the new `HEAD`.
 - **The publish job fails** (a PyPI outage, or a publisher setting): fix the
   setting, then re-run only the failed jobs with `gh run rerun <run-id> --failed`,
   so the files published are the ones the checks passed on.
@@ -231,15 +224,13 @@ Before 1.0:
 
 ## Finish a half-done release
 
-The script cannot resume once it has committed: a second run refuses, because
+The script cannot resume once it has tagged: a second run refuses, because
 the tag exists. Finish by hand, from the step that failed.
 
-- **The push of `main` was rejected**, for example because `main` moved or is
-  protected: the commit and the tag exist only on your machine. Drop them with
-  `git tag -d vX.Y.Z` and `git reset --hard origin/main`, resolve the cause, and
-  run the script again.
-- **`main` was pushed but the tag was not**: `git push origin vX.Y.Z`, then
-  continue with the next case.
+- **The push of the tag failed**: check whether origin has it, with
+  `git ls-remote --tags origin refs/tags/vX.Y.Z`. If not, drop the local tag
+  with `git tag -d vX.Y.Z`, resolve the cause, and run the script again. If it
+  does, continue with the next case.
 - **The tag was pushed but no GitHub Release exists**: create it with the
   CHANGELOG section as its notes:
 

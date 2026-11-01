@@ -909,9 +909,9 @@ docs = [
 requires-dist = [
     { name = "deepagents", marker = "extra == 'deepagents'", specifier = ">=0.7.13" },
     { name = "httpx", specifier = ">=0.27" },
-    { name = "hyoshigi", specifier = ">=0.7.0" },
-    { name = "hyoshigi", extras = ["langfuse"], marker = "extra == 'langfuse'", specifier = ">=0.7.0" },
-    { name = "hyoshigi", extras = ["typesafe"], marker = "extra == 'typesafe'", specifier = ">=0.7.0" },
+    { name = "hyoshigi", specifier = ">=0.7.0,<0.8" },
+    { name = "hyoshigi", extras = ["langfuse"], marker = "extra == 'langfuse'", specifier = ">=0.7.0,<0.8" },
+    { name = "hyoshigi", extras = ["typesafe"], marker = "extra == 'typesafe'", specifier = ">=0.7.0,<0.8" },
     { name = "langchain", specifier = ">=1.4" },
     { name = "langchain-core", specifier = ">=1.6" },
     { name = "langchain-openrouter", marker = "extra == 'openrouter'", specifier = ">=0.2.1" },

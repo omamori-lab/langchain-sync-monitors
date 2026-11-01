@@ -18,10 +18,12 @@ change raises the minor version.
 
 ### Changed
 
-- **Breaking:** langchain-sync-monitors depends on `hyoshigi>=0.7.0`. A
-  `Redaction` without `media` removes each media part, and the rating of a
-  step whose parts or tool calls hold media fails closed. Pass
-  `media=lambda part: part` to keep media as it is.
+- **Breaking:** langchain-sync-monitors depends on `hyoshigi>=0.7.0,<0.8`. A
+  hyoshigi minor release can break an integration, so the next one reaches
+  langchain-sync-monitors only through a release of its own. A `Redaction`
+  without `media` removes each media part, and the rating of a step whose
+  parts or tool calls hold media fails closed. Pass `media=lambda part: part`
+  to keep media as it is.
 - **Breaking:** each tool call in a `monitor_log` record's proposal holds
   `media`. An image that is a whole data URL in a tool call's arguments moves
   there, and `"[media n]"` takes its place in `arguments`, as

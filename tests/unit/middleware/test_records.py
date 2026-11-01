@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from typing import Any, get_args
+import json
+from typing import Any, cast, get_args
 
 import pytest
 from hyoshigi import (
@@ -216,6 +217,42 @@ def test_a_record_keeps_a_malformed_tool_call_as_audit_evidence() -> None:
     assert record["samples"][0]["proposal"]["tool_calls"] == [
         {"id": "call_00_abc", "name": "http_post", "arguments": raw_arguments, "media": []},
     ]
+
+
+def test_a_record_keeps_an_image_from_a_tool_call_s_arguments_as_its_media() -> None:
+    # Arrange: base64 of b"png-bytes", a whole data URL in the arguments
+    payload = "cG5nLWJ5dGVz"
+    reply = AIMessage(
+        content="",
+        id="posting",
+        tool_calls=[
+            {
+                "id": "call-image",
+                "name": "post_image",
+                "args": {"image": f"data:image/png;base64,{payload}"},
+                "type": "tool_call",
+            },
+        ],
+    )
+    action = read_proposed_action(reply)
+    run = Run(action=action, proposals=(build_proposal(action, suspicion=0.2),), position=1)
+
+    # Act
+    record = build_step_record(
+        [run],
+        agent="main",
+        monitor="m",
+        step_number=1,
+        delegation_id=None,
+        flag_threshold=None,
+    )
+
+    # Assert
+    [tool_call] = cast("list[dict[str, object]]", record["samples"][0]["proposal"]["tool_calls"])
+    assert (tool_call["arguments"], payload in json.dumps(tool_call["media"])) == (
+        '{"image": "[media 1]"}',
+        True,
+    )
 
 
 def test_records_hold_only_plain_values() -> None:

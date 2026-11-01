@@ -14,6 +14,8 @@ change raises the minor version.
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-11-01
+
 ### Changed
 
 - **Breaking:** langchain-sync-monitors depends on `hyoshigi>=0.7.0`. A
@@ -658,7 +660,8 @@ change raises the minor version.
 - The full list is in
   [Known limits and open paths](https://omamori-lab.github.io/langchain-sync-monitors/explanation/design/#known-limits-and-open-paths).
 
-[Unreleased]: https://github.com/omamori-lab/langchain-sync-monitors/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/omamori-lab/langchain-sync-monitors/compare/v0.4.0...HEAD
+[0.4.0]: https://github.com/omamori-lab/langchain-sync-monitors/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/omamori-lab/langchain-sync-monitors/compare/v0.2.1...v0.3.0
 [0.2.1]: https://github.com/omamori-lab/langchain-sync-monitors/compare/v0.1.5...v0.2.1
 [0.1.5]: https://github.com/omamori-lab/langchain-sync-monitors/compare/v0.1.4...v0.1.5

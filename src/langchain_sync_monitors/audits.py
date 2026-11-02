@@ -313,7 +313,7 @@ def build_answer_schema(request: AuditRequest) -> object:
     edit = Annotated[EditAnswer, AfterValidator(partial(check_edit_length, count=count))]
     members = {"approve": ApproveAnswer, "edit": edit, "reject": RejectAnswer, "stop": StopAnswer}
     union = reduce(operator.or_, (members[answer] for answer in request["answers"]))
-    return Annotated[union, Discriminator("type")]
+    return Annotated[union, Discriminator("type")]  # ty: ignore[invalid-type-form]
 
 
 def read_answer_message(answer: AuditAnswer) -> str | None:
